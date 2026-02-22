@@ -9,9 +9,6 @@
 *.retry
 .ansible/
 
-# Inventory — managed in Semaphore or local file, not version-controlled
-inventory.yaml
-
 # Claude
 .claude/
 
