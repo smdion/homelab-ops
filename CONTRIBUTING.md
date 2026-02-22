@@ -12,7 +12,7 @@ Guidelines for modifying or extending this project.
   or the vault
 - **Hostname source:** Always `inventory_hostname`, never `ansible_fqdn` (avoids unRAID
   capitalization issues)
-- **Timestamps:** Always `UTC_TIMESTAMP()` in SQL, never `NOW()` (MariaDB server is CST)
+- **Timestamps:** Always `UTC_TIMESTAMP()` in SQL, never `NOW()`
 - **DB queries:** Use `community.mysql.mysql_query` with `%s` parameterized queries, not shell
   `mariadb -e`
 
