@@ -96,6 +96,13 @@
         rollback_snapshot: "{{ _snapshot_raw.content | b64decode | from_json }}"
       when: inventory_hostname not in (stack_assignments | default({}))
 
+    - name: Assert rollback snapshot exists
+      ansible.builtin.assert:
+        that: rollback_snapshot is defined and rollback_snapshot.containers | length > 0
+        fail_msg: >
+          No rollback snapshot found. Run Update — Docker Stacks [Containers] first
+          to create a snapshot before attempting rollback.
+
     - name: Show snapshot info
       ansible.builtin.debug:
         msg: "Snapshot from {{ rollback_snapshot.timestamp }} — {{ rollback_snapshot.containers | length }} containers: {{ rollback_snapshot.containers.keys() | join(', ') }}"
