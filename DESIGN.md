@@ -155,7 +155,7 @@ in Phase 1. Phase 3 adds `deploy_stacks.yaml` (Docker stack deployment from Git 
 ├── verify_backups.yaml             # On-demand backup verification — DB backups restored to temp DB; config archives integrity-checked and staged
 ├── restore_databases.yaml          # Database restore from backup dumps — safety-gated; supports single-DB restore on shared instances
 ├── restore_hosts.yaml              # Config/appdata restore — staging (inspect) or inplace; selective app + coordinated cross-host DB restore
-├── rollback_docker.yaml            # Docker container rollback — revert to previous image versions; safety-gated; per-service targeting
+├── rollback_docker.yaml            # Docker container rollback — revert to previous image versions; safety-gated; per-stack or per-service targeting
 ├── update_systems.yaml             # OS, application, and Docker container updates (Proxmox, PiKVM, AMP, Ubuntu, Docker); PVE cluster quorum pre-check; rollback snapshot; unRAID update_container script
 ├── maintain_amp.yaml               # AMP game server maintenance (versions, dumps, prune, journal)
 ├── maintain_semaphore.yaml         # Delete stopped/error + old download tasks from Semaphore DB + prune ansible_logging retention (runs on localhost)
@@ -357,8 +357,9 @@ auth, and configures UFW (default deny + allow SSH). Deploy stacks separately vi
 the snapshot saved by `update_systems.yaml`. Two rollback paths: **fast** (old image still on
 disk — `docker tag` re-tag, no network needed) and **slow** (image pruned by
 `maintain_docker.yaml` — pulls old version tag from registry). Safety-gated with
-`confirm_rollback=yes`. Without it, shows snapshot info and exits (dry-run). Supports single
-service via `-e rollback_service=<name>` or all containers in the snapshot. Docker Compose
+`confirm_rollback=yes`. Without it, shows snapshot info and exits (dry-run). Supports three
+scopes: all containers (default), per-stack via `-e rollback_stack=<name>`, or per-service via
+`-e rollback_service=<name>`. Docker Compose
 hosts (`docker_stacks`) only — for unRAID `docker_run` hosts, see manual rollback guidance
 below. Uses `tasks/log_restore.yaml` with `operation: rollback` (per-service). Discord
 notification uses yellow (16776960) to distinguish from green/red.
@@ -1560,6 +1561,10 @@ DB config file, and `db_host` for cross-host `delegate_to`.
 ```bash
 # Dry run — show snapshot info without rolling back
 ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname>
+
+# Rollback a single stack
+ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> \
+  -e rollback_stack=vpn -e confirm_rollback=yes
 
 # Rollback a single service
 ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> \

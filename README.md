@@ -95,7 +95,7 @@ and go.
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB, count tables/measurements) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm_restore=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
 | `restore_hosts.yaml` | Restore config/appdata — staging or inplace; safety-gated with `confirm_restore=yes` for inplace; selective app + coordinated cross-host DB | `vars/<platform>.yaml` with `app_restore` mapping |
-| `rollback_docker.yaml` | Revert Docker containers to previous images; safety-gated with `confirm_rollback=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
+| `rollback_docker.yaml` | Revert Docker containers to previous images; supports all, per-stack (`rollback_stack`), or per-service (`rollback_service`); safety-gated with `confirm_rollback=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
 | `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy | `vars/docker_stacks.yaml` with `stack_assignments` |
 
 ### Platform-specific playbooks
@@ -373,6 +373,15 @@ ansible-playbook restore_hosts.yaml \
 ansible-playbook rollback_docker.yaml \
   -i inventory.yaml \
   -e hosts_variable=docker_stacks \
+  -e confirm_rollback=yes \
+  --limit myhost \
+  --vault-password-file ~/.vault_pass
+
+# Rollback a single stack
+ansible-playbook rollback_docker.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  -e rollback_stack=vpn \
   -e confirm_rollback=yes \
   --limit myhost \
   --vault-password-file ~/.vault_pass
