@@ -18,6 +18,10 @@
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
 #     --limit <hostname> -e confirm_rollback=yes
 #
+#   # Rollback one stack
+#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
+#     --limit <hostname> -e rollback_stack=vpn -e confirm_rollback=yes
+#
 #   # Rollback one service
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
 #     --limit <hostname> -e rollback_service=jellyseerr -e confirm_rollback=yes
@@ -100,6 +104,11 @@
       ansible.builtin.set_fact:
         _rollback_targets: >-
           {{ [rollback_service] if rollback_service is defined
+             else (rollback_snapshot.containers.keys() | list
+                   | select('in', (_service_stack_map | default({}) | dict2items
+                                   | selectattr('value', 'eq', rollback_stack)
+                                   | map(attribute='key') | list))
+                   | list) if rollback_stack is defined
              else rollback_snapshot.containers.keys() | list }}
 
     - name: Assert requested service exists in snapshot
@@ -136,7 +145,8 @@
 
         - name: Build image availability map
           ansible.builtin.set_fact:
-            _image_local: "{{ dict(_rollback_targets | zip(_image_check.results | map(attribute='rc') | map('int') | map('eq', 0))) }}"
+            _image_local: "{{ _image_local | default({}) | combine({item.item: (item.rc == 0)}) }}"
+          loop: "{{ _image_check.results }}"
 
         - name: Show rollback plan
           ansible.builtin.debug:
