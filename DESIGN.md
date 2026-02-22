@@ -376,8 +376,8 @@ and `add_ansible_user.yaml`).
   replacing `+00:00` suffix with `Z` before comparison, ensuring consistent lexicographic ordering
   regardless of Semaphore's timezone format.
 - **Security:** The Semaphore API URI task has `no_log: true` to prevent the API token from
-  appearing in registered variables or verbose output. The `api_token` alias was removed —
-  `semaphore_api_token` is referenced directly from the vault.
+  appearing in registered variables or verbose output. The vault variable `semaphore_api_token`
+  is referenced directly — no alias variables that could leak in debug output.
 - `smart_health`: auto-installs `smartmontools` via apt on ubuntu/pve/pbs hosts before scanning.
   unRAID includes `smartctl` by default. Empty stdout (e.g. sudo unavailable) is treated as
   `not checked` / status `ok` rather than a false positive.
@@ -1609,17 +1609,17 @@ Key panel features:
 
 ### Credential protection
 
-- **mysqldump password** (`backup_databases.yaml`): Uses `MYSQL_PWD` environment variable via
-  `docker exec -e` instead of `--password=` on the command line. The env var approach avoids
-  exposing the password in `/proc/<pid>/cmdline` (visible to `ps aux` on the host). The task
-  also has `no_log: true` to prevent Ansible from logging the command.
-- **Semaphore API token** (`maintain_health.yaml`): The URI task that calls the Semaphore API has
-  `no_log: true`. The registered variable `tasks_response` contains the full HTTP response
-  including the `Authorization: Bearer <token>` header — without `no_log`, this would appear in
-  verbose output. The `api_token` alias variable was removed; `semaphore_api_token` is referenced
-  directly from the vault.
-- **SSH public key** (`add_ansible_user.yaml`): The key was moved from a hardcoded string to a
-  vault variable (`ansible_user_ssh_pubkey`). The Ubuntu play uses `ansible.builtin.authorized_key`
+- **`no_log: true` policy**: Every task that handles credentials — database passwords, API tokens,
+  SSH keys, HTTP Bearer tokens, or webhook secrets — uses `no_log: true` to prevent exposure in
+  Ansible logs and verbose output. This covers `docker exec -e` commands with `MYSQL_PWD`,
+  `ansible.builtin.uri` calls with Bearer/API-key headers, `community.mysql.mysql_query` tasks
+  with `login_password`, and Discord webhook notifications. Registered variables from these tasks
+  (e.g., full HTTP responses containing `Authorization` headers) are also suppressed.
+- **mysqldump password**: Uses `MYSQL_PWD` environment variable via `docker exec -e` instead of
+  `--password=` on the command line. The env var approach avoids exposing the password in
+  `/proc/<pid>/cmdline` (visible to `ps aux` on the host).
+- **SSH public key** (`add_ansible_user.yaml`): The key is stored in a vault variable
+  (`ansible_user_ssh_pubkey`), not hardcoded in the playbook. The Ubuntu play uses `ansible.builtin.authorized_key`
   module which automatically manages `.ssh` directory permissions (0700) and `authorized_keys` file
   permissions (0600). The unRAID play uses `copy: content:` to write the key to boot config, since
   it persists through reboots via `/boot/config/`. The unRAID play also creates the
@@ -1633,13 +1633,13 @@ Key panel features:
 
 ### File permissions
 
-- **Backup source directory** (`backup_offline.yaml`): Changed from `mode: '777'` (world-writable)
-  to `mode: '0750'` (owner rwx, group rx, other none).
+- **Backup source directory** (`backup_offline.yaml`): Uses `mode: '0750'` (owner rwx, group rx,
+  other none) — never world-writable.
 - **UNVR temp backup file** (`backup_hosts.yaml`): The downloaded `.unf` file gets `mode: "0600"`
   and is cleaned up in the `always:` block after backup completes.
-- **ansible_remote_tmp** (`group_vars/all.yaml`): Changed from `/tmp` (world-readable) to
-  `~/.ansible/tmp` (user-private). Ansible creates temporary module files in this directory during
-  execution — using `/tmp` could leak module arguments to other users on multi-user systems.
+- **ansible_remote_tmp** (`group_vars/all.yaml`): Set to `~/.ansible/tmp` (user-private) instead
+  of the default `/tmp`. Ansible creates temporary module files in this directory during execution
+  — using `/tmp` could leak module arguments to other users on multi-user systems.
 - **Awk variable injection** (`maintain_health.yaml`): Disk usage threshold is passed via `awk -v`
   flag (variable name `warn_pct`) instead of Jinja2 interpolation inside the awk script body.
   Prevents shell injection if the threshold variable contained special characters. The variable
@@ -1654,8 +1654,6 @@ Key panel features:
 - **Pre-restore safety backup** (`restore_databases.yaml`): Before restoring a database, the current
   state is dumped to `<backup_tmp_dir>/pre_restore_<db>_<date>.sql` as a safety net. Controlled by
   `pre_backup` (defaults to `yes`).
-- **`no_log: true` on all DB restore tasks**: All restore/verify tasks that execute `docker exec`
-  with database credentials have `no_log: true` to prevent password exposure in logs.
 
 ### Backup integrity verification
 
@@ -1666,30 +1664,3 @@ Key panel features:
   (loops over `db_names`).
 - **MariaDB dumps** (`backup_databases.yaml`): `gzip -t` validates each gzipped dump
   (matching PostgreSQL pattern; loops over `db_names`).
-
-### Synology shutdown verification
-
-`backup_offline.yaml` verifies the Synology NAS has shut down after the HA API button press.
-A ping loop (`retries: 12, delay: 10`) waits up to 2 minutes for the NAS to stop responding.
-The result is logged via `debug` — a warning indicates the NAS may still be running.
-
-### Docker HTTP endpoint configuration
-
-To enable Docker container HTTP health checks (CHECK 20), define `docker_health_endpoints` in
-host_vars or inventory for each Docker host:
-
-```yaml
-docker_health_endpoints:
-  - name: "Nextcloud"
-    url: "http://localhost:8080"
-    status_code: 200
-  - name: "Grafana"
-    url: "http://localhost:3000/api/health"
-    status_code: 200
-  - name: "Portainer"
-    url: "https://localhost:9443"
-    status_code: 200
-    validate_certs: false
-```
-
-Hosts without this variable defined will skip the Docker HTTP check entirely.
