@@ -58,7 +58,7 @@
         - name: Copy backup files to target host
           ansible.builtin.copy:
             src: "{{ _db_backup_files.results[idx].stdout }}"
-            dest: "/tmp/verify_{{ item }}.sql"
+            dest: "{{ backup_tmp_dir }}/verify_{{ item }}.sql"
           loop: "{{ db_names }}"
           loop_control:
             index_var: idx
@@ -70,10 +70,10 @@
           ansible.builtin.shell: |
             {% if is_postgres | default(false) | bool %}
             docker exec {{ container_name }} psql -U {{ db_username }} -c 'CREATE DATABASE "_restore_test_{{ item }}";' postgres
-            gunzip -cf /tmp/verify_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} "_restore_test_{{ item }}"
+            gunzip -cf {{ backup_tmp_dir }}/verify_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} "_restore_test_{{ item }}"
             {% elif is_mariadb | default(false) | bool %}
             docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "CREATE DATABASE \`_restore_test_{{ item }}\`;"
-            gunzip -cf /tmp/verify_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} _restore_test_{{ item }}
+            gunzip -cf {{ backup_tmp_dir }}/verify_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} _restore_test_{{ item }}
             {% endif %}
           environment:
             DB_PASSWORD: "{{ db_password }}"
@@ -123,7 +123,7 @@
 
         - name: Clean up temp backup files on target
           ansible.builtin.file:
-            path: "/tmp/verify_{{ item }}.sql"
+            path: "{{ backup_tmp_dir }}/verify_{{ item }}.sql"
             state: absent
           loop: "{{ db_names }}"
           become: true

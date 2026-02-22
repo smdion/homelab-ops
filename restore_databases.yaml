@@ -42,7 +42,7 @@
     - name: Assert sufficient disk space on target
       include_tasks: tasks/assert_disk_space.yaml
       vars:
-        assert_disk_path: "/tmp"
+        assert_disk_path: "{{ backup_tmp_dir }}"
         assert_disk_min_gb: 2
 
     - name: Assert MariaDB logging database is reachable
@@ -80,9 +80,9 @@
         - name: Create pre-restore safety backup
           ansible.builtin.shell: |
             {% if is_postgres | default(false) | bool %}
-            docker exec {{ container_name }} pg_dump {{ item }} --clean --if-exists --username={{ db_username }} | gzip > /tmp/pre_restore_{{ item }}_{{ ansible_date_time.date }}.sql
+            docker exec {{ container_name }} pg_dump {{ item }} --clean --if-exists --username={{ db_username }} | gzip > {{ backup_tmp_dir }}/pre_restore_{{ item }}_{{ ansible_date_time.date }}.sql
             {% elif is_mariadb | default(false) | bool %}
-            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysqldump --user {{ db_username }} {{ item }} | gzip > /tmp/pre_restore_{{ item }}_{{ ansible_date_time.date }}.sql
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysqldump --user {{ db_username }} {{ item }} | gzip > {{ backup_tmp_dir }}/pre_restore_{{ item }}_{{ ansible_date_time.date }}.sql
             {% endif %}
           environment:
             DB_PASSWORD: "{{ db_password }}"
@@ -97,7 +97,7 @@
         - name: Copy backup files to target host
           ansible.builtin.copy:
             src: "{{ _backup_files.results[idx].stdout }}"
-            dest: "/tmp/restore_{{ item }}.sql"
+            dest: "{{ backup_tmp_dir }}/restore_{{ item }}.sql"
           loop: "{{ _restore_db_list }}"
           loop_control:
             index_var: idx
@@ -119,9 +119,9 @@
         - name: Restore databases
           ansible.builtin.shell: |
             {% if is_postgres | default(false) | bool %}
-            gunzip -cf /tmp/restore_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} {{ item }}
+            gunzip -cf {{ backup_tmp_dir }}/restore_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} {{ item }}
             {% elif is_mariadb | default(false) | bool %}
-            gunzip -cf /tmp/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} {{ item }}
+            gunzip -cf {{ backup_tmp_dir }}/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} {{ item }}
             {% endif %}
           environment:
             DB_PASSWORD: "{{ db_password }}"
@@ -161,7 +161,7 @@
 
         - name: Clean up temp files on target
           ansible.builtin.file:
-            path: "/tmp/restore_{{ item }}.sql"
+            path: "{{ backup_tmp_dir }}/restore_{{ item }}.sql"
             state: absent
           loop: "{{ _restore_db_list }}"
           become: true

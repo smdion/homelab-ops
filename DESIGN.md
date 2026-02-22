@@ -286,7 +286,7 @@ via `restore_hosts.yaml -e include_databases=yes`. Supports `restore_db` (single
 `restore_date` (specific backup date) parameters.
 
 **`restore_hosts.yaml`** — Config/appdata restore from backup archives. Two modes: `staging` (extract
-to `/tmp/restore_staging/` for inspection) and `inplace` (extract to actual paths, requires
+to `<backup_tmp_dir>/restore_staging/` for inspection) and `inplace` (extract to actual paths, requires
 `confirm_restore=yes`). Supports selective app restore via `-e restore_app=sonarr` (convention-based:
 app name maps to subdirectory under `src_raw_files[0]`). Supports coordinated DB+appdata restore via
 `-e include_databases=yes` — loads DB vars into a `_db_vars` namespace (avoiding collision with
@@ -804,8 +804,8 @@ any work starts. Two shared assertion task files are available:
 **`tasks/assert_disk_space.yaml`** — Checks free space on a filesystem path. Caller passes
 `assert_disk_path` and `assert_disk_min_gb` via `vars:`. Used by `backup_hosts.yaml` (remote
 `backup_tmp_dir` + controller `/backup`), `backup_databases.yaml` (remote `backup_tmp_dir`),
-`update_systems.yaml` (root filesystem `/`), `restore_databases.yaml` (`/tmp`), and
-`restore_hosts.yaml` (`/tmp`).
+`update_systems.yaml` (root filesystem `/`), `restore_databases.yaml` (`backup_tmp_dir`), and
+`restore_hosts.yaml` (`backup_tmp_dir` for staging, `/` for inplace).
 
 **`tasks/assert_db_connectivity.yaml`** — Verifies the MariaDB logging database is reachable
 via `SELECT 1`. Used by all 13 operational playbooks that call `tasks/log_mariadb.yaml` or
@@ -1565,7 +1565,7 @@ Key panel features:
   restore operations require explicit `-e confirm_restore=yes` on the command line. Without it,
   the pre-task assertion fails with a guidance message. Prevents accidental data overwrites.
 - **Pre-restore safety backup** (`restore_databases.yaml`): Before restoring a database, the current
-  state is dumped to `/tmp/pre_restore_<db>_<date>.sql` as a safety net. Controlled by
+  state is dumped to `<backup_tmp_dir>/pre_restore_<db>_<date>.sql` as a safety net. Controlled by
   `pre_backup` (defaults to `yes`).
 - **`no_log: true` on all DB restore tasks**: All restore/verify tasks that execute `docker exec`
   with database credentials have `no_log: true` to prevent password exposure in logs.

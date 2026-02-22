@@ -49,7 +49,7 @@
     - name: Assert sufficient disk space
       include_tasks: tasks/assert_disk_space.yaml
       vars:
-        assert_disk_path: "{{ '/tmp' if restore_mode == 'staging' else '/' }}"
+        assert_disk_path: "{{ backup_tmp_dir if restore_mode == 'staging' else '/' }}"
         assert_disk_min_gb: 2
 
     - name: Assert MariaDB logging database is reachable
@@ -206,7 +206,7 @@
         - name: Copy DB backup files to DB host
           ansible.builtin.copy:
             src: "{{ _db_backup_files.results[idx].stdout }}"
-            dest: "/tmp/restore_{{ item }}.sql"
+            dest: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql"
           loop: "{{ app_restore[restore_app].db_names }}"
           loop_control:
             index_var: idx
@@ -223,9 +223,9 @@
         - name: Restore databases on DB host
           ansible.builtin.shell: |
             {% if _db_vars.is_postgres | default(false) | bool %}
-            gunzip -cf /tmp/restore_{{ item }}.sql | docker exec -i {{ _db_vars.container_name }} psql -U {{ _db_vars.db_username }} {{ item }}
+            gunzip -cf {{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql | docker exec -i {{ _db_vars.container_name }} psql -U {{ _db_vars.db_username }} {{ item }}
             {% elif _db_vars.is_mariadb | default(false) | bool %}
-            gunzip -cf /tmp/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ _db_vars.container_name }} mysql -u {{ _db_vars.db_username }} {{ item }}
+            gunzip -cf {{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ _db_vars.container_name }} mysql -u {{ _db_vars.db_username }} {{ item }}
             {% endif %}
           environment:
             DB_PASSWORD: "{{ db_password }}"
@@ -266,7 +266,7 @@
 
         - name: Clean up DB temp files on DB host
           ansible.builtin.file:
-            path: "/tmp/restore_{{ item }}.sql"
+            path: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql"
             state: absent
           loop: "{{ app_restore[restore_app].db_names }}"
           delegate_to: "{{ app_restore[restore_app].db_host }}"
@@ -282,7 +282,7 @@
         - name: Copy archive to target for staging
           ansible.builtin.copy:
             src: "{{ _archive_file.stdout }}"
-            dest: "/tmp/restore_staging.tar.gz"
+            dest: "{{ backup_tmp_dir }}/restore_staging.tar.gz"
           become: true
           when:
             - restore_mode == 'staging'
@@ -292,7 +292,7 @@
         - name: Create staging directory
           ansible.builtin.file:
             state: directory
-            path: "/tmp/restore_staging"
+            path: "{{ backup_tmp_dir }}/restore_staging"
           become: true
           when:
             - restore_mode == 'staging'
@@ -300,7 +300,7 @@
           tags: [always]
 
         - name: Extract to staging (selective)
-          ansible.builtin.shell: tar xzf /tmp/restore_staging.tar.gz -C /tmp/restore_staging "{{ _extract_path }}"
+          ansible.builtin.shell: tar xzf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging "{{ _extract_path }}"
           become: true
           when:
             - restore_mode == 'staging'
@@ -309,7 +309,7 @@
           tags: [always]
 
         - name: Extract to staging (full)
-          ansible.builtin.shell: tar xzf /tmp/restore_staging.tar.gz -C /tmp/restore_staging
+          ansible.builtin.shell: tar xzf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging
           become: true
           when:
             - restore_mode == 'staging'
@@ -318,7 +318,7 @@
           tags: [always]
 
         - name: List staging contents
-          ansible.builtin.shell: find /tmp/restore_staging -type f | head -50
+          ansible.builtin.shell: find {{ backup_tmp_dir }}/restore_staging -type f | head -50
           register: _staging_contents
           become: true
           changed_when: false
@@ -328,7 +328,7 @@
           tags: [always]
 
         - name: Count staged files
-          ansible.builtin.shell: find /tmp/restore_staging -type f | wc -l
+          ansible.builtin.shell: find {{ backup_tmp_dir }}/restore_staging -type f | wc -l
           register: _staged_count
           become: true
           changed_when: false
@@ -340,7 +340,7 @@
         - name: Display staging contents
           ansible.builtin.debug:
             msg: |
-              Staged {{ _staged_count.stdout }} files to /tmp/restore_staging/
+              Staged {{ _staged_count.stdout }} files to {{ backup_tmp_dir }}/restore_staging/
               First 50 files:
               {{ _staging_contents.stdout }}
           when:
@@ -350,7 +350,7 @@
 
         - name: Set staging detail
           ansible.builtin.set_fact:
-            _restore_detail: "{{ _staged_count.stdout | default('0') }} files staged to /tmp/restore_staging/"
+            _restore_detail: "{{ _staged_count.stdout | default('0') }} files staged to {{ backup_tmp_dir }}/restore_staging/"
           when:
             - restore_mode == 'staging'
             - not ansible_check_mode
@@ -360,7 +360,7 @@
         - name: Copy archive to target for inplace restore
           ansible.builtin.copy:
             src: "{{ _archive_file.stdout }}"
-            dest: "/tmp/restore_inplace.tar.gz"
+            dest: "{{ backup_tmp_dir }}/restore_inplace.tar.gz"
           become: true
           when:
             - restore_mode == 'inplace'
@@ -368,7 +368,7 @@
           tags: [always]
 
         - name: Extract inplace (selective)
-          ansible.builtin.shell: tar xzf /tmp/restore_inplace.tar.gz -C / "{{ _extract_path }}"
+          ansible.builtin.shell: tar xzf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C / "{{ _extract_path }}"
           become: true
           when:
             - restore_mode == 'inplace'
@@ -377,7 +377,7 @@
           tags: [always]
 
         - name: Extract inplace (full)
-          ansible.builtin.shell: tar xzf /tmp/restore_inplace.tar.gz -C /
+          ansible.builtin.shell: tar xzf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C /
           become: true
           when:
             - restore_mode == 'inplace'
@@ -435,7 +435,7 @@
         # ===== CLEANUP =====
         - name: Clean up temp archive
           ansible.builtin.file:
-            path: "/tmp/restore_{{ restore_mode }}.tar.gz"
+            path: "{{ backup_tmp_dir }}/restore_{{ restore_mode }}.tar.gz"
             state: absent
           become: true
           tags: [always]
