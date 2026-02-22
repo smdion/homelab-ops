@@ -493,22 +493,23 @@ They are not Ansible variables and are not in `vars/` files.
 
 ### Template naming convention
 
-Semaphore template (task) names follow `Verb — Target` with `[Subtype]` appended for backups
-where multiple backup types exist for the same target:
+Semaphore template (task) names follow `Verb — Target [Subtype]`:
 
 | Pattern | Example |
 |---|---|
+| `Add — {Target} [{Subtype}]` | `Add — Ansible User [SSH]` |
 | `Backup — {Target} [{Subtype}]` | `Backup — Proxmox [Config]`, `Backup — unRAID [Offline]` |
 | `Backup — Database [{Role} {Engine}]` | `Backup — Database [Primary PostgreSQL]`, `Backup — Database [Secondary PostgreSQL]` |
-| `Update — {Target}` | `Update — Proxmox`, `Update — Ubuntu`, `Update — Docker Stacks`, `Update — Docker Run` |
-| `Maintain — {Target}` | `Maintain — AMP`, `Maintain — Cache`, `Maintain — Docker`, `Maintain — Health` |
-| `Download — {Target} [{Subtype}]` | `Download — Videos`, `Download — Videos [On Demand]` |
-| `Verify — {Target} [{Subtype}]` | `Verify — Database [Primary PostgreSQL]`, `Verify — Proxmox [Config]` |
+| `Deploy — {Target} [{Subtype}]` | `Deploy — Grafana [Dashboard]` |
+| `Download — {Target} [{Subtype}]` | `Download — Videos [Channels]`, `Download — Videos [On Demand]` |
+| `Maintain — {Target} [{Subtype}]` | `Maintain — AMP [Cleanup]`, `Maintain — Cache [Flush]`, `Maintain — Docker [Cleanup]`, `Maintain — Health [Check]` |
 | `Restore — {Target} [{Subtype}]` | `Restore — Database [Primary PostgreSQL]`, `Restore — Docker Run [Appdata]` |
 | `Rollback — {Target} [{Subtype}]` | `Rollback — Docker [Containers]` |
+| `Update — {Target} [{Subtype}]` | `Update — Proxmox [Appliance]`, `Update — Ubuntu [OS]`, `Update — Docker Stacks [Containers]` |
+| `Verify — {Target} [{Subtype}]` | `Verify — Database [Primary PostgreSQL]`, `Verify — Proxmox [Config]` |
 
 The `[Subtype]` suffix makes templates instantly distinguishable when a target has more than one
-variant (e.g., `Backup — unRAID [Config]` vs `Backup — unRAID [Offline]`, or `Download — Videos`
+variant (e.g., `Backup — unRAID [Config]` vs `Backup — unRAID [Offline]`, or `Download — Videos [Channels]`
 vs `Download — Videos [On Demand]`). Database templates use `Database` as the target so all DB
 operations cluster together alphabetically, with `[Role Engine]` (e.g., `[Primary PostgreSQL]`,
 `[Secondary PostgreSQL]`) as the subtype.
