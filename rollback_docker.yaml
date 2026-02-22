@@ -78,7 +78,7 @@
                  (item.content | b64decode | from_json).containers.keys() | list
                  | zip(
                    (item.content | b64decode | from_json).containers.keys()
-                   | map('regex_replace', '.*', item.item) | list
+                   | map('regex_replace', '.+', item.item) | list
                  ))) }}
       loop: "{{ _snapshot_stacks_raw.results | default([]) | selectattr('content', 'defined') | list }}"
       when: inventory_hostname in (stack_assignments | default({}))
