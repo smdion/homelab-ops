@@ -387,6 +387,8 @@
                 value: "{{ backup_description }}"
               - name: "Host"
                 value: "{{ inventory_hostname }}"
+              - name: "Stacks"
+                value: "{{ stack_assignments[inventory_hostname] | default(['legacy']) | join(', ') }}"
               - name: "Backup Name"
                 value: "{{ backup_file }}"
               - name: "Backup Size"

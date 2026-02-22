@@ -1,8 +1,8 @@
 # Ansible Home Lab Automation
 
-Ansible playbooks for home lab backup, verification, restore, health monitoring, updates, and
-maintenance — orchestrated via [Semaphore](https://semaphoreui.com/), logged to MariaDB, and
-visualized in Grafana.
+Ansible playbooks for home lab backup, verification, restore, health monitoring, updates,
+maintenance, deployment, and provisioning — orchestrated via
+[Semaphore](https://semaphoreui.com/), logged to MariaDB, and visualized in Grafana.
 
 > **Note:** This project was built for my own home lab. I've made it as portable as possible —
 > deployment-specific values live in vault-encrypted vars files, and playbooks are
@@ -28,7 +28,8 @@ visibility.
 | **Health** | 26 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord alerts and anomaly detection |
 | **Updates** | OS package and Docker container updates with version tracking, optional delay, and per-container exclusions |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
-| **Deploy** | Grafana dashboard + datasource deployment via API with automatic threshold syncing |
+| **Deploy** | Docker stacks from Git — templates `.env` from vault, copies compose files, validates, and starts stacks in dependency order; Grafana dashboard + datasource via API with automatic threshold syncing |
+| **Build** | Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH hardening, UFW firewall; create or destroy |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
 version status per host, stale detection, health trends, and maintenance logs across 21 panels.
@@ -95,6 +96,7 @@ and go.
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm_restore=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
 | `restore_hosts.yaml` | Restore config/appdata — staging or inplace; safety-gated with `confirm_restore=yes` for inplace; selective app + coordinated cross-host DB | `vars/<platform>.yaml` with `app_restore` mapping |
 | `rollback_docker.yaml` | Revert Docker containers to previous images; safety-gated with `confirm_rollback=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
+| `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy | `vars/docker_stacks.yaml` with `stack_assignments` |
 
 ### Platform-specific playbooks
 
@@ -108,6 +110,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | WOL, rsync, shutdown verification |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `add_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
+| `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create and destroy |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
 ### Health checks by platform
@@ -165,6 +168,9 @@ for platforms you don't have are automatically skipped.
 │   ├── grafana.png             # Grafana dashboard screenshot
 │   ├── semaphore.png           # Semaphore Task Templates screenshot
 │   └── alert_*.svg             # Discord notification mockups for README
+├── stacks/                      # Docker stack definitions — one subdirectory per functional group
+│   ├── <stack>/docker-compose.yaml  # Plain YAML compose file, committed to Git
+│   └── <stack>/env.j2               # Jinja2 template rendered to .env at deploy time from vault
 ├── templates/
 │   └── metube.conf.j2           # yt-dlp config template (download_videos only)
 ├── backup_*.yaml                # Backup playbooks
@@ -175,6 +181,8 @@ for platforms you don't have are automatically skipped.
 ├── update_*.yaml                # Update playbook (saves rollback snapshot before Docker updates)
 ├── maintain_*.yaml              # Maintenance + health playbooks
 ├── download_videos.yaml         # MeTube/yt-dlp automation
+├── deploy_stacks.yaml           # Docker stack deploy from Git — .env templating, compose copy, validate, start
+├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
 ├── add_ansible_user.yaml        # One-time user setup utility
 ├── requirements.yaml            # Ansible Galaxy collection dependencies
@@ -376,6 +384,34 @@ ansible-playbook rollback_docker.yaml \
   -e rollback_service=jellyseerr \
   -e confirm_rollback=yes \
   --limit myhost \
+  --vault-password-file ~/.vault_pass
+
+# Deploy all assigned Docker stacks to a host
+ansible-playbook deploy_stacks.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  --limit myhost \
+  --vault-password-file ~/.vault_pass
+
+# Deploy a single stack
+ansible-playbook deploy_stacks.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  -e deploy_stack=infra \
+  --limit myhost \
+  --vault-password-file ~/.vault_pass
+
+# Provision a new Ubuntu VM on Proxmox
+ansible-playbook build_ubuntu.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  --vault-password-file ~/.vault_pass
+
+# Destroy a VM
+ansible-playbook build_ubuntu.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e vm_state=absent \
   --vault-password-file ~/.vault_pass
 
 # Dry-run any playbook (no changes, no notifications, no DB writes)
