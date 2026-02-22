@@ -192,6 +192,7 @@ in Phase 1. Phase 3 adds `deploy_stacks.yaml` (Docker stack deployment from Git 
 │   #   docker-compose.yaml         — plain YAML, committed to Git
 │   #   env.j2                      — Jinja2 template, rendered to .env at deploy time from vault
 │
+├── requirements.txt                # Python pip dependencies (PyMySQL, proxmoxer, requests)
 ├── requirements.yaml               # Ansible Galaxy collection dependencies (community.docker, community.general, community.mysql)
 ├── CONTRIBUTING.md                 # Contribution guide: code style, testing, PR expectations
 ```
@@ -467,6 +468,17 @@ and `add_ansible_user.yaml`).
 ---
 
 ## Semaphore Setup
+
+### Python Dependencies
+
+Semaphore's Ansible venv needs the Python packages from `requirements.txt`. On unRAID, these are
+installed via the container's post-argument (Docker UI → Post Arguments):
+
+```
+/bin/sh -c "pip install PyMySQL proxmoxer requests && /usr/local/bin/semaphore server --config /etc/semaphore/config.json"
+```
+
+This runs on every container start, so packages persist across restarts and recreates.
 
 ### Inventories
 

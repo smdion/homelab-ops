@@ -1,0 +1,9 @@
+# Python dependencies for Ansible modules.
+# Install with: pip install -r requirements.txt
+#
+# These are needed IN ADDITION TO the Ansible Galaxy collections
+# in requirements.yaml.
+
+# Required by community.general.proxmox_kvm (build_ubuntu.yaml)
+proxmoxer>=2.0.0
+requests>=2.20.0

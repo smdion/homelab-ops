@@ -39,7 +39,7 @@ version status per host, stale detection, health trends, and maintenance logs ac
 | Component | Version | Purpose | Required? |
 |---|---|---|---|
 | **Ansible** | >= 2.14 | Automation engine | Yes |
-| **Python** | >= 3.9 + PyMySQL | On controller (for `community.mysql`) | Yes |
+| **Python** | >= 3.9 + [requirements.txt](requirements.txt) | On controller (PyMySQL, proxmoxer) | Yes |
 | **MariaDB** | >= 10.5 | Logging database (`ansible_logging`) | Yes |
 | **Semaphore** | any | Scheduling UI, credential management | No — [CLI works too](#running-without-semaphore) |
 | **Grafana** | any | Dashboard (MySQL datasource) | No — data is in MariaDB regardless |
@@ -53,6 +53,7 @@ The fastest path to "does this work for me?" — one host, one playbook:
 ```bash
 # 1. Clone and install dependencies
 git clone <this-repo> && cd homelab-ops
+pip install -r requirements.txt
 ansible-galaxy collection install -r requirements.yaml
 
 # 2. Set up vault
@@ -185,6 +186,7 @@ for platforms you don't have are automatically skipped.
 ├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
 ├── add_ansible_user.yaml        # One-time user setup utility
+├── requirements.txt             # Python pip dependencies (PyMySQL, proxmoxer)
 ├── requirements.yaml            # Ansible Galaxy collection dependencies
 ├── inventory.example.yaml       # Example inventory with expected group structure
 ├── DESIGN.md                    # Full architecture, patterns, and design decisions
