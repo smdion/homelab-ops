@@ -156,7 +156,9 @@ for platforms you don't have are automatically skipped.
 ├── grafana/
 │   └── grafana.json             # Grafana dashboard (import via UI)
 ├── files/
-│   └── get_push_epoch.sh       # Helper script for Docker image age checks
+│   ├── get_push_epoch.sh       # Helper script for Docker image age checks
+│   ├── grafana.png             # Grafana dashboard screenshot
+│   └── alert_*.svg             # Discord notification mockups for README
 ├── templates/
 │   └── metube.conf.j2           # yt-dlp config template (download_videos only)
 ├── backup_*.yaml                # Backup playbooks
@@ -308,6 +310,21 @@ playbooks.
 
 To enable: create a webhook in your Discord server (Server Settings > Integrations > Webhooks),
 extract the ID and token from the URL, and add them to your vault.
+
+<details>
+<summary>Notification examples</summary>
+<br>
+<table>
+<tr>
+<td><img src="files/alert_backup_success.svg?v=2" alt="Backup successful notification" width="390"></td>
+<td><img src="files/alert_verify_success.svg?v=2" alt="Verification successful notification" width="390"></td>
+</tr>
+<tr>
+<td><img src="files/alert_backup_failure.svg?v=2" alt="Backup failed notification" width="390"></td>
+<td><img src="files/alert_update_success.svg?v=2" alt="Containers updated notification" width="390"></td>
+</tr>
+</table>
+</details>
 
 ## Adding a new platform
 

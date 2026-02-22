@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240" viewBox="0 0 400 240">
+  <rect width="400" height="240" rx="12" fill="#2f3136"/>
+  <rect x="16" y="14" width="26" height="26" rx="6" fill="#40444b"/>
+  <text x="29" y="32" fill="#8e9297" font-size="14" font-weight="bold" font-family="Arial, Helvetica, sans-serif" text-anchor="middle">S</text>
+  <text x="50" y="32" fill="#f2f3f5" font-size="14" font-weight="bold" font-family="Arial, Helvetica, sans-serif">docker-02.home.local</text>
+  <circle cx="374" cy="27" r="14" fill="#3ba55d"/>
+  <circle cx="374" cy="21" r="2" fill="white"/>
+  <rect x="372" y="25" width="4" height="10" rx="1" fill="white"/>
+  <text x="16" y="60" fill="#5ca5f7" font-size="15" font-weight="bold" font-family="Arial, Helvetica, sans-serif">Docker</text>
+  <text x="16" y="80" fill="#dcddde" font-size="14" font-family="Arial, Helvetica, sans-serif">Containers Updated</text>
+  <text x="16" y="108" fill="#ffffff" font-size="13" font-weight="bold" font-family="Arial, Helvetica, sans-serif">Description</text>
+  <text x="16" y="124" fill="#b5bac1" font-size="13" font-family="Arial, Helvetica, sans-serif">Automatic Docker Updates</text>
+  <text x="16" y="146" fill="#ffffff" font-size="13" font-weight="bold" font-family="Arial, Helvetica, sans-serif">Host</text>
+  <text x="16" y="162" fill="#b5bac1" font-size="13" font-family="Arial, Helvetica, sans-serif">docker-02.home.local</text>
+  <text x="16" y="184" fill="#ffffff" font-size="13" font-weight="bold" font-family="Arial, Helvetica, sans-serif">Updated</text>
+  <text x="16" y="200" fill="#b5bac1" font-size="13" font-family="Arial, Helvetica, sans-serif">authentik, sonarr, prowlarr, jellyfin</text>
+  <text x="16" y="226" fill="#5ca5f7" font-size="12" font-family="Arial, Helvetica, sans-serif">Today at 4:30 AM</text>
+</svg>
