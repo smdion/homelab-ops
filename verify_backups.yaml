@@ -179,7 +179,7 @@
         - name: Create staging directory on controller
           ansible.builtin.file:
             state: directory
-            path: "/tmp/verify_staging_{{ inventory_hostname }}"
+            path: "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
           delegate_to: localhost
           become: false
           when:
@@ -188,7 +188,7 @@
           tags: [always]
 
         - name: Extract backup to staging directory
-          ansible.builtin.shell: tar xzf "{{ _config_backup_file.stdout }}" -C "/tmp/verify_staging_{{ inventory_hostname }}"
+          ansible.builtin.shell: tar xzf "{{ _config_backup_file.stdout }}" -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
           delegate_to: localhost
           become: false
           when:
@@ -197,7 +197,7 @@
           tags: [always]
 
         - name: Count extracted files
-          ansible.builtin.shell: find "/tmp/verify_staging_{{ inventory_hostname }}" -type f | wc -l
+          ansible.builtin.shell: find "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}" -type f | wc -l
           register: _extracted_count
           delegate_to: localhost
           become: false
@@ -209,7 +209,7 @@
 
         - name: Clean up staging directory
           ansible.builtin.file:
-            path: "/tmp/verify_staging_{{ inventory_hostname }}"
+            path: "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
             state: absent
           delegate_to: localhost
           become: false
@@ -255,7 +255,7 @@
 
         - name: Clean up staging directory on failure
           ansible.builtin.file:
-            path: "/tmp/verify_staging_{{ inventory_hostname }}"
+            path: "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
             state: absent
           delegate_to: localhost
           become: false

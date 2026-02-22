@@ -147,7 +147,6 @@
             - not ansible_check_mode
           failed_when: false
           changed_when: false
-          check_mode: false
           tags: [docker]
 
         - name: Stop all Docker containers for full restore (unRAID)
@@ -224,9 +223,9 @@
         - name: Restore databases on DB host
           ansible.builtin.shell: |
             {% if _db_vars.is_postgres | default(false) | bool %}
-            gunzip -c /tmp/restore_{{ item }}.sql | docker exec -i {{ _db_vars.container_name }} psql -U {{ _db_vars.db_username }} {{ item }}
+            gunzip -cf /tmp/restore_{{ item }}.sql | docker exec -i {{ _db_vars.container_name }} psql -U {{ _db_vars.db_username }} {{ item }}
             {% elif _db_vars.is_mariadb | default(false) | bool %}
-            gunzip -c /tmp/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ _db_vars.container_name }} mysql -u {{ _db_vars.db_username }} {{ item }}
+            gunzip -cf /tmp/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ _db_vars.container_name }} mysql -u {{ _db_vars.db_username }} {{ item }}
             {% endif %}
           environment:
             DB_PASSWORD: "{{ db_password }}"
