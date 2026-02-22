@@ -286,6 +286,13 @@ ansible-playbook backup_hosts.yaml \
   -e config_file=docker_stacks \
   --vault-password-file ~/.vault_pass
 
+# Backup Postgres databases from Docker containers
+ansible-playbook backup_databases.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=db_primary_postgres \
+  -e config_file=db_primary_postgres \
+  --vault-password-file ~/.vault_pass
+
 # Update Ubuntu hosts
 ansible-playbook update_systems.yaml \
   -i inventory.yaml \
@@ -312,6 +319,53 @@ ansible-playbook restore_databases.yaml \
   -e config_file=db_primary_mariadb \
   -e confirm_restore=yes \
   -e restore_db=nextcloud \
+  --vault-password-file ~/.vault_pass
+
+# Stage a full backup for inspection (default safe mode — no changes to running services)
+ansible-playbook restore_hosts.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  --limit myhost \
+  --vault-password-file ~/.vault_pass
+
+# In-place restore of one app's appdata (safety-gated, stops/starts container)
+ansible-playbook restore_hosts.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  -e restore_app=sonarr \
+  -e restore_mode=inplace \
+  -e confirm_restore=yes \
+  -e manage_docker=yes \
+  --limit myhost \
+  --vault-password-file ~/.vault_pass
+
+# Coordinated restore — appdata + databases together (cross-host via delegate_to)
+ansible-playbook restore_hosts.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  -e restore_app=sonarr \
+  -e include_databases=yes \
+  -e restore_mode=inplace \
+  -e confirm_restore=yes \
+  -e manage_docker=yes \
+  --limit myhost \
+  --vault-password-file ~/.vault_pass
+
+# Rollback all Docker containers to pre-update snapshot (requires confirm_rollback=yes)
+ansible-playbook rollback_docker.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  -e confirm_rollback=yes \
+  --limit myhost \
+  --vault-password-file ~/.vault_pass
+
+# Rollback a single service
+ansible-playbook rollback_docker.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  -e rollback_service=jellyseerr \
+  -e confirm_rollback=yes \
+  --limit myhost \
   --vault-password-file ~/.vault_pass
 
 # Dry-run any playbook (no changes, no notifications, no DB writes)
