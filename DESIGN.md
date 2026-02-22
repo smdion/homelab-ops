@@ -537,13 +537,14 @@ When adding a new template, assign it to the matching view. Views are stored in 
 
 Semaphore stores templates, environments, and vault associations in MariaDB (MySQL syntax —
 use `LIKE` not `ILIKE`, backtick-quoted identifiers). When creating a new template
-programmatically (e.g., for a new download profile), three tables are involved:
+programmatically (e.g., for a new download profile), four tables are involved:
 
 | Table | Purpose |
 |-------|---------|
 | `project__environment` | Variable groups — extra vars passed to the playbook |
-| `project__template` | Template definitions — playbook, inventory, environment, settings |
+| `project__template` | Template definitions — playbook, inventory, environment, view, settings |
 | `project__template_vault` | Links a template to a vault decryption key |
+| `project__view` | UI views (tabs) — templates must reference a `view_id` to appear in filtered views |
 
 Run all three statements together in Adminer — subqueries resolve IDs automatically so no
 manual lookup is needed. Replace the `<placeholders>` with actual values:
@@ -553,15 +554,19 @@ manual lookup is needed. Replace the `<placeholders>` with actual values:
 INSERT INTO project__environment (project_id, name, json, password, env)
 VALUES (1, '<env_name>', '{"var_name": "value"}', '', '{}');
 
--- 2. Create template (subqueries resolve repository_id and environment_id)
+-- 2. Create template (subqueries resolve repository_id, environment_id, and view_id)
+--    IMPORTANT: view_id must be set or the template won't appear in filtered views.
+--    Use the subquery below to resolve view_id by view title (e.g., 'Deploy', 'Backups').
 INSERT INTO project__template
-  (project_id, inventory_id, repository_id, environment_id, playbook, name, type, app,
+  (project_id, inventory_id, repository_id, environment_id, view_id,
+   playbook, name, type, app,
    suppress_success_alerts, arguments, allow_override_args_in_task,
    allow_override_branch_in_task, allow_parallel_tasks, autorun, tasks)
 VALUES
   (1, <inventory_id>,
    (SELECT id FROM project__repository WHERE project_id = 1 AND git_branch = '<branch_name>'),
    (SELECT id FROM project__environment WHERE project_id = 1 AND name = '<env_name>'),
+   (SELECT id FROM project__view WHERE project_id = 1 AND title = '<View Title>'),
    '<path/to/playbook.yaml>', '<Template Name>', '',
    'ansible', 1, '[]', 0, 0, 0, 0, 0);
 
@@ -577,13 +582,17 @@ for the full list. `vault_key_id = 30` is `ansible-vault` — the vault decrypti
 See [Key Store](#key-store). The `git_branch` subquery resolves the repository by branch name —
 use `'main'` for production templates or the feature branch name for testing.
 
+**View titles** match the verb prefix: `Backups`, `Updates`, `Maintenance`, `Downloads`,
+`Verify`, `Restore`, `Deploy`, `Setup`. See [Template views](#template-views) for the full list.
+
 **Verify the result:**
 
 ```sql
 SELECT t.id, t.name, t.playbook, t.inventory_id, t.environment_id,
-       v.vault_key_id
+       t.view_id, vw.title AS view_name, v.vault_key_id
 FROM project__template t
 LEFT JOIN project__template_vault v ON v.template_id = t.id
+LEFT JOIN project__view vw ON t.view_id = vw.id AND t.project_id = vw.project_id
 WHERE t.project_id = 1 AND t.name = '<Template Name>';
 ```
 

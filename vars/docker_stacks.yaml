@@ -49,7 +49,8 @@ app_restore:
 # Empty initially — hosts added as they migrate through Phases A/B/C.
 stack_assignments:
   vps.REDACTED_DOMAIN: [vpn]
-  
+  odyssey.REDACTED_DOMAIN: [infra, media, apps, nfs]
+
 # After full migration, stack_assignments will contain:
 #   tantiveiv.REDACTED_DOMAIN: [infra, databases, auth, monitoring, dev]
 #   odyssey.REDACTED_DOMAIN: [infra, media, apps, nfs]
