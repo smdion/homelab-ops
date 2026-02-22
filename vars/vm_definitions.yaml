@@ -7,7 +7,6 @@
 # are secrets — defined in vars/secrets.yaml.
 pve_storage: "local-lvm"
 pve_bridge: "vmbr0"
-pve_ssh_pubkey_path: "~/.ssh/id_ed25519.pub"
 vm_user: "ansible"
 vm_gateway: "REDACTED_GW"
 vm_dns: "REDACTED_GW"

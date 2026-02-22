@@ -89,7 +89,7 @@
             vmid: "{{ _vm.vm_id }}"
             ciuser: "{{ vm_user }}"
             cipassword: "{{ vm_password }}"
-            sshkeys: "{{ lookup('file', pve_ssh_pubkey_path) }}"
+            sshkeys: "{{ ansible_user_ssh_pubkey }}"
             ipconfig:
               ipconfig0: "ip={{ _vm.vm_ip }}/{{ vm_cidr }},gw={{ vm_gateway }}"
             nameservers: "{{ vm_dns }}"
