@@ -70,10 +70,10 @@
           ansible.builtin.shell: |
             {% if is_postgres | default(false) | bool %}
             docker exec {{ container_name }} psql -U {{ db_username }} -c 'CREATE DATABASE "_restore_test_{{ item }}";' postgres
-            gunzip -c /tmp/verify_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} "_restore_test_{{ item }}"
+            gunzip -cf /tmp/verify_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} "_restore_test_{{ item }}"
             {% elif is_mariadb | default(false) | bool %}
             docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "CREATE DATABASE \`_restore_test_{{ item }}\`;"
-            gunzip -c /tmp/verify_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} _restore_test_{{ item }}
+            gunzip -cf /tmp/verify_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} _restore_test_{{ item }}
             {% endif %}
           environment:
             DB_PASSWORD: "{{ db_password }}"

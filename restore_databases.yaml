@@ -119,9 +119,9 @@
         - name: Restore databases
           ansible.builtin.shell: |
             {% if is_postgres | default(false) | bool %}
-            gunzip -c /tmp/restore_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} {{ item }}
+            gunzip -cf /tmp/restore_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} {{ item }}
             {% elif is_mariadb | default(false) | bool %}
-            gunzip -c /tmp/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} {{ item }}
+            gunzip -cf /tmp/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} {{ item }}
             {% endif %}
           environment:
             DB_PASSWORD: "{{ db_password }}"
