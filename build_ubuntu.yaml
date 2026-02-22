@@ -1,7 +1,6 @@
 ---
-# Provision Ubuntu VMs on Proxmox via API.
-# Play 1 (localhost): Ensure cloud-init template, clone/configure/boot VM,
-#   or destroy if vm_state=absent.
+# Manage Ubuntu VMs on Proxmox via API.
+# Play 1 (localhost): Create, destroy, snapshot, or revert a VM.
 # Play 2 (new VM): Bootstrap Ubuntu with Docker and security hardening.
 # Deploy stacks separately via deploy_stacks.yaml after provisioning.
 #
@@ -12,17 +11,22 @@
 # Usage:
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=absent
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=snapshot -e snapshot_name=post-bootstrap
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=revert -e snapshot_name=post-bootstrap
 #
 # Required extra vars:
 #   vm_name — key in vm_definitions (tantiveiv, odyssey, amp, test-vm)
 #
 # Optional extra vars:
-#   vm_state=absent — destroy VM instead of creating
+#   vm_state=absent   — destroy VM instead of creating
+#   vm_state=snapshot — create a named Proxmox snapshot (disk only, no RAM)
+#   vm_state=revert   — revert to a named snapshot, restart VM, wait for SSH
+#   snapshot_name     — required when vm_state is snapshot or revert
 
 # ═══════════════════════════════════════════════════════════════════
-# Play 1 — Provision or destroy VM on Proxmox
+# Play 1 — Manage VM on Proxmox (create / destroy / snapshot / revert)
 # ═══════════════════════════════════════════════════════════════════
-- name: Provision Ubuntu VM on Proxmox
+- name: Manage Ubuntu VM on Proxmox
   hosts: localhost
   gather_facts: true
   gather_subset: ['!all', 'date_time']
@@ -48,6 +52,14 @@
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
         _vm_state: "{{ vm_state | default('present') }}"
+
+    - name: Assert snapshot_name is defined for snapshot/revert
+      ansible.builtin.assert:
+        that:
+          - snapshot_name is defined
+          - snapshot_name | length > 0
+        fail_msg: "snapshot_name is required when vm_state is {{ _vm_state }}"
+      when: _vm_state in ['snapshot', 'revert']
 
     - name: Assert MariaDB logging database is reachable
       include_tasks: tasks/assert_db_connectivity.yaml
@@ -212,10 +224,74 @@
           no_log: true
           when: _vm_state == 'absent'
 
+        # ═════════════════════════════════════════════════════════
+        # SNAPSHOT PATH — vm_state == 'snapshot'
+        # ═════════════════════════════════════════════════════════
+        - name: Create VM snapshot
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/snapshot"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              snapname: "{{ snapshot_name }}"
+              vmstate: 0
+            validate_certs: false
+          no_log: true
+          when: _vm_state == 'snapshot'
+
+        # ═════════════════════════════════════════════════════════
+        # REVERT PATH — vm_state == 'revert'
+        # ═════════════════════════════════════════════════════════
+        - name: Stop VM before revert
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm.pve_target_node }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: stopped
+            force: true
+          no_log: true
+          ignore_errors: true
+          when: _vm_state == 'revert'
+
+        - name: Revert VM to snapshot
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/snapshot/{{ snapshot_name }}/rollback"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          no_log: true
+          when: _vm_state == 'revert'
+
+        - name: Start VM after revert
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm.pve_target_node }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: started
+          no_log: true
+          when: _vm_state == 'revert'
+
+        - name: Wait for SSH after revert
+          ansible.builtin.wait_for:
+            host: "{{ _vm.vm_ip }}"
+            port: 22
+            delay: 5
+            timeout: 120
+          when: _vm_state == 'revert'
+
         - name: Record build detail
           ansible.builtin.set_fact:
             _build_detail: >-
-              {{ 'VM destroyed' if _vm_state == 'absent' else 'VM provisioned' }}:
+              {% if _vm_state == 'absent' %}VM destroyed{% elif _vm_state == 'snapshot' %}Snapshot '{{ snapshot_name }}' created{% elif _vm_state == 'revert' %}Reverted to '{{ snapshot_name }}'{% else %}VM provisioned{% endif %}:
               {{ _vm.vm_name }} ({{ _vm.vm_ip }}) on {{ _vm.pve_target_node }}
 
       rescue:

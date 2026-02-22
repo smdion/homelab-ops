@@ -29,7 +29,7 @@ visibility.
 | **Updates** | OS package and Docker container updates with version tracking, optional delay, and per-container exclusions |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
 | **Deploy** | Docker stacks from Git — templates `.env` from vault, copies compose files, validates, and starts stacks in dependency order; Grafana dashboard + datasource via API with automatic threshold syncing |
-| **Build** | Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH hardening, UFW firewall; create or destroy |
+| **Build** | Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH hardening, UFW firewall; create, destroy, snapshot, or revert |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
 version status per host, stale detection, health trends, and maintenance logs across 21 panels.
@@ -111,7 +111,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | WOL, rsync, shutdown verification |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `add_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
-| `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create and destroy |
+| `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
 ### Health checks by platform
@@ -431,6 +431,22 @@ ansible-playbook build_ubuntu.yaml \
   -i inventory.yaml \
   -e vm_name=test-vm \
   -e vm_state=absent \
+  --vault-password-file ~/.vault_pass
+
+# Snapshot a VM (disk only, no RAM state)
+ansible-playbook build_ubuntu.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e vm_state=snapshot \
+  -e snapshot_name=post-bootstrap \
+  --vault-password-file ~/.vault_pass
+
+# Revert VM to a snapshot (stops, reverts, restarts, waits for SSH)
+ansible-playbook build_ubuntu.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e vm_state=revert \
+  -e snapshot_name=post-bootstrap \
   --vault-password-file ~/.vault_pass
 
 # Dry-run any playbook (no changes, no notifications, no DB writes)

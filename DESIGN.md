@@ -344,22 +344,27 @@ includes a port-wait step (3306, 5432) before proceeding. Pre-tasks assert the h
 deploy via `-e deploy_stack=<name>`, render-only mode via `-e deploy_skip_up=true`, and debug
 output via `-e deploy_debug=true`. Runs `serial: 1` to avoid parallel deploy issues.
 
-**`build_ubuntu.yaml`** — Two-play playbook for Proxmox VM provisioning via cloud-init template
-cloning. **Play 1** (localhost) creates or destroys a VM via the Proxmox API. On create, it first
+**`build_ubuntu.yaml`** — Two-play playbook for Proxmox VM lifecycle management via cloud-init
+template cloning. Supports four `vm_state` values: `present` (default), `absent`, `snapshot`, and
+`revert`. **Play 1** (localhost) manages the VM via the Proxmox API. On **create**, it first
 ensures a cloud-init template exists on Ceph shared storage (one-time per cluster — SSHes to the
 PVE node via `delegate_to`, downloads the Ubuntu Noble cloud image, and converts it to a Proxmox
 template with `qm` commands). It then clones the template to the target node using cross-node
 cloning (`node` = template source, `target` = destination — works because Ceph storage is shared),
 configures cloud-init (user, SSH key from vault, static IP, DNS), resizes the disk via the
-Proxmox REST API, starts the VM, and waits for SSH. VM definitions (VMID, IP, cores, memory, disk,
-target node) come from `vars/vm_definitions.yaml`, selected by `-e vm_name=<key>`.
-`pve_template_node` must match the node `pve_api_host` resolves to. Passing `-e vm_state=absent`
-stops and removes the VM instead. **Play 2** (the new VM, added to in-memory `build_target` group)
-bootstraps Ubuntu: waits for cloud-init to finish and apt locks to release, runs dist-upgrade,
-installs Docker and base packages, enables Docker service, adds user to docker/sudo groups,
-configures passwordless sudo, hardens SSH (matching `add_ansible_user.yaml` — prohibit root
-password, disable password auth, allow ssh-rsa for Guacamole), and configures UFW (default deny +
-allow SSH). Deploy stacks separately via `deploy_stacks.yaml` after provisioning.
+Proxmox REST API, starts the VM, and waits for SSH. **Destroy** stops and removes the VM.
+**Snapshot** creates a named disk-only snapshot via the Proxmox REST API (no RAM state — fast and
+lightweight on Ceph). **Revert** stops the VM, rolls back to a named snapshot, restarts, and waits
+for SSH — ideal for iterative testing (e.g., snapshot after bootstrap, test restores, revert,
+repeat). Snapshot and revert require `-e snapshot_name=<name>`. VM definitions (VMID, IP, cores,
+memory, disk, target node) come from `vars/vm_definitions.yaml`, selected by `-e vm_name=<key>`.
+`pve_template_node` must match the node `pve_api_host` resolves to. **Play 2** (the new VM, added
+to in-memory `build_target` group — only runs on create) bootstraps Ubuntu: waits for cloud-init
+to finish and apt locks to release, runs dist-upgrade, installs Docker and base packages, enables
+Docker service, adds user to docker/sudo groups, configures passwordless sudo, hardens SSH
+(matching `add_ansible_user.yaml` — prohibit root password, disable password auth, allow ssh-rsa
+for Guacamole), and configures UFW (default deny + allow SSH). Deploy stacks separately via
+`deploy_stacks.yaml` after provisioning.
 
 **`rollback_docker.yaml`** — Reverts Docker containers to their previous image versions using
 the snapshot saved by `update_systems.yaml`. Two rollback paths: **fast** (old image still on
