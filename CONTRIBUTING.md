@@ -58,6 +58,23 @@ ansible-playbook backup_hosts.yaml -i inventory.yaml \
 4. Update the CHECK comment numbering (sequential across all 3 plays)
 5. Update the check list comment in `tasks/log_health_check.yaml`
 
+## Public Repository — Security
+
+This is a **public GitHub repository**. Never commit:
+
+- **Secrets or credentials** — passwords, API keys, tokens, webhook URLs, SSH keys
+- **Internal IP addresses** — private IPs (e.g., `192.168.x.x`, `10.x.x.x`)
+- **Internal domain names** — local DNS names (e.g., `*.home.local`, `*.internal.lan`)
+- **Personally identifiable information** — real names, email addresses, physical locations
+
+All secrets belong in `vars/secrets.yaml` (encrypted vault). Internal hostnames and domains
+should use placeholder values in documentation and examples (e.g., `myhost.example.local`).
+The `vars/secrets.yaml.example` template demonstrates this pattern.
+
+If you accidentally commit sensitive data, **do not** just delete it in a follow-up commit —
+it remains in git history. Instead, rotate the exposed credential immediately and contact
+the maintainer.
+
 ## Pull Request Expectations
 
 - Run `--check` on any modified playbook before submitting

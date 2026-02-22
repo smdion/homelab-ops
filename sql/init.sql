@@ -74,6 +74,23 @@ CREATE TABLE IF NOT EXISTS health_checks (
   INDEX idx_timestamp    (timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Restore / verify records — one row per restore or verification operation
+CREATE TABLE IF NOT EXISTS restores (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  application VARCHAR(255) NOT NULL,
+  hostname VARCHAR(255) NOT NULL,
+  source_file VARCHAR(255),
+  restore_type VARCHAR(50) NOT NULL,
+  restore_subtype VARCHAR(50) NOT NULL,
+  operation VARCHAR(20) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'success',
+  detail TEXT,
+  timestamp DATETIME,
+  INDEX idx_hostname (hostname),
+  INDEX idx_timestamp (timestamp),
+  INDEX idx_operation (operation)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 -- Health check state — single-row table tracking last successful run
 CREATE TABLE IF NOT EXISTS health_check_state (
   id          INT PRIMARY KEY DEFAULT 1,

@@ -1,0 +1,512 @@
+---
+# Restore config/appdata archives from backup.
+# Two modes: staging (inspect) and inplace (restore). Supports selective app restore
+# and coordinated DB+appdata restore with cross-host delegate_to.
+# Sends Discord notification and logs result to restores table.
+#
+# Usage:
+#   # Stage full backup for inspection (default, safe)
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=proxmox
+#
+#   # Stage just one app's appdata from the full archive
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr
+#
+#   # In-place restore of ONE specific app's appdata only
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e restore_mode=inplace -e confirm_restore=yes -e manage_docker=yes
+#
+#   # COORDINATED RESTORE — appdata + databases together (cross-host via delegate_to)
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e include_databases=yes -e restore_mode=inplace -e confirm_restore=yes -e manage_docker=yes
+
+- name: Restore config/appdata from backup
+  hosts: "{{ hosts_variable }}"
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  serial: 1
+  vars_files:
+    - vars/secrets.yaml
+    - vars/{{ config_file }}.yaml
+  vars:
+    config_file: "{{ hosts_variable }}"
+    restore_mode: "{{ restore_mode | default('staging') }}"
+
+  pre_tasks:
+    - name: Assert config_file is defined and non-empty
+      include_tasks: tasks/assert_config_file.yaml
+
+    - name: Assert UNVR not targeted
+      ansible.builtin.assert:
+        that: inventory_hostname not in groups["unifi_protect"] | default([])
+        fail_msg: "UNVR .unf backups require manual restore via the Protect UI"
+
+    - name: Assert confirm_restore for inplace mode
+      ansible.builtin.assert:
+        that: confirm_restore | default('') == 'yes'
+        fail_msg: >-
+          In-place restore requires -e confirm_restore=yes.
+          Run without restore_mode=inplace for safe staging mode.
+      when: restore_mode == 'inplace'
+
+    - name: Assert sufficient disk space
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: "{{ '/tmp' if restore_mode == 'staging' else '/' }}"
+        assert_disk_min_gb: 2
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize restore state
+      ansible.builtin.set_fact:
+        restore_failed: false
+        _restore_source_file: "unknown"
+        _restore_detail: ""
+      tags: [always]
+
+    - block:
+        # ===== FIND AND VERIFY BACKUP ARCHIVE =====
+        - name: Find backup archive on controller
+          ansible.builtin.shell: >
+            ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_*{{ restore_date | default('') }}*.tar.gz 2>/dev/null | head -1
+          register: _archive_file
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          check_mode: false
+          tags: [always]
+
+        - name: Assert backup archive exists
+          ansible.builtin.assert:
+            that: _archive_file.stdout | length > 0
+            fail_msg: "No backup archive found for {{ inventory_hostname }} on controller{{ ' for date ' + restore_date if restore_date | default('') | length > 0 else '' }}"
+          tags: [always]
+
+        - name: Set source file fact
+          ansible.builtin.set_fact:
+            _restore_source_file: "{{ _archive_file.stdout | basename }}"
+          tags: [always]
+
+        - name: Verify archive integrity
+          ansible.builtin.shell: gunzip -t "{{ _archive_file.stdout }}"
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          check_mode: false
+          tags: [always]
+
+        # ===== SELECTIVE APP EXTRACTION PATH =====
+        - name: Compute extract path for selective app restore
+          ansible.builtin.set_fact:
+            _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
+          when: restore_app | default('') | length > 0
+          tags: [always]
+
+        - name: Verify app directory exists in archive
+          ansible.builtin.shell: tar tzf "{{ _archive_file.stdout }}" | grep -q "^{{ _extract_path }}/"
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          check_mode: false
+          when: restore_app | default('') | length > 0
+          tags: [always]
+
+        # ===== STOP DOCKER CONTAINERS =====
+        - name: Stop app containers (selective)
+          ansible.builtin.command:
+            argv: "{{ ['docker', 'stop'] + app_restore[restore_app].containers }}"
+          become: true
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Stop Docker Compose (full restore)
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "{{ compose_project_path }}"
+            state: stopped
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_app | default('') | length == 0
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - not ansible_check_mode
+          tags: [docker]
+
+        - name: Get running containers for full restore (unRAID)
+          become: true
+          ansible.builtin.shell: |
+            docker ps --format {% raw %}'{{.Names}}'{% endraw %}
+          register: _docker_containers
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_app | default('') | length == 0
+            - inventory_hostname in groups["docker_run"] | default([])
+            - not ansible_check_mode
+          failed_when: false
+          changed_when: false
+          check_mode: false
+          tags: [docker]
+
+        - name: Stop all Docker containers for full restore (unRAID)
+          become: true
+          ansible.builtin.command:
+            argv: "{{ ['docker', 'stop'] + _docker_containers.stdout_lines }}"
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_app | default('') | length == 0
+            - inventory_hostname in groups["docker_run"] | default([])
+            - _docker_containers.stdout_lines | default([]) | length > 0
+            - not ansible_check_mode
+          tags: [docker]
+
+        # ===== COORDINATED DB RESTORE (cross-host via delegate_to) =====
+        - name: Load DB vars into namespace
+          ansible.builtin.include_vars:
+            file: "vars/{{ app_restore[restore_app].db_config_file }}.yaml"
+            name: _db_vars
+          when:
+            - include_databases | default('') == 'yes'
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
+          tags: [always]
+
+        - name: Find DB backup files on controller
+          ansible.builtin.shell: >
+            ls -t {{ backup_base_dir }}/{{ app_restore[restore_app].db_host }}/backup_{{ item }}_{{ restore_date | default('*') }}.sql 2>/dev/null | head -1
+          loop: "{{ app_restore[restore_app].db_names }}"
+          register: _db_backup_files
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          check_mode: false
+          when:
+            - include_databases | default('') == 'yes'
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
+          tags: [always]
+
+        - name: Assert DB backup files exist
+          ansible.builtin.assert:
+            that: _db_backup_files.results[idx].stdout | length > 0
+            fail_msg: "No backup found for database {{ item }}"
+          loop: "{{ app_restore[restore_app].db_names }}"
+          loop_control:
+            index_var: idx
+          when:
+            - include_databases | default('') == 'yes'
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
+          tags: [always]
+
+        - name: Copy DB backup files to DB host
+          ansible.builtin.copy:
+            src: "{{ _db_backup_files.results[idx].stdout }}"
+            dest: "/tmp/restore_{{ item }}.sql"
+          loop: "{{ app_restore[restore_app].db_names }}"
+          loop_control:
+            index_var: idx
+          delegate_to: "{{ app_restore[restore_app].db_host }}"
+          become: true
+          when:
+            - include_databases | default('') == 'yes'
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Restore databases on DB host
+          ansible.builtin.shell: |
+            {% if _db_vars.is_postgres | default(false) | bool %}
+            gunzip -c /tmp/restore_{{ item }}.sql | docker exec -i {{ _db_vars.container_name }} psql -U {{ _db_vars.db_username }} {{ item }}
+            {% elif _db_vars.is_mariadb | default(false) | bool %}
+            gunzip -c /tmp/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ _db_vars.container_name }} mysql -u {{ _db_vars.db_username }} {{ item }}
+            {% endif %}
+          environment:
+            DB_PASSWORD: "{{ db_password }}"
+          loop: "{{ app_restore[restore_app].db_names }}"
+          delegate_to: "{{ app_restore[restore_app].db_host }}"
+          become: true
+          no_log: true
+          when:
+            - include_databases | default('') == 'yes'
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Validate restored databases on DB host
+          ansible.builtin.shell: |
+            {% if _db_vars.is_postgres | default(false) | bool %}
+            docker exec {{ _db_vars.container_name }} psql -U {{ _db_vars.db_username }} -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" {{ item }}
+            {% elif _db_vars.is_mariadb | default(false) | bool %}
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_vars.container_name }} mysql -u {{ _db_vars.db_username }} -sN -e "SELECT count(*) FROM information_schema.tables WHERE table_schema = '{{ item }}';"
+            {% endif %}
+          environment:
+            DB_PASSWORD: "{{ db_password }}"
+          loop: "{{ app_restore[restore_app].db_names }}"
+          register: _db_table_counts
+          delegate_to: "{{ app_restore[restore_app].db_host }}"
+          become: true
+          changed_when: false
+          no_log: true
+          when:
+            - include_databases | default('') == 'yes'
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Clean up DB temp files on DB host
+          ansible.builtin.file:
+            path: "/tmp/restore_{{ item }}.sql"
+            state: absent
+          loop: "{{ app_restore[restore_app].db_names }}"
+          delegate_to: "{{ app_restore[restore_app].db_host }}"
+          become: true
+          when:
+            - include_databases | default('') == 'yes'
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
+          tags: [always]
+
+        # ===== STAGING MODE =====
+        - name: Copy archive to target for staging
+          ansible.builtin.copy:
+            src: "{{ _archive_file.stdout }}"
+            dest: "/tmp/restore_staging.tar.gz"
+          become: true
+          when:
+            - restore_mode == 'staging'
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Create staging directory
+          ansible.builtin.file:
+            state: directory
+            path: "/tmp/restore_staging"
+          become: true
+          when:
+            - restore_mode == 'staging'
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Extract to staging (selective)
+          ansible.builtin.shell: tar xzf /tmp/restore_staging.tar.gz -C /tmp/restore_staging "{{ _extract_path }}"
+          become: true
+          when:
+            - restore_mode == 'staging'
+            - restore_app | default('') | length > 0
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Extract to staging (full)
+          ansible.builtin.shell: tar xzf /tmp/restore_staging.tar.gz -C /tmp/restore_staging
+          become: true
+          when:
+            - restore_mode == 'staging'
+            - restore_app | default('') | length == 0
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: List staging contents
+          ansible.builtin.shell: find /tmp/restore_staging -type f | head -50
+          register: _staging_contents
+          become: true
+          changed_when: false
+          when:
+            - restore_mode == 'staging'
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Count staged files
+          ansible.builtin.shell: find /tmp/restore_staging -type f | wc -l
+          register: _staged_count
+          become: true
+          changed_when: false
+          when:
+            - restore_mode == 'staging'
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Display staging contents
+          ansible.builtin.debug:
+            msg: |
+              Staged {{ _staged_count.stdout }} files to /tmp/restore_staging/
+              First 50 files:
+              {{ _staging_contents.stdout }}
+          when:
+            - restore_mode == 'staging'
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Set staging detail
+          ansible.builtin.set_fact:
+            _restore_detail: "{{ _staged_count.stdout | default('0') }} files staged to /tmp/restore_staging/"
+          when:
+            - restore_mode == 'staging'
+            - not ansible_check_mode
+          tags: [always]
+
+        # ===== INPLACE MODE =====
+        - name: Copy archive to target for inplace restore
+          ansible.builtin.copy:
+            src: "{{ _archive_file.stdout }}"
+            dest: "/tmp/restore_inplace.tar.gz"
+          become: true
+          when:
+            - restore_mode == 'inplace'
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Extract inplace (selective)
+          ansible.builtin.shell: tar xzf /tmp/restore_inplace.tar.gz -C / "{{ _extract_path }}"
+          become: true
+          when:
+            - restore_mode == 'inplace'
+            - restore_app | default('') | length > 0
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Extract inplace (full)
+          ansible.builtin.shell: tar xzf /tmp/restore_inplace.tar.gz -C /
+          become: true
+          when:
+            - restore_mode == 'inplace'
+            - restore_app | default('') | length == 0
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Set inplace detail
+          ansible.builtin.set_fact:
+            _restore_detail: >-
+              {{ restore_app | default('full') }} restored inplace
+              {{ '+ ' + (app_restore[restore_app].db_names | join(', ')) + ' DB(s) restored' if include_databases | default('') == 'yes' and restore_app | default('') | length > 0 else '' }}
+          when:
+            - restore_mode == 'inplace'
+            - not ansible_check_mode
+          tags: [always]
+
+        # ===== START DOCKER CONTAINERS =====
+        - name: Start app containers (selective)
+          ansible.builtin.command:
+            argv: "{{ ['docker', 'start'] + app_restore[restore_app].containers }}"
+          become: true
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Start Docker Compose (full restore)
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "{{ compose_project_path }}"
+            state: present
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_app | default('') | length == 0
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - not ansible_check_mode
+          tags: [docker]
+
+        - name: Start all Docker containers (unRAID full restore)
+          become: true
+          ansible.builtin.command:
+            argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_app | default('') | length == 0
+            - inventory_hostname in groups["docker_run"] | default([])
+            - _docker_containers.stdout_lines | default([]) | length > 0
+            - not ansible_check_mode
+          tags: [docker]
+
+        # ===== CLEANUP =====
+        - name: Clean up temp archive
+          ansible.builtin.file:
+            path: "/tmp/restore_{{ restore_mode }}.tar.gz"
+            state: absent
+          become: true
+          tags: [always]
+
+      rescue:
+        - name: Set restore failed flag
+          ansible.builtin.set_fact:
+            restore_failed: true
+
+        - name: Ensure Docker Compose is running (safety net)
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "{{ compose_project_path }}"
+            state: present
+          when: inventory_hostname in groups["docker_stacks"] | default([])
+          ignore_errors: true
+          tags: [docker]
+
+        - name: Ensure app containers are running (safety net)
+          ansible.builtin.command:
+            argv: "{{ ['docker', 'start'] + app_restore[restore_app].containers }}"
+          become: true
+          when:
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
+          ignore_errors: true
+          tags: [always]
+
+        - name: Ensure Docker containers are running (unRAID safety net)
+          become: true
+          ansible.builtin.command:
+            argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
+          when:
+            - inventory_hostname in groups["docker_run"] | default([])
+            - _docker_containers is defined
+            - _docker_containers.stdout_lines | default([]) | length > 0
+          ignore_errors: true
+          tags: [docker]
+
+      always:
+        - name: Send Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_title: "{{ backup_name }}"
+            discord_description: >-
+              {{ restore_mode | capitalize }} {{ 'Failed' if restore_failed else 'Successful' }}
+              {{ '— ' + restore_app if restore_app | default('') | length > 0 else '' }}
+            discord_color: "{{ 16711680 if restore_failed else 32768 }}"
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ restore_mode | capitalize }} Restore"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Source File"
+                value: "{{ _restore_source_file }}"
+              - name: "Detail"
+                value: "{{ _restore_detail | default('check Semaphore logs') }}"
+          tags: [always]
+
+        - name: Log restore to MariaDB
+          include_tasks: tasks/log_restore.yaml
+          vars:
+            log_hostname: "{{ inventory_hostname }}"
+            restore_application: "{{ restore_app | default(backup_name) }}"
+            restore_source_file: "{{ _restore_source_file }}"
+            restore_type: "{{ backup_type }}"
+            restore_subtype: "{{ backup_subtype }}"
+            restore_operation: "{{ 'verify' if restore_mode == 'staging' else 'restore' }}"
+            restore_status: "{{ 'failed' if restore_failed else 'success' }}"
+            restore_detail: "{{ _restore_detail | default('check Semaphore logs') }}"
+          tags: [always]
