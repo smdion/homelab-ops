@@ -74,3 +74,6 @@ docker_authentik_image: "ghcr.io/goauthentik/server"
 docker_authentik_tag: "2025.12.4"
 docker_email_host: "smtp.gmail.com"
 docker_email_port: 587
+docker_dozzle_level: "info"
+docker_dozzle_remote_agent: "REDACTED_IP:7007,REDACTED_IP:7007,REDACTED_IP:7007,REDACTED_IP:7007"
+docker_dozzle_hostname: "Odyssey"
