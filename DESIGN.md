@@ -514,6 +514,25 @@ vs `Download — Videos [On Demand]`). Database templates use `Database` as the 
 operations cluster together alphabetically, with `[Role Engine]` (e.g., `[Primary PostgreSQL]`,
 `[Secondary PostgreSQL]`) as the subtype.
 
+### Template views
+
+Templates are organized into views (tabs in the Semaphore UI) by verb:
+
+| View | Templates | Verb prefix |
+|------|-----------|-------------|
+| Backups | 13 | `Backup —` |
+| Updates | 6 | `Update —` |
+| Maintenance | 6 | `Maintain —` |
+| Downloads | 2 | `Download —` |
+| Verify | 8 | `Verify —` |
+| Restore | 9 | `Restore —`, `Rollback —` |
+| Deploy | 1 | `Deploy —` |
+| Setup | 1 | `Add —` |
+
+When adding a new template, assign it to the matching view. Views are stored in the
+`project__view` table; templates reference views via the `view_id` column in
+`project__template`.
+
 ### Managing templates via SQL (Adminer)
 
 Semaphore stores templates, environments, and vault associations in MariaDB (MySQL syntax —

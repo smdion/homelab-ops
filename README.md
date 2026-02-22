@@ -240,7 +240,8 @@ If using Semaphore for scheduling and credential management:
 1. Add this repo in Semaphore
 2. Create inventories organized by **authentication method** (SSH key, password, etc.)
 3. Create variable groups with `hosts_variable` (and `config_file` when it differs)
-4. Create templates pointing to the playbooks
+4. Create templates pointing to the playbooks — templates are organized into **views**
+   (Backups, Updates, Maintenance, Downloads, Verify, Restore, Deploy, Setup) for easy navigation
 
 See [DESIGN.md](DESIGN.md#semaphore-setup) for the full Semaphore configuration reference.
 
