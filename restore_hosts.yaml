@@ -505,7 +505,7 @@
             restore_source_file: "{{ _restore_source_file }}"
             restore_type: "{{ backup_type }}"
             restore_subtype: "{{ backup_subtype }}"
-            restore_operation: "{{ 'verify' if restore_mode == 'staging' else 'restore' }}"
+            restore_operation: "restore"
             restore_status: "{{ 'failed' if restore_failed else 'success' }}"
             restore_detail: "{{ _restore_detail | default('check Semaphore logs') }}"
           tags: [always]
