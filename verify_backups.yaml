@@ -69,10 +69,10 @@
         - name: Create temp verification databases and restore
           ansible.builtin.shell: |
             {% if is_postgres | default(false) | bool %}
-            docker exec {{ container_name }} psql -U {{ db_username }} -c "CREATE DATABASE _restore_test_{{ item }};" postgres
-            gunzip -c /tmp/verify_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} _restore_test_{{ item }}
+            docker exec {{ container_name }} psql -U {{ db_username }} -c 'CREATE DATABASE "_restore_test_{{ item }}";' postgres
+            gunzip -c /tmp/verify_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} "_restore_test_{{ item }}"
             {% elif is_mariadb | default(false) | bool %}
-            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "CREATE DATABASE _restore_test_{{ item }};"
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "CREATE DATABASE \`_restore_test_{{ item }}\`;"
             gunzip -c /tmp/verify_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} _restore_test_{{ item }}
             {% endif %}
           environment:
@@ -88,7 +88,7 @@
         - name: Count tables in temp databases
           ansible.builtin.shell: |
             {% if is_postgres | default(false) | bool %}
-            docker exec {{ container_name }} psql -U {{ db_username }} -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" _restore_test_{{ item }}
+            docker exec {{ container_name }} psql -U {{ db_username }} -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" "_restore_test_{{ item }}"
             {% elif is_mariadb | default(false) | bool %}
             docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -sN -e "SELECT count(*) FROM information_schema.tables WHERE table_schema = '_restore_test_{{ item }}';"
             {% endif %}
@@ -107,9 +107,9 @@
         - name: Drop temp verification databases
           ansible.builtin.shell: |
             {% if is_postgres | default(false) | bool %}
-            docker exec {{ container_name }} psql -U {{ db_username }} -c "DROP DATABASE IF EXISTS _restore_test_{{ item }};" postgres
+            docker exec {{ container_name }} psql -U {{ db_username }} -c 'DROP DATABASE IF EXISTS "_restore_test_{{ item }}";' postgres
             {% elif is_mariadb | default(false) | bool %}
-            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "DROP DATABASE IF EXISTS _restore_test_{{ item }};"
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "DROP DATABASE IF EXISTS \`_restore_test_{{ item }}\`;"
             {% endif %}
           environment:
             DB_PASSWORD: "{{ db_password }}"
@@ -240,9 +240,9 @@
         - name: Drop any leftover temp databases (cleanup on failure)
           ansible.builtin.shell: |
             {% if is_postgres | default(false) | bool %}
-            docker exec {{ container_name }} psql -U {{ db_username }} -c "DROP DATABASE IF EXISTS _restore_test_{{ item }};" postgres
+            docker exec {{ container_name }} psql -U {{ db_username }} -c 'DROP DATABASE IF EXISTS "_restore_test_{{ item }}";' postgres
             {% elif is_mariadb | default(false) | bool %}
-            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "DROP DATABASE IF EXISTS _restore_test_{{ item }};"
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "DROP DATABASE IF EXISTS \`_restore_test_{{ item }}\`;"
             {% endif %}
           environment:
             DB_PASSWORD: "{{ db_password | default('') }}"
