@@ -92,12 +92,13 @@ The project is organized into three phases:
 |-------|-------|--------|
 | **Phase 1 — Backup / Maintain / Update** | Automated backups, maintenance, and updates for all homelab systems | Active |
 | **Phase 2 — Verify / Restore** | Backup verification and automated restore procedures | Active |
-| **Phase 3 — Build** | Automated provisioning and infrastructure-as-code for building new hosts | Planned |
+| **Phase 3 — Deploy / Build** | Docker stack deployment from Git and VM provisioning on Proxmox | Active |
 
 Phase 1 covers the current playbooks: `backup_*.yaml`, `maintain_*.yaml`, `update_systems.yaml`,
 `download_videos.yaml`, and `add_ansible_user.yaml`. Phase 2 adds `verify_backups.yaml`,
 `restore_databases.yaml`, and `restore_hosts.yaml` — recovering systems from the backups created
-in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new hosts from scratch.
+in Phase 1. Phase 3 adds `deploy_stacks.yaml` (Docker stack deployment from Git with vault-templated
+`.env` files) and `build_ubuntu.yaml` (Proxmox VM provisioning with cloud-init and Docker bootstrap).
 
 ---
 
@@ -330,6 +331,27 @@ values from Ansible vars into the dashboard JSON:
 
 The raw `grafana/grafana.json` keeps baseline values — the playbook replaces them at deploy time.
 Change the Ansible var, re-deploy, and the Grafana panels update automatically.
+
+**`deploy_stacks.yaml`** — Deploys Docker stacks from Git to target hosts. Each stack lives in
+`stacks/<name>/` with a `docker-compose.yaml` and an `env.j2` Jinja2 template. The playbook
+creates `/opt/stacks/<name>/` on the target, renders `.env` from vault secrets (mode `0600`),
+copies the compose file, validates with `docker compose config`, and starts with
+`community.docker.docker_compose_v2` (removes orphans). Stacks deploy in `stack_assignments`
+order — databases before auth, etc. — ensuring dependency readiness. The `databases` stack
+includes a port-wait step (3306, 5432) before proceeding. Pre-tasks assert the host has a
+`stack_assignments` entry, sufficient disk space, and DB connectivity. Supports single-stack
+deploy via `-e deploy_stack=<name>`, render-only mode via `-e deploy_skip_up=true`, and debug
+output via `-e deploy_debug=true`. Runs `serial: 1` to avoid parallel deploy issues.
+
+**`build_ubuntu.yaml`** — Two-play playbook for Proxmox VM provisioning. **Play 1** (localhost)
+creates or destroys a VM via the Proxmox API: creates the VM with `community.general.proxmox_kvm`,
+configures cloud-init (user, SSH key, static IP, DNS), starts the VM, and waits for SSH. VM
+definitions (VMID, IP, cores, memory, disk) come from `vars/vm_definitions.yaml`, selected by
+`-e vm_name=<key>`. Passing `-e vm_state=absent` stops and removes the VM instead. **Play 2**
+(the new VM, added to in-memory `build_target` group) bootstraps Ubuntu: dist-upgrade, installs
+Docker and base packages, enables Docker service, adds user to docker group, disables SSH password
+auth, and configures UFW (default deny + allow SSH). Deploy stacks separately via
+`deploy_stacks.yaml` after provisioning.
 
 **`rollback_docker.yaml`** — Reverts Docker containers to their previous image versions using
 the snapshot saved by `update_systems.yaml`. Two rollback paths: **fast** (old image still on
