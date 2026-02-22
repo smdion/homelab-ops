@@ -193,7 +193,7 @@
         - name: Recreate containers with old images (stack mode)
           become: true
           ansible.builtin.shell: >
-            docker compose up -d --no-pull
+            docker compose up -d
             {{ _rollback_targets
                | select('in', (_service_stack_map | default({}) | dict2items
                                | selectattr('value', 'eq', item)
@@ -213,7 +213,7 @@
         - name: Recreate containers with old images (legacy mode)
           become: true
           ansible.builtin.shell: >
-            docker compose up -d --no-pull {{ _rollback_targets | join(' ') }}
+            docker compose up -d {{ _rollback_targets | join(' ') }}
           args:
             chdir: "{{ compose_project_path }}"
           when: inventory_hostname not in (stack_assignments | default({}))
