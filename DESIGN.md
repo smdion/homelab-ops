@@ -104,7 +104,6 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 ## File Structure
 
 ```
-semaphore/
 ├── ansible.cfg                     # Ansible settings: disable retry files, YAML stdout callback
 ├── inventory.yaml                  # YAML-format Ansible inventory — NOT version-controlled (see below)
 ├── inventory.example.yaml          # Template inventory with example hosts and group structure
@@ -330,7 +329,7 @@ and `assert_disk_min_gb`. Uses `df --output=avail` + `ansible.builtin.assert`. H
 **`tasks/assert_db_connectivity.yaml`** — Shared pre-task assertion that the MariaDB logging
 database is reachable. Runs `SELECT 1` via `community.mysql.mysql_query`. Inherits `logging_db_*`
 vars from playbook scope. Has `check_mode: false` so it validates connectivity during `--check`.
-Used by all 10 operational playbooks that log to MariaDB (every playbook except `download_videos.yaml`
+Used by all 13 operational playbooks that log to MariaDB (every playbook except `download_videos.yaml`
 and `add_ansible_user.yaml`).
 
 **`maintain_health.yaml` — check notes:**
@@ -425,6 +424,12 @@ Current cases requiring explicit `config_file`: `ubuntu_os`, `unraid_os`, `synol
 `db_primary_postgres`, `db_primary_mariadb`, `db_secondary_postgres`, `download_default`,
 `download_on_demand`.
 
+**Environment naming convention:** Semaphore environment names match the `config_file` value
+(or `hosts_variable` when `config_file` is not needed). For database targets, use role-based
+names (`db_primary_postgres`, `db_primary_mariadb`, `db_secondary_postgres`) — never
+hostname-based names. Verify and restore templates **share** the same Semaphore environment as
+backup templates for the same target — do not create separate environments.
+
 **`hosts_variable` lives in Semaphore only** — it is resolved at `hosts:` parse time before
 `vars_files` load. Any copy in a `vars/` file would be ignored for host targeting.
 
@@ -456,7 +461,7 @@ where multiple backup types exist for the same target:
 | `Maintain — {Target}` | `Maintain — AMP`, `Maintain — Docker`, `Maintain — Health` |
 | `Download — {Target} [{Subtype}]` | `Download — Videos`, `Download — Videos [On Demand]` |
 | `Verify — {Target}` | `Verify — PostgreSQL Databases`, `Verify — Proxmox [Config]` |
-| `Restore — {Target} [{Subtype}]` | `Restore — PostgreSQL Databases`, `Restore — Docker Appdata` |
+| `Restore — {Target} [{Subtype}]` | `Restore — PostgreSQL Databases`, `Restore — Docker Run [Appdata]` |
 
 The `[Subtype]` suffix makes templates instantly distinguishable when a target has more than one
 variant (e.g., `Backup — unRAID [Config]` vs `Backup — unRAID [Offline]`, or `Download — Videos`
@@ -611,7 +616,7 @@ the right choice when a component needs its own defaults, handlers, templates, o
 
 **Current state — tasks are the right fit:**
 
-The project has six shared task files and no handlers or templates. The `tasks/` files are thin
+The project has eight shared task files and no handlers or templates. The `tasks/` files are thin
 glue code (send a Discord embed, run an INSERT, assert a precondition). At this scale, promoting
 them to roles would add directory structure without gaining any role-specific features.
 
@@ -799,16 +804,19 @@ any work starts. Two shared assertion task files are available:
 **`tasks/assert_disk_space.yaml`** — Checks free space on a filesystem path. Caller passes
 `assert_disk_path` and `assert_disk_min_gb` via `vars:`. Used by `backup_hosts.yaml` (remote
 `backup_tmp_dir` + controller `/backup`), `backup_databases.yaml` (remote `backup_tmp_dir`),
-and `update_systems.yaml` (root filesystem `/`).
+`update_systems.yaml` (root filesystem `/`), `restore_databases.yaml` (`/tmp`), and
+`restore_hosts.yaml` (`/tmp`).
 
 **`tasks/assert_db_connectivity.yaml`** — Verifies the MariaDB logging database is reachable
-via `SELECT 1`. Used by all 10 operational playbooks that call `tasks/log_mariadb.yaml` in their
+via `SELECT 1`. Used by all 13 operational playbooks that call `tasks/log_mariadb.yaml` or
+`tasks/log_restore.yaml` in their
 `always:` block. Catches MariaDB outages early — before any backup, update, or maintenance work
 starts — rather than failing silently in the `always:` logging step.
 
 **`tasks/assert_config_file.yaml`** — Asserts `config_file` is defined and non-empty, catching
 misconfigured Semaphore variable groups before work starts. Used by `backup_hosts.yaml`,
-`backup_databases.yaml`, `update_systems.yaml`, `backup_offline.yaml`, and `download_videos.yaml`.
+`backup_databases.yaml`, `update_systems.yaml`, `backup_offline.yaml`, `download_videos.yaml`,
+`verify_backups.yaml`, `restore_databases.yaml`, and `restore_hosts.yaml`.
 
 The `assert_disk_space` and `assert_db_connectivity` tasks have `check_mode: false` on their
 shell/query pre-steps so they validate during `--check`. `assert_config_file` uses
@@ -1276,6 +1284,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `vars/proxmox.yaml` | PVE or PBS | Appliances | Config | verify / restore |
 | `vars/docker_stacks.yaml` | Docker or (app name) | Servers | Appdata | verify / restore |
 | `vars/docker_run.yaml` | Docker or (app name) | Servers | Appdata | verify / restore |
+| `vars/unraid_os.yaml` | unRAID | Servers | Config | verify / restore |
 | `vars/pikvm.yaml` | PiKVM | Appliances | Config | verify / restore |
 
 ### Expected hostname format
