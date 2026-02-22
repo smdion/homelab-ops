@@ -1,0 +1,45 @@
+---
+# Structured MariaDB logging task for restore/verify operations.
+# Pass all variables via vars: on the include_tasks call.
+#
+# Required vars:
+#   log_hostname          — hostname (pass inventory_hostname — already a proper FQDN)
+#   restore_application   — application name (e.g., "authentik-db", "Docker")
+#   restore_source_file   — backup filename that was restored/verified
+#   restore_type          — "Servers" or "Appliances"
+#   restore_subtype       — "Database", "Appdata", or "Config"
+#   restore_operation     — "verify" or "restore"
+#   restore_status        — "success" or "failed"
+#   restore_detail        — free-text context (e.g., "15 tables verified")
+#
+# Inherited from playbook scope (no need to pass):
+#   logging_db_host, logging_db_port, logging_db_user,
+#   logging_db_password, logging_db_name  (from vars/secrets.yaml)
+
+- name: Log restore to MariaDB
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  become: false
+  connection: local
+  community.mysql.mysql_query:
+    login_host: "{{ logging_db_host }}"
+    login_port: "{{ logging_db_port }}"
+    login_user: "{{ logging_db_user }}"
+    login_password: "{{ logging_db_password }}"
+    login_db: "{{ logging_db_name }}"
+    query: >-
+      INSERT INTO restores
+      (application, hostname, source_file, restore_type, restore_subtype, operation, status, detail, timestamp)
+      VALUES (%s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP())
+    positional_args:
+      - "{{ restore_application }}"
+      - "{{ log_hostname }}"
+      - "{{ restore_source_file }}"
+      - "{{ restore_type }}"
+      - "{{ restore_subtype }}"
+      - "{{ restore_operation }}"
+      - "{{ restore_status }}"
+      - "{{ restore_detail }}"
+  when: not ansible_check_mode
+  no_log: true
+  tags: [always]

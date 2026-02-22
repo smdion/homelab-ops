@@ -1,7 +1,8 @@
 # Ansible Home Lab Automation
 
-Ansible playbooks for home lab backup, update, maintenance, and health monitoring — orchestrated
-via [Semaphore](https://semaphoreui.com/), logged to MariaDB, and visualized in Grafana.
+Ansible playbooks for home lab backup, update, maintenance, health monitoring, verification, and
+restore — orchestrated via [Semaphore](https://semaphoreui.com/), logged to MariaDB, and
+visualized in Grafana.
 
 > **Note:** This project was built for my own home lab. I've made it as portable as possible —
 > deployment-specific values live in vault-encrypted vars files, and playbooks are
@@ -20,6 +21,8 @@ the stack.
 | **Updates** | OS and container updates with version tracking and optional delay |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
 | **Health** | 26 scheduled checks (disk, memory, CPU, Docker, SSL, ZFS, BTRFS, NTP, DNS, ...) with Discord alerts |
+| **Verify** | On-demand backup verification — DB restores to temp databases, config archive integrity + staging |
+| **Restore** | Database and config/appdata restore from backups — safety-gated, selective app restore, coordinated cross-host DB+appdata |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard visualizes the full
 history — backups over time, version status per host, stale detection, health trends.
@@ -41,7 +44,7 @@ The fastest path to "does this work for me?" — one host, one playbook:
 
 ```bash
 # 1. Clone and install dependencies
-git clone <this-repo> && cd semaphore
+git clone <this-repo> && cd homelab-ops
 ansible-galaxy collection install -r requirements.yaml
 
 # 2. Set up vault
@@ -76,11 +79,14 @@ and go.
 | Playbook | What it does | Vars file pattern |
 |---|---|---|
 | `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller | `vars/<platform>.yaml` with `src_raw_files`, `backup_*` vars |
-| `backup_databases.yaml` | Dump Postgres/MariaDB databases from Docker containers | `vars/db_<host>_<engine>.yaml` with `db_names`, `container_name` |
+| `backup_databases.yaml` | Dump Postgres/MariaDB databases from Docker containers | `vars/db_<role>_<engine>.yaml` with `db_names`, `container_name` |
 | `update_systems.yaml` | OS packages + Docker container updates with version tracking | `vars/<platform>.yaml` with `update_*` vars |
 | `maintain_docker.yaml` | Prune unused Docker images | Needs `[docker]` group (children of `docker_stacks` + `docker_run`) |
 | `maintain_semaphore.yaml` | Clean stopped Semaphore tasks + prune old logging data | Runs on localhost |
 | `maintain_health.yaml` | 26 health checks across all SSH hosts + DB/API | `vars/semaphore_check.yaml` for thresholds |
+| `verify_backups.yaml` | Verify DB backups (restore to temp DB) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
+| `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm_restore=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
+| `restore_hosts.yaml` | Restore config/appdata — staging or inplace; selective app + coordinated cross-host DB | `vars/<platform>.yaml` with `app_restore` mapping |
 
 ### Platform-specific playbooks
 
@@ -132,7 +138,6 @@ for platforms you don't have are automatically skipped.
 ## What's in this repo
 
 ```
-semaphore/
 ├── group_vars/
 │   └── all.yaml                  # Shared defaults (remote_tmp, python interpreter)
 ├── vars/
@@ -151,12 +156,16 @@ semaphore/
 ├── templates/
 │   └── metube.conf.j2           # yt-dlp config template (download_videos only)
 ├── backup_*.yaml                # Backup playbooks
+├── verify_backups.yaml          # On-demand backup verification (DB + config)
+├── restore_databases.yaml       # Database restore from backups (safety-gated)
+├── restore_hosts.yaml           # Config/appdata restore — staging or inplace
 ├── update_*.yaml                # Update playbook
 ├── maintain_*.yaml              # Maintenance + health playbooks
 ├── download_videos.yaml         # MeTube/yt-dlp automation
 ├── add_ansible_user.yaml        # One-time user setup utility
 ├── requirements.yaml            # Ansible Galaxy collection dependencies
 ├── inventory.example.yaml       # Example inventory with expected group structure
+├── DESIGN.md                    # Full architecture, patterns, and design decisions
 └── CONTRIBUTING.md              # Contribution guide
 ```
 
@@ -171,7 +180,7 @@ usage). See [`inventory.example.yaml`](inventory.example.yaml) for the expected 
 mysql -u root -p < sql/init.sql
 ```
 
-This creates the `ansible_logging` database with all five tables. See
+This creates the `ansible_logging` database with all six tables. See
 [DESIGN.md](DESIGN.md#database-ansible_logging) for schema details.
 
 ### 2. Vault (secrets)
@@ -256,6 +265,22 @@ ansible-playbook update_systems.yaml \
 # Run health checks
 ansible-playbook maintain_health.yaml \
   -i inventory.yaml \
+  --vault-password-file ~/.vault_pass
+
+# Verify database backups (restore to temp DB, count tables, drop)
+ansible-playbook verify_backups.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=db_primary_postgres \
+  -e config_file=db_primary_postgres \
+  --vault-password-file ~/.vault_pass
+
+# Restore a single database (requires confirm_restore=yes safety gate)
+ansible-playbook restore_databases.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=db_primary_mariadb \
+  -e config_file=db_primary_mariadb \
+  -e confirm_restore=yes \
+  -e restore_db=nextcloud \
   --vault-password-file ~/.vault_pass
 
 # Dry-run any playbook (no changes, no notifications, no DB writes)

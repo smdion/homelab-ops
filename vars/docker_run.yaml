@@ -23,3 +23,32 @@ update_exclude_containers:
   - semaphore
   - mariadb
   - ansible
+
+# Restore support — maps app names to containers, DB config, and DB host.
+# Used by restore_hosts.yaml for selective and coordinated DB+appdata restore.
+app_restore:
+  sonarr:
+    containers: ["sonarr"]
+    db_config_file: db_primary_postgres
+    db_host: "{{ db_host_primary }}"
+    db_names: ["sonarr-log", "sonarr-main"]
+  radarr:
+    containers: ["radarr"]
+    db_config_file: db_primary_postgres
+    db_host: "{{ db_host_primary }}"
+    db_names: ["radarr-log", "radarr-main"]
+  prowlarr:
+    containers: ["prowlarr"]
+    db_config_file: db_primary_postgres
+    db_host: "{{ db_host_primary }}"
+    db_names: ["prowlarr-log", "prowlarr-main"]
+  nextcloud:
+    containers: ["nextcloud"]
+    db_config_file: db_primary_mariadb
+    db_host: "{{ db_host_primary }}"
+    db_names: ["nextcloud"]
+  immich:
+    containers: ["immich-server", "immich-machine-learning"]
+    db_config_file: db_secondary_postgres
+    db_host: "{{ db_host_secondary }}"
+    db_names: ["immich"]

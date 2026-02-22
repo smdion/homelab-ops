@@ -18,3 +18,17 @@ update_subtype: "Container"
 update_delay_days: 3
 update_exclude_services:
   - semaphore
+
+# Restore support — maps app names to containers, DB config, and DB host.
+# Used by restore_hosts.yaml for selective and coordinated DB+appdata restore.
+app_restore:
+  authentik:
+    containers: ["authentik", "authentik_worker"]
+    db_config_file: db_primary_postgres
+    db_host: "{{ db_host_primary }}"
+    db_names: ["authentik"]
+  jellyseerr:
+    containers: ["jellyseerr"]
+    db_config_file: db_primary_postgres
+    db_host: "{{ db_host_primary }}"
+    db_names: ["jellyseerr"]

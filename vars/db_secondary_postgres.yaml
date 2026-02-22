@@ -1,6 +1,6 @@
 # db_password is in vars/secrets.yaml (vault)
 # config_file: "db_secondary_postgres" must be set in Semaphore variable group JSON
-# (hosts_variable is the inventory group which doesn't match this filename)
+# (hosts_variable is the host group which doesn't match this filename)
 backup_tmp_dir: "/backup"
 backup_name: "Database"
 backup_url: "https://sql.{{ logging_domain_ext }}"
@@ -14,3 +14,7 @@ db_names:
   - "immich"
 is_postgres: true
 is_mariadb: false
+
+# Restore support — maps each DB to dependent containers ON THE SAME HOST as postgres-immich.
+db_container_deps:
+  immich: ["immich-server", "immich-machine-learning"]

@@ -58,6 +58,38 @@ ansible-playbook backup_hosts.yaml -i inventory.yaml \
 4. Update the CHECK comment numbering (sequential across all 3 plays)
 5. Update the check list comment in `tasks/log_health_check.yaml`
 
+## Restore / Verify Playbooks
+
+Restore and verify playbooks follow the same `block`/`rescue`/`always` error handling, Discord
+notification, and MariaDB logging patterns as backup playbooks. Additional conventions:
+
+- **Safety gate:** Destructive restore playbooks (`restore_databases.yaml`, `restore_hosts.yaml`
+  inplace mode) require `-e confirm_restore=yes`. A pre-task assertion fails with guidance if
+  omitted. Never remove this gate.
+- **Shared environments:** Verify and restore templates share the same Semaphore environment as
+  backup templates for the same target — do not create separate environments.
+- **`gunzip -cf`:** Always use `-cf` (not `-c`) when piping backup files to restore commands. The
+  `-f` flag handles both gzipped and plain SQL files transparently.
+- **Logging:** Verify operations log with `operation: verify`, restore operations log with
+  `operation: restore` to the `restores` table via `tasks/log_restore.yaml`.
+
+## Public Repository — Security
+
+This is a **public GitHub repository**. Never commit:
+
+- **Secrets or credentials** — passwords, API keys, tokens, webhook URLs, SSH keys
+- **Internal IP addresses** — private IPs (e.g., `192.168.x.x`, `10.x.x.x`)
+- **Internal domain names** — local DNS names (e.g., `*.home.local`, `*.internal.lan`)
+- **Personally identifiable information** — real names, email addresses, physical locations
+
+All secrets belong in `vars/secrets.yaml` (encrypted vault). Internal hostnames and domains
+should use placeholder values in documentation and examples (e.g., `myhost.example.local`).
+The `vars/secrets.yaml.example` template demonstrates this pattern.
+
+If you accidentally commit sensitive data, **do not** just delete it in a follow-up commit —
+it remains in git history. Instead, rotate the exposed credential immediately and contact
+the maintainer.
+
 ## Pull Request Expectations
 
 - Run `--check` on any modified playbook before submitting

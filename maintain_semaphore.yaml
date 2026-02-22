@@ -82,6 +82,7 @@
             - "DELETE FROM health_checks WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
             - "DELETE FROM maintenance WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
             - "DELETE FROM backups WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
+            - "DELETE FROM restores WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
           loop_control:
             label: "{{ item.split('FROM ')[1].split(' WHERE')[0] }}"
           no_log: true

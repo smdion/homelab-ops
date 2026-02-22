@@ -91,20 +91,19 @@ The project is organized into three phases:
 | Phase | Scope | Status |
 |-------|-------|--------|
 | **Phase 1 — Backup / Maintain / Update** | Automated backups, maintenance, and updates for all homelab systems | Active |
-| **Phase 2 — Verify / Restore** | Backup verification and automated restore procedures | Planned |
+| **Phase 2 — Verify / Restore** | Backup verification and automated restore procedures | Active |
 | **Phase 3 — Build** | Automated provisioning and infrastructure-as-code for building new hosts | Planned |
 
 Phase 1 covers the current playbooks: `backup_*.yaml`, `maintain_*.yaml`, `update_systems.yaml`,
-`download_videos.yaml`, and `add_ansible_user.yaml`. Phase 2 will add restore playbooks that
-can recover systems from the backups created in Phase 1. Phase 3 will add build/provisioning
-playbooks for standing up new hosts from scratch.
+`download_videos.yaml`, and `add_ansible_user.yaml`. Phase 2 adds `verify_backups.yaml`,
+`restore_databases.yaml`, and `restore_hosts.yaml` — recovering systems from the backups created
+in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new hosts from scratch.
 
 ---
 
 ## File Structure
 
 ```
-semaphore/
 ├── ansible.cfg                     # Ansible settings: disable retry files, YAML stdout callback
 ├── inventory.yaml                  # YAML-format Ansible inventory — NOT version-controlled (see below)
 ├── inventory.example.yaml          # Template inventory with example hosts and group structure
@@ -122,20 +121,21 @@ semaphore/
 │   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), maintenance_url
 │   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (protect_api_backup_path, protect_temp_file)
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
-│   ├── docker_stacks.yaml           # Docker Compose — backup/update, compose_project_path, exclude lists
-│   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists
+│   ├── docker_stacks.yaml           # Docker Compose — backup/update, compose_project_path, exclude lists, app_restore mapping
+│   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists, app_restore mapping
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
 │   ├── unraid_os.yaml               # unRAID OS backup
 │   ├── synology.yaml                # Synology NAS sync
-│   ├── db_primary_postgres.yaml     # Primary host Postgres DB backup
-│   ├── db_primary_mariadb.yaml      # Primary host MariaDB backup
-│   ├── db_secondary_postgres.yaml   # Secondary host Postgres DB backup
+│   ├── db_primary_postgres.yaml     # Primary host Postgres DB backup + db_container_deps for restore
+│   ├── db_primary_mariadb.yaml      # Primary host MariaDB backup + db_container_deps for restore
+│   ├── db_secondary_postgres.yaml   # Secondary host Postgres DB backup + db_container_deps for restore
 │   ├── download_default.yaml       # yt-dlp download profile: default (scheduled channel downloads)
 │   └── download_on_demand.yaml    # yt-dlp download profile: on_demand (bookmarklet-triggered; verbose, allows live streams)
 │
 ├── tasks/
 │   ├── notify_discord.yaml          # Shared Discord notification task
 │   ├── log_mariadb.yaml             # Shared MariaDB logging task (backups, updates, maintenance tables)
+│   ├── log_restore.yaml             # Shared MariaDB logging task (restores table — verify/restore operations)
 │   ├── log_health_check.yaml        # Shared MariaDB logging task (health_checks table — single row)
 │   ├── log_health_checks_batch.yaml # Shared MariaDB logging task (health_checks table — multi-row batch INSERT)
 │   ├── assert_config_file.yaml      # Shared pre-task: assert config_file is set
@@ -148,6 +148,9 @@ semaphore/
 ├── backup_hosts.yaml               # Config/Appdata backups (Proxmox, PiKVM, Unifi, AMP, Docker, unRAID); integrity verification
 ├── backup_databases.yaml           # Database backups (Postgres + MariaDB dumps); integrity verification
 ├── backup_offline.yaml             # unRAID → Synology offline sync (WOL + rsync); shutdown verification; logs both successful and failed syncs; hosts via hosts_variable
+├── verify_backups.yaml             # On-demand backup verification — DB backups restored to temp DB; config archives integrity-checked and staged
+├── restore_databases.yaml          # Database restore from backup dumps — safety-gated; supports single-DB restore on shared instances
+├── restore_hosts.yaml              # Config/appdata restore — staging (inspect) or inplace; selective app + coordinated cross-host DB restore
 ├── update_systems.yaml             # OS, application, and Docker container updates (Proxmox, PiKVM, AMP, Ubuntu, Docker); PVE cluster quorum pre-check; unRAID update_container script
 ├── maintain_amp.yaml               # AMP game server maintenance (versions, dumps, prune, journal)
 ├── maintain_semaphore.yaml         # Delete stopped/error + old download tasks from Semaphore DB + prune ansible_logging retention (runs on localhost)
@@ -203,7 +206,7 @@ update variables with comments explaining each field. Copy to `vars/<platform>.y
 a new platform.
 
 **`sql/init.sql`** — Standalone database schema file. Creates the `ansible_logging` database and
-all five tables (`backups`, `updates`, `maintenance`, `health_checks`, `health_check_state`).
+all six tables (`backups`, `updates`, `maintenance`, `restores`, `health_checks`, `health_check_state`).
 Run once with `mysql -u root -p < sql/init.sql`. Uses `CREATE TABLE IF NOT EXISTS` so re-running
 is safe.
 
@@ -268,6 +271,38 @@ pre-filter skips any lines that aren't complete JSON objects (yt-dlp warnings, t
 from descriptions containing literal newlines, etc.) so a single malformed entry doesn't crash
 the entire parse.
 
+**`verify_backups.yaml`** — On-demand backup verification. Tests DB backups by restoring to a temp
+database on the same container (create `_restore_test_<dbname>` → restore → count tables → drop).
+Tests config archives by verifying gzip integrity and extracting to a staging directory. Reuses
+existing `vars/db_*.yaml` and `vars/*.yaml` via standard `hosts_variable`/`config_file` routing.
+Logs results to `restores` table with `operation: verify`.
+
+**`restore_databases.yaml`** — Database restore from backup dumps. Supports restoring a specific
+database on a shared instance (e.g., just `nextcloud` on shared MariaDB without touching `semaphore`
+or `ansible_logging`). Safety-gated with `confirm_restore=yes` assertion. Creates pre-restore safety
+backup by default. Stops only **same-host** dependent containers via `db_container_deps` mapping
+(from `vars/db_*.yaml`) — cross-host app containers have empty deps and must be stopped manually or
+via `restore_hosts.yaml -e include_databases=yes`. Supports `restore_db` (single DB) and
+`restore_date` (specific backup date) parameters.
+
+**`restore_hosts.yaml`** — Config/appdata restore from backup archives. Two modes: `staging` (extract
+to `/tmp/restore_staging/` for inspection) and `inplace` (extract to actual paths, requires
+`confirm_restore=yes`). Supports selective app restore via `-e restore_app=sonarr` (convention-based:
+app name maps to subdirectory under `src_raw_files[0]`). Supports coordinated DB+appdata restore via
+`-e include_databases=yes` — loads DB vars into a `_db_vars` namespace (avoiding collision with
+play-level Docker vars) and uses `delegate_to: db_host` to restore databases on the correct host
+(handles cross-host scenarios like appdata on one host + DB on another). Multi-container
+apps handled via `app_restore[restore_app].containers` mapping in `vars/docker_*.yaml`. `serial: 1`
+matches `backup_hosts.yaml`. Requires `--limit <hostname>` when using `restore_app` on multi-host
+groups.
+
+**`tasks/log_restore.yaml`** — Shared MariaDB logging for the `restores` table. Uses
+`community.mysql.mysql_query` with parameterized queries. Separate from `log_mariadb.yaml` because
+the `restores` table has a different schema (`source_file`, `operation`, `detail` instead of
+`file_name`/`file_size` or `type`/`subtype`). Vars: `log_hostname`, `restore_application`,
+`restore_source_file`, `restore_type`, `restore_subtype`, `restore_operation`, `restore_status`,
+`restore_detail`.
+
 **`tasks/log_mariadb.yaml`** — Shared MariaDB logging for the three operational tables (`backups`,
 `updates`, `maintenance`). Receives `log_hostname` and passes it directly to the INSERT — no
 transformation applied. Uses `community.mysql.mysql_query` with parameterized queries
@@ -294,7 +329,7 @@ and `assert_disk_min_gb`. Uses `df --output=avail` + `ansible.builtin.assert`. H
 **`tasks/assert_db_connectivity.yaml`** — Shared pre-task assertion that the MariaDB logging
 database is reachable. Runs `SELECT 1` via `community.mysql.mysql_query`. Inherits `logging_db_*`
 vars from playbook scope. Has `check_mode: false` so it validates connectivity during `--check`.
-Used by all 10 operational playbooks that log to MariaDB (every playbook except `download_videos.yaml`
+Used by all 13 operational playbooks that log to MariaDB (every playbook except `download_videos.yaml`
 and `add_ansible_user.yaml`).
 
 **`maintain_health.yaml` — check notes:**
@@ -389,6 +424,12 @@ Current cases requiring explicit `config_file`: `ubuntu_os`, `unraid_os`, `synol
 `db_primary_postgres`, `db_primary_mariadb`, `db_secondary_postgres`, `download_default`,
 `download_on_demand`.
 
+**Environment naming convention:** Semaphore environment names match the `config_file` value
+(or `hosts_variable` when `config_file` is not needed). For database targets, use role-based
+names (`db_primary_postgres`, `db_primary_mariadb`, `db_secondary_postgres`) — never
+hostname-based names. Verify and restore templates **share** the same Semaphore environment as
+backup templates for the same target — do not create separate environments.
+
 **`hosts_variable` lives in Semaphore only** — it is resolved at `hosts:` parse time before
 `vars_files` load. Any copy in a `vars/` file would be ignored for host targeting.
 
@@ -419,6 +460,8 @@ where multiple backup types exist for the same target:
 | `Update — {Target}` | `Update — Proxmox`, `Update — Ubuntu`, `Update — Docker Stacks`, `Update — Docker Run` |
 | `Maintain — {Target}` | `Maintain — AMP`, `Maintain — Docker`, `Maintain — Health` |
 | `Download — {Target} [{Subtype}]` | `Download — Videos`, `Download — Videos [On Demand]` |
+| `Verify — {Target}` | `Verify — PostgreSQL Databases`, `Verify — Proxmox [Config]` |
+| `Restore — {Target} [{Subtype}]` | `Restore — PostgreSQL Databases`, `Restore — Docker Run [Appdata]` |
 
 The `[Subtype]` suffix makes templates instantly distinguishable when a target has more than one
 variant (e.g., `Backup — unRAID [Config]` vs `Backup — unRAID [Offline]`, or `Download — Videos`
@@ -443,13 +486,14 @@ manual lookup is needed. Replace the `<placeholders>` with actual values:
 INSERT INTO project__environment (project_id, name, json, password, env)
 VALUES (1, '<env_name>', '{"var_name": "value"}', '', '{}');
 
--- 2. Create template (subquery resolves environment_id)
+-- 2. Create template (subqueries resolve repository_id and environment_id)
 INSERT INTO project__template
   (project_id, inventory_id, repository_id, environment_id, playbook, name, type, app,
    suppress_success_alerts, arguments, allow_override_args_in_task,
    allow_override_branch_in_task, allow_parallel_tasks, autorun, tasks)
 VALUES
-  (1, <inventory_id>, 1,
+  (1, <inventory_id>,
+   (SELECT id FROM project__repository WHERE project_id = 1 AND git_branch = '<branch_name>'),
    (SELECT id FROM project__environment WHERE project_id = 1 AND name = '<env_name>'),
    '<path/to/playbook.yaml>', '<Template Name>', '',
    'ansible', 1, '[]', 0, 0, 0, 0, 0);
@@ -463,7 +507,8 @@ VALUES (1,
 
 Common `inventory_id` values: 3 (`ansible-user-ssh`), 12 (`root`). See [Inventories](#inventories)
 for the full list. `vault_key_id = 30` is `ansible-vault` — the vault decryption password.
-See [Key Store](#key-store).
+See [Key Store](#key-store). The `git_branch` subquery resolves the repository by branch name —
+use `'main'` for production templates or the feature branch name for testing.
 
 **Verify the result:**
 
@@ -482,7 +527,8 @@ WHERE t.project_id = 1 AND t.name = '<Template Name>';
 ### vars_files loading
 
 The main data playbooks (`backup_hosts.yaml`, `backup_databases.yaml`, `update_systems.yaml`,
-`backup_offline.yaml`, `download_videos.yaml`) load two vars files at the play level:
+`backup_offline.yaml`, `download_videos.yaml`, `verify_backups.yaml`, `restore_databases.yaml`,
+`restore_hosts.yaml`) load two vars files at the play level:
 
 ```yaml
 vars_files:
@@ -541,6 +587,8 @@ vary by playbook category but follow consistent patterns within each category:
 | **Maintenance** (`maintain_*` playbooks) | `maintenance_url` (play-level var) | Description, Host | Failure only |
 | **Health** (`maintain_health`) | `maintenance_url` / per-check | Custom per alert type | Per-check logic |
 | **Download** (`download_videos`) | `video.url` (per-video) | Custom per video | Always (success + failure) |
+| **Verify** (`verify_backups`) | `backup_url` (from `vars/*.yaml`) | Description, Host, Source File, Detail | Always |
+| **Restore** (`restore_databases`, `restore_hosts`) | `backup_url` (from `vars/*.yaml`) | Description, Host, Source File, Detail/Tables | Always |
 
 **URL variable conventions:**
 
@@ -555,11 +603,11 @@ notification should include at minimum the Description and Host fields.
 
 > **Shared task review:** When modifying playbooks, check whether any inline task blocks are
 > duplicated across multiple playbooks. If so, they are a candidate for extraction into `tasks/`.
-> The current shared files (`notify_discord.yaml`, `log_mariadb.yaml`, `log_health_check.yaml`,
-> `assert_config_file.yaml`, `assert_disk_space.yaml`, `assert_db_connectivity.yaml`) cover the
-> most common operations, but inline cleanup patterns or host-type detection logic may have
-> accumulated in individual playbooks and could be worth consolidating if the same pattern
-> appears more than once.
+> The current shared files (`notify_discord.yaml`, `log_mariadb.yaml`, `log_restore.yaml`,
+> `log_health_check.yaml`, `log_health_checks_batch.yaml`, `assert_config_file.yaml`,
+> `assert_disk_space.yaml`, `assert_db_connectivity.yaml`) cover the most common operations,
+> but inline cleanup patterns or host-type detection logic may have accumulated in individual
+> playbooks and could be worth consolidating if the same pattern appears more than once.
 
 ### Roles vs. flat tasks/ structure
 
@@ -568,7 +616,7 @@ the right choice when a component needs its own defaults, handlers, templates, o
 
 **Current state — tasks are the right fit:**
 
-The project has six shared task files and no handlers or templates. The `tasks/` files are thin
+The project has eight shared task files and no handlers or templates. The `tasks/` files are thin
 glue code (send a Discord embed, run an INSERT, assert a precondition). At this scale, promoting
 them to roles would add directory structure without gaining any role-specific features.
 
@@ -744,6 +792,9 @@ and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
 | `maintain_semaphore.yaml` | DB cleanup and retention pruning simulated. |
 | `maintain_unifi.yaml` | Service restart simulated. |
 | `download_videos.yaml` | Config deploy simulated. yt-dlp execution skipped. Manifest read runs (empty). Temp file discovery runs; deletions simulated. |
+| `verify_backups.yaml` | Backup file search runs. Integrity checks run. No temp databases created. No archives extracted. Discord/DB suppressed. |
+| `restore_databases.yaml` | Backup file search runs. Safety backup skipped. No restore performed. No container management. Discord/DB suppressed. |
+| `restore_hosts.yaml` | Backup file search runs. Archive integrity verified. No extraction or container management. Discord/DB suppressed. |
 
 ### Pre-task validations
 
@@ -753,16 +804,19 @@ any work starts. Two shared assertion task files are available:
 **`tasks/assert_disk_space.yaml`** — Checks free space on a filesystem path. Caller passes
 `assert_disk_path` and `assert_disk_min_gb` via `vars:`. Used by `backup_hosts.yaml` (remote
 `backup_tmp_dir` + controller `/backup`), `backup_databases.yaml` (remote `backup_tmp_dir`),
-and `update_systems.yaml` (root filesystem `/`).
+`update_systems.yaml` (root filesystem `/`), `restore_databases.yaml` (`/tmp`), and
+`restore_hosts.yaml` (`/tmp`).
 
 **`tasks/assert_db_connectivity.yaml`** — Verifies the MariaDB logging database is reachable
-via `SELECT 1`. Used by all 10 operational playbooks that call `tasks/log_mariadb.yaml` in their
+via `SELECT 1`. Used by all 13 operational playbooks that call `tasks/log_mariadb.yaml` or
+`tasks/log_restore.yaml` in their
 `always:` block. Catches MariaDB outages early — before any backup, update, or maintenance work
 starts — rather than failing silently in the `always:` logging step.
 
 **`tasks/assert_config_file.yaml`** — Asserts `config_file` is defined and non-empty, catching
 misconfigured Semaphore variable groups before work starts. Used by `backup_hosts.yaml`,
-`backup_databases.yaml`, `update_systems.yaml`, `backup_offline.yaml`, and `download_videos.yaml`.
+`backup_databases.yaml`, `update_systems.yaml`, `backup_offline.yaml`, `download_videos.yaml`,
+`verify_backups.yaml`, `restore_databases.yaml`, and `restore_hosts.yaml`.
 
 The `assert_disk_space` and `assert_db_connectivity` tasks have `check_mode: false` on their
 shell/query pre-steps so they validate during `--check`. `assert_config_file` uses
@@ -790,7 +844,7 @@ observability.
 2. Delete successful `Download *` tasks older than `download_task_retention_days` (default: 7)
    from the `task` table — prevents download history from clogging the Semaphore UI
 3. Prune rows older than `retention_days` (default: 365) from `health_checks`, `maintenance`,
-   and `backups` tables
+   `backups`, and `restores` tables
 
 The `updates` table is intentionally excluded from retention — it stores one row per distinct
 version via `INSERT ... ON DUPLICATE KEY UPDATE`, making it a sparse version history rather than a run log. Rows
@@ -1056,6 +1110,31 @@ to determine which Semaphore task failures and maintenance failures are "new" si
 Updated via `INSERT ... ON DUPLICATE KEY UPDATE` at the end of each successful health check.
 Replaces the previous `/tmp/health_check_state.json` file, which was lost on container restart.
 
+#### `restores` table
+
+```sql
+CREATE TABLE restores (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  application VARCHAR(255) NOT NULL,
+  hostname VARCHAR(255) NOT NULL,
+  source_file VARCHAR(255),
+  restore_type VARCHAR(50) NOT NULL,
+  restore_subtype VARCHAR(50) NOT NULL,
+  operation VARCHAR(20) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'success',
+  detail TEXT,
+  timestamp DATETIME,
+  INDEX idx_hostname (hostname),
+  INDEX idx_timestamp (timestamp),
+  INDEX idx_operation (operation)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+```
+
+Logs both verification (`operation: verify`) and restore (`operation: restore`) operations.
+`source_file` tracks which backup file was used. `detail` holds free-text context (e.g.,
+"15 tables verified", "sonarr restored inplace + sonarr-log, sonarr-main DB(s) restored").
+Written by `tasks/log_restore.yaml`, separate from `log_mariadb.yaml` due to the different schema.
+
 ### Naming scheme
 
 Every DB row uses four columns to describe what happened. Their meaning and naming conventions
@@ -1197,6 +1276,17 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `maintain_amp.yaml` | AMP | Servers | Maintenance |
 | `maintain_health.yaml` | Semaphore | Local | Health Check |
 
+**Restores** (type/subtype reuse the backup vars file values):
+
+| vars file source | application | restore_type | restore_subtype | operation |
+|---|---|---|---|---|
+| `vars/db_*.yaml` | (db name)-db | Servers | Database | verify / restore |
+| `vars/proxmox.yaml` | PVE or PBS | Appliances | Config | verify / restore |
+| `vars/docker_stacks.yaml` | Docker or (app name) | Servers | Appdata | verify / restore |
+| `vars/docker_run.yaml` | Docker or (app name) | Servers | Appdata | verify / restore |
+| `vars/unraid_os.yaml` | unRAID | Servers | Config | verify / restore |
+| `vars/pikvm.yaml` | PiKVM | Appliances | Config | verify / restore |
+
 ### Expected hostname format
 
 All hostnames in the inventory should be FQDNs using a consistent internal domain suffix
@@ -1234,6 +1324,9 @@ logging_domain_local: "..."         # e.g. "home.local" — internal domain suff
 logging_domain_ext: "..."           # e.g. "example.com" — external domain suffix for URLs
 semaphore_api_token: "..."
 semaphore_host_url: "..."           # internal IP URL, e.g. "http://10.0.0.1:3000"
+controller_hostname: "..."          # short hostname of Semaphore controller (builds controller_fqdn)
+db_host_primary: "..."              # inventory_hostname of primary DB host (restore cross-host delegate_to)
+db_host_secondary: "..."            # inventory_hostname of secondary DB host (restore cross-host delegate_to)
 
 # --- Optional: only needed for specific playbooks ---
 metube_webhook_id: "..."            # MeTube Discord channel — per-video download notifications (download_videos.yaml)
@@ -1243,7 +1336,7 @@ ansible_user_ssh_pubkey: "..."      # SSH public key for ansible user (add_ansib
 synology_ip: "..."                  # Synology NAS IP address (backup_offline.yaml via vars/synology.yaml)
 synology_mac: "..."                 # Synology NAS MAC for WOL (backup_offline.yaml via vars/synology.yaml)
 synology_name: "..."                # Synology NAS mount name (backup_offline.yaml via vars/synology.yaml)
-db_password: "..."                  # Database password for Docker container DB dumps (backup_databases.yaml)
+db_password: "..."                  # Database password for Docker container DB dumps (backup/restore/verify playbooks)
 vps_fqdn: "..."                    # VPS hostname for WireGuard config extraction (backup_hosts.yaml via vars/unifi_network.yaml)
 ```
 
@@ -1297,6 +1390,28 @@ Edit `vars/secrets.yaml` (`ansible-vault edit vars/secrets.yaml`) and update `lo
 and `logging_domain_ext`. Propagates automatically to all future INSERTs and the health check query.
 Existing rows are not affected — update them manually if needed.
 
+### Restore a database from backup
+
+```bash
+# Restore a single DB (latest backup) — e.g., nextcloud on shared MariaDB
+ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_mariadb -e confirm_restore=yes -e restore_db=nextcloud
+
+# Restore from a specific date
+ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm_restore=yes -e restore_db=authentik -e restore_date=2026-02-20
+```
+
+### Restore an app's appdata + database together
+
+```bash
+# Coordinated restore — appdata on one host, DB on another (cross-host via delegate_to)
+ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> \
+  -e restore_app=sonarr -e include_databases=yes -e restore_mode=inplace -e confirm_restore=yes -e manage_docker=yes
+```
+
+Always use `--limit <hostname>` with `-e restore_app` since `docker_stacks`/`docker_run` are
+multi-host groups. The `app_restore` mapping in `vars/docker_*.yaml` provides the container list,
+DB config file, and `db_host` for cross-host `delegate_to`.
+
 ### Useful DB queries
 
 ```sql
@@ -1320,6 +1435,9 @@ SELECT CONCAT(hostname, ' (', tbl, ')') FROM (
   WHERE hostname NOT LIKE '%.home.local' AND hostname NOT LIKE '%.example.com'
   UNION
   SELECT hostname, 'maintenance' FROM maintenance
+  WHERE hostname NOT LIKE '%.home.local' AND hostname NOT LIKE '%.example.com'
+  UNION
+  SELECT hostname, 'restores' FROM restores
   WHERE hostname NOT LIKE '%.home.local' AND hostname NOT LIKE '%.example.com'
 ) AS bad ORDER BY hostname;
 
@@ -1437,6 +1555,17 @@ Key panel features:
   Prevents shell injection if the threshold variable contained special characters. The variable
   must not be named `warn` — Ansible's shell/command module parses `key=value` pairs from the
   command string, and `warn` collides with a removed module parameter (ansible-core 2.18+).
+
+### Restore safety guards
+
+- **`confirm_restore=yes` gate** (`restore_databases.yaml`, `restore_hosts.yaml`): Destructive
+  restore operations require explicit `-e confirm_restore=yes` on the command line. Without it,
+  the pre-task assertion fails with a guidance message. Prevents accidental data overwrites.
+- **Pre-restore safety backup** (`restore_databases.yaml`): Before restoring a database, the current
+  state is dumped to `/tmp/pre_restore_<db>_<date>.sql` as a safety net. Controlled by
+  `pre_backup` (defaults to `yes`).
+- **`no_log: true` on all DB restore tasks**: All restore/verify tasks that execute `docker exec`
+  with database credentials have `no_log: true` to prevent password exposure in logs.
 
 ### Backup integrity verification
 

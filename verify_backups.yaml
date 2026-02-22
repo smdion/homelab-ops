@@ -1,0 +1,331 @@
+---
+# Verify that the latest backups are restorable.
+# Database backups: restore to a temp DB on the same container, count tables, drop.
+# Config backups: verify gzip integrity, extract to staging dir, count files.
+# Sends Discord notification and logs result to restores table.
+#
+# Usage:
+#   ansible-playbook verify_backups.yaml -e hosts_variable=db_primary_postgres
+#   ansible-playbook verify_backups.yaml -e hosts_variable=proxmox
+
+- name: Verify latest backups are restorable
+  hosts: "{{ hosts_variable }}"
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/{{ config_file }}.yaml
+  vars:
+    config_file: "{{ hosts_variable }}"
+
+  pre_tasks:
+    - name: Assert config_file is defined and non-empty
+      include_tasks: tasks/assert_config_file.yaml
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize verify state
+      ansible.builtin.set_fact:
+        verify_failed: false
+        combined_results: []
+      tags: [always]
+
+    - block:
+        # ===== DATABASE VERIFICATION =====
+        - name: Find latest backup file per database on controller
+          ansible.builtin.shell: ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_{{ item }}_*.sql 2>/dev/null | head -1
+          loop: "{{ db_names }}"
+          register: _db_backup_files
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          check_mode: false
+          when: is_postgres | default(false) | bool or is_mariadb | default(false) | bool
+          tags: [always]
+
+        - name: Assert backup files exist
+          ansible.builtin.assert:
+            that: _db_backup_files.results[idx].stdout | length > 0
+            fail_msg: "No backup found for database {{ item }} on controller"
+          loop: "{{ db_names }}"
+          loop_control:
+            index_var: idx
+          when: is_postgres | default(false) | bool or is_mariadb | default(false) | bool
+          tags: [always]
+
+        - name: Copy backup files to target host
+          ansible.builtin.copy:
+            src: "{{ _db_backup_files.results[idx].stdout }}"
+            dest: "/tmp/verify_{{ item }}.sql"
+          loop: "{{ db_names }}"
+          loop_control:
+            index_var: idx
+          become: true
+          when: is_postgres | default(false) | bool or is_mariadb | default(false) | bool
+          tags: [always]
+
+        - name: Create temp verification databases and restore
+          ansible.builtin.shell: |
+            {% if is_postgres | default(false) | bool %}
+            docker exec {{ container_name }} psql -U {{ db_username }} -c 'CREATE DATABASE "_restore_test_{{ item }}";' postgres
+            gunzip -cf /tmp/verify_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} "_restore_test_{{ item }}"
+            {% elif is_mariadb | default(false) | bool %}
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "CREATE DATABASE \`_restore_test_{{ item }}\`;"
+            gunzip -cf /tmp/verify_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} _restore_test_{{ item }}
+            {% endif %}
+          environment:
+            DB_PASSWORD: "{{ db_password }}"
+          loop: "{{ db_names }}"
+          become: true
+          no_log: true
+          when:
+            - is_postgres | default(false) | bool or is_mariadb | default(false) | bool
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Count tables in temp databases
+          ansible.builtin.shell: |
+            {% if is_postgres | default(false) | bool %}
+            docker exec {{ container_name }} psql -U {{ db_username }} -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" "_restore_test_{{ item }}"
+            {% elif is_mariadb | default(false) | bool %}
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -sN -e "SELECT count(*) FROM information_schema.tables WHERE table_schema = '_restore_test_{{ item }}';"
+            {% endif %}
+          environment:
+            DB_PASSWORD: "{{ db_password }}"
+          loop: "{{ db_names }}"
+          register: _table_counts
+          become: true
+          changed_when: false
+          no_log: true
+          when:
+            - is_postgres | default(false) | bool or is_mariadb | default(false) | bool
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Drop temp verification databases
+          ansible.builtin.shell: |
+            {% if is_postgres | default(false) | bool %}
+            docker exec {{ container_name }} psql -U {{ db_username }} -c 'DROP DATABASE IF EXISTS "_restore_test_{{ item }}";' postgres
+            {% elif is_mariadb | default(false) | bool %}
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "DROP DATABASE IF EXISTS \`_restore_test_{{ item }}\`;"
+            {% endif %}
+          environment:
+            DB_PASSWORD: "{{ db_password }}"
+          loop: "{{ db_names }}"
+          become: true
+          no_log: true
+          when:
+            - is_postgres | default(false) | bool or is_mariadb | default(false) | bool
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Clean up temp backup files on target
+          ansible.builtin.file:
+            path: "/tmp/verify_{{ item }}.sql"
+            state: absent
+          loop: "{{ db_names }}"
+          become: true
+          when: is_postgres | default(false) | bool or is_mariadb | default(false) | bool
+          tags: [always]
+
+        - name: Collect database verification results
+          ansible.builtin.set_fact:
+            combined_results: >-
+              {{
+                combined_results + [{
+                  'db_name': db_names[idx],
+                  'source_file': _db_backup_files.results[idx].stdout | basename,
+                  'table_count': _table_counts.results[idx].stdout | default('0') | trim,
+                  'status': 'success'
+                }]
+              }}
+          loop: "{{ range(0, db_names | length) | list }}"
+          loop_control:
+            loop_var: idx
+          when:
+            - is_postgres | default(false) | bool or is_mariadb | default(false) | bool
+            - not ansible_check_mode
+          tags: [always]
+
+        # ===== CONFIG BACKUP VERIFICATION =====
+        - name: Find latest config backup on controller
+          ansible.builtin.shell: ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_*.tar.gz 2>/dev/null | head -1
+          register: _config_backup_file
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          check_mode: false
+          when: src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool)
+          tags: [always]
+
+        - name: Assert config backup file exists
+          ansible.builtin.assert:
+            that: _config_backup_file.stdout | length > 0
+            fail_msg: "No config backup found for {{ inventory_hostname }} on controller"
+          when: src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool)
+          tags: [always]
+
+        - name: Verify config backup integrity
+          ansible.builtin.shell: gunzip -t "{{ _config_backup_file.stdout }}"
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          check_mode: false
+          when: src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool)
+          tags: [always]
+
+        - name: Create staging directory on controller
+          ansible.builtin.file:
+            state: directory
+            path: "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
+          delegate_to: localhost
+          become: false
+          when:
+            - src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool)
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Extract backup to staging directory
+          ansible.builtin.shell: tar xzf "{{ _config_backup_file.stdout }}" -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
+          delegate_to: localhost
+          become: false
+          when:
+            - src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool)
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Count extracted files
+          ansible.builtin.shell: find "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}" -type f | wc -l
+          register: _extracted_count
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          when:
+            - src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool)
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Clean up staging directory
+          ansible.builtin.file:
+            path: "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
+            state: absent
+          delegate_to: localhost
+          become: false
+          when: src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool)
+          tags: [always]
+
+        - name: Collect config verification results
+          ansible.builtin.set_fact:
+            combined_results: >-
+              {{
+                combined_results + [{
+                  'db_name': backup_name,
+                  'source_file': _config_backup_file.stdout | basename,
+                  'table_count': _extracted_count.stdout | default('0') | trim,
+                  'status': 'success'
+                }]
+              }}
+          when:
+            - src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool)
+            - not ansible_check_mode
+          tags: [always]
+
+      rescue:
+        - name: Set verify failed flag
+          ansible.builtin.set_fact:
+            verify_failed: true
+
+        - name: Drop any leftover temp databases (cleanup on failure)
+          ansible.builtin.shell: |
+            {% if is_postgres | default(false) | bool %}
+            docker exec {{ container_name }} psql -U {{ db_username }} -c 'DROP DATABASE IF EXISTS "_restore_test_{{ item }}";' postgres
+            {% elif is_mariadb | default(false) | bool %}
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -e "DROP DATABASE IF EXISTS \`_restore_test_{{ item }}\`;"
+            {% endif %}
+          environment:
+            DB_PASSWORD: "{{ db_password | default('') }}"
+          loop: "{{ db_names | default([]) }}"
+          become: true
+          ignore_errors: true
+          no_log: true
+          when: is_postgres | default(false) | bool or is_mariadb | default(false) | bool
+          tags: [always]
+
+        - name: Clean up staging directory on failure
+          ansible.builtin.file:
+            path: "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
+            state: absent
+          delegate_to: localhost
+          become: false
+          ignore_errors: true
+          when: src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool)
+          tags: [always]
+
+      always:
+        - name: Send Discord notification for each result
+          include_tasks: tasks/notify_discord.yaml
+          loop: "{{ combined_results }}"
+          loop_control:
+            loop_var: verify_result
+          vars:
+            discord_title: "{{ backup_name }}"
+            discord_description: "Verification {{ 'Successful' if not verify_failed else 'Failed' }} — {{ verify_result.db_name }}"
+            discord_color: "{{ 32768 if not verify_failed else 16711680 }}"
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "Backup Verification"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Source File"
+                value: "{{ verify_result.source_file }}"
+              - name: "Detail"
+                value: "{{ verify_result.table_count }} {{ 'tables' if is_postgres | default(false) | bool or is_mariadb | default(false) | bool else 'files' }} verified"
+          tags: [always]
+
+        - name: Send Discord notification for unhandled block error
+          include_tasks: tasks/notify_discord.yaml
+          when: verify_failed and combined_results | length == 0
+          vars:
+            discord_title: "{{ backup_name }}"
+            discord_description: "Verification Failed — check Semaphore logs for details"
+            discord_color: 16711680
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "Backup Verification"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+          tags: [always]
+
+        - name: Log verification results to MariaDB
+          include_tasks: tasks/log_restore.yaml
+          loop: "{{ combined_results }}"
+          loop_control:
+            loop_var: verify_result
+          vars:
+            log_hostname: "{{ inventory_hostname }}"
+            restore_application: "{{ verify_result.db_name }}{{ '-db' if is_postgres | default(false) | bool or is_mariadb | default(false) | bool else '' }}"
+            restore_source_file: "{{ verify_result.source_file }}"
+            restore_type: "{{ backup_type }}"
+            restore_subtype: "{{ backup_subtype }}"
+            restore_operation: "verify"
+            restore_status: "{{ 'failed' if verify_failed else 'success' }}"
+            restore_detail: "{{ verify_result.table_count }} {{ 'tables' if is_postgres | default(false) | bool or is_mariadb | default(false) | bool else 'files' }} verified"
+          tags: [always]
+
+        - name: Log unhandled failure to MariaDB
+          include_tasks: tasks/log_restore.yaml
+          when: verify_failed and combined_results | length == 0
+          vars:
+            log_hostname: "{{ inventory_hostname }}"
+            restore_application: "{{ backup_name }}"
+            restore_source_file: "unknown"
+            restore_type: "{{ backup_type }}"
+            restore_subtype: "{{ backup_subtype }}"
+            restore_operation: "verify"
+            restore_status: "failed"
+            restore_detail: "Verification failed — check Semaphore logs"
+          tags: [always]

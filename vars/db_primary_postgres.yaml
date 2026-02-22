@@ -19,3 +19,15 @@ db_names:
   - "sonarr-main"
 is_postgres: true
 is_mariadb: false
+
+# Restore support — maps each DB to dependent containers ON THE SAME HOST as postgres.
+# Cross-host deps (app on a different host) are [] — use restore_hosts.yaml -e include_databases=yes.
+db_container_deps:
+  authentik: ["authentik", "authentik_worker"]
+  jellyseerr: []
+  prowlarr-log: []
+  prowlarr-main: []
+  radarr-log: []
+  radarr-main: []
+  sonarr-log: []
+  sonarr-main: []
