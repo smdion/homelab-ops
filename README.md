@@ -410,6 +410,14 @@ ansible-playbook deploy_stacks.yaml \
   --limit myhost \
   --vault-password-file ~/.vault_pass
 
+# Render .env and compose files without starting containers (validation/pre-migration)
+ansible-playbook deploy_stacks.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  -e deploy_skip_up=true \
+  --limit myhost \
+  --vault-password-file ~/.vault_pass
+
 # Provision a new Ubuntu VM on Proxmox
 ansible-playbook build_ubuntu.yaml \
   -i inventory.yaml \
