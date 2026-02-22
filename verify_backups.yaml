@@ -189,8 +189,10 @@
 
         - name: Extract backup to staging directory
           ansible.builtin.shell: tar xzf "{{ _config_backup_file.stdout }}" -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
+          register: _tar_extract
           delegate_to: localhost
           become: false
+          failed_when: _tar_extract.rc != 0 and 'Cannot hard link' not in _tar_extract.stderr
           when:
             - src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool)
             - not ansible_check_mode
