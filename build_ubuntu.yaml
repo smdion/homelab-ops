@@ -348,7 +348,7 @@
 
         - name: Restart sshd
           ansible.builtin.systemd:
-            name: sshd
+            name: ssh
             state: restarted
           when: _ssh_config is changed
 
