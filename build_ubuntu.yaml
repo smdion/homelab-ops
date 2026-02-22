@@ -68,11 +68,12 @@
           ansible.builtin.add_host:
             name: pve_builder
             ansible_host: "{{ pve_api_host }}"
-            ansible_user: root
+            ansible_user: ansible
           when: _vm_state == 'present'
 
         - name: Ensure cloud-init template exists on Ceph storage
           delegate_to: pve_builder
+          become: true
           ansible.builtin.shell: |
             if [ -f /etc/pve/qemu-server/{{ pve_template_vmid }}.conf ]; then
               echo "Template already exists"
