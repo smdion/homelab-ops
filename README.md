@@ -26,12 +26,12 @@ visibility.
 | **Restore** | Safety-gated database and appdata restore with pre-restore snapshots, selective per-app targeting, and coordinated cross-host recovery |
 | **Rollback** | Revert Docker containers to previous image versions — fast local re-tag or registry pull; safety-gated with per-service targeting |
 | **Health** | 26 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord alerts and anomaly detection |
-| **Updates** | OS package and Docker container updates with version tracking per host |
+| **Updates** | OS package and Docker container updates with version tracking, optional delay, and per-container exclusions |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
 | **Deploy** | Grafana dashboard + datasource deployment via API with automatic threshold syncing |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
-version status per host, stale detection, health trends, and maintenance logs across 27 panels.
+version status per host, stale detection, health trends, and maintenance logs across 21 panels.
 
 ## Stack
 
@@ -85,15 +85,15 @@ and go.
 
 | Playbook | What it does | Vars file pattern |
 |---|---|---|
-| `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller | `vars/<platform>.yaml` with `src_raw_files`, `backup_*` vars |
+| `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller; auto-handles PiKVM RW/RO filesystem | `vars/<platform>.yaml` with `src_raw_files`, `backup_*` vars |
 | `backup_databases.yaml` | Dump Postgres/MariaDB databases from Docker containers | `vars/db_<role>_<engine>.yaml` with `db_names`, `container_name` |
-| `update_systems.yaml` | OS packages + Docker container updates with version tracking | `vars/<platform>.yaml` with `update_*` vars |
+| `update_systems.yaml` | OS packages + Docker container updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers` | `vars/<platform>.yaml` with `update_*` vars |
 | `maintain_docker.yaml` | Prune unused Docker images | Needs `[docker]` group (children of `docker_stacks` + `docker_run`) |
-| `maintain_semaphore.yaml` | Clean stopped Semaphore tasks + prune old logging data | Runs on localhost |
+| `maintain_semaphore.yaml` | Clean stopped Semaphore tasks + prune logging rows older than `retention_days` (default 365) | Runs on localhost |
 | `maintain_health.yaml` | 26 health checks across all SSH hosts + DB/API | `vars/semaphore_check.yaml` for thresholds |
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm_restore=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
-| `restore_hosts.yaml` | Restore config/appdata — staging or inplace; selective app + coordinated cross-host DB | `vars/<platform>.yaml` with `app_restore` mapping |
+| `restore_hosts.yaml` | Restore config/appdata — staging or inplace; safety-gated with `confirm_restore=yes` for inplace; selective app + coordinated cross-host DB | `vars/<platform>.yaml` with `app_restore` mapping |
 | `rollback_docker.yaml` | Revert Docker containers to previous images; safety-gated with `confirm_rollback=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
 
 ### Platform-specific playbooks
@@ -106,7 +106,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `maintain_unifi.yaml` | Unifi Network (UDMP) | Service restart |
 | `maintain_cache.yaml` | Ubuntu / Debian | Drop Linux page cache |
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | WOL, rsync, shutdown verification |
-| `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with Discord notifications |
+| `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `add_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `deploy_grafana.yaml` | Grafana (any host) | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
@@ -169,7 +169,7 @@ for platforms you don't have are automatically skipped.
 ├── backup_*.yaml                # Backup playbooks
 ├── verify_backups.yaml          # On-demand backup verification (DB + config)
 ├── restore_databases.yaml       # Database restore from backups (safety-gated)
-├── restore_hosts.yaml           # Config/appdata restore — staging or inplace
+├── restore_hosts.yaml           # Config/appdata restore — staging or inplace (safety-gated for inplace)
 ├── rollback_docker.yaml         # Docker container rollback — revert to previous versions (safety-gated)
 ├── update_*.yaml                # Update playbook (saves rollback snapshot before Docker updates)
 ├── maintain_*.yaml              # Maintenance + health playbooks
