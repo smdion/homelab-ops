@@ -1,15 +1,15 @@
 ---
-# Clear Linux page cache on Ubuntu hosts.
+# Clear Linux page cache on Ubuntu and unRAID hosts.
 # Drops page cache (echo 3 > /proc/sys/vm/drop_caches).
 # Schedule with Semaphore to run weekly.
 
 - name: Clear Linux page cache
-  hosts: "ubuntu"
+  hosts: "ubuntu:unraid"
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
   vars:
-    maintenance_name: "Ubuntu"
+    maintenance_name: "{{ 'unRAID' if 'unraid' in group_names else 'Ubuntu' }}"
     maintenance_type: "Servers"
     maintenance_subtype: "Cache"
     maintenance_url: ""

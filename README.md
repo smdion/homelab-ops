@@ -104,7 +104,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 |---|---|---|
 | `maintain_amp.yaml` | [AMP](https://cubecoders.com/AMP) game server | Version checks, journal pruning, dump cleanup |
 | `maintain_unifi.yaml` | Unifi Network (UDMP) | Service restart |
-| `maintain_cache.yaml` | Ubuntu / Debian | Drop Linux page cache |
+| `maintain_cache.yaml` | Ubuntu / unRAID | Drop Linux page cache |
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | WOL, rsync, shutdown verification |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `add_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |

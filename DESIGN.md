@@ -156,7 +156,7 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 ├── maintain_amp.yaml               # AMP game server maintenance (versions, dumps, prune, journal)
 ├── maintain_semaphore.yaml         # Delete stopped/error + old download tasks from Semaphore DB + prune ansible_logging retention (runs on localhost)
 ├── maintain_docker.yaml            # Prune unused Docker images across all Docker hosts
-├── maintain_cache.yaml             # Drop Linux page cache on Ubuntu hosts
+├── maintain_cache.yaml             # Drop Linux page cache on Ubuntu and unRAID hosts
 ├── maintain_unifi.yaml             # Restart Unifi Network service
 ├── maintain_health.yaml            # Scheduled health monitoring — 26 checks across all SSH hosts + DB/API; Uptime Kuma dead man's switch
 ├── download_videos.yaml            # MeTube yt-dlp downloads — per-video Discord notifications + temp file cleanup; parameterized on config_file; hosts via hosts_variable
@@ -491,7 +491,7 @@ where multiple backup types exist for the same target:
 |---|---|
 | `Backup — {Target} [{Subtype}]` | `Backup — Proxmox [Config]`, `Backup — unRAID [Offline]` |
 | `Update — {Target}` | `Update — Proxmox`, `Update — Ubuntu`, `Update — Docker Stacks`, `Update — Docker Run` |
-| `Maintain — {Target}` | `Maintain — AMP`, `Maintain — Docker`, `Maintain — Health` |
+| `Maintain — {Target}` | `Maintain — AMP`, `Maintain — Cache`, `Maintain — Docker`, `Maintain — Health` |
 | `Download — {Target} [{Subtype}]` | `Download — Videos`, `Download — Videos [On Demand]` |
 | `Verify — {Target}` | `Verify — PostgreSQL Databases`, `Verify — Proxmox [Config]` |
 | `Restore — {Target} [{Subtype}]` | `Restore — PostgreSQL Databases`, `Restore — Docker Run [Appdata]` |
@@ -1319,7 +1319,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 |---|---|---|---|
 | `maintain_semaphore.yaml` | Semaphore | Local | Cleanup |
 | `maintain_docker.yaml` | Docker | Servers | Prune |
-| `maintain_cache.yaml` | Ubuntu | Servers | Cache |
+| `maintain_cache.yaml` | Ubuntu / unRAID | Servers | Cache |
 | `maintain_unifi.yaml` | Unifi | Appliances | Restart |
 | `maintain_amp.yaml` | AMP | Servers | Maintenance |
 | `maintain_health.yaml` | Semaphore | Local | Health Check |
