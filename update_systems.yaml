@@ -2,6 +2,7 @@
 # Update OS packages and Docker containers.
 # Handles apt upgrade (Ubuntu/Proxmox), PiKVM update, AMP update,
 # Docker Compose pull+recreate, and unRAID container updates.
+# Saves a rollback snapshot before Docker Compose updates (see rollback_docker.yaml).
 # Sends Discord notification and logs version changes to MariaDB.
 #
 # Usage:
@@ -184,6 +185,54 @@
           ansible.builtin.set_fact:
             _docker_target_services: "{{ _compose_services_raw.stdout_lines | difference(update_exclude_services | default([])) }}"
           when: inventory_hostname in groups["docker_stacks"] | default([])
+          tags: [docker]
+
+        - name: Save Docker rollback snapshot
+          become: true
+          ansible.builtin.shell: |
+            echo '{'
+            echo '  "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",'
+            echo '  "containers": {'
+            first=true
+            for svc in {{ _docker_target_services | join(' ') }}; do
+              cid=$(docker compose ps -q "$svc" 2>/dev/null)
+              if [ -n "$cid" ]; then
+                img=$(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$cid")
+                iid=$(docker inspect --format {% raw %}'{{.Image}}'{% endraw %} "$cid")
+                version=""
+                for label in "org.opencontainers.image.version" "org.label-schema.version" "version"; do
+                  version=$(docker inspect --format {% raw %}'{{index .Config.Labels "'{% endraw %}${label}{% raw %}'"}}'{% endraw %} "$cid" 2>/dev/null)
+                  [ -n "$version" ] && [ "$version" != "<no value>" ] && break
+                  version=""
+                done
+                if [ -z "$version" ]; then
+                  case "$img" in *:*) version="${img##*:}" ;; *) version="latest" ;; esac
+                fi
+                $first || echo ','
+                first=false
+                printf '    "%s": {"image": "%s", "image_id": "%s", "version": "%s"}' "$svc" "$img" "$iid" "$version"
+              fi
+            done
+            echo ''
+            echo '  }'
+            echo '}'
+          args:
+            chdir: "{{ compose_project_path }}"
+          register: _docker_snapshot_raw
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - _docker_target_services | default([]) | length > 0
+            - not ansible_check_mode
+          tags: [docker]
+
+        - name: Write rollback snapshot to disk
+          ansible.builtin.copy:
+            content: "{{ _docker_snapshot_raw.stdout }}"
+            dest: "{{ compose_project_path }}/.rollback_snapshot.json"
+            mode: '0600'
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - _docker_snapshot_raw is not skipped
           tags: [docker]
 
         - name: Pull, recreate, and compare compose containers

@@ -832,6 +832,7 @@ and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
 | `verify_backups.yaml` | Backup file search runs. Integrity checks run. No temp databases created. No archives extracted. Discord/DB suppressed. |
 | `restore_databases.yaml` | Backup file search runs. Safety backup skipped. No restore performed. No container management. Discord/DB suppressed. |
 | `restore_hosts.yaml` | Backup file search runs. Archive integrity verified. No extraction or container management. Discord/DB suppressed. |
+| `rollback_docker.yaml` | Snapshot read and parsed. Safety gate skipped. No image re-tag/pull or container recreation. Discord/DB suppressed. |
 | `deploy_grafana.yaml` | Dashboard JSON read and parsed. All API calls skipped (datasource check, create, dashboard import). Discord/DB suppressed. |
 
 ### Pre-task validations
@@ -1333,6 +1334,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `vars/docker_run.yaml` | Docker or (app name) | Servers | Appdata | restore |
 | `vars/unraid_os.yaml` | unRAID | Servers | Config | restore |
 | `vars/pikvm.yaml` | PiKVM | Appliances | Config | restore |
+| `vars/docker_stacks.yaml` | (service name) | Servers | Container | rollback |
 
 **Verification** logs to the `maintenance` table (subtype `Verify`) using the same
 `backup_type` / `backup_name` values from the vars file. See [Maintenance](#maintenance).
@@ -1463,6 +1465,36 @@ ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostna
 Always use `--limit <hostname>` with `-e restore_app` since `docker_stacks`/`docker_run` are
 multi-host groups. The `app_restore` mapping in `vars/docker_*.yaml` provides the container list,
 DB config file, and `db_host` for cross-host `delegate_to`.
+
+### Roll back a Docker container update
+
+```bash
+# Dry run — show snapshot info without rolling back
+ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname>
+
+# Rollback a single service
+ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> \
+  -e rollback_service=jellyseerr -e confirm_rollback=yes
+
+# Rollback all containers in the snapshot
+ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> \
+  -e confirm_rollback=yes
+```
+
+The rollback snapshot (`.rollback_snapshot.json`) is saved automatically before each Docker
+Compose update. If the old image is still on disk, rollback is instant (local re-tag). If it
+was pruned by `maintain_docker.yaml`, the old version is pulled from the registry.
+
+**For unRAID `docker_run` hosts** (no automated rollback):
+1. `docker stop <container>` and `docker rm <container>`
+2. Find old image ID from the snapshot or `updates` table
+3. `docker tag <old_image_id> <image_name>` (if image still local)
+4. Recreate via the unRAID Docker UI (uses the saved template XML)
+5. If image was pruned: restore from backup via `restore_hosts.yaml -e hosts_variable=docker_run`
+
+**Database schema changes:** Some container updates run DB migrations on startup. Rolling back
+the container alone may leave the DB in an incompatible state. For those cases, combine with
+`restore_databases.yaml`.
 
 ### Useful DB queries
 

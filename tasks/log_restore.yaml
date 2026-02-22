@@ -8,7 +8,7 @@
 #   restore_source_file   — backup filename that was restored/verified
 #   restore_type          — "Servers" or "Appliances"
 #   restore_subtype       — "Database", "Appdata", or "Config"
-#   restore_operation     — "verify" or "restore"
+#   restore_operation     — "verify", "restore", or "rollback"
 #   restore_status        — "success" or "failed"
 #   restore_detail        — free-text context (e.g., "15 tables verified")
 #

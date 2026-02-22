@@ -24,6 +24,7 @@ visibility.
 | **Backup** | Config/appdata archives and database dumps (Postgres + MariaDB), with offline rsync to NAS |
 | **Verify** | Restores each database to a temp instance and validates config archives — proves backups work before you need them |
 | **Restore** | Safety-gated database and appdata restore with pre-restore snapshots, selective per-app targeting, and coordinated cross-host recovery |
+| **Rollback** | Revert Docker containers to previous image versions — fast local re-tag or registry pull; safety-gated with per-service targeting |
 | **Health** | 26 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord alerts and anomaly detection |
 | **Updates** | OS package and Docker container updates with version tracking per host |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
@@ -93,6 +94,7 @@ and go.
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm_restore=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
 | `restore_hosts.yaml` | Restore config/appdata — staging or inplace; selective app + coordinated cross-host DB | `vars/<platform>.yaml` with `app_restore` mapping |
+| `rollback_docker.yaml` | Revert Docker containers to previous images; safety-gated with `confirm_rollback=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
 
 ### Platform-specific playbooks
 
@@ -168,7 +170,8 @@ for platforms you don't have are automatically skipped.
 ├── verify_backups.yaml          # On-demand backup verification (DB + config)
 ├── restore_databases.yaml       # Database restore from backups (safety-gated)
 ├── restore_hosts.yaml           # Config/appdata restore — staging or inplace
-├── update_*.yaml                # Update playbook
+├── rollback_docker.yaml         # Docker container rollback — revert to previous versions (safety-gated)
+├── update_*.yaml                # Update playbook (saves rollback snapshot before Docker updates)
 ├── maintain_*.yaml              # Maintenance + health playbooks
 ├── download_videos.yaml         # MeTube/yt-dlp automation
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API

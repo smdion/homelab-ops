@@ -1,0 +1,218 @@
+---
+# Rollback Docker containers to their previous image versions.
+# Reads the rollback snapshot saved by update_systems.yaml and reverts
+# containers using either local re-tag (fast) or registry pull (if pruned).
+#
+# Docker Compose hosts (docker_stacks group) only.
+# For unRAID docker_run hosts, see DESIGN.md manual rollback guidance.
+#
+# Safety-gated: requires -e confirm_rollback=yes to proceed.
+# Without it, shows snapshot info and exits (dry-run).
+#
+# Required variables (vars/secrets.yaml):
+#   logging_db_host, logging_db_port, logging_db_user, logging_db_password, logging_db_name
+#   discord_webhook_id, discord_webhook_token
+#
+# Usage:
+#   # Rollback all containers
+#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
+#     --limit <hostname> -e confirm_rollback=yes
+#
+#   # Rollback one service
+#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
+#     --limit <hostname> -e rollback_service=jellyseerr -e confirm_rollback=yes
+#
+#   # Dry run — show snapshot info without rolling back
+#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
+#     --limit <hostname>
+
+- name: Rollback — Docker Containers
+  hosts: "{{ hosts_variable }}"
+  serial: 1
+  gather_facts: true
+  vars_files:
+    - "vars/{{ config_file }}.yaml"
+    - vars/secrets.yaml
+  vars:
+    config_file: "{{ hosts_variable }}"
+
+  pre_tasks:
+    - name: Assert config_file is defined
+      include_tasks: tasks/assert_config_file.yaml
+
+    - name: Assert Docker Compose host
+      ansible.builtin.assert:
+        that: inventory_hostname in groups["docker_stacks"] | default([])
+        fail_msg: "Rollback only supports docker_stacks hosts. For docker_run (unRAID), see DESIGN.md manual rollback section."
+
+    - name: Read rollback snapshot
+      ansible.builtin.slurp:
+        src: "{{ compose_project_path }}/.rollback_snapshot.json"
+      register: _snapshot_raw
+      check_mode: false
+
+    - name: Parse snapshot
+      ansible.builtin.set_fact:
+        rollback_snapshot: "{{ _snapshot_raw.content | b64decode | from_json }}"
+
+    - name: Show snapshot info
+      ansible.builtin.debug:
+        msg: "Snapshot from {{ rollback_snapshot.timestamp }} — {{ rollback_snapshot.containers | length }} containers: {{ rollback_snapshot.containers.keys() | join(', ') }}"
+
+    - name: Determine rollback targets
+      ansible.builtin.set_fact:
+        _rollback_targets: >-
+          {{ [rollback_service] if rollback_service is defined
+             else rollback_snapshot.containers.keys() | list }}
+
+    - name: Assert requested service exists in snapshot
+      ansible.builtin.assert:
+        that: item in rollback_snapshot.containers
+        fail_msg: "Service '{{ item }}' not found in snapshot. Available: {{ rollback_snapshot.containers.keys() | join(', ') }}"
+      loop: "{{ _rollback_targets }}"
+
+    - name: Assert confirm_rollback for destructive operation
+      ansible.builtin.assert:
+        that: confirm_rollback | default('') == 'yes'
+        fail_msg: >
+          Safety gate: pass -e confirm_rollback=yes to proceed.
+          Omit it to dry-run (shows snapshot contents without rolling back).
+      when: not ansible_check_mode
+
+  tasks:
+    - name: Initialize rollback state
+      ansible.builtin.set_fact:
+        rollback_failed: false
+        _rollback_detail: ""
+
+    - block:
+        # ═══════════════════════════════════════════════════════════════════
+        # CHECK — which old images are still available locally
+        # ═══════════════════════════════════════════════════════════════════
+        - name: Check old images still exist locally
+          become: true
+          ansible.builtin.shell: "docker image inspect {{ rollback_snapshot.containers[item].image_id }} > /dev/null 2>&1"
+          loop: "{{ _rollback_targets }}"
+          register: _image_check
+          failed_when: false
+          changed_when: false
+
+        - name: Build image availability map
+          ansible.builtin.set_fact:
+            _image_local: "{{ dict(_rollback_targets | zip(_image_check.results | map(attribute='rc') | map('int') | map('eq', 0))) }}"
+
+        - name: Show rollback plan
+          ansible.builtin.debug:
+            msg: >-
+              {{ item }}: {{ 'local re-tag (fast)' if _image_local[item] else 'registry pull ' + rollback_snapshot.containers[item].version + ' (slow)' }}
+              — current image {{ rollback_snapshot.containers[item].image }}
+              → version {{ rollback_snapshot.containers[item].version }}
+          loop: "{{ _rollback_targets }}"
+
+        # ═══════════════════════════════════════════════════════════════════
+        # FAST PATH — old image still on disk (not yet pruned)
+        # ═══════════════════════════════════════════════════════════════════
+        - name: Re-tag old images (local)
+          become: true
+          ansible.builtin.shell: >
+            docker tag {{ rollback_snapshot.containers[item].image_id }}
+            {{ rollback_snapshot.containers[item].image }}
+          loop: "{{ _rollback_targets | select('in', _image_local | dict2items | selectattr('value') | map(attribute='key')) | list }}"
+          args:
+            chdir: "{{ compose_project_path }}"
+
+        # ═══════════════════════════════════════════════════════════════════
+        # SLOW PATH — image was pruned, pull old version from registry
+        # ═══════════════════════════════════════════════════════════════════
+        - name: Determine registry pull tag for pruned images
+          ansible.builtin.set_fact:
+            _registry_pull: >-
+              {{ _registry_pull | default({}) | combine({
+                item: rollback_snapshot.containers[item].image | regex_replace(':.*$', '') + ':' + rollback_snapshot.containers[item].version
+              }) }}
+          loop: "{{ _rollback_targets | reject('in', _image_local | dict2items | selectattr('value') | map(attribute='key')) | list }}"
+
+        - name: Pull old version from registry (image was pruned)
+          become: true
+          ansible.builtin.shell: |
+            echo "Old image pruned — pulling {{ _registry_pull[item] }} from registry"
+            docker pull {{ _registry_pull[item] }}
+            docker tag {{ _registry_pull[item] }} {{ rollback_snapshot.containers[item].image }}
+          loop: "{{ _registry_pull | default({}) | list }}"
+          args:
+            chdir: "{{ compose_project_path }}"
+          register: _registry_pull_result
+          failed_when: _registry_pull_result.rc != 0
+
+        # ═══════════════════════════════════════════════════════════════════
+        # RECREATE — bring containers back with old images
+        # ═══════════════════════════════════════════════════════════════════
+        - name: Recreate containers with old images
+          become: true
+          ansible.builtin.shell: >
+            docker compose up -d --no-pull {{ _rollback_targets | join(' ') }}
+          args:
+            chdir: "{{ compose_project_path }}"
+
+        - name: Wait for containers to stabilize
+          ansible.builtin.pause:
+            seconds: 10
+
+        - name: Verify containers are running
+          become: true
+          ansible.builtin.shell: >
+            docker compose ps --format json {{ item }}
+          loop: "{{ _rollback_targets }}"
+          register: _container_status
+          changed_when: false
+
+        - name: Record rollback detail
+          ansible.builtin.set_fact:
+            _rollback_detail: >-
+              Rolled back {{ _rollback_targets | length }} container(s) to snapshot from {{ rollback_snapshot.timestamp }}.
+              Fast path: {{ _image_local | dict2items | selectattr('value') | map(attribute='key') | list | length }},
+              Registry pull: {{ _registry_pull | default({}) | length }}
+
+      rescue:
+        - name: Set rollback failed flag
+          ansible.builtin.set_fact:
+            rollback_failed: true
+            _rollback_detail: "Error: {{ ansible_failed_result.msg | default('unknown') }}"
+
+      always:
+        - name: Send Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_title: "{{ update_name | default('Docker') }}"
+            discord_description: "{{ 'Rollback Failed' if rollback_failed else 'Containers Rolled Back' }}"
+            discord_color: "{{ 16711680 if rollback_failed else 16776960 }}"
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ 'Docker container rollback failed' if rollback_failed else 'Docker containers rolled back to previous versions' }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Services"
+                value: "{{ _rollback_targets | join(', ') }}"
+              - name: "Snapshot Date"
+                value: "{{ rollback_snapshot.timestamp }}"
+              - name: "Detail"
+                value: "{{ _rollback_detail | default('') }}"
+
+        - name: Log rollback to MariaDB
+          include_tasks: tasks/log_restore.yaml
+          loop: "{{ _rollback_targets }}"
+          vars:
+            log_hostname: "{{ inventory_hostname }}"
+            restore_application: "{{ item }}"
+            restore_source_file: ".rollback_snapshot.json"
+            restore_type: "Servers"
+            restore_subtype: "Container"
+            restore_operation: "rollback"
+            restore_status: "{{ 'failed' if rollback_failed else 'success' }}"
+            restore_detail: "Rolled back to snapshot from {{ rollback_snapshot.timestamp }}"
+
+        - name: Fail play if rollback errored
+          ansible.builtin.fail:
+            msg: "Docker rollback failed — see Discord notification for details"
+          when: rollback_failed
