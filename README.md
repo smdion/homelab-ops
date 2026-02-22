@@ -1,7 +1,7 @@
 # Ansible Home Lab Automation
 
-Ansible playbooks for home lab backup, update, maintenance, health monitoring, verification, and
-restore — orchestrated via [Semaphore](https://semaphoreui.com/), logged to MariaDB, and
+Ansible playbooks for home lab backup, verification, restore, health monitoring, updates, and
+maintenance — orchestrated via [Semaphore](https://semaphoreui.com/), logged to MariaDB, and
 visualized in Grafana.
 
 > **Note:** This project was built for my own home lab. I've made it as portable as possible —
@@ -15,17 +15,21 @@ the stack.
 
 ## What it does
 
-| Category | Playbooks |
-|---|---|
-| **Backups** | Config/appdata backups, database dumps (Postgres + MariaDB), offline rsync to NAS |
-| **Updates** | OS and container updates with version tracking and optional delay |
-| **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
-| **Health** | 26 scheduled checks (disk, memory, CPU, Docker, SSL, ZFS, BTRFS, NTP, DNS, ...) with Discord alerts |
-| **Verify** | On-demand backup verification — DB restores to temp databases, config archive integrity + staging |
-| **Restore** | Database and config/appdata restore from backups — safety-gated, selective app restore, coordinated cross-host DB+appdata |
+Covers the **full backup lifecycle** — create, verify, and restore — alongside health monitoring,
+updates, and maintenance. Every operation logs to MariaDB with a Grafana dashboard for full
+visibility.
 
-Every run logs a structured record to MariaDB. The included Grafana dashboard visualizes the full
-history — backups over time, version status per host, stale detection, health trends.
+| Category | What it does |
+|---|---|
+| **Backup** | Config/appdata archives and database dumps (Postgres + MariaDB), with offline rsync to NAS |
+| **Verify** | Restores each database to a temp instance and validates config archives — proves backups work before you need them |
+| **Restore** | Safety-gated database and appdata restore with pre-restore snapshots, selective per-app targeting, and coordinated cross-host recovery |
+| **Health** | 26 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord alerts and anomaly detection |
+| **Updates** | OS package and Docker container updates with version tracking per host |
+| **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
+
+Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
+version status per host, stale detection, health trends, and maintenance logs across 27 panels.
 
 ## Stack
 
