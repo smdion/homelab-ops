@@ -146,7 +146,7 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 ├── templates/
 │   └── metube.conf.j2              # Jinja2 template for yt-dlp config — rendered per profile from vars/download_<name>.yaml
 │
-├── backup_hosts.yaml               # Config/Appdata backups (Proxmox, PiKVM, Unifi, AMP, Docker, unRAID); integrity verification
+├── backup_hosts.yaml               # Config/Appdata backups (Proxmox, PiKVM, Unifi, AMP, Docker, unRAID); integrity verification; DB dir exclusion
 ├── backup_databases.yaml           # Database backups (Postgres + MariaDB dumps, InfluxDB portable backup); integrity verification
 ├── backup_offline.yaml             # unRAID → Synology offline sync (WOL + rsync); shutdown verification; logs both successful and failed syncs; hosts via hosts_variable
 ├── verify_backups.yaml             # On-demand backup verification — DB backups restored to temp DB; config archives integrity-checked and staged
@@ -329,6 +329,14 @@ the timestamp, image name, full image ID (`sha256:...`), and version label for e
 service. Uses the same 3-tier label detection as the update comparison. Each update overwrites
 the previous snapshot — only the last pre-update state is kept. The snapshot file is included
 in regular `/opt` appdata backups automatically.
+
+**Docker appdata archive exclusions:** Docker hosts with dedicated database backup jobs
+(SQL dumps or InfluxDB portable backups) define `backup_exclude_dirs` in `vars/docker_stacks.yaml`
+to exclude database data directories (e.g. `/opt/mariadb`, `/opt/postgres`, `/opt/influxdb`) from
+the appdata tar.gz archive. The `community.general.archive` module's `exclude_path` parameter
+only matches against expanded path entries, so the playbook converts directory paths to globs
+(e.g. `/opt` → `/opt/*`) when exclusions are defined. Hosts without `backup_exclude_dirs` are
+unaffected (`default([])`).
 
 **`tasks/log_restore.yaml`** — Shared MariaDB logging for the `restores` table. Uses
 `community.mysql.mysql_query` with parameterized queries. Separate from `log_mariadb.yaml` because

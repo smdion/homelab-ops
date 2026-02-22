@@ -306,7 +306,7 @@ ansible-playbook maintain_health.yaml \
   -i inventory.yaml \
   --vault-password-file ~/.vault_pass
 
-# Verify database backups (restore to temp DB, count tables, drop)
+# Verify database backups (restore to temp DB, count tables/measurements, drop)
 ansible-playbook verify_backups.yaml \
   -i inventory.yaml \
   -e hosts_variable=db_primary_postgres \
