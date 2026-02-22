@@ -273,6 +273,7 @@
           tags: [docker]
 
         - name: Write rollback snapshot per stack (stack mode)
+          become: true
           ansible.builtin.copy:
             content: "{{ item.stdout }}"
             dest: "/opt/stacks/{{ item.item }}/.rollback_snapshot.json"
