@@ -190,10 +190,22 @@
           when: inventory_hostname not in groups["unifi_protect"]
           tags: [always]
 
+        # When exclude dirs are defined, convert directory paths to globs (e.g. /opt → /opt/*)
+        # so community.general.archive expands them to individual items that exclude_path can match.
+        - name: Convert paths to globs for exclusion support
+          ansible.builtin.set_fact:
+            _archive_paths: >-
+              {{ (_validated_backup_paths | default(src_raw_files))
+                 | map('regex_replace', '/?$', '/*') | list }}
+          when:
+            - inventory_hostname not in groups["unifi_protect"]
+            - backup_exclude_dirs | default([]) | length > 0
+          tags: [always]
+
         - name: Create compressed backup archive
           become: true
           community.general.archive:
-            path: "{{ _validated_backup_paths | default(src_raw_files) }}"
+            path: "{{ _archive_paths | default(_validated_backup_paths) | default(src_raw_files) }}"
             dest: "{{ backup_tmp_file }}"
             format: gz
             remove: false
