@@ -1,0 +1,47 @@
+---
+# yt-dlp download profile: default
+# Used by download_videos.yaml via vars_files: "vars/{{ config_file }}.yaml"
+
+# Profile name — used for container paths, config file naming, and manifest files.
+# Shared by all templates that load this vars file.
+config_name: "default"
+
+# MeTube deployment — container name and host paths
+metube_container: "metube"
+metube_config_host_dir: "/mnt/user/appdata/youtube-dl"
+metube_temp_dir: "/mnt/user/temp"
+metube_temp_max_age_days: 15
+
+# Rendering options
+ytdlp_quiet: true
+ytdlp_filter_live: true
+
+# Quality and format
+ytdlp_quality: "res:1080"
+ytdlp_format: "mp4"
+
+# Paths (inside metube container)
+ytdlp_download_path: "/downloads/"
+ytdlp_temp_path: "/tempvideo"
+ytdlp_output: "%(extractor_key)s/%(uploader)s - %(title)s - %(id)s.%(ext)s"
+ytdlp_batch_file: "/configs/default/channel_list"
+ytdlp_archive: "/configs/default/downloaded"
+
+# Rate limiting and filters
+ytdlp_rate_limit: "50M"
+ytdlp_playlist_end: 2
+ytdlp_reject_title: "TMS|The Morning Stream|TWBD|Be Dungeons"
+ytdlp_dateafter: "now-1weeks"
+
+# Extractor configuration
+ytdlp_extractor_args: "youtube:player-client=default,-tv,web_safari,web_embedded"
+
+# Discord notification URLs — used by download_videos.yaml
+metube_avatar: "https://raw.githubusercontent.com/alexta69/metube/master/favicon/android-chrome-384x384.png"
+default_platform_icon: "https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png"
+platform_icons:
+  Youtube: "https://raw.githubusercontent.com/github/explore/d744245de144b89f3e3462949e08bfc91eda7fcf/topics/youtube/youtube.png"
+  TwitchVod: "https://cdn0.iconfinder.com/data/icons/social-network-7/50/16-512.png"
+platform_names:
+  Youtube: "YouTube"
+  TwitchVod: "Twitch"

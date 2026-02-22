@@ -1,0 +1,89 @@
+# inventory.example.yaml — copy to inventory.yaml and replace hostnames with your own
+#
+# Inventories are NOT stored in this repo — see DESIGN.md for the full explanation.
+# This file documents the expected group structure so you can recreate the inventory
+# in Semaphore (UI or DB) for your own environment.
+#
+# Replace home.local / example.com with your own domain(s).
+# Replace hostnames with your actual host names.
+
+# Individual host groups — one per physical/virtual host
+[pikvm]
+pikvm.home.local
+
+[ubuntu01]
+ubuntu01.home.local
+
+[ubuntu02]
+ubuntu02.home.local
+
+[vps]
+vps.example.com
+
+[gameserver]
+gameserver.home.local
+
+[pve01]
+pve01.home.local
+
+[pve02]
+pve02.home.local
+
+[pve03]
+pve03.home.local
+
+[pbs01]
+pbs01.home.local
+
+[udmp]
+udmp.home.local
+
+[unvr]
+unvr.home.local
+
+[nas01]
+nas01.home.local
+
+[nas02]
+nas02.home.local
+
+[local]
+localhost ansible_connection=local
+
+# Functional groups — used by hosts_variable in Semaphore variable groups
+[ubuntu]
+ubuntu01.home.local
+ubuntu02.home.local
+gameserver.home.local
+vps.example.com
+
+[pve]
+pve01.home.local
+pve02.home.local
+pve03.home.local
+
+[pbs]
+pbs01.home.local
+
+[docker_stacks]
+vps.example.com
+ubuntu02.home.local
+ubuntu01.home.local
+
+[docker_run]
+nas02.home.local
+nas01.home.local
+
+[docker:children]
+docker_stacks
+docker_run
+
+[unifi_network]
+udmp.home.local
+
+[unifi_protect]
+unvr.home.local
+
+[unraid]
+nas02.home.local
+nas01.home.local

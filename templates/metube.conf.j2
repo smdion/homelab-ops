@@ -1,0 +1,55 @@
+# yt-dlp configuration — rendered by Ansible for profile "{{ config_name }}"
+# Source: templates/metube.conf.j2 + vars/{{ config_file }}.yaml
+# Do not edit on host directly — changes will be overwritten on next run.
+
+# Ignore errors
+-i
+
+{% if ytdlp_quiet | default(true) %}
+# Quiet logs
+-q
+{% endif %}
+
+# Quality
+-S {{ ytdlp_quality }}
+
+# Paths
+-P "{{ ytdlp_download_path }}"
+-P "temp:{{ ytdlp_temp_path }}"
+
+# Output template
+-o "{{ ytdlp_output }}"
+
+# Channel list and archive
+--batch-file="{{ ytdlp_batch_file }}"
+--download-archive="{{ ytdlp_archive }}"
+
+# Extractor configuration
+--extractor-args "{{ ytdlp_extractor_args }}"
+
+# Rate limiting
+--limit-rate {{ ytdlp_rate_limit }}
+
+# Filters
+{% if ytdlp_filter_live | default(true) %}
+--match-filter !is_live
+{% endif %}
+--playlist-end {{ ytdlp_playlist_end }}
+--reject-title "{{ ytdlp_reject_title }}"
+--dateafter {{ ytdlp_dateafter }}
+
+# Video format
+--merge-output-format '{{ ytdlp_format }}'
+
+# Post-processing
+--embed-thumbnail
+--embed-metadata
+--add-metadata
+
+# SponsorBlock
+--sponsorblock-mark 'all'
+
+# Metadata output for Ansible — one JSON line per downloaded video.
+# after_move: prefix ensures only actually-downloaded videos are logged (not skipped/archived).
+# %(field)j uses yt-dlp's JSON escape flag for properly quoted strings.
+--print-to-file "after_move:{\"id\":%(id)j,\"title\":%(title)j,\"uploader\":%(uploader)j,\"duration\":%(duration_string)j,\"url\":%(original_url)j,\"extractor\":%(extractor_key)j,\"channel_url\":%(channel_url|)j,\"thumbnail\":%(thumbnail)j,\"description\":%(description|)j}" /tmp/downloads_{{ config_name }}.jsonl

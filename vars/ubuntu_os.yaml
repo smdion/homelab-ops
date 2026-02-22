@@ -1,0 +1,13 @@
+# Backup vars TBD — OS backup not yet implemented
+# src_raw_files_1: ""
+# backup_tmp_dir: "/backup"
+# backup_tmp_file: "{{ backup_tmp_dir }}/{{ backup_file }}"
+# backup_dest_path: "/backup/{{ inventory_hostname }}/{{ backup_file }}"
+backup_name: "Ubuntu"
+backup_url: ""
+# backup_description: "Automatic Ubuntu OS Backup"
+# backup_type: "{{ backup_file }}"
+update_name: "Ubuntu"
+update_description: "Automatic Ubuntu OS Update"
+update_type: "Servers"
+update_subtype: "OS"

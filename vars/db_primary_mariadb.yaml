@@ -1,0 +1,16 @@
+# db_password is in vars/secrets.yaml (vault)
+backup_tmp_dir: "/backup"
+backup_name: "Database"
+backup_url: "https://sql.{{ logging_domain_ext }}"
+backup_description: "Automatic Database Backup"
+backup_type: "Servers"
+backup_subtype: "Database"
+backup_file: "backup_{{ item }}_{{ ansible_date_time.date }}.sql"
+db_username: "root"
+container_name: "mariadb"
+db_names:
+  - "nextcloud"
+  - "semaphore"
+  - "ansible_logging"
+is_postgres: false
+is_mariadb: true

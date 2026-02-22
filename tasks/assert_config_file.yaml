@@ -1,0 +1,15 @@
+---
+# Pre-task assertion — validates that config_file is defined and non-empty.
+# Catches misconfigured Semaphore variable groups before any work starts.
+#
+# No required vars — config_file is expected in playbook scope via:
+#   vars:
+#     config_file: "{{ hosts_variable }}"
+
+- name: Assert config_file is defined and non-empty
+  ansible.builtin.assert:
+    that:
+      - config_file is defined
+      - config_file | length > 0
+    fail_msg: "config_file is undefined or empty — check hosts_variable in the Semaphore variable group"
+  tags: [always]

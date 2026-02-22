@@ -1,0 +1,19 @@
+# Protect unencrypted secrets
+**/secrets.yaml.unencrypted
+**/secrets_backup.yaml
+**/*password*.yaml
+**/*credential*.yaml
+!vars/secrets.yaml  # Allow the encrypted vault file
+
+# Ansible temporary files
+*.retry
+.ansible/
+
+# Inventory — managed in Semaphore or local file, not version-controlled
+inventory.yaml
+
+# Claude
+.claude/
+
+# Future Planning
+**/future/

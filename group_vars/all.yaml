@@ -1,0 +1,11 @@
+---
+# Shared defaults for all hosts. Loaded automatically by Ansible when the
+# inventory is in the same directory (or referenced via ansible.cfg).
+ansible_remote_tmp: ~/.ansible/tmp
+ansible_python_interpreter: auto_silent
+
+# Backup defaults — override per-platform in vars/*.yaml where needed
+backup_base_dir: "/backup"
+backup_tmp_file: "{{ backup_tmp_dir }}/{{ backup_file }}"
+backup_dest_path: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ backup_file }}"
+backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ logging_domain_ext }}"

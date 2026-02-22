@@ -1,0 +1,162 @@
+---
+# Download videos via MeTube / yt-dlp.
+# Runs yt-dlp inside the metube container, sends per-video Discord notifications,
+# and cleans up old temp download files.
+#
+# Parameterized on config_file — each Semaphore template passes a different value
+# (e.g., "download_default"). Adding a new download profile = add vars/download_<name>.yaml +
+# create a Semaphore template with config_file: download_<name>. No playbook changes needed.
+#
+# NOTE: This playbook intentionally does not log to the maintenance table. Downloads
+# run frequently (multiple times daily) and would flood the DB with low-value records.
+# Per-video Discord notifications provide sufficient visibility. The stale_maintenance
+# health check excludes this playbook.
+#
+# Usage:
+#   ansible-playbook download_videos.yaml -e hosts_variable=myhostgroup -e config_file=download_default
+
+- name: Download videos via yt-dlp
+  hosts: "{{ hosts_variable }}"
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - "vars/{{ config_file }}.yaml"
+
+  pre_tasks:
+    - include_tasks: tasks/assert_config_file.yaml
+  vars:
+    metube_config_path: "/configs/{{ config_name }}/{{ config_name }}.conf"
+    metube_manifest: "/tmp/downloads_{{ config_name }}.jsonl"
+
+  tasks:
+    - name: Initialize download state
+      ansible.builtin.set_fact:
+        download_failed: false
+        downloaded_videos: []
+
+    - block:
+        # -- Deploy config ---------------------------------------------------
+        - name: Render and deploy yt-dlp config
+          become: true
+          ansible.builtin.template:
+            src: templates/metube.conf.j2
+            dest: "{{ metube_config_host_dir }}/{{ config_name }}/{{ config_name }}.conf"
+            mode: "0644"
+
+        # -- Clean previous manifest -----------------------------------------
+        - name: Remove previous download manifest
+          become: true
+          ansible.builtin.command: >
+            docker exec {{ metube_container }} rm -f {{ metube_manifest }}
+          changed_when: true
+          check_mode: false
+
+        # -- Run yt-dlp ------------------------------------------------------
+        - name: Run yt-dlp via Docker exec
+          become: true
+          ansible.builtin.command: >
+            docker exec {{ metube_container }}
+            yt-dlp --config-location {{ metube_config_path }}
+          register: ytdlp_result
+          changed_when: true
+          failed_when: ytdlp_result.rc >= 2
+
+        # -- Read download manifest ------------------------------------------
+        - name: Read download manifest from container
+          become: true
+          ansible.builtin.shell: >
+            docker exec {{ metube_container }} cat {{ metube_manifest }} 2>/dev/null || true
+          register: manifest_raw
+          changed_when: false
+          check_mode: false
+
+        - name: Parse downloaded video metadata
+          ansible.builtin.set_fact:
+            downloaded_videos: >-
+              {{ manifest_raw.stdout_lines | default([])
+                 | select('match', '^\{.*\}$')
+                 | map('from_json')
+                 | list }}
+          when: manifest_raw.stdout | default('') | length > 0
+
+        # -- Clean temp downloads --------------------------------------------
+        - name: Find old temp download files
+          become: true
+          ansible.builtin.find:
+            paths: "{{ metube_temp_dir }}"
+            file_type: file
+            recurse: true
+            age: "{{ metube_temp_max_age_days }}d"
+          register: _old_temp_files
+
+        - name: Delete old temp download files
+          become: true
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ _old_temp_files.files }}"
+          loop_control:
+            label: "{{ item.path | basename }}"
+          when: _old_temp_files.matched > 0
+
+      rescue:
+        - name: Set download failed
+          ansible.builtin.set_fact:
+            download_failed: true
+
+      always:
+        # -- Per-video Discord notifications ----------------------------------
+        - name: Send per-video Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          loop: "{{ downloaded_videos }}"
+          loop_control:
+            loop_var: video
+            label: "{{ video.title | default('unknown') }}"
+          when:
+            - downloaded_videos | length > 0
+            - not download_failed
+          vars:
+            discord_webhook_id: "{{ metube_webhook_id }}"
+            discord_webhook_token: "{{ metube_webhook_token }}"
+            discord_username: "{{ video.uploader }} - MeTube Bot"
+            discord_avatar: "{{ metube_avatar }}"
+            discord_title: "{{ video.title }}"
+            discord_description: "{{ video.description | default('') | truncate(4096, True, '...') }}"
+            discord_color: 32768
+            discord_url: "{{ video.url }}"
+            discord_author: "Channel: {{ video.uploader }}"
+            discord_author_url: "{{ video.channel_url if video.channel_url | default('') | length > 0 else omit }}"
+            discord_author_icon: "{{ platform_icons[video.extractor] | default(default_platform_icon) }}"
+            discord_image: "{{ video.thumbnail }}"
+            discord_fields:
+              - name: "Platform"
+                value: "{{ platform_names[video.extractor] | default(video.extractor) }}"
+              - name: "Duration"
+                value: "{{ video.duration }}"
+            discord_footer:
+              text: "metube.{{ logging_domain_ext }}"
+              icon_url: "{{ metube_avatar }}"
+
+        # -- Failure alert (operational webhook) ------------------------------
+        - name: Send Discord alert on failure
+          include_tasks: tasks/notify_discord.yaml
+          when: download_failed
+          vars:
+            discord_title: "Download — Videos"
+            discord_description: "yt-dlp failed — check Semaphore logs for details"
+            discord_color: 16711680
+            discord_fields:
+              - name: "Config"
+                value: "{{ config_name }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+
+        # -- Clean up manifest -----------------------------------------------
+        - name: Clean up download manifest
+          become: true
+          ansible.builtin.command: >
+            docker exec {{ metube_container }} rm -f {{ metube_manifest }}
+          changed_when: false
+          failed_when: false
+          check_mode: false

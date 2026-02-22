@@ -1,0 +1,12 @@
+src_raw_files:
+  - "/etc"
+backup_tmp_dir: "/backup"
+backup_name: "{{ 'PBS' if inventory_hostname in groups['pbs'] else ('PVE' if inventory_hostname in groups['pve'] else 'Proxmox') }}"
+backup_description: "Automatic Proxmox Backup"
+backup_type: "Appliances"
+backup_subtype: "Config"
+backup_file: "backup_{{ inventory_hostname }}_config_{{ ansible_date_time.date }}.tar.gz"
+update_name: "Proxmox"
+update_description: "Automatic Proxmox Update"
+update_type: "Appliances"
+update_subtype: "{{ 'PBS' if inventory_hostname in groups['pbs'] else 'PVE' }}"

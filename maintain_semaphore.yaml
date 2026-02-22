@@ -1,0 +1,117 @@
+---
+# Clean up Semaphore task history and prune ansible_logging retention.
+# Deletes stopped/error tasks from Semaphore DB, prunes old successful download
+# tasks, and prunes old ansible_logging rows.
+# Schedule with Semaphore to run weekly.
+
+- name: Clean up Semaphore task history
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "Semaphore"
+    maintenance_type: "Local"
+    maintenance_subtype: "Cleanup"
+    maintenance_url: "{{ semaphore_ext_url }}"
+    maintenance_description: "Delete stopped/error tasks + old download tasks from Semaphore DB + prune ansible_logging retention"
+
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+
+    - block:
+        - name: Delete stopped/error tasks from Semaphore DB
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          become: false
+          connection: local
+          community.mysql.mysql_query:
+            login_host: "{{ logging_db_host }}"
+            login_port: "{{ logging_db_port }}"
+            login_user: "{{ logging_db_user }}"
+            login_password: "{{ logging_db_password }}"
+            login_db: "{{ semaphore_db_name }}"
+            query: "DELETE FROM task WHERE status IN ('stopped', 'error')"
+          no_log: true
+
+        - name: Delete old successful download tasks from Semaphore DB
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          become: false
+          connection: local
+          community.mysql.mysql_query:
+            login_host: "{{ logging_db_host }}"
+            login_port: "{{ logging_db_port }}"
+            login_user: "{{ logging_db_user }}"
+            login_password: "{{ logging_db_password }}"
+            login_db: "{{ semaphore_db_name }}"
+            query: >-
+              DELETE t FROM task t
+              INNER JOIN project__template pt ON t.template_id = pt.id AND pt.project_id = %s
+              WHERE pt.name LIKE 'Download %%'
+              AND t.status = 'success'
+              AND t.created < UTC_TIMESTAMP() - INTERVAL %s DAY
+            positional_args:
+              - "{{ semaphore_project_id }}"
+              - "{{ download_task_retention_days }}"
+          no_log: true
+
+        - name: Prune ansible_logging rows older than {{ retention_days }} days
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          become: false
+          connection: local
+          community.mysql.mysql_query:
+            login_host: "{{ logging_db_host }}"
+            login_port: "{{ logging_db_port }}"
+            login_user: "{{ logging_db_user }}"
+            login_password: "{{ logging_db_password }}"
+            login_db: "{{ logging_db_name }}"
+            query: "{{ item }}"
+            positional_args:
+              - "{{ retention_days }}"
+          loop:
+            - "DELETE FROM health_checks WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
+            - "DELETE FROM maintenance WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
+            - "DELETE FROM backups WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
+          loop_control:
+            label: "{{ item.split('FROM ')[1].split(' WHERE')[0] }}"
+          no_log: true
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send Discord alert on failure
+          include_tasks: tasks/notify_discord.yaml
+          when: maintenance_failed
+          vars:
+            discord_title: "{{ maintenance_name }}"
+            discord_description: "Maintenance Failed — check Semaphore logs for details"
+            discord_color: 16711680
+            discord_url: "{{ maintenance_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ maintenance_description }}"
+              - name: "Host"
+                value: "{{ controller_fqdn }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: "maintenance"
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ controller_fqdn }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"

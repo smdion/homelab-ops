@@ -1,0 +1,51 @@
+semaphore_url: "{{ semaphore_host_url | regex_replace('/$', '') }}"
+semaphore_ext_url: "https://{{ controller_fqdn.split('.')[0] }}.{{ logging_domain_ext }}"
+
+# CUSTOMIZE THESE FOR YOUR DEPLOYMENT
+# controller_fqdn: FQDN of the Semaphore controller host (must match inventory)
+# semaphore_project_id: numeric ID of your Semaphore project (default is 1 for first project)
+semaphore_project_id: 1
+controller_fqdn: "{{ controller_hostname }}.{{ logging_domain_local }}"
+semaphore_db_name: semaphore
+
+# Groups with ansible-user SSH access — used by maintain_health Play 2/3
+# Appliances (pikvm, unifi_network, unifi_protect) covered via stale backup detection
+health_check_groups:
+  - ubuntu
+  - unraid
+  - pve
+  - pbs
+
+# Health check thresholds
+health_disk_warn_pct: 80
+health_disk_crit_pct: 90
+health_mem_warn_pct: 85
+health_cpu_load_multiplier: 1.5      # alert if 5m load avg > vcpus * this
+health_journal_error_threshold: 50
+health_oom_threshold: 1              # any OOM kill triggers alert
+health_backup_stale_hours: 216    # 9 days — alerts if weekly backup has been missed by 2+ days
+health_ssl_warn_days: 30          # warn if SSL cert expires within 30 days
+health_ssl_crit_days: 14          # critical if SSL cert expires within 14 days
+health_maintenance_stale_days: 3  # alert if no successful maintenance run in N days
+health_mariadb_max_connections_pct: 80  # warn if connection count exceeds this % of max
+health_wan_check_url: "https://cloudflare.com/cdn-cgi/trace"  # WAN connectivity check target (customize if needed)
+health_ntp_max_offset_ms: 500     # max acceptable NTP offset in milliseconds
+health_dns_test_hostname: "google.com"  # DNS resolution test target
+health_backup_size_min_pct: 50        # alert if latest backup < this % of 30-day average
+
+# Appliance reachability check — tested via TCP connect (port 443)
+# CUSTOMIZE: list your network appliances that lack SSH access
+# These hosts are NOT covered by Play 2 SSH checks, only by stale backup detection.
+# This check provides faster detection of appliance outages.
+appliance_check_hosts:
+  - "pikvm.{{ logging_domain_local }}"
+  - "udmp.{{ logging_domain_local }}"
+  - "unvr.{{ logging_domain_local }}"
+appliance_check_port: 443
+
+# Display timezone (used in Discord alerts for human-readable timestamps)
+display_timezone: "America/Chicago"
+
+# Data retention
+retention_days: 365               # delete rows older than this from ansible_logging tables
+download_task_retention_days: 7   # delete successful Download tasks older than this from Semaphore DB

@@ -1,0 +1,1527 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "panels": [],
+      "title": "Alerts",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "footer": { "reducers": [] },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 168 },
+              { "color": "red", "value": 216 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "hours_ago" },
+            "properties": [
+              { "id": "custom.cellOptions", "value": { "type": "color-background" } },
+              { "id": "custom.width", "value": 100 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "hostname" },
+            "properties": [
+              { "id": "custom.width", "value": 200 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "last_backup" },
+            "properties": [
+              { "id": "custom.width", "value": 180 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 1 },
+      "id": 101,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "hours_ago" }]
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  b1.hostname,\n  b1.application,\n  b1.backup_type,\n  MAX(b1.timestamp) as last_backup,\n  TIMESTAMPDIFF(HOUR, MAX(b1.timestamp), UTC_TIMESTAMP()) as hours_ago\nFROM backups b1\nWHERE b1.hostname IN ($hostname)\nGROUP BY b1.hostname, b1.application, b1.backup_type\nHAVING TIMESTAMPDIFF(HOUR, MAX(b1.timestamp), UTC_TIMESTAMP()) > 216\nORDER BY hours_ago DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Stale Backups (9+ Days)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "footer": { "reducers": [] },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "application" },
+            "properties": [
+              { "id": "custom.width", "value": 150 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "hostname" },
+            "properties": [
+              { "id": "custom.width", "value": 200 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "last_updated" },
+            "properties": [
+              { "id": "custom.width", "value": 180 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 1 },
+      "id": 102,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": false, "displayName": "last_updated" }]
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  application,\n  hostname,\n  MAX(timestamp) as last_updated\nFROM updates\nWHERE hostname IN ($hostname)\nGROUP BY application, hostname\nHAVING MAX(timestamp) < UTC_TIMESTAMP() - INTERVAL 14 DAY\nORDER BY MAX(timestamp) ASC",
+          "refId": "A"
+        }
+      ],
+      "title": "Stale Updates (14+ Days)",
+      "type": "table"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "footer": { "reducers": [] },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "hostname" },
+            "properties": [
+              { "id": "custom.width", "value": 200 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "check_name" },
+            "properties": [
+              { "id": "custom.width", "value": 150 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "check_status" },
+            "properties": [
+              { "id": "custom.width", "value": 100 },
+              { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "warning": { "color": "yellow", "index": 0 },
+                      "critical": { "color": "red", "index": 1 }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "check_detail" },
+            "properties": [
+              { "id": "custom.width", "value": 350 }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "timestamp" },
+            "properties": [
+              { "id": "custom.width", "value": 180 }
+            ]
+          }
+        ]
+      },
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 7 },
+      "id": 103,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "timestamp" }]
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT h1.hostname, h1.check_name, h1.check_status, h1.check_value, h1.check_detail, h1.timestamp FROM health_checks h1 INNER JOIN ( SELECT hostname, check_name, MAX(timestamp) as max_ts FROM health_checks GROUP BY hostname, check_name ) h2 ON h1.hostname = h2.hostname AND h1.check_name = h2.check_name AND h1.timestamp = h2.max_ts WHERE h1.check_status != 'ok' AND h1.hostname IN ($hostname) ORDER BY h1.timestamp DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Current Non-OK Health Checks",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "id": 110,
+      "panels": [],
+      "title": "Trends",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 14 },
+      "id": 111,
+      "options": {
+        "legend": {
+          "calcs": ["sum", "mean", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  backup_type as metric,\n  COUNT(*) as value\nFROM backups\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND backup_type IN ($backup_type)\n  AND hostname IN ($hostname)\nGROUP BY DATE(timestamp), backup_type\nORDER BY time_sec",
+          "refId": "A"
+        }
+      ],
+      "title": "Backups Over Time by Type",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 14 },
+      "id": 112,
+      "options": {
+        "legend": {
+          "calcs": ["sum", "mean", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  update_type as metric,\n  COUNT(*) as value\nFROM updates\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND hostname IN ($hostname)\nGROUP BY DATE(timestamp), update_type\nORDER BY time_sec",
+          "refId": "A"
+        }
+      ],
+      "title": "Updates Over Time by Host Type",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 14 },
+      "id": 113,
+      "options": {
+        "legend": {
+          "calcs": ["sum", "mean", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  subtype as metric,\n  COUNT(*) as value\nFROM maintenance\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND hostname IN ($hostname)\nGROUP BY DATE(timestamp), subtype\nORDER BY time_sec",
+          "refId": "A"
+        }
+      ],
+      "title": "Maintenance Over Time by Subtype",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "unit": "decmbytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "id": 114,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  application as metric,\n  ROUND(AVG(file_size), 2) as value\nFROM backups\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND file_size > 0\n  AND file_name NOT LIKE 'FAILED_%'\n  AND backup_type IN ($backup_type)\n  AND hostname IN ($hostname)\nGROUP BY DATE(timestamp), application\nORDER BY time_sec",
+          "refId": "A"
+        }
+      ],
+      "title": "Backup Size Trend by Application",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "id": 115,
+      "options": {
+        "legend": {
+          "calcs": ["sum", "mean", "lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(timestamp)) as time_sec, check_name as metric, COUNT(*) as value FROM health_checks WHERE check_status != 'ok' AND timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY AND hostname IN ($hostname) GROUP BY DATE(timestamp), check_name ORDER BY time_sec",
+          "refId": "A"
+        }
+      ],
+      "title": "Health Issues Over Time",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
+      "id": 120,
+      "panels": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "lineWidth": 1,
+                "scaleDistribution": { "type": "linear" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 8, "x": 0, "y": 31 },
+          "id": 121,
+          "options": {
+            "orientation": "horizontal",
+            "showValue": "always",
+            "legend": { "showLegend": false },
+            "barWidth": 0.8,
+            "stacking": "none"
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT backup_subtype, COUNT(*) as count \nFROM backups \nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 30 DAY \n  AND backup_type IN ($backup_type)\n  AND hostname IN ($hostname)\nGROUP BY backup_subtype \nORDER BY count DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Backup Distribution by Subtype (Last 30 Days)",
+          "type": "barchart"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "lineWidth": 1,
+                "scaleDistribution": { "type": "linear" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 8, "x": 8, "y": 31 },
+          "id": 122,
+          "options": {
+            "orientation": "horizontal",
+            "showValue": "always",
+            "legend": { "showLegend": false },
+            "barWidth": 0.8,
+            "stacking": "none"
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT update_subtype, COUNT(*) as count FROM updates WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND hostname IN ($hostname) GROUP BY update_subtype ORDER BY count DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Updates by Type (Last 30 Days)",
+          "type": "barchart"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "lineWidth": 1,
+                "scaleDistribution": { "type": "linear" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 8, "x": 16, "y": 31 },
+          "id": 123,
+          "options": {
+            "orientation": "horizontal",
+            "showValue": "always",
+            "legend": { "showLegend": false },
+            "barWidth": 0.8,
+            "stacking": "none"
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT subtype, COUNT(*) as count FROM maintenance WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND hostname IN ($hostname) GROUP BY subtype ORDER BY count DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Maintenance by Subtype (Last 30 Days)",
+          "type": "barchart"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "lineWidth": 1,
+                "scaleDistribution": { "type": "linear" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 39 },
+          "id": 124,
+          "options": {
+            "orientation": "horizontal",
+            "showValue": "always",
+            "legend": { "showLegend": false },
+            "barWidth": 0.97,
+            "stacking": "none"
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT hostname, COUNT(*) as total_backups FROM backups WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND backup_type IN ($backup_type) AND hostname IN ($hostname) GROUP BY hostname ORDER BY total_backups DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Backups by Host (Last 30 Days)",
+          "type": "barchart"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "lineWidth": 1,
+                "scaleDistribution": { "type": "linear" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 39 },
+          "id": 125,
+          "options": {
+            "orientation": "horizontal",
+            "showValue": "always",
+            "legend": { "showLegend": false },
+            "barWidth": 0.8,
+            "stacking": "none"
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT application, COUNT(*) as count FROM updates WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND hostname IN ($hostname) GROUP BY application ORDER BY count DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Updates by Application (Last 30 Days)",
+          "type": "barchart"
+        }
+      ],
+      "title": "Distributions",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 },
+      "id": 130,
+      "panels": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "custom": {
+                "align": "auto",
+                "cellOptions": { "type": "auto" },
+                "footer": { "reducers": [] },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "hostname" },
+                "properties": [
+                  { "id": "custom.width", "value": 200 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "days_ago" },
+                "properties": [
+                  { "id": "custom.width", "value": 100 },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        { "color": "green", "value": 0 },
+                        { "color": "yellow", "value": 7 },
+                        { "color": "red", "value": 14 }
+                      ]
+                    }
+                  },
+                  { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "file_size_mb" },
+                "properties": [
+                  { "id": "unit", "value": "decmbytes" },
+                  { "id": "custom.width", "value": 120 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "last_success" },
+                "properties": [
+                  { "id": "custom.width", "value": 180 }
+                ]
+              }
+            ]
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+          "id": 131,
+          "options": {
+            "cellHeight": "sm",
+            "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+            "showHeader": true,
+            "sortBy": [{ "desc": false, "displayName": "hostname" }]
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n  b1.hostname,\n  b1.application,\n  b1.timestamp as last_success,\n  DATEDIFF(UTC_TIMESTAMP(), b1.timestamp) as days_ago,\n  ROUND(b1.file_size, 2) as file_size_mb\nFROM backups b1\nINNER JOIN (\n  SELECT hostname, application, MAX(timestamp) as max_ts\n  FROM backups\n  WHERE file_name NOT LIKE 'FAILED_%'\n  GROUP BY hostname, application\n) b2 ON b1.hostname = b2.hostname AND b1.application = b2.application AND b1.timestamp = b2.max_ts\nWHERE b1.hostname IN ($hostname)\nORDER BY b1.hostname, b1.application",
+              "refId": "A"
+            }
+          ],
+          "title": "Last Successful Backup per Host",
+          "type": "table"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "custom": {
+                "align": "auto",
+                "cellOptions": { "type": "auto" },
+                "footer": { "reducers": [] },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "hostname" },
+                "properties": [
+                  { "id": "custom.width", "value": 200 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "days_ago" },
+                "properties": [
+                  { "id": "custom.width", "value": 100 },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        { "color": "green", "value": 0 },
+                        { "color": "yellow", "value": 7 },
+                        { "color": "red", "value": 14 }
+                      ]
+                    }
+                  },
+                  { "id": "custom.cellOptions", "value": { "type": "color-background" } }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "last_success" },
+                "properties": [
+                  { "id": "custom.width", "value": 180 }
+                ]
+              }
+            ]
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
+          "id": 132,
+          "options": {
+            "cellHeight": "sm",
+            "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+            "showHeader": true,
+            "sortBy": [{ "desc": false, "displayName": "hostname" }]
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n  u1.hostname,\n  u1.application,\n  u1.version,\n  u1.timestamp as last_success,\n  DATEDIFF(UTC_TIMESTAMP(), u1.timestamp) as days_ago\nFROM updates u1\nINNER JOIN (\n  SELECT hostname, application, MAX(timestamp) as max_ts\n  FROM updates\n  WHERE status = 'success'\n  GROUP BY hostname, application\n) u2 ON u1.hostname = u2.hostname AND u1.application = u2.application AND u1.timestamp = u2.max_ts\nWHERE u1.hostname IN ($hostname)\nORDER BY u1.hostname, u1.application",
+              "refId": "A"
+            }
+          ],
+          "title": "Last Successful Update per Host",
+          "type": "table"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "custom": {
+                "align": "auto",
+                "cellOptions": { "type": "auto" },
+                "footer": { "reducers": [] },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "hostname" },
+                "properties": [
+                  { "id": "custom.width", "value": 200 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "file_size" },
+                "properties": [
+                  { "id": "unit", "value": "decmbytes" },
+                  { "id": "custom.width", "value": 120 }
+                ]
+              }
+            ]
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 56 },
+          "id": 133,
+          "options": {
+            "cellHeight": "sm",
+            "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+            "showHeader": true,
+            "sortBy": [{ "desc": true, "displayName": "timestamp" }]
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n  timestamp,\n  backup_type, \n  backup_subtype, \n  hostname, \n  application, \n  file_name, \n  file_size \nFROM backups\nWHERE backup_type IN ($backup_type)\n  AND hostname IN ($hostname)\nORDER BY id DESC \nLIMIT 50",
+              "refId": "A"
+            }
+          ],
+          "title": "Recent Backups (All Hosts)",
+          "type": "table"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "custom": {
+                "align": "auto",
+                "cellOptions": { "type": "auto" },
+                "footer": { "reducers": [] },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "hostname" },
+                "properties": [
+                  { "id": "custom.width", "value": 200 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "status" },
+                "properties": [
+                  { "id": "custom.width", "value": 100 },
+                  { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "success": { "color": "green", "index": 0 },
+                          "failed": { "color": "red", "index": 1 }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 56 },
+          "id": 134,
+          "options": {
+            "cellHeight": "sm",
+            "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+            "showHeader": true,
+            "sortBy": [{ "desc": true, "displayName": "timestamp" }]
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n  timestamp,\n  update_type, \n  update_subtype, \n  hostname, \n  application, \n  version,\n  status\nFROM updates\nWHERE hostname IN ($hostname)\nORDER BY id DESC \nLIMIT 50",
+              "refId": "A"
+            }
+          ],
+          "title": "Recent Updates (All Hosts)",
+          "type": "table"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "custom": {
+                "align": "auto",
+                "cellOptions": { "type": "auto" },
+                "footer": { "reducers": [] },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "hostname" },
+                "properties": [
+                  { "id": "custom.width", "value": 180 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "timestamp" },
+                "properties": [
+                  { "id": "custom.width", "value": 200 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "type" },
+                "properties": [
+                  { "id": "custom.width", "value": 120 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "subtype" },
+                "properties": [
+                  { "id": "custom.width", "value": 140 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "status" },
+                "properties": [
+                  { "id": "custom.width", "value": 100 },
+                  { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "success": { "color": "green", "index": 0 },
+                          "failed": { "color": "red", "index": 1 },
+                          "partial": { "color": "yellow", "index": 2 }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 64 },
+          "id": 135,
+          "options": {
+            "cellHeight": "sm",
+            "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+            "showHeader": true,
+            "sortBy": [{ "desc": true, "displayName": "timestamp" }]
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n  timestamp,\n  application,\n  hostname,\n  type,\n  subtype,\n  status\nFROM maintenance\nWHERE hostname IN ($hostname)\nORDER BY id DESC\nLIMIT 50",
+              "refId": "A"
+            }
+          ],
+          "title": "Recent Maintenance Runs",
+          "type": "table"
+        }
+      ],
+      "title": "Recent Activity",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 72 },
+      "id": 140,
+      "panels": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "custom": {
+                "align": "auto",
+                "cellOptions": { "type": "auto" },
+                "footer": { "reducers": [] },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "hostname" },
+                "properties": [
+                  { "id": "custom.width", "value": 200 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "update_type" },
+                "properties": [
+                  { "id": "custom.width", "value": 120 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "update_subtype" },
+                "properties": [
+                  { "id": "custom.width", "value": 120 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "last_updated" },
+                "properties": [
+                  { "id": "custom.width", "value": 180 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "status" },
+                "properties": [
+                  { "id": "custom.width", "value": 100 },
+                  { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "success": { "color": "green", "index": 0 },
+                          "failed": { "color": "red", "index": 1 }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 73 },
+          "id": 141,
+          "options": {
+            "cellHeight": "sm",
+            "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+            "showHeader": true,
+            "sortBy": [{ "desc": false, "displayName": "update_type" }]
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n  u1.update_type, \n  u1.update_subtype, \n  u1.hostname, \n  u1.application, \n  u1.version, \n  u1.status,\n  u1.timestamp as last_updated \nFROM updates u1 \nINNER JOIN (\n  SELECT application, hostname, MAX(timestamp) as max_timestamp \n  FROM updates \n  GROUP BY application, hostname\n) u2 ON u1.application = u2.application \n  AND u1.hostname = u2.hostname \n  AND u1.timestamp = u2.max_timestamp \nWHERE u1.hostname IN ($hostname)\nORDER BY u1.update_type, u1.hostname, u1.application",
+              "refId": "A"
+            }
+          ],
+          "title": "Current Version Status by Host Type",
+          "type": "table"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "custom": {
+                "align": "auto",
+                "cellOptions": { "type": "auto" },
+                "footer": { "reducers": [] },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "hostname" },
+                "properties": [
+                  { "id": "custom.width", "value": 200 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "check_name" },
+                "properties": [
+                  { "id": "custom.width", "value": 150 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "check_status" },
+                "properties": [
+                  { "id": "custom.width", "value": 100 },
+                  { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "ok": { "color": "green", "index": 0 },
+                          "warning": { "color": "yellow", "index": 1 },
+                          "critical": { "color": "red", "index": 2 }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "last_checked" },
+                "properties": [
+                  { "id": "custom.width", "value": 180 }
+                ]
+              }
+            ]
+          },
+          "gridPos": { "h": 10, "w": 24, "x": 0, "y": 81 },
+          "id": 142,
+          "options": {
+            "cellHeight": "sm",
+            "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+            "showHeader": true,
+            "sortBy": [{ "desc": false, "displayName": "hostname" }]
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT h1.hostname, h1.check_name, h1.check_status, h1.check_value, h1.check_detail, h1.timestamp as last_checked FROM health_checks h1 INNER JOIN ( SELECT hostname, check_name, MAX(timestamp) as max_ts FROM health_checks GROUP BY hostname, check_name ) h2 ON h1.hostname = h2.hostname AND h1.check_name = h2.check_name AND h1.timestamp = h2.max_ts WHERE h1.hostname IN ($hostname) ORDER BY h1.hostname, h1.check_name",
+              "refId": "A"
+            }
+          ],
+          "title": "Latest Health Status per Host",
+          "type": "table"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "custom": {
+                "align": "auto",
+                "cellOptions": { "type": "auto" },
+                "footer": { "reducers": [] },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": { "id": "byName", "options": "hostname" },
+                "properties": [
+                  { "id": "custom.width", "value": 200 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "check_name" },
+                "properties": [
+                  { "id": "custom.width", "value": 150 }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "check_status" },
+                "properties": [
+                  { "id": "custom.width", "value": 100 },
+                  { "id": "custom.cellOptions", "value": { "type": "color-text" } },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "ok": { "color": "green", "index": 0 },
+                          "warning": { "color": "yellow", "index": 1 },
+                          "critical": { "color": "red", "index": 2 }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": { "id": "byName", "options": "timestamp" },
+                "properties": [
+                  { "id": "custom.width", "value": 180 }
+                ]
+              }
+            ]
+          },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 91 },
+          "id": 143,
+          "options": {
+            "cellHeight": "sm",
+            "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+            "showHeader": true,
+            "sortBy": [{ "desc": true, "displayName": "timestamp" }]
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT timestamp, hostname, check_name, check_status, check_value FROM health_checks WHERE hostname IN ($hostname) ORDER BY id DESC LIMIT 50",
+              "refId": "A"
+            }
+          ],
+          "title": "Recent Health Check Results",
+          "type": "table"
+        }
+      ],
+      "title": "Status",
+      "type": "row"
+    }
+  ],
+  "preload": false,
+  "refresh": "5m",
+  "schemaVersion": 42,
+  "tags": ["backups", "updates", "monitoring", "health"],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "Ansible-Logging",
+          "value": "efddm3odu7pq8a"
+        },
+        "label": "datasource",
+        "name": "DS_MYSQL",
+        "options": [],
+        "query": "mysql",
+        "refresh": 1,
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+        "includeAll": true,
+        "label": "Hostname",
+        "multi": true,
+        "name": "hostname",
+        "options": [],
+        "query": "SELECT DISTINCT hostname FROM backups UNION SELECT DISTINCT hostname FROM updates UNION SELECT DISTINCT hostname FROM health_checks ORDER BY hostname",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+        "includeAll": true,
+        "label": "Backup Type",
+        "multi": true,
+        "name": "backup_type",
+        "options": [],
+        "query": "SELECT DISTINCT backup_type FROM backups ORDER BY backup_type",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Backup, Updates & Health Monitoring Dashboard",
+  "uid": "backup-updates-final",
+  "version": 1
+}

@@ -1,0 +1,214 @@
+---
+# Sync backups to offline Synology storage.
+# Wakes Synology via WOL, mounts shares, rsyncs backup data, unmounts,
+# shuts down Synology, verifies shutdown. Sends Discord + logs to MariaDB.
+#
+# Usage:
+#   ansible-playbook backup_offline.yaml -e hosts_variable=unraid
+
+- name: Sync backups to offline Synology storage
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  hosts: "{{ hosts_variable }}"
+  vars_files:
+    - vars/secrets.yaml
+    - "vars/{{ config_file }}.yaml"
+  vars:
+    config_file: "{{ hosts_variable }}"
+  pre_tasks:
+    - name: Assert config_file is defined and non-empty
+      include_tasks: tasks/assert_config_file.yaml
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+  tasks:
+    - name: Initialize sync state
+      ansible.builtin.set_fact:
+        sync_failed: false
+        backup_status: {results: []}
+
+    - block:
+        - name: Fix unRAID Backup file permissions
+          ansible.builtin.file:
+            path: "{{ src_backup_path }}"
+            owner: nobody
+            group: users
+            mode: '0750'
+            state: directory
+            recurse: true
+
+        - name: Find all files older than 31 days
+          ansible.builtin.find:
+            paths: "{{ src_backup_path }}"
+            age: 31d
+            recurse: true
+          register: _old_files
+
+        - name: Remove files older than 31 days
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ _old_files.files }}"
+
+        - name: Check if Synology online
+          ansible.builtin.command: ping -c 2 {{ dest_ip }}
+          delegate_to: localhost
+          failed_when: false
+          register: _ping_result
+          changed_when: false
+          check_mode: false
+
+        - name: Send Wake-On-LAN Magic Packet
+          community.general.wakeonlan:
+            mac: "{{ dest_mac }}"
+          when:
+            - _ping_result.rc != 0
+            - not ansible_check_mode
+
+        - name: Wait for boot
+          ansible.builtin.wait_for:
+            timeout: 90
+          delegate_to: localhost
+          when: _ping_result.rc != 0
+
+        - name: Trigger Home Assistant DSM automation
+          ansible.builtin.uri:
+            url: "{{ ha_url }}/api/services/automation/trigger"
+            method: POST
+            headers:
+              Authorization: "Bearer {{ ha_bearer_token }}"
+              Content-Type: "application/json"
+            body_format: json
+            body:
+              entity_id: "{{ ha_dsm_automation }}"
+          delegate_to: localhost
+          when: not ansible_check_mode
+          no_log: true
+
+        - name: Wait for DSM service to start
+          ansible.builtin.wait_for:
+            timeout: 15
+          delegate_to: localhost
+          when: not ansible_check_mode
+
+        - name: Mount, Rsync, Unmount Share
+          loop: "{{ src_shares }}"
+          register: backup_status
+          ignore_errors: true
+          changed_when: true
+          ansible.builtin.shell: |
+            if /usr/local/sbin/rc.unassigned mount {{ server_mountname }}:{{ server_mount }}; then
+              sleep 5
+            else
+              exit 1
+            fi
+            if mountpoint -q {{ mnt_base_path }}{{ server_mountname }}_{{ item }}; then
+              rsync -a --stats {{ src_base_path }}{{ item }}/ {{ mnt_base_path }}{{ server_mountname }}_{{ item }}/ --delete-after
+            else
+              exit 2
+            fi
+            sync
+            sleep 60
+            let "n = {{ umount_timeout }}"
+            while ! /usr/local/sbin/rc.unassigned umount {{ server_mountname }}:{{ server_mount }}; do
+              if [ "$n" -eq 0 ]; then
+                exit 3
+              fi
+              let "n--"
+              sleep 5
+            done
+            exit 0
+
+      rescue:
+        - name: Set sync failed flag
+          ansible.builtin.set_fact:
+            sync_failed: true
+
+      always:
+        - name: Shutdown Synology via Home Assistant
+          ansible.builtin.uri:
+            url: "{{ ha_url }}/api/services/button/press"
+            method: POST
+            headers:
+              Authorization: "Bearer {{ ha_bearer_token }}"
+              Content-Type: "application/json"
+            body_format: json
+            body:
+              entity_id: "{{ ha_shutdown_button }}"
+          delegate_to: localhost
+          when: not ansible_check_mode
+          no_log: true
+
+        - name: Verify Synology has shut down
+          ansible.builtin.shell: "ping -c 1 -W 2 {{ dest_ip }}"
+          delegate_to: localhost
+          register: _shutdown_ping
+          until: _shutdown_ping.rc != 0
+          retries: 12
+          delay: 10
+          failed_when: false
+          changed_when: false
+          when: not ansible_check_mode
+
+        - name: Log Synology shutdown verification
+          ansible.builtin.debug:
+            msg: >-
+              {{ 'Synology confirmed offline' if _shutdown_ping.rc | default(1) != 0
+                 else 'WARNING: Synology still responding after shutdown request' }}
+          when: not ansible_check_mode
+
+        - name: Send Discord notification for each sync result
+          include_tasks: tasks/notify_discord.yaml
+          loop: "{{ backup_status.results }}"
+          loop_control:
+            loop_var: sync_result
+          when: not ansible_check_mode
+          vars:
+            discord_title: "{{ backup_name }}"
+            discord_description: "{{ 'Backup Successful' if sync_result.rc == 0 else 'Backup Failed' }}"
+            discord_color: "{{ 32768 if sync_result.rc == 0 else 16711680 }}"
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ backup_description }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Backup Name"
+                value: "Offline Sync - {{ sync_result.item }} Share"
+              - name: "Backup Size"
+                value: >-
+                  {{ ((sync_result.stdout | default('') |
+                       regex_search('Total transferred file size: ([\d,]+)', '\1') |
+                       default(['0'], true) | first | replace(',', '')) | float
+                       / 1024 / 1024) | round(2) }}MB
+
+        - name: Send Discord notification for pre-sync failure
+          include_tasks: tasks/notify_discord.yaml
+          when: sync_failed
+          vars:
+            discord_title: "{{ backup_name }}"
+            discord_description: "Backup Failed — check Semaphore logs for details"
+            discord_color: 16711680
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ backup_description }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+
+        - name: Log sync results to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          loop: "{{ backup_status.results }}"
+          loop_control:
+            loop_var: sync_result
+          when: not ansible_check_mode
+          vars:
+            log_table: backups
+            log_application: "{{ backup_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_file_name: "{{ ('FAILED_' if sync_result.rc != 0 else '') }}sync_{{ sync_result.item }}_{{ ansible_date_time.date }}"
+            log_file_size: >-
+              {{ ((sync_result.stdout | default('') |
+                   regex_search('Total transferred file size: ([\d,]+)', '\1') |
+                   default(['0'], true) | first | replace(',', '')) | float
+                   / 1024 / 1024) | round(2) }}

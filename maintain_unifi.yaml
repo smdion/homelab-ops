@@ -1,0 +1,63 @@
+---
+# Restart Unifi Network services.
+# Restarts the Unifi Network application service on the controller.
+# Schedule with Semaphore to run weekly.
+
+- name: Restart Unifi Network services
+  hosts: "unifi_network"
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/unifi_network.yaml
+  vars:
+    maintenance_name: "Unifi"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Restart"
+    maintenance_description: "Restart Unifi Network service"
+
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+
+    - block:
+        - name: Restart Unifi Network service
+          become: true
+          ansible.builtin.systemd:
+            name: unifi
+            state: restarted
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send Discord alert on failure
+          include_tasks: tasks/notify_discord.yaml
+          when: maintenance_failed
+          vars:
+            discord_title: "{{ maintenance_name }}"
+            discord_description: "Maintenance Failed — check Semaphore logs for details"
+            discord_color: 16711680
+            discord_url: "{{ maintenance_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ maintenance_description }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: "maintenance"
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"

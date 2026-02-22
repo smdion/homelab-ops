@@ -1,0 +1,118 @@
+# vars/example.yaml — template for creating a new platform vars file
+#
+# Copy to vars/<your_platform>.yaml and fill in the values for your environment.
+# This file is loaded by playbooks via:  vars_files: vars/{{ config_file }}.yaml
+#
+# Not all variables are needed by every playbook. See the sections below.
+
+# =============================================================================
+# BACKUP SETTINGS — used by backup_hosts.yaml
+# =============================================================================
+
+# Directories on the remote host to include in the backup archive
+src_raw_files:
+  - "/etc"
+  - "/opt/myapp"
+
+# Temporary directory on the remote host (used during archive creation)
+# Use /backup if the host has a dedicated backup partition, or /tmp/backup otherwise
+backup_tmp_dir: "/backup"
+
+# Display name for this platform in the database (backups.application column)
+backup_name: "MyApp"
+
+# URL shown in Discord notification embeds (clickable link to the host's web UI)
+# Defaults to https://<hostname>.<domain> via group_vars/all.yaml
+# Override here only if the host uses a different URL (e.g., "https://unifi.ui.com/")
+# Set to "" if the host has no web UI
+# backup_url: ""
+
+# Discord notification description text
+backup_description: "Automatic MyApp Backup"
+
+# Category for Grafana filtering — "Appliances" or "Servers"
+#   Appliances = purpose-built gear (Proxmox, PiKVM, Unifi, etc.)
+#   Servers    = general-purpose hosts (Docker, Ubuntu, databases, etc.)
+backup_type: "Servers"
+
+# Subcategory — "Config", "Appdata", "Database", or "Offline"
+backup_subtype: "Config"
+
+# Backup filename pattern (date-stamped so same-day reruns overwrite)
+backup_file: "backup_myapp_config_{{ ansible_date_time.date }}.tar.gz"
+
+# =============================================================================
+# UPDATE SETTINGS — used by update_systems.yaml
+# =============================================================================
+
+# Display name for this platform in the database (updates.application column)
+# Can differ from backup_name (see Proxmox in DESIGN.md for why)
+update_name: "MyApp"
+
+# Discord notification description text
+update_description: "Automatic MyApp Update"
+
+# Category — same "Appliances" / "Servers" convention as backups
+update_type: "Servers"
+
+# Subcategory — e.g., "OS", "Container", "PVE", "PBS", "KVM", "Game Server"
+update_subtype: "OS"
+
+# =============================================================================
+# DOCKER-SPECIFIC — only for docker_stacks / docker_run vars files
+# =============================================================================
+
+# Docker Compose project directory (where docker-compose.yaml lives)
+# compose_project_path: "/opt"
+
+# Days to delay container updates after image publish (0 = update immediately)
+# update_delay_days: 3
+
+# Containers to skip during updates (list of service/container names)
+# update_exclude_services:     # for docker compose hosts
+#   - semaphore
+# update_exclude_containers:   # for docker run / unRAID hosts
+#   - semaphore
+#   - mariadb
+
+# Containers to keep running during backup (never stopped/started by backup_hosts.yaml)
+# backup_exclude_containers:   # for docker run / unRAID hosts
+#   - ansible
+#   - semaphore
+#   - mariadb
+
+# =============================================================================
+# MAINTENANCE SETTINGS — deployment-specific values used by maintain_*.yaml
+# =============================================================================
+# Only deployment-specific values (URLs, paths, thresholds) go here.
+# Operation metadata (maintenance_name, _type, _subtype, _description) stays in the playbook.
+
+# URL for Discord embed links (clickable title in maintenance failure alerts)
+# Defaults to https://<hostname>.<domain> in most playbooks; override here if different
+# maintenance_url: "https://unifi.ui.com/"
+
+# Application-specific paths and settings (examples from maintain_amp.yaml)
+# amp_user: "amp"
+# amp_home: "/home/amp"
+# amp_versions_keep: 2
+# journal_max_age: "3d"
+
+# =============================================================================
+# DATABASE BACKUP — only for vars files used with backup_databases.yaml
+# =============================================================================
+
+# Database user and container name
+# db_username: "postgres"
+# container_name: "postgres"
+
+# List of database names to dump
+# db_names:
+#   - "mydb1"
+#   - "mydb2"
+
+# Database engine flags
+# is_postgres: true
+# is_mariadb: false
+
+# Database password should be in vars/secrets.yaml (vault), not here
+# db_password: "{{ my_db_password_from_vault }}"

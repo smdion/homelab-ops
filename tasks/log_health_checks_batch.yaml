@@ -1,0 +1,31 @@
+---
+# Batch health check logging — inserts all results in a single multi-row INSERT.
+# Replaces individual per-row include_tasks loops for efficiency (~150 INSERTs → 1).
+#
+# Required var:
+#   _all_results — list of dicts, each with keys:
+#     hostname, check_name, status, value, detail
+#
+# Inherited from playbook scope (no need to pass):
+#   logging_db_host, logging_db_port, logging_db_user,
+#   logging_db_password, logging_db_name
+
+- name: Batch log health checks to MariaDB
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  become: false
+  connection: local
+  community.mysql.mysql_query:
+    login_host: "{{ logging_db_host }}"
+    login_port: "{{ logging_db_port }}"
+    login_user: "{{ logging_db_user }}"
+    login_password: "{{ logging_db_password }}"
+    login_db: "{{ logging_db_name }}"
+    query: >-
+      INSERT INTO health_checks
+      (hostname, check_name, check_status, check_value, check_detail, timestamp)
+      VALUES {% for _ in _all_results %}(%s, %s, %s, %s, %s, UTC_TIMESTAMP()){% if not loop.last %}, {% endif %}{% endfor %}
+    positional_args: "{{ _all_results | json_query('[].[ hostname, check_name, status, value, detail ]') | flatten }}"
+  when: not ansible_check_mode
+  no_log: true
+  tags: [always]

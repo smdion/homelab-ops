@@ -1,0 +1,352 @@
+---
+# Back up host configurations and appdata.
+# Stops Docker (if applicable), archives specified paths, copies to controller,
+# verifies integrity, restarts Docker. Sends Discord + logs to MariaDB.
+#
+# Usage:
+#   ansible-playbook backup_hosts.yaml -e hosts_variable=proxmox
+
+- name: Back up host configurations and appdata
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  serial: 1
+  vars_files:
+    - vars/secrets.yaml
+    - vars/{{ config_file }}.yaml
+  vars:
+    config_file: "{{ hosts_variable }}"
+  hosts: "{{ hosts_variable }}"
+
+  pre_tasks:
+    - name: Assert config_file is defined and non-empty
+      include_tasks: tasks/assert_config_file.yaml
+
+    - name: Put device in RW mode
+      raw: rw
+      when:
+        - inventory_hostname in groups["pikvm"]
+        - not ansible_check_mode
+      tags: [always]
+
+    - name: Assert sufficient disk space on remote backup dir
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: "{{ backup_tmp_dir }}"
+        assert_disk_min_gb: 2
+
+    - name: Assert sufficient disk space on controller
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: "{{ backup_base_dir }}"
+        assert_disk_min_gb: 2
+        assert_disk_delegate_to: localhost
+        assert_disk_become: false
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Delete temp backup directory
+      become: true
+      ansible.builtin.file:
+        state: absent
+        path: "{{ backup_tmp_dir }}"
+      tags: [always]
+
+    - name: Create temp backup directory
+      become: true
+      ansible.builtin.file:
+        state: directory
+        path: "{{ backup_tmp_dir }}"
+      tags: [always]
+
+    - name: Find old backup files
+      become: true
+      ansible.builtin.find:
+        paths: "{{ item }}"
+        age: 10d
+        age_stamp: mtime
+        recurse: false
+      register: _old_backups
+      loop: "{{ src_raw_files }}"
+      when: inventory_hostname in groups["unifi_network"]
+      tags: [always]
+
+    - name: Delete old backup files
+      become: true
+      ansible.builtin.file:
+        path: "{{ found_file.path }}"
+        state: absent
+      loop: "{{ _old_backups.results | default([]) | map(attribute='files') | flatten }}"
+      loop_control:
+        loop_var: found_file
+      when: inventory_hostname in groups["unifi_network"]
+      tags: [always]
+
+    - name: Extract WireGuard VPS config
+      become: true
+      ansible.builtin.shell: >
+        awk '/"address": "{{ vps_address }}",/ {found=1; count=0} found && count<8 {gsub(/^[ \t]+/, "", $0); print; count++}'
+        {{ unifi_state_file }} > {{ src_raw_files | first }}/{{ wg_config_file }}
+      when: inventory_hostname in groups["unifi_network"]
+      tags: [always]
+
+    - name: Initialize file size and failure state
+      ansible.builtin.set_fact:
+        file_size: {stat: {size: 0}}
+        backup_failed: false
+      tags: [always]
+
+    - block:
+        # ===== STOP DOCKER (COMPOSE) =====
+        - name: Stop Docker Compose
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "{{ compose_project_path }}"
+            state: stopped
+          when: inventory_hostname in groups["docker_stacks"]
+          tags: [docker]
+
+        # ===== STOP DOCKER - unRAID (SHELL COMMANDS) =====
+        - name: Get running containers (unRAID)
+          become: true
+          ansible.builtin.shell: |
+            docker ps --format {% raw %}'{{.Names}}'{% endraw %} | grep -viE '({{ backup_exclude_containers | join("|") }})'
+          register: _docker_containers
+          when: inventory_hostname in groups["docker_run"]
+          failed_when: false
+          changed_when: false
+          check_mode: false
+          tags: [docker]
+
+        - name: Stop Docker containers except Semaphore/Ansible/MariaDB (unRAID)
+          become: true
+          ansible.builtin.command:
+            argv: "{{ ['docker', 'stop'] + _docker_containers.stdout_lines }}"
+          when:
+            - inventory_hostname in groups["docker_run"]
+            - _docker_containers.stdout_lines | length > 0
+          tags: [docker]
+
+        # ===== UNVR PROTECT BACKUP VIA API =====
+        - name: Trigger UNVR backup
+          ansible.builtin.uri:
+            url: "https://{{ inventory_hostname }}{{ protect_api_backup_path }}"
+            method: POST
+            body_format: json
+            body:
+              cmd: "backup"
+              days: "-1"
+            validate_certs: false  # UNVR self-signed cert — IMP-10 in DEFERRED.md
+            headers:
+              x-api-key: "{{ unvr_api_key }}"
+            status_code: 200
+          register: unvr_backup
+          delegate_to: localhost
+          when:
+            - inventory_hostname in groups["unifi_protect"]
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Download UNVR backup file
+          ansible.builtin.get_url:
+            url: "https://{{ inventory_hostname }}{{ unvr_backup.json.data[0].url }}"
+            dest: "{{ protect_temp_file }}"
+            mode: "0600"
+            validate_certs: false  # UNVR self-signed cert — IMP-10 in DEFERRED.md
+            headers:
+              x-api-key: "{{ unvr_api_key }}"
+          delegate_to: localhost
+          when:
+            - inventory_hostname in groups["unifi_protect"]
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Copy backup to UNVR
+          ansible.builtin.copy:
+            src: "{{ protect_temp_file }}"
+            dest: "{{ backup_tmp_file }}"
+          when:
+            - inventory_hostname in groups["unifi_protect"]
+            - not ansible_check_mode
+          tags: [always]
+
+        # ===== CREATE BACKUP (non-UNVR hosts) =====
+        - name: Filter backup paths to only existing directories
+          ansible.builtin.stat:
+            path: "{{ item }}"
+          loop: "{{ src_raw_files }}"
+          register: _backup_paths_stat
+          when: inventory_hostname not in groups["unifi_protect"]
+          tags: [always]
+
+        - name: Set validated backup paths
+          ansible.builtin.set_fact:
+            _validated_backup_paths: >-
+              {{ _backup_paths_stat.results | default([])
+                 | selectattr('stat', 'defined')
+                 | selectattr('stat.exists')
+                 | map(attribute='item') | list }}
+          when: inventory_hostname not in groups["unifi_protect"]
+          tags: [always]
+
+        - name: Create compressed backup archive
+          become: true
+          community.general.archive:
+            path: "{{ _validated_backup_paths | default(src_raw_files) }}"
+            dest: "{{ backup_tmp_file }}"
+            format: gz
+            remove: false
+          timeout: 1800
+          when: inventory_hostname not in groups["unifi_protect"]
+          tags: [always]
+
+        - name: Get backup file size
+          ansible.builtin.stat:
+            path: "{{ backup_tmp_file }}"
+          register: file_size
+          changed_when: false
+          tags: [always]
+
+        - name: Verify backup archive integrity
+          become: true
+          ansible.builtin.shell: gunzip -t "{{ backup_tmp_file }}"
+          when: inventory_hostname not in groups["unifi_protect"]
+          changed_when: false
+          check_mode: false
+          tags: [always]
+
+        # ===== START DOCKER (COMPOSE) =====
+        - name: Start Docker Compose
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "{{ compose_project_path }}"
+            state: present
+          when: inventory_hostname in groups["docker_stacks"]
+          tags: [docker]
+
+        # ===== START DOCKER - unRAID (SHELL COMMANDS) =====
+        - name: Start Docker containers (unRAID)
+          become: true
+          ansible.builtin.command:
+            argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
+          when:
+            - inventory_hostname in groups["docker_run"]
+            - _docker_containers.stdout_lines | length > 0
+          tags: [docker]
+
+        - name: Wait for port 22 to become open and contain "OpenSSH"
+          ansible.builtin.wait_for:
+            port: 22
+            host: '{{ (ansible_ssh_host|default(ansible_host))|default(inventory_hostname) }}'
+            search_regex: OpenSSH
+            delay: 10
+            timeout: 300
+          when: inventory_hostname in groups["docker_stacks"]
+          tags: [docker]
+
+        # ===== FETCH AND CLEANUP =====
+        - name: Fetch backup to controller
+          ansible.builtin.fetch:
+            src: "{{ backup_tmp_file }}"
+            dest: "{{ backup_dest_path }}"
+            flat: true
+          tags: [always]
+
+        - name: Delete source backup
+          become: true
+          ansible.builtin.file:
+            path: "{{ backup_tmp_file }}"
+            state: absent
+          tags: [always]
+
+        - name: Put PiKVM back in RO mode
+          raw: ro
+          when:
+            - inventory_hostname in groups["pikvm"]
+            - not ansible_check_mode
+          tags: [always]
+
+      rescue:
+        - name: Set backup failed flag
+          ansible.builtin.set_fact:
+            backup_failed: true
+
+      always:
+        # ===== SAFETY NET: ENSURE DOCKER IS RUNNING =====
+        - name: Ensure Docker Compose is running (safety net)
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "{{ compose_project_path }}"
+            state: present
+          when: inventory_hostname in groups["docker_stacks"]
+          register: rescue_compose_result
+          ignore_errors: true
+          tags: [docker]
+
+        - name: Ensure Docker containers are running (safety net)
+          become: true
+          ansible.builtin.command:
+            argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
+          when:
+            - inventory_hostname in groups["docker_run"]
+            - _docker_containers is defined
+            - _docker_containers.stdout_lines | default([]) | length > 0
+          register: rescue_docker_result
+          ignore_errors: true
+          tags: [docker]
+
+        # ===== REPORTING =====
+        - name: Send Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_title: "{{ backup_name }}"
+            discord_description: "{{ 'Backup Failed' if backup_failed else 'Backup Successful' }}"
+            discord_color: "{{ 16711680 if backup_failed else 32768 }}"
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ backup_description }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Backup Name"
+                value: "{{ backup_file }}"
+              - name: "Backup Size"
+                value: "{{ (file_size.stat.size / 1024 / 1024) | round(2) }}MB"
+          tags: [always]
+
+        - name: Send Docker recovery failure alert
+          include_tasks: tasks/notify_discord.yaml
+          when:
+            - backup_failed
+            - (rescue_compose_result is defined and rescue_compose_result is failed) or
+              (rescue_docker_result is defined and rescue_docker_result is failed)
+          vars:
+            discord_title: "{{ backup_name }}"
+            discord_description: "Docker recovery FAILED after backup failure"
+            discord_color: 16711680
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Docker Recovery"
+                value: "Containers could not be restarted — manual intervention required"
+          tags: [always]
+
+        - name: Clean up UNVR temp backup file
+          ansible.builtin.file:
+            path: "{{ protect_temp_file }}"
+            state: absent
+          delegate_to: localhost
+          when: inventory_hostname in groups["unifi_protect"]
+          tags: [always]
+
+        - name: Log backup to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: backups
+            log_application: "{{ backup_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_file_name: "{{ backup_file }}"
+            log_file_size: "{{ (file_size.stat.size / 1024 / 1024) | round(2) }}"
+          tags: [always]

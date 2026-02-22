@@ -1,0 +1,76 @@
+---
+# Parameterized Discord notification task.
+# Pass all variables via vars: on the include_tasks call.
+#
+# Required vars (used by ALL callers):
+#   discord_title        — embed title
+#   discord_color        — embed color as integer (32768=green, 16711680=red, 16753920=orange)
+#   discord_fields       — list of {name: ..., value: ...} dicts
+#
+# Optional vars — embed content:
+#   discord_description  — embed body text (all playbooks on failure; download_videos per-video)
+#   discord_url          — clickable link on title (backup/update/maintenance playbooks)
+#   discord_footer       — dict with 'text' and optional 'icon_url' keys (download_videos per-video)
+#   discord_timestamp    — ISO timestamp (defaults to ansible_date_time.iso8601)
+#
+# Optional vars — author overrides:
+#   discord_author       — override author name (defaults to inventory_hostname;
+#                          maintain_health passes controller_fqdn for localhost plays)
+#   discord_author_icon  — override author icon URL (defaults to Semaphore PNG;
+#                          download_videos per-video uses platform icon)
+#   discord_author_url   — clickable link on author name (download_videos per-video
+#                          links to channel URL)
+#
+# Optional vars — webhook/bot overrides:
+#   discord_username     — override webhook bot name (defaults to "Ansible Bot";
+#                          download_videos per-video uses "{uploader} - MeTube Bot")
+#   discord_avatar       — override webhook bot avatar (defaults to Semaphore PNG;
+#                          download_videos per-video uses MeTube icon)
+#
+# Optional vars — media overrides:
+#   discord_thumbnail    — override small thumbnail (defaults to unRAID notify PNG)
+#   discord_image        — large embed image (download_videos per-video uses video thumbnail)
+#
+# Inherited from playbook scope (no need to pass):
+#   discord_webhook_id, discord_webhook_token — from vars/secrets.yaml; callers that need
+#     a different webhook (e.g., download_videos MeTube channel) override these via vars:
+#   inventory_hostname, ansible_date_time
+
+- name: Send Discord notification
+  community.general.discord:
+    username: "{{ discord_username | default('Ansible Bot') }}"
+    avatar_url: "{{ discord_avatar | default('https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png') }}"
+    webhook_id: "{{ discord_webhook_id }}"
+    webhook_token: "{{ discord_webhook_token }}"
+    embeds:
+      - >-
+        {{
+          {
+            'title': discord_title,
+            'color': discord_color,
+            'fields': discord_fields,
+            'timestamp': discord_timestamp | default(ansible_date_time.iso8601),
+            'author':
+              {'name': discord_author | default(inventory_hostname),
+               'icon_url': discord_author_icon | default('https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png')}
+              | combine({'url': discord_author_url} if discord_author_url | default('') | length > 0 else {}),
+            'thumbnail': {
+              'url': discord_thumbnail | default('https://craftassets.unraid.net/uploads/discord/notify-normal.png')
+            }
+          }
+          | combine({'description': discord_description} if discord_description | default('') | length > 0 else {})
+          | combine({'url': discord_url} if discord_url | default('') | length > 0 else {})
+          | combine({'footer': discord_footer} if discord_footer is defined else {})
+          | combine({'image': {'url': discord_image}} if discord_image | default('') | length > 0 else {})
+        }}
+  register: _discord_result
+  retries: 3
+  delay: 5
+  until: _discord_result is succeeded
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - discord_webhook_id is defined
+    - discord_webhook_token is defined
+  no_log: true
+  tags: [always]

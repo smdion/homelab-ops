@@ -1,0 +1,145 @@
+---
+# AMP Server Maintenance Playbook
+# Cleans up old AMP versions, Docker images, crash dumps, and journal logs.
+#
+# Usage:
+#   ansible-playbook maintain_amp.yaml
+#   ansible-playbook maintain_amp.yaml --tags versions      # only AMP versions
+#   ansible-playbook maintain_amp.yaml -e amp_versions_keep=3
+#
+# Schedule with Semaphore to run weekly.
+
+- name: Maintain AMP game servers
+  hosts: amp
+  gather_facts: true
+  become: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/amp.yaml
+  vars:
+    amp_versions_dir: "{{ amp_home }}/.ampdata/Versions/Mainline"
+    maintenance_name: "AMP"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Maintenance"
+    maintenance_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ logging_domain_ext }}"
+    maintenance_description: "AMP game server maintenance (versions, core dumps, Docker prune, journal, tmp)"
+
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+      tags: [always]
+
+    - block:
+        # ── AMP Old Versions ──────────────────────────────────────────────
+        - name: Get list of AMP versions sorted newest first
+          ansible.builtin.shell: |
+            ls -1t {{ amp_versions_dir }}
+          register: _amp_versions
+          changed_when: false
+          check_mode: false
+          tags: [versions]
+
+        - name: Identify old AMP versions to remove
+          ansible.builtin.set_fact:
+            amp_versions_to_remove: "{{ _amp_versions.stdout_lines[amp_versions_keep:] }}"
+          tags: [versions]
+
+        - name: Display versions to remove
+          ansible.builtin.debug:
+            msg: "Removing {{ amp_versions_to_remove | length }} old version(s): {{ amp_versions_to_remove | join(', ') }}"
+          when: amp_versions_to_remove | length > 0
+          tags: [versions]
+
+        - name: Remove old AMP versions
+          ansible.builtin.file:
+            path: "{{ amp_versions_dir }}/{{ item }}"
+            state: absent
+          loop: "{{ amp_versions_to_remove }}"
+          tags: [versions]
+
+        # ── Crash Core Dumps ──────────────────────────────────────────────
+        - name: Find core dump files in AMP instances
+          ansible.builtin.find:
+            paths: "{{ amp_home }}/.ampdata/instances"
+            patterns: "core"
+            file_type: file
+            recurse: true
+          register: _core_dumps
+          tags: [coredumps]
+
+        - name: Remove core dump files
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ _core_dumps.files }}"
+          when: _core_dumps.matched > 0
+          tags: [coredumps]
+
+        # ── Docker Cleanup ────────────────────────────────────────────────
+        - name: Prune unused Docker images
+          community.docker.docker_prune:
+            images: true
+            images_filters:
+              dangling: "false"
+          tags: [prune]
+
+        # ── Journal Logs ──────────────────────────────────────────────────
+        - name: Vacuum old journal logs
+          ansible.builtin.command:
+            cmd: journalctl --vacuum-time={{ journal_max_age }}
+          register: journal_result
+          changed_when: "'freed' in journal_result.stderr and 'freed 0B' not in journal_result.stderr"
+          tags: [journal]
+
+        # ── Temp Backup Cleanup ───────────────────────────────────────────
+        - name: Remove stale backup files from /tmp
+          ansible.builtin.find:
+            paths: /tmp/backup
+            patterns: "*.tar.gz"
+            age: 1d
+          register: _tmp_backups
+          tags: [cleanup]
+
+        - name: Delete stale /tmp backups
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ _tmp_backups.files }}"
+          when: _tmp_backups.matched > 0
+          tags: [cleanup]
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+          tags: [always]
+
+      always:
+        - name: Send Discord alert on failure
+          include_tasks: tasks/notify_discord.yaml
+          when: maintenance_failed
+          vars:
+            discord_title: "{{ maintenance_name }}"
+            discord_description: "Maintenance Failed — check Semaphore logs for details"
+            discord_color: 16711680
+            discord_url: "{{ maintenance_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ maintenance_description }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: "maintenance"
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"

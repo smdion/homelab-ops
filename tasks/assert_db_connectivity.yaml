@@ -1,0 +1,30 @@
+---
+# Pre-task assertion: verify MariaDB logging database is reachable.
+# No vars needed — inherits logging_db_* from playbook scope (vars/secrets.yaml).
+
+- name: Verify MariaDB logging database connectivity
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  become: false
+  connection: local
+  community.mysql.mysql_query:
+    login_host: "{{ logging_db_host }}"
+    login_port: "{{ logging_db_port }}"
+    login_user: "{{ logging_db_user }}"
+    login_password: "{{ logging_db_password }}"
+    login_db: "{{ logging_db_name }}"
+    query: "SELECT 1"
+  register: _db_connectivity
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  no_log: true
+  tags: [always]
+
+- name: Assert MariaDB logging database is reachable
+  ansible.builtin.assert:
+    that: _db_connectivity is succeeded
+    fail_msg: >-
+      Cannot reach MariaDB logging database at {{ logging_db_host }}:{{ logging_db_port }} —
+      verify the database is running, credentials are correct, and PyMySQL is installed
+  tags: [always]

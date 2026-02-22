@@ -1,0 +1,18 @@
+src_raw_files:
+  - "/home/amp/.ampdata"
+backup_tmp_dir: "/tmp/backup"
+backup_name: "AMP"
+backup_description: "Automatic AMP Datastore Backup"
+backup_type: "Servers"
+backup_subtype: "Config"
+backup_file: "backup_amp_datastore_{{ ansible_date_time.date }}.tar.gz"
+update_name: "AMP"
+update_description: "Automatic AMP Update"
+update_type: "Servers"
+update_subtype: "Game Server"
+
+# Maintenance config — used by maintain_amp.yaml
+amp_user: "amp"
+amp_home: "/home/amp"
+amp_versions_keep: 2
+journal_max_age: "3d"

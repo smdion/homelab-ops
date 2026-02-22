@@ -1,0 +1,10 @@
+---
+# Ansible Galaxy collection dependencies.
+# Install with: ansible-galaxy collection install -r requirements.yaml
+collections:
+  - name: community.docker
+    version: ">=3.0.0"
+  - name: community.general
+    version: ">=6.0.0"
+  - name: community.mysql
+    version: ">=3.0.0"

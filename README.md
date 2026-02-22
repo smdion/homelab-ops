@@ -1,0 +1,311 @@
+# Ansible Home Lab Automation
+
+Ansible playbooks for home lab backup, update, maintenance, and health monitoring — orchestrated
+via [Semaphore](https://semaphoreui.com/), logged to MariaDB, and visualized in Grafana.
+
+> **Note:** This project was built for my own home lab. I've made it as portable as possible —
+> deployment-specific values live in vault-encrypted vars files, and playbooks are
+> platform-conditional — but it reflects the needs and topology of one particular setup. Use it
+> as a working reference, adapt what fits, and skip what doesn't.
+
+**Pick what you need.** This project is modular — use the playbooks that match your environment
+and ignore the rest. You don't need every platform, every playbook, or even every component in
+the stack.
+
+## What it does
+
+| Category | Playbooks |
+|---|---|
+| **Backups** | Config/appdata backups, database dumps (Postgres + MariaDB), offline rsync to NAS |
+| **Updates** | OS and container updates with version tracking and optional delay |
+| **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
+| **Health** | 26 scheduled checks (disk, memory, CPU, Docker, SSL, ZFS, BTRFS, NTP, DNS, ...) with Discord alerts |
+
+Every run logs a structured record to MariaDB. The included Grafana dashboard visualizes the full
+history — backups over time, version status per host, stale detection, health trends.
+
+## Stack
+
+| Component | Version | Purpose | Required? |
+|---|---|---|---|
+| **Ansible** | >= 2.14 | Automation engine | Yes |
+| **Python** | >= 3.9 + PyMySQL | On controller (for `community.mysql`) | Yes |
+| **MariaDB** | >= 10.5 | Logging database (`ansible_logging`) | Yes |
+| **Semaphore** | any | Scheduling UI, credential management | No — [CLI works too](#running-without-semaphore) |
+| **Grafana** | any | Dashboard (MySQL datasource) | No — data is in MariaDB regardless |
+| **Discord** | — | Notifications (webhooks) | No — [silently skipped if not configured](#discord-notifications) |
+
+## Quick start
+
+The fastest path to "does this work for me?" — one host, one playbook:
+
+```bash
+# 1. Clone and install dependencies
+git clone <this-repo> && cd semaphore
+ansible-galaxy collection install -r requirements.yaml
+
+# 2. Set up vault
+cp vars/secrets.yaml.example vars/secrets.yaml
+ansible-vault encrypt vars/secrets.yaml    # set a password, then edit with your values
+
+# 3. Create the database
+mysql -u root -p < sql/init.sql
+
+# 4. Create a minimal inventory (just Docker hosts, for example)
+cp inventory.example.yaml inventory.yaml  # edit: keep only your hosts/groups
+
+# 5. Run a backup
+ansible-playbook backup_hosts.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  -e config_file=docker_stacks \
+  --vault-password-file ~/.vault_pass
+```
+
+Once that works, add more platforms by creating `vars/` files and inventory groups.
+
+## Playbook matrix
+
+Not every playbook applies to every homelab. Use this to identify what you need:
+
+### Universal playbooks
+
+These work with any Linux host. Create a vars file per platform, add hosts to inventory groups,
+and go.
+
+| Playbook | What it does | Vars file pattern |
+|---|---|---|
+| `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller | `vars/<platform>.yaml` with `src_raw_files`, `backup_*` vars |
+| `backup_databases.yaml` | Dump Postgres/MariaDB databases from Docker containers | `vars/db_<host>_<engine>.yaml` with `db_names`, `container_name` |
+| `update_systems.yaml` | OS packages + Docker container updates with version tracking | `vars/<platform>.yaml` with `update_*` vars |
+| `maintain_docker.yaml` | Prune unused Docker images | Needs `[docker]` group (children of `docker_stacks` + `docker_run`) |
+| `maintain_semaphore.yaml` | Clean stopped Semaphore tasks + prune old logging data | Runs on localhost |
+| `maintain_health.yaml` | 26 health checks across all SSH hosts + DB/API | `vars/semaphore_check.yaml` for thresholds |
+
+### Platform-specific playbooks
+
+Skip these entirely if you don't have the hardware. No changes needed elsewhere.
+
+| Playbook | Platform | What it does |
+|---|---|---|
+| `maintain_amp.yaml` | [AMP](https://cubecoders.com/AMP) game server | Version checks, journal pruning, dump cleanup |
+| `maintain_unifi.yaml` | Unifi Network (UDMP) | Service restart |
+| `maintain_cache.yaml` | Ubuntu / Debian | Drop Linux page cache |
+| `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | WOL, rsync, shutdown verification |
+| `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with Discord notifications |
+| `add_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
+
+### Health checks by platform
+
+`maintain_health.yaml` runs checks conditionally based on inventory group membership. Checks
+for platforms you don't have are automatically skipped.
+
+| Check | Runs on | What it checks |
+|---|---|---|
+| `disk_space` | All SSH hosts | Filesystem usage (warning/critical thresholds) |
+| `memory` | All SSH hosts | RAM usage percentage |
+| `cpu_load` | All SSH hosts | 5-minute load average vs. vCPU count |
+| `journal_errors` | All SSH hosts | Systemd journal errors since last check |
+| `oom_kills` | All SSH hosts | Out-of-memory kills in dmesg |
+| `docker_health` | All SSH hosts | Unhealthy Docker containers |
+| `smart_health` | All SSH hosts | SMART disk status (auto-installs `smartmontools`) |
+| `ssl_cert` | All SSH hosts | Let's Encrypt certificate expiry |
+| `zfs_pool` | All SSH hosts | ZFS pool health (skips if no ZFS) |
+| `btrfs_health` | All SSH hosts | BTRFS device error counters (skips if no BTRFS) |
+| `ntp_sync` | All SSH hosts | Time synchronization status |
+| `dns_resolution` | All SSH hosts | DNS resolver working |
+| `docker_http` | Configured hosts | HTTP endpoint checks for Docker containers |
+| `pve_cluster` | `[pve]` only | Proxmox cluster quorum |
+| `ceph_health` | `[pve]` only | Ceph cluster status |
+| `unraid_array` | `[unraid]` only | Array state + disabled/missing disks |
+| `pbs_datastore` | `[pbs]` only | PBS datastore accessibility |
+| `semaphore_tasks` | localhost | Failed Semaphore tasks since last check |
+| `stale_backup` | localhost | Hosts with no backup in 9+ days |
+| `backup_size_anomaly` | localhost | Backups significantly smaller than 30-day average |
+| `failed_maintenance` | localhost | Failed maintenance runs since last check |
+| `stale_maintenance` | localhost | Hosts with no maintenance in 3+ days |
+| `mariadb_health` | localhost | Connection count + crashed tables |
+| `wan_connectivity` | localhost | Outbound internet check |
+| `appliance_reachable` | localhost | TCP connectivity to network appliances (PiKVM, UDMP, UNVR) |
+| `host_reachable` | Aggregated | Detects hosts unreachable during SSH checks |
+
+## What's in this repo
+
+```
+semaphore/
+├── group_vars/
+│   └── all.yaml                  # Shared defaults (remote_tmp, python interpreter)
+├── vars/
+│   ├── secrets.yaml             # Vault-encrypted secrets (not committed unencrypted)
+│   ├── secrets.yaml.example      # Template — copy and fill in your values
+│   ├── example.yaml              # Template — copy for new platform vars files
+│   ├── semaphore_check.yaml      # Health thresholds, controller config, retention
+│   └── <platform>.yaml           # One per platform (proxmox, docker_stacks, etc.)
+├── tasks/                       # Shared task files (Discord, DB logging, assertions)
+├── sql/
+│   └── init.sql                 # Database schema — run once to create all tables
+├── grafana/
+│   └── grafana.json             # Grafana dashboard (import via UI)
+├── files/
+│   └── get_push_epoch.sh       # Helper script for Docker image age checks
+├── templates/
+│   └── metube.conf.j2           # yt-dlp config template (download_videos only)
+├── backup_*.yaml                # Backup playbooks
+├── update_*.yaml                # Update playbook
+├── maintain_*.yaml              # Maintenance + health playbooks
+├── download_videos.yaml         # MeTube/yt-dlp automation
+├── add_ansible_user.yaml        # One-time user setup utility
+├── requirements.yaml            # Ansible Galaxy collection dependencies
+├── inventory.example.yaml       # Example inventory with expected group structure
+└── CONTRIBUTING.md              # Contribution guide
+```
+
+Inventory is **not** stored here — it lives in Semaphore's database (or a local file for CLI
+usage). See [`inventory.example.yaml`](inventory.example.yaml) for the expected group structure.
+
+## Setup
+
+### 1. Database
+
+```bash
+mysql -u root -p < sql/init.sql
+```
+
+This creates the `ansible_logging` database with all five tables. See
+[DESIGN.md](DESIGN.md#database-ansible_logging) for schema details.
+
+### 2. Vault (secrets)
+
+```bash
+cp vars/secrets.yaml.example vars/secrets.yaml
+# Edit the file with your values, then encrypt:
+ansible-vault encrypt vars/secrets.yaml
+```
+
+See [`vars/secrets.yaml.example`](vars/secrets.yaml.example) for all available keys. Only the
+`logging_db_*` and `logging_domain_*` keys are required by every playbook. Discord and Semaphore
+API keys are optional — features degrade gracefully without them.
+
+### 3. Inventory
+
+```bash
+cp inventory.example.yaml inventory.yaml
+```
+
+Edit to include only your hosts and groups. The key concept: **functional groups** (`[ubuntu]`,
+`[pve]`, `[docker_stacks]`, etc.) determine which playbook logic applies. A host can belong to
+multiple groups.
+
+### 4. Platform vars files
+
+Each platform needs a `vars/<name>.yaml` file defining backup paths, display names, and
+categories. Copy [`vars/example.yaml`](vars/example.yaml) as a starting point:
+
+```bash
+cp vars/example.yaml vars/myplatform.yaml
+```
+
+The included vars files cover: Proxmox, PiKVM, Unifi, AMP, Docker (compose + run), Ubuntu,
+unRAID, Synology, and database backups. Use or replace them as needed.
+
+### 5. Semaphore (optional)
+
+If using Semaphore for scheduling and credential management:
+
+1. Add this repo in Semaphore
+2. Create inventories organized by **authentication method** (SSH key, password, etc.)
+3. Create variable groups with `hosts_variable` (and `config_file` when it differs)
+4. Create templates pointing to the playbooks
+
+See [DESIGN.md](DESIGN.md#semaphore-setup) for the full Semaphore configuration reference.
+
+### 6. Grafana (optional)
+
+Import `grafana/grafana.json` and create a MySQL datasource pointed at your `ansible_logging`
+database. On import, Grafana will prompt you to select the datasource for the `DS_MYSQL`
+variable — pick your MySQL datasource. The dashboard includes 27 panels across 5 collapsible
+row groups (Alerts, Trends, Distributions, Recent Activity, Status).
+
+<details>
+<summary>Dashboard screenshot</summary>
+
+![Grafana Dashboard](files/grafana.png)
+
+</details>
+
+## Running without Semaphore
+
+Every playbook can be run directly with `ansible-playbook`. Pass `hosts_variable` and
+`config_file` as extra vars — these are normally set by Semaphore's variable groups:
+
+```bash
+# Backup Docker Compose hosts
+ansible-playbook backup_hosts.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  -e config_file=docker_stacks \
+  --vault-password-file ~/.vault_pass
+
+# Update Ubuntu hosts
+ansible-playbook update_systems.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=ubuntu \
+  -e config_file=ubuntu_os \
+  --vault-password-file ~/.vault_pass
+
+# Run health checks
+ansible-playbook maintain_health.yaml \
+  -i inventory.yaml \
+  --vault-password-file ~/.vault_pass
+
+# Dry-run any playbook (no changes, no notifications, no DB writes)
+ansible-playbook maintain_health.yaml \
+  -i inventory.yaml \
+  --vault-password-file ~/.vault_pass \
+  --check
+```
+
+When `config_file` matches `hosts_variable` (e.g., both are `docker_stacks`), you can omit
+`config_file` — it defaults to `hosts_variable`.
+
+## Discord notifications
+
+Discord is **optional**. If `discord_webhook_id` and `discord_webhook_token` are not defined in
+the vault, all Discord notification tasks are silently skipped. No errors, no changes needed to
+playbooks.
+
+To enable: create a webhook in your Discord server (Server Settings > Integrations > Webhooks),
+extract the ID and token from the URL, and add them to your vault.
+
+## Adding a new platform
+
+To add a platform that isn't already covered (e.g., TrueNAS, Home Assistant, OPNsense):
+
+1. **Inventory** — add hosts to a new group (e.g., `[truenas]`)
+2. **Vars file** — copy `vars/example.yaml` to `vars/truenas.yaml`, fill in backup paths and names
+3. **Semaphore** (if using) — create a variable group: `{"hosts_variable": "truenas"}`
+4. **Update playbook** — if the platform has a version command, add one line to the
+   `_os_version_commands` dict in `update_systems.yaml`:
+   ```yaml
+   _os_version_commands:
+     truenas: "midclt call system.version"
+   ```
+5. **Health checks** — platform-specific checks (like `unraid_array` or `pve_cluster`) need new
+   tasks in `maintain_health.yaml` with `when: "'truenas' in group_names"`. Universal checks
+   (disk, memory, Docker, etc.) work automatically.
+
+No database changes are needed — Ansible sends all column values at INSERT time.
+
+## Configuration reference
+
+| File | Purpose |
+|---|---|
+| `vars/secrets.yaml.example` | All vault keys with descriptions |
+| `vars/example.yaml` | All vars file keys with descriptions |
+| `vars/semaphore_check.yaml` | Health check thresholds (all tunable) |
+| `inventory.example.yaml` | Expected inventory group structure |
+| [DESIGN.md](DESIGN.md) | Full architecture, patterns, database schema, and design decisions |
+
+## License
+
+MIT — see [LICENSE](LICENSE)

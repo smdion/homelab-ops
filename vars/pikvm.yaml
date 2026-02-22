@@ -1,0 +1,13 @@
+src_raw_files:
+  - "/etc/kvmd"
+  - "/opt/cmd"
+backup_tmp_dir: "/backup"    # Intentionally /backup (not /tmp/backup) — PiKVM has limited /tmp space
+backup_name: "PiKVM"
+backup_description: "Automatic PiKVM Backup"
+backup_type: "Appliances"
+backup_subtype: "Config"
+backup_file: "backup_{{ inventory_hostname }}_config_{{ ansible_date_time.date }}.tar.gz"
+update_name: "PiKVM"
+update_description: "Automatic PiKVM Update"
+update_type: "Appliances"
+update_subtype: "KVM"

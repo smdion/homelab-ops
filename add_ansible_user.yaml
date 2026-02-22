@@ -1,0 +1,258 @@
+---
+# Set up the ansible user on all managed hosts.
+# Creates user, configures SSH, hardens sshd, validates setup.
+# Run once per new host; re-run is safe (idempotent).
+
+- name: Set up ansible user on PVE, PBS, and Ubuntu
+  hosts: "pve:pbs:ubuntu"
+  become: true
+  become_user: root
+  vars_files:
+    - vars/secrets.yaml
+  tasks:
+    - name: Ensure sudo is installed
+      ansible.builtin.package:
+        name: sudo
+        state: present
+
+    - name: Add ansible user
+      ansible.builtin.user:
+        name: ansible
+        comment: ansible
+
+    - name: Add ansible user to sudo group
+      ansible.builtin.user:
+        name: ansible
+        groups: sudo
+        append: true
+
+    - name: Grant passwordless sudo to ansible user
+      ansible.builtin.copy:
+        content: |
+          # Passwordless sudo for Ansible automation — required for playbooks to
+          # execute privileged tasks (apt, docker, systemctl, etc.) without prompts.
+          ansible ALL=(ALL) NOPASSWD: ALL
+        dest: /etc/sudoers.d/ansible
+        mode: "0440"
+        owner: root
+        group: root
+        validate: /usr/sbin/visudo -cf %s
+
+    - name: Deploy SSH public key for ansible user
+      ansible.builtin.authorized_key:
+        user: ansible
+        key: "{{ ansible_user_ssh_pubkey }}"
+        state: present
+
+    - name: Harden SSH configuration
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      loop:
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin prohibit-password' }
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        # Required for Apache Guacamole — guacd uses libssh2 which only supports
+        # ssh-rsa host key algorithm (GUACAMOLE-1497). Applied to all managed hosts
+        # since Guacamole connects to all of them. Remove when guacd adds rsa-sha2 support.
+        - { regexp: '^#?PubkeyAcceptedAlgorithms', line: 'PubkeyAcceptedAlgorithms +ssh-rsa' }
+      notify: Restart sshd
+
+  handlers:
+    - name: Restart sshd
+      ansible.builtin.service:
+        name: sshd
+        state: restarted
+
+- name: Set up ansible user on unRAID
+  hosts: "unraid"
+  become: true
+  become_user: root
+  vars_files:
+    - vars/secrets.yaml
+  tasks:
+    - name: Add ansible user
+      ansible.builtin.user:
+        name: ansible
+        comment: ansible
+        home: /home/ansible
+        shell: /bin/bash
+        create_home: true
+
+    - name: Set correct home directory for ansible user
+      ansible.builtin.user:
+        name: ansible
+        home: /home/ansible
+
+    - name: Set home directory permissions
+      ansible.builtin.file:
+        path: /home/ansible
+        state: directory
+        owner: ansible
+        group: users
+        mode: "0755"
+
+    - name: Ensure /boot/config/ssh directory exists
+      ansible.builtin.file:
+        path: /boot/config/ssh
+        state: directory
+        mode: "0755"
+
+    - name: Store authorized_keys in boot config
+      ansible.builtin.copy:
+        content: "{{ ansible_user_ssh_pubkey }}\n"
+        dest: /boot/config/ssh/ansible_authorized_keys
+        mode: "0600"
+
+    - name: Store sudoers in boot config
+      ansible.builtin.copy:
+        content: |
+          # Passwordless sudo for Ansible automation — required for playbooks to
+          # execute privileged tasks (apt, docker, systemctl, etc.) without prompts.
+          ansible ALL=(ALL) NOPASSWD: ALL
+        dest: /boot/config/ssh/ansible_sudoers
+        mode: "0440"
+
+    - name: Create .ssh directory
+      ansible.builtin.file:
+        path: /home/ansible/.ssh
+        state: directory
+        owner: ansible
+        group: users
+        mode: "0700"
+
+    - name: Create .ansible/tmp directory (ansible_remote_tmp)
+      ansible.builtin.file:
+        path: /home/ansible/.ansible/tmp
+        state: directory
+        owner: ansible
+        group: users
+        mode: "0700"
+
+    - name: Deploy authorized_keys to live home
+      ansible.builtin.copy:
+        src: /boot/config/ssh/ansible_authorized_keys
+        dest: /home/ansible/.ssh/authorized_keys
+        owner: ansible
+        group: users
+        mode: "0600"
+        remote_src: true
+
+    - name: Deploy sudoers to live etc
+      ansible.builtin.copy:
+        src: /boot/config/ssh/ansible_sudoers
+        dest: /etc/sudoers.d/ansible
+        mode: "0440"
+        remote_src: true
+
+    - name: Persist ansible user setup in go script
+      ansible.builtin.blockinfile:
+        path: /boot/config/go
+        insertbefore: "/usr/local/sbin/emhttp"
+        marker: "# {mark} ANSIBLE USER SETUP"
+        block: |
+          usermod -d /home/ansible ansible
+          usermod -s /bin/bash ansible
+          chmod 755 /home/ansible
+          chown ansible:users /home/ansible
+          mkdir -p /home/ansible/.ssh
+          mkdir -p /home/ansible/.ansible/tmp
+          cp /boot/config/ssh/ansible_authorized_keys /home/ansible/.ssh/authorized_keys
+          chmod 700 /home/ansible/.ssh
+          chmod 700 /home/ansible/.ansible/tmp
+          chmod 600 /home/ansible/.ssh/authorized_keys
+          chown -R ansible:users /home/ansible
+          cp /boot/config/ssh/ansible_sudoers /etc/sudoers.d/ansible
+          chmod 440 /etc/sudoers.d/ansible
+
+    - name: Ensure AllowUsers includes ansible in live sshd_config
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^AllowUsers'
+        line: 'AllowUsers root ansible'
+
+    - name: Persist AllowUsers in boot sshd_config
+      ansible.builtin.lineinfile:
+        path: /boot/config/ssh/sshd_config
+        regexp: '^AllowUsers'
+        line: 'AllowUsers root ansible'
+        create: true
+
+    - name: Harden SSH in live sshd_config
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      loop:
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin prohibit-password' }
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        # Required for Apache Guacamole — guacd uses libssh2 which only supports
+        # ssh-rsa host key algorithm (GUACAMOLE-1497). See comment in standard hosts section.
+        - { regexp: '^#?PubkeyAcceptedAlgorithms', line: 'PubkeyAcceptedAlgorithms +ssh-rsa' }
+
+    - name: Persist SSH hardening in boot sshd_config
+      ansible.builtin.lineinfile:
+        path: /boot/config/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        create: true
+        state: present
+      loop:
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin prohibit-password' }
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        # Required for Apache Guacamole — see comment in standard hosts section.
+        - { regexp: '^#?PubkeyAcceptedAlgorithms', line: 'PubkeyAcceptedAlgorithms +ssh-rsa' }
+
+    - name: Reload sshd
+      ansible.builtin.shell: kill -HUP $(cat /var/run/sshd.pid)
+
+    - name: Validate unRAID setup — gather state
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /home/ansible
+        - /home/ansible/.ssh
+        - /home/ansible/.ssh/authorized_keys
+        - /home/ansible/.ansible/tmp
+        - /etc/sudoers.d/ansible
+        - /boot/config/ssh/ansible_authorized_keys
+        - /boot/config/ssh/ansible_sudoers
+        - /boot/config/ssh/sshd_config
+      register: _unraid_paths
+
+    - name: Validate unRAID setup — all paths exist
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+        fail_msg: "Missing: {{ item.item }}"
+        quiet: true
+      loop: "{{ _unraid_paths.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Validate unRAID setup — directory ownership and permissions
+      ansible.builtin.assert:
+        that:
+          - item.stat.pw_name == 'ansible'
+          - item.stat.gr_name == 'users'
+        fail_msg: "Bad ownership on {{ item.item }}: {{ item.stat.pw_name }}:{{ item.stat.gr_name }}"
+        quiet: true
+      loop: "{{ _unraid_paths.results[:4] }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Validate unRAID setup — go script contains ansible block
+      ansible.builtin.shell:
+        cmd: grep -c 'ANSIBLE USER SETUP' /boot/config/go
+      register: _go_check
+      changed_when: false
+      failed_when: _go_check.rc != 0
+
+    - name: Validate unRAID setup — sshd AllowUsers includes ansible
+      ansible.builtin.shell:
+        cmd: grep -q 'AllowUsers.*ansible' /etc/ssh/sshd_config
+      register: _sshd_check
+      changed_when: false
+      failed_when: _sshd_check.rc != 0

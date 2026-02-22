@@ -1,0 +1,487 @@
+---
+# Update OS packages and Docker containers.
+# Handles apt upgrade (Ubuntu/Proxmox), PiKVM update, AMP update,
+# Docker Compose pull+recreate, and unRAID container updates.
+# Sends Discord notification and logs version changes to MariaDB.
+#
+# Usage:
+#   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu
+
+- name: Update OS packages and Docker containers
+  gather_facts: true
+  serial: 1
+  vars_files:
+    - vars/secrets.yaml
+    - vars/{{ config_file }}.yaml
+  vars:
+    config_file: "{{ hosts_variable }}"
+    _os_version_commands:
+      pikvm:  "pacman -Q | grep 'kvmd ' | cut -c 6-"
+      ubuntu: "uname -r | sed 's/-generic//'"
+      pve:    "pveversion | awk -F'/' '{print $2}'"
+      pbs:    "proxmox-backup-manager version | grep 'proxmox-backup-server' | awk '{print $2}'"
+    _sw_version_commands:
+      amp:    "ampinstmgr -version | sed -n 's/.*\\(v[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+\\).*/\\1/p'"
+  hosts: "{{ hosts_variable }}"
+
+  pre_tasks:
+    - name: Assert config_file is defined and non-empty
+      include_tasks: tasks/assert_config_file.yaml
+
+    - name: Put device in RW mode
+      raw: rw
+      when:
+        - inventory_hostname in groups["pikvm"]
+        - not ansible_check_mode
+      tags: [os]
+
+    - name: Assert sufficient disk space for update
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: /
+        assert_disk_min_gb: 2
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+    - name: Check Proxmox cluster quorum before update
+      when: inventory_hostname in groups['pve'] | default([])
+      block:
+        - name: Get cluster quorum status
+          ansible.builtin.shell: pvecm status 2>/dev/null
+          register: _pvecm_pre
+          changed_when: false
+          failed_when: false
+          check_mode: false
+        - name: Abort if cluster is not quorate
+          ansible.builtin.fail:
+            msg: "PVE cluster is not quorate — aborting update to avoid instability. Run: pvecm status"
+          when: _pvecm_pre.stdout | regex_search('Quorate:\\s+Yes') is none
+
+    - name: Deploy get_push_epoch helper script
+      ansible.builtin.copy:
+        src: files/get_push_epoch.sh
+        dest: /tmp/get_push_epoch.sh
+        mode: "0644"
+      when:
+        - inventory_hostname in groups["docker_stacks"] | default([]) or
+          inventory_hostname in groups["docker_run"] | default([])
+        - update_delay_days | default(0) | int > 0
+      tags: [docker]
+
+    - name: Assert unRAID update_container script exists
+      ansible.builtin.stat:
+        path: /usr/local/emhttp/plugins/dynamix.docker.manager/scripts/update_container
+      register: _unraid_update_script
+      when: inventory_hostname in groups["docker_run"] | default([])
+      tags: [docker]
+
+    - name: Fail if update_container script missing
+      ansible.builtin.fail:
+        msg: "unRAID update_container script not found — install the Dynamix Docker Manager plugin"
+      when:
+        - inventory_hostname in groups["docker_run"] | default([])
+        - not (_unraid_update_script.stat.exists | default(false))
+      tags: [docker]
+
+  tasks:
+    - name: Initialize update state
+      ansible.builtin.set_fact:
+        current_version: "N/A"
+        update_failed: false
+        previous_version: ""
+        _is_docker_update: "{{ config_file in ['docker_stacks', 'docker_run'] }}"
+        docker_update_results: []
+      tags: [always]
+
+    - block:
+        - name: Get previous version from DB
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          become: false
+          connection: local
+          community.mysql.mysql_query:
+            login_host: "{{ logging_db_host }}"
+            login_port: "{{ logging_db_port }}"
+            login_user: "{{ logging_db_user }}"
+            login_password: "{{ logging_db_password }}"
+            login_db: "{{ logging_db_name }}"
+            query: >-
+              SELECT version FROM updates
+              WHERE application = %s AND hostname = %s
+              ORDER BY id DESC LIMIT 1
+            positional_args:
+              - "{{ update_name }}"
+              - "{{ inventory_hostname }}"
+          register: previous_version_result
+          no_log: true
+          changed_when: false
+          check_mode: false
+          tags: [always]
+
+        - name: Set previous version fact
+          ansible.builtin.set_fact:
+            previous_version: "{{ previous_version_result.query_result[0][0].version | trim if previous_version_result.query_result[0] | length > 0 else '' }}"
+          tags: [always]
+
+        - name: Update PiKVM
+          ansible.builtin.shell: pikvm-update --no-reboot
+          register: pikvm_update_result
+          failed_when: pikvm_update_result.rc not in [0, 100]
+          when: inventory_hostname in groups["pikvm"]
+          tags: [os]
+
+        - name: Upgrade packages via apt
+          become: true
+          ansible.builtin.apt:
+            update_cache: true
+            upgrade: "{{ 'full' if (inventory_hostname in groups['pve'] or inventory_hostname in groups['pbs']) else 'yes' }}"
+          when: >-
+            inventory_hostname in groups["ubuntu"] or
+            inventory_hostname in groups["pve"] or
+            inventory_hostname in groups["pbs"]
+          tags: [os]
+
+        - name: Check if a reboot is required
+          ansible.builtin.stat:
+            path: /var/run/reboot-required
+          register: reboot_required_file
+          when:
+            - inventory_hostname in groups["ubuntu"] or inventory_hostname in groups["pve"] or inventory_hostname in groups["pbs"]
+          changed_when: false
+          tags: [os]
+
+        - name: Reboot machines that require
+          ansible.builtin.reboot:
+          become: true
+          when: >-
+            (reboot_required_file.stat.exists | default(false)) or
+            (inventory_hostname in groups["pikvm"] and pikvm_update_result.rc | default(0) == 100)
+          tags: [os]
+
+        - name: Update AMP
+          become: true
+          become_user: amp
+          become_method: su
+          become_exe: sudo su -l
+          ansible.builtin.shell: ampinstmgr upgradeall
+          when: inventory_hostname in groups["amp"]
+          tags: [software]
+
+        # --- Docker Stacks (compose) update ---
+        - name: Enumerate compose services
+          become: true
+          ansible.builtin.shell: docker compose config --services
+          args:
+            chdir: "{{ compose_project_path }}"
+          register: _compose_services_raw
+          changed_when: false
+          check_mode: false
+          when: inventory_hostname in groups["docker_stacks"] | default([])
+          tags: [docker]
+
+        - name: Filter excluded compose services
+          ansible.builtin.set_fact:
+            _docker_target_services: "{{ _compose_services_raw.stdout_lines | difference(update_exclude_services | default([])) }}"
+          when: inventory_hostname in groups["docker_stacks"] | default([])
+          tags: [docker]
+
+        - name: Pull, recreate, and compare compose containers
+          become: true
+          ansible.builtin.shell: |
+            [ -f /tmp/get_push_epoch.sh ] && . /tmp/get_push_epoch.sh
+            before_file=$(mktemp)
+            trap 'rm -f "$before_file"' EXIT
+            delay_days={{ update_delay_days | default(0) }}
+            if [ "$delay_days" -gt 0 ]; then
+              threshold_epoch=$(date -d "-${delay_days} days" +%s)
+            fi
+            for svc in {{ _docker_target_services | join(' ') }}; do
+              cid=$(docker compose ps -q "$svc" 2>/dev/null)
+              if [ -n "$cid" ]; then
+                iid=$(docker inspect --format {% raw %}'{{.Image}}'{% endraw %} "$cid" | cut -c8-19)
+                echo "${svc}|${iid}" >> "$before_file"
+              fi
+            done
+            docker compose pull {{ _docker_target_services | join(' ') }} >&2
+            approved=""
+            for svc in {{ _docker_target_services | join(' ') }}; do
+              if [ "$delay_days" -le 0 ]; then
+                approved="$approved $svc"
+              else
+                cid=$(docker compose ps -q "$svc" 2>/dev/null)
+                old_iid=$(docker inspect --format {% raw %}'{{.Image}}'{% endraw %} "$cid" 2>/dev/null)
+                img=$(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$cid" 2>/dev/null)
+                new_iid=$(docker image inspect --format {% raw %}'{{.Id}}'{% endraw %} "$img" 2>/dev/null)
+                if [ "$old_iid" = "$new_iid" ]; then
+                  approved="$approved $svc"
+                else
+                  push_epoch=$(get_push_epoch "$img")
+                  if [ "$push_epoch" -le "$threshold_epoch" ]; then
+                    approved="$approved $svc"
+                  fi
+                fi
+              fi
+            done
+            if [ -n "$approved" ]; then
+              docker compose up -d $approved >&2
+            fi
+            echo '['
+            first=true
+            for svc in {{ _docker_target_services | join(' ') }}; do
+              cid=$(docker compose ps -q "$svc" 2>/dev/null)
+              if [ -n "$cid" ]; then
+                img=$(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$cid")
+                new_id=$(docker inspect --format {% raw %}'{{.Image}}'{% endraw %} "$cid" | cut -c8-19)
+                old_id=$(grep "^${svc}|" "$before_file" | cut -d'|' -f2)
+                version=""
+                for label in "org.opencontainers.image.version" "org.label-schema.version" "version"; do
+                  version=$(docker inspect --format {% raw %}'{{index .Config.Labels "'{% endraw %}${label}{% raw %}'"}}'{% endraw %} "$cid" 2>/dev/null)
+                  [ -n "$version" ] && [ "$version" != "<no value>" ] && break
+                  version=""
+                done
+                if [ -z "$version" ]; then
+                  case "$img" in *:*) version="${img##*:}" ;; *) version="latest" ;; esac
+                fi
+                updated=false
+                [ -n "$old_id" ] && [ "$old_id" != "$new_id" ] && updated=true
+                $first || echo ','
+                first=false
+                printf '{"name":"%s","image":"%s","old_id":"%s","new_id":"%s","tag":"%s","updated":%s}' \
+                  "$svc" "$img" "$old_id" "$new_id" "$version" "$updated"
+              fi
+            done
+            echo ']'
+          args:
+            chdir: "{{ compose_project_path }}"
+          register: _compose_update_raw
+          changed_when: true
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - _docker_target_services | default([]) | length > 0
+            - not ansible_check_mode
+          tags: [docker]
+
+        - name: Set compose update results
+          ansible.builtin.set_fact:
+            docker_update_results: "{{ _compose_update_raw.stdout | from_json }}"
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - _compose_update_raw is not skipped
+          tags: [docker]
+
+        # --- Docker Run (unRAID) update ---
+        - name: Enumerate unRAID containers
+          become: true
+          ansible.builtin.shell: >
+            docker ps --format {% raw %}'{{.Names}}'{% endraw %}
+            {% if update_exclude_containers | default([]) | length > 0 %}| grep -viE '({{ update_exclude_containers | join("|") }})'{% endif %}
+          register: _unraid_containers_raw
+          changed_when: false
+          check_mode: false
+          failed_when: false
+          when: inventory_hostname in groups["docker_run"] | default([])
+          tags: [docker]
+
+        - name: Set target unRAID containers
+          ansible.builtin.set_fact:
+            _docker_target_containers: "{{ _unraid_containers_raw.stdout_lines | default([]) }}"
+          when: inventory_hostname in groups["docker_run"] | default([])
+          tags: [docker]
+
+        - name: Pull, update, and compare unRAID containers
+          become: true
+          ansible.builtin.shell: |
+            [ -f /tmp/get_push_epoch.sh ] && . /tmp/get_push_epoch.sh
+            delay_days={{ update_delay_days | default(0) }}
+            if [ "$delay_days" -gt 0 ]; then
+              threshold_epoch=$(date -d "-${delay_days} days" +%s)
+            fi
+            # Batch pull all images first (faster than sequential per-container pulls)
+            images=""
+            for name in {{ _docker_target_containers | join(' ') }}; do
+              images="$images $(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$name")"
+            done
+            echo "$images" | tr ' ' '\n' | sort -u | while read -r img; do
+              [ -n "$img" ] && docker pull "$img" >&2
+            done
+            echo '['
+            first=true
+            for name in {{ _docker_target_containers | join(' ') }}; do
+              img=$(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$name")
+              old_id=$(docker inspect --format {% raw %}'{{.Image}}'{% endraw %} "$name" | cut -c8-19)
+              new_img_id=$(docker image inspect --format {% raw %}'{{.Id}}'{% endraw %} "$img" 2>/dev/null | cut -c8-19)
+              if [ "$old_id" != "$new_img_id" ]; then
+                apply_update=true
+                if [ "$delay_days" -gt 0 ]; then
+                  push_epoch=$(get_push_epoch "$img")
+                  [ "$push_epoch" -gt "$threshold_epoch" ] && apply_update=false
+                fi
+                if $apply_update; then
+                  if /usr/bin/php -q /usr/local/emhttp/plugins/dynamix.docker.manager/scripts/update_container "$name" >&2; then
+                    new_id=$(docker inspect --format {% raw %}'{{.Image}}'{% endraw %} "$name" | cut -c8-19)
+                    updated=true
+                  else
+                    new_id="$old_id"
+                    updated=false
+                  fi
+                else
+                  new_id="$old_id"
+                  updated=false
+                fi
+              else
+                new_id="$old_id"
+                updated=false
+              fi
+              version=""
+              for label in "org.opencontainers.image.version" "org.label-schema.version" "version"; do
+                version=$(docker inspect --format {% raw %}'{{index .Config.Labels "'{% endraw %}${label}{% raw %}'"}}'{% endraw %} "$name" 2>/dev/null)
+                [ -n "$version" ] && [ "$version" != "<no value>" ] && break
+                version=""
+              done
+              if [ -z "$version" ]; then
+                case "$img" in *:*) version="${img##*:}" ;; *) version="latest" ;; esac
+              fi
+              $first || echo ','
+              first=false
+              printf '{"name":"%s","image":"%s","old_id":"%s","new_id":"%s","tag":"%s","updated":%s}' \
+                "$name" "$img" "$old_id" "$new_id" "$version" "$updated"
+            done
+            echo ']'
+          register: _unraid_update_raw
+          changed_when: true
+          when:
+            - inventory_hostname in groups["docker_run"] | default([])
+            - _docker_target_containers | default([]) | length > 0
+            - not ansible_check_mode
+          tags: [docker]
+
+        - name: Set unRAID update results
+          ansible.builtin.set_fact:
+            docker_update_results: "{{ _unraid_update_raw.stdout | from_json }}"
+          when:
+            - inventory_hostname in groups["docker_run"] | default([])
+            - _unraid_update_raw is not skipped
+          tags: [docker]
+
+        - name: Get current version
+          ansible.builtin.shell: "{{ _os_version_commands[group_names | select('in', _os_version_commands) | first] }}"
+          register: _version_raw_os
+          changed_when: false
+          check_mode: false
+          when: group_names | select('in', _os_version_commands) | list | length > 0
+          tags: [os]
+
+        - name: Set current_version
+          ansible.builtin.set_fact:
+            current_version: "{{ _version_raw_os.stdout | trim }}"
+          when: group_names | select('in', _os_version_commands) | list | length > 0
+          tags: [os]
+
+        - name: Get current version
+          ansible.builtin.shell: "{{ _sw_version_commands[group_names | select('in', _sw_version_commands) | first] }}"
+          register: _version_raw_sw
+          changed_when: false
+          check_mode: false
+          when: group_names | select('in', _sw_version_commands) | list | length > 0
+          tags: [software]
+
+        - name: Set current_version
+          ansible.builtin.set_fact:
+            current_version: "{{ _version_raw_sw.stdout | trim }}"
+          when: group_names | select('in', _sw_version_commands) | list | length > 0
+          tags: [software]
+
+      rescue:
+        - name: Set update failed flag
+          ansible.builtin.set_fact:
+            update_failed: true
+
+      always:
+        - name: Clean up get_push_epoch helper script
+          ansible.builtin.file:
+            path: /tmp/get_push_epoch.sh
+            state: absent
+          tags: [docker]
+
+        - name: Send Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          when: (not _is_docker_update | bool) and (update_failed or current_version != previous_version)
+          vars:
+            discord_title: "{{ update_name }}"
+            discord_description: "{{ 'Update Failed' if update_failed else 'Updated' }}"
+            discord_color: "{{ 16711680 if update_failed else 32768 }}"
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ update_description }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Version"
+                value: "{{ previous_version + ' → ' + current_version }}"
+          tags: [always]
+
+        - name: Log update to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          when: (not _is_docker_update | bool) and (update_failed or current_version != previous_version)
+          vars:
+            log_table: updates
+            log_application: "{{ update_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_version: "{{ 'FAILED' if update_failed else current_version }}"
+            log_status: "{{ 'failed' if update_failed else 'success' }}"
+          tags: [always]
+
+        - name: Return PiKVM to RO mode
+          raw: ro
+          when:
+            - inventory_hostname in groups["pikvm"]
+            - pikvm_update_result.rc | default(0) != 100
+            - not ansible_check_mode
+          tags: [os]
+
+        - name: Send Docker update notification
+          include_tasks: tasks/notify_discord.yaml
+          when:
+            - _is_docker_update | bool
+            - update_failed or (docker_update_results | selectattr('updated') | list | length > 0)
+          vars:
+            discord_title: "{{ update_name }}"
+            discord_description: "{{ 'Update Failed' if update_failed else 'Containers Updated' }}"
+            discord_color: "{{ 16711680 if update_failed else 32768 }}"
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ update_description }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Updated"
+                value: "{{ docker_update_results | selectattr('updated') | map(attribute='name') | join(', ') | default('None', true) }}"
+          tags: [always]
+
+        - name: Log container updates to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          loop: "{{ docker_update_results | selectattr('updated') | list }}"
+          when:
+            - _is_docker_update | bool
+            - docker_update_results | selectattr('updated') | list | length > 0
+          vars:
+            log_table: updates
+            log_application: "{{ item.name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_version: "{{ item.tag }} ({{ item.new_id }})"
+            log_status: "success"
+          tags: [always]
+
+        - name: Log Docker update failure
+          include_tasks: tasks/log_mariadb.yaml
+          when:
+            - _is_docker_update | bool
+            - update_failed
+          vars:
+            log_table: updates
+            log_application: "{{ update_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_version: "FAILED"
+            log_status: "failed"
+          tags: [always]

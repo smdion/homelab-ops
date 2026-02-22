@@ -1,0 +1,182 @@
+---
+# Back up PostgreSQL databases from remote Docker containers.
+# Dumps each DB via pg_dump inside the container, compresses, and fetches to controller.
+# Sends Discord notification and logs result to MariaDB.
+#
+# Usage:
+#   ansible-playbook backup_databases.yaml -e hosts_variable=db_primary_postgres
+
+- name: Back up PostgreSQL databases from Docker containers
+  hosts: "{{ hosts_variable }}"
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/{{ config_file }}.yaml
+  vars:
+    config_file: "{{ hosts_variable }}"
+
+  pre_tasks:
+    - name: Assert config_file is defined and non-empty
+      include_tasks: tasks/assert_config_file.yaml
+
+    - name: Assert sufficient disk space on remote backup dir
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: "{{ backup_tmp_dir }}"
+        assert_disk_min_gb: 2
+
+    - name: Assert sufficient disk space on controller
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: "{{ backup_base_dir }}/{{ inventory_hostname }}"
+        assert_disk_min_gb: 2
+        assert_disk_delegate_to: localhost
+        assert_disk_become: false
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Delete temp backup directory
+      become: true
+      ansible.builtin.file:
+        state: absent
+        path: "{{ backup_tmp_dir }}"
+      tags: [always]
+
+    - name: Create temp backup directory
+      become: true
+      ansible.builtin.file:
+        state: directory
+        path: "{{ backup_tmp_dir }}"
+      tags: [always]
+
+    - name: Initialize backup state
+      ansible.builtin.set_fact:
+        combined_results: []
+        backup_db_failed: false
+      tags: [always]
+
+    - block:
+        - name: Dump databases
+          loop: "{{ db_names }}"
+          register: backup_status
+          become: true
+          ansible.builtin.shell: |
+            if [ "{{ is_postgres | lower }}" = "true" ]; then
+              docker exec {{ container_name }} pg_dump {{ item }} --clean --if-exists --username={{ db_username }} | gzip > {{ backup_tmp_file }}
+            fi
+            if [ "{{ is_mariadb | lower }}" = "true" ]; then
+              docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysqldump --user {{ db_username }} {{ item }} | gzip > {{ backup_tmp_file }}
+            fi
+          environment:
+            DB_PASSWORD: "{{ db_password }}"
+          no_log: true
+          changed_when: true
+          tags: [always]
+
+        - name: Get backup file size
+          loop: "{{ db_names }}"
+          ansible.builtin.stat:
+            path: "{{ backup_tmp_file }}"
+          register: file_size
+          changed_when: false
+          tags: [always]
+
+        - name: Verify gzipped backup integrity (PostgreSQL)
+          become: true
+          ansible.builtin.shell: gzip -t "{{ backup_tmp_file }}"
+          loop: "{{ db_names }}"
+          when: is_postgres | default(false) | bool
+          changed_when: false
+          check_mode: false
+          tags: [always]
+
+        - name: Verify gzipped backup integrity (MariaDB)
+          become: true
+          ansible.builtin.shell: gzip -t "{{ backup_tmp_file }}"
+          loop: "{{ db_names }}"
+          when: is_mariadb | default(false) | bool
+          changed_when: false
+          check_mode: false
+          tags: [always]
+
+        - name: Combine backup status and file size
+          ansible.builtin.set_fact:
+            combined_results: >-
+              {{
+                combined_results | default([]) + [{
+                  'db_name': db_names[idx],
+                  'backup_rc': backup_status.results[idx].rc if file_size.results[idx].stat.exists else 1,
+                  'file_size': file_size.results[idx].stat.size | default(0)
+                }]
+              }}
+          loop: "{{ range(0, db_names | length) | list }}"
+          loop_control:
+            loop_var: idx
+          when: not ansible_check_mode
+          tags: [always]
+
+        - name: Fetch the dumped DB from remote to local
+          loop: "{{ db_names }}"
+          ansible.builtin.fetch:
+            src: "{{ backup_tmp_file }}"
+            dest: "{{ backup_dest_path }}"
+            flat: true
+          tags: [always]
+
+      rescue:
+        - name: Set database backup failed flag
+          ansible.builtin.set_fact:
+            backup_db_failed: true
+
+      always:
+        - name: Send Discord notification for each DB result
+          include_tasks: tasks/notify_discord.yaml
+          loop: "{{ combined_results }}"
+          loop_control:
+            loop_var: db_result
+          vars:
+            discord_title: "{{ backup_name }}"
+            discord_description: "{{ 'Backup Successful' if db_result.backup_rc == 0 else 'Backup Failed' }} - {{ db_result.db_name }}"
+            discord_color: "{{ 32768 if db_result.backup_rc == 0 else 16711680 }}"
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ backup_description }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Backup Name"
+                value: "backup_{{ db_result.db_name }}_{{ ansible_date_time.date }}.sql"
+              - name: "Backup Size"
+                value: "{{ (db_result.file_size / 1024 / 1024) | round(2) }}MB"
+          tags: [always]
+
+        - name: Send Discord notification for unhandled block error
+          include_tasks: tasks/notify_discord.yaml
+          when: backup_db_failed
+          vars:
+            discord_title: "{{ backup_name }}"
+            discord_description: "Backup Failed — check Semaphore logs for details"
+            discord_color: 16711680
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ backup_description }}"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+          tags: [always]
+
+        - name: Log DB backup results to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          loop: "{{ combined_results }}"
+          loop_control:
+            loop_var: db_result
+          vars:
+            log_table: backups
+            log_application: "{{ db_result.db_name }}-db"
+            log_hostname: "{{ inventory_hostname }}"
+            log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else 'backup_') + db_result.db_name + '_' + ansible_date_time.date + '.sql' }}"
+            log_file_size: "{{ (db_result.file_size / 1024 / 1024) | round(2) if db_result.backup_rc == 0 else 0 }}"
+          tags: [always]

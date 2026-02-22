@@ -1,0 +1,20 @@
+# Docker Compose project directory (used for stop/start and pull/up)
+compose_project_path: "/opt"
+
+src_raw_files:
+  - "/opt"
+backup_tmp_dir: "/backup"
+backup_name: "Docker"
+backup_description: "Automatic Docker Opt Backup"
+backup_type: "Servers"
+backup_subtype: "Appdata"
+backup_file: "backup_docker_opt_{{ ansible_date_time.date }}.tar.gz"
+
+# Update vars
+update_name: "Docker"
+update_description: "Automatic Docker Container Update"
+update_type: "Servers"
+update_subtype: "Container"
+update_delay_days: 3
+update_exclude_services:
+  - semaphore

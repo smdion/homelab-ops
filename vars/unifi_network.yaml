@@ -1,0 +1,17 @@
+src_raw_files:
+  - "/data/unifi/data/backup/autobackup/"
+backup_tmp_dir: "/backup"
+backup_name: "Unifi Network"
+backup_url: "https://unifi.ui.com/"
+backup_description: "Automatic Unifi Network Backup"
+backup_type: "Appliances"
+backup_subtype: "Config"
+backup_file: "backup_network_protect_config_{{ ansible_date_time.date }}.tar.gz"
+vps_address: "{{ vps_fqdn }}"
+
+# Unifi OS paths — WireGuard config extraction from gateway state
+unifi_state_file: "/data/udapi-config/ubios-udapi-server/ubios-udapi-server.state"
+wg_config_file: "wg_vps.conf"
+
+# Maintenance URL — used by maintain_unifi.yaml (cloud portal URL for Discord embeds)
+maintenance_url: "https://unifi.ui.com/"

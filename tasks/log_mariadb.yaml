@@ -1,0 +1,75 @@
+---
+# Structured MariaDB logging task.
+# Pass all variables via vars: on the include_tasks call.
+#
+# Required vars (all cases):
+#   log_table       — 'backups', 'updates', or 'maintenance'
+#   log_application — application name
+#   log_hostname    — hostname (pass inventory_hostname — already a proper FQDN)
+#
+# Required vars (log_table = 'backups'):
+#   log_file_name   — backup filename
+#   log_file_size   — file size in MB
+#
+# Required vars (log_table = 'updates'):
+#   log_version     — version string
+#   log_status      — 'success' or 'failed' (defaults to 'success' if omitted)
+#
+# Required vars (log_table = 'maintenance'):
+#   log_type        — 'Servers', 'Appliances', or 'Local'
+#   log_subtype     — 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check'
+#   log_status      — 'success' or 'failed'
+#
+# Inherited from playbook scope (no need to pass):
+#   logging_db_host, logging_db_port, logging_db_user,
+#   logging_db_password, logging_db_name
+#   logging_domain_local, logging_domain_ext  (from vars/secrets.yaml)
+#   backup_type, backup_subtype   (for backups — from vars file)
+#   update_type, update_subtype   (for updates — from vars file)
+
+- name: Log to MariaDB
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    _backup_query: >-
+      INSERT INTO backups (application, hostname, file_name, file_size, timestamp, backup_type, backup_subtype)
+      VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(), %s, %s)
+    _backup_args:
+      - "{{ log_application }}"
+      - "{{ log_hostname }}"
+      - "{{ log_file_name }}"
+      - "{{ log_file_size }}"
+      - "{{ backup_type }}"
+      - "{{ backup_subtype }}"
+    _update_query: >-
+      INSERT INTO updates (application, hostname, version, timestamp, update_type, update_subtype, status)
+      VALUES (%s, %s, %s, UTC_TIMESTAMP(), %s, %s, %s)
+      ON DUPLICATE KEY UPDATE timestamp = UTC_TIMESTAMP(), status = VALUES(status)
+    _update_args:
+      - "{{ log_application }}"
+      - "{{ log_hostname }}"
+      - "{{ log_version }}"
+      - "{{ update_type }}"
+      - "{{ update_subtype }}"
+      - "{{ log_status | default('success') }}"
+    _maintenance_query: >-
+      INSERT INTO maintenance (application, hostname, timestamp, type, subtype, status)
+      VALUES (%s, %s, UTC_TIMESTAMP(), %s, %s, %s)
+    _maintenance_args:
+      - "{{ log_application }}"
+      - "{{ log_hostname }}"
+      - "{{ log_type }}"
+      - "{{ log_subtype }}"
+      - "{{ log_status }}"
+  become: false
+  connection: local
+  community.mysql.mysql_query:
+    login_host: "{{ logging_db_host }}"
+    login_port: "{{ logging_db_port }}"
+    login_user: "{{ logging_db_user }}"
+    login_password: "{{ logging_db_password }}"
+    login_db: "{{ logging_db_name }}"
+    query: "{{ _backup_query if log_table == 'backups' else (_update_query if log_table == 'updates' else _maintenance_query) }}"
+    positional_args: "{{ _backup_args if log_table == 'backups' else (_update_args if log_table == 'updates' else _maintenance_args) }}"
+  when: not ansible_check_mode
+  no_log: true
+  tags: [always]
