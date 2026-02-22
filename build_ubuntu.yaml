@@ -284,7 +284,9 @@
     - block:
         - name: Wait for cloud-init to finish
           ansible.builtin.command: cloud-init status --wait
+          register: _cloud_init
           changed_when: false
+          failed_when: "'status: done' not in _cloud_init.stdout"
 
         - name: Wait for apt lock to be released
           ansible.builtin.shell: while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done
