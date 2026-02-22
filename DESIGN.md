@@ -399,12 +399,12 @@ playbook to the correct functional group.
 
 | Inventory | Credential (Key Store) | Covers |
 |-----------|----------------------|--------|
-| `ansible-user-ssh` | ansible SSH key (id=8) | Ubuntu, Docker, controller, amp, vps; maintain_health (all SSH hosts + localhost) |
-| `root` | root login_password (id=13) | Proxmox, unRAID, Synology, NAS host |
+| `ansible-user-ssh` | ansible SSH key (id=8) | Ubuntu, Docker, Proxmox, unRAID, controller, amp, vps; maintain_health (all SSH hosts + localhost) |
+| `root` | root login_password (id=13) | Synology, NAS host |
 | `pikvm` | PiKVM login_password (id=11) | pikvm |
 | `unifi_network` | root login_password (id=13) | udmp |
 | `unifi_protect` | unifi_protect login_password (id=29) | unvr |
-| `local` | GitHubSSH (id=4) | localhost only (legacy — replaced by `ansible-user-ssh` for maintain_health) |
+| `local` | — | localhost only (legacy — no templates use this inventory) |
 
 ### Variable Groups
 
@@ -439,7 +439,7 @@ backup templates for the same target — do not create separate environments.
 
 | ID | Name | Type | Purpose |
 |----|------|------|---------|
-| 4 | GitHubSSH | SSH | GitHub repo access; `local` inventory |
+| 4 | GitHubSSH | SSH | Semaphore → GitHub repo access |
 | 8 | ansible | SSH | ansible-user SSH key; `ansible-user-ssh` inventory |
 | 11 | PiKVM | login_password | PiKVM inventory |
 | 13 | root | login_password | `root` and `unifi_network` inventories |
