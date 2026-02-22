@@ -163,6 +163,7 @@ for platforms you don't have are automatically skipped.
 ├── files/
 │   ├── get_push_epoch.sh       # Helper script for Docker image age checks
 │   ├── grafana.png             # Grafana dashboard screenshot
+│   ├── semaphore.png           # Semaphore Task Templates screenshot
 │   └── alert_*.svg             # Discord notification mockups for README
 ├── templates/
 │   └── metube.conf.j2           # yt-dlp config template (download_videos only)
@@ -244,6 +245,13 @@ If using Semaphore for scheduling and credential management:
    (Backups, Updates, Maintenance, Downloads, Verify, Restore, Deploy, Setup) for easy navigation
 
 See [DESIGN.md](DESIGN.md#semaphore-setup) for the full Semaphore configuration reference.
+
+<details>
+<summary>Task Templates screenshot</summary>
+
+![Semaphore Task Templates](files/semaphore.png)
+
+</details>
 
 ### 6. Grafana (optional)
 
