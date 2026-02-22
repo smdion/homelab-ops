@@ -112,7 +112,7 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 │   └── all.yaml                    # Shared defaults: ansible_remote_tmp, ansible_python_interpreter, backup_base_dir/tmp_file/dest_path/url
 │
 ├── vars/
-│   ├── secrets.yaml                # AES256-encrypted vault — ALL secrets (incl. domain config)
+│   ├── secrets.yaml                # AES256-encrypted vault — ALL secrets (incl. domain config, docker_* keys, pve_* keys)
 │   ├── secrets.yaml.example         # Template with all vault keys documented (copy → encrypt)
 │   ├── example.yaml                # Template for creating new platform vars files
 │   ├── semaphore_check.yaml         # Health thresholds (26 checks), controller_fqdn, semaphore_db_name, semaphore_url/semaphore_ext_url, display_timezone, retention_days, appliance_check_hosts
@@ -121,11 +121,12 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 │   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), maintenance_url
 │   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (protect_api_backup_path, protect_temp_file)
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
-│   ├── docker_stacks.yaml           # Docker Compose — backup/update, compose_project_path, exclude lists, app_restore mapping
+│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, docker_* defaults, app_restore mapping
 │   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists, app_restore mapping
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
 │   ├── unraid_os.yaml               # unRAID OS backup
 │   ├── synology.yaml                # Synology NAS sync
+│   ├── vm_definitions.yaml          # Proxmox VM provisioning — VMID/IP/resource definitions for build_ubuntu.yaml
 │   ├── db_primary_postgres.yaml     # Primary host Postgres DB backup + db_container_deps for restore
 │   ├── db_primary_mariadb.yaml      # Primary host MariaDB backup + db_container_deps for restore
 │   ├── db_primary_influxdb.yaml     # Primary host InfluxDB backup + db_container_deps for restore
@@ -141,7 +142,8 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 │   ├── log_health_checks_batch.yaml # Shared MariaDB logging task (health_checks table — multi-row batch INSERT)
 │   ├── assert_config_file.yaml      # Shared pre-task: assert config_file is set
 │   ├── assert_disk_space.yaml       # Shared pre-task: assert sufficient disk space
-│   └── assert_db_connectivity.yaml  # Shared pre-task: assert MariaDB logging DB is reachable
+│   ├── assert_db_connectivity.yaml  # Shared pre-task: assert MariaDB logging DB is reachable
+│   └── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, up)
 │
 ├── templates/
 │   └── metube.conf.j2              # Jinja2 template for yt-dlp config — rendered per profile from vars/download_<name>.yaml
@@ -162,6 +164,8 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 ├── maintain_health.yaml            # Scheduled health monitoring — 26 checks across all SSH hosts + DB/API; Uptime Kuma dead man's switch
 ├── download_videos.yaml            # MeTube yt-dlp downloads — per-video Discord notifications + temp file cleanup; parameterized on config_file; hosts via hosts_variable
 ├── add_ansible_user.yaml           # One-time utility: create ansible user on PVE/PBS/unRAID hosts (SSH key from vault, ansible_remote_tmp dir, validation assertions)
+├── deploy_stacks.yaml             # Deploy Docker stacks from Git — templates .env from vault, copies compose, starts stacks
+├── build_ubuntu.yaml              # Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH config
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
 ├── files/
@@ -172,6 +176,20 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 │
 ├── grafana/
 │   └── grafana.json                # Grafana dashboard — Backup, Updates & Health Monitoring
+│
+├── stacks/                         # Docker stack definitions — one subdirectory per functional group
+│   ├── infra/                      # Infrastructure: dockerproxy, beszel-agent, dozzle
+│   ├── databases/                  # Data tier: mariadb, postgres, adminer
+│   ├── auth/                       # Authentication: authentik, swag, crowdsec
+│   ├── monitoring/                 # Observability: grafana, victoriametrics
+│   ├── dev/                        # Development: code-server, netbootxyz
+│   ├── media/                      # Media: jellyseerr, tautulli
+│   ├── apps/                       # Applications: homepage, firefox, homebox, etc.
+│   ├── nfs/                        # NFS server
+│   └── vpn/                        # VPN: wireguard, npm, beszel, dozzle-agent
+│   # Each stack contains:
+│   #   docker-compose.yaml         — plain YAML, committed to Git
+│   #   env.j2                      — Jinja2 template, rendered to .env at deploy time from vault
 │
 ├── requirements.yaml               # Ansible Galaxy collection dependencies (community.docker, community.general, community.mysql)
 ├── CONTRIBUTING.md                 # Contribution guide: code style, testing, PR expectations
@@ -500,7 +518,8 @@ Semaphore template (task) names follow `Verb — Target [Subtype]`:
 | `Add — {Target} [{Subtype}]` | `Add — Ansible User [SSH]` |
 | `Backup — {Target} [{Subtype}]` | `Backup — Proxmox [Config]`, `Backup — unRAID [Offline]` |
 | `Backup — Database [{Role} {Engine}]` | `Backup — Database [Primary PostgreSQL]`, `Backup — Database [Secondary PostgreSQL]` |
-| `Deploy — {Target} [{Subtype}]` | `Deploy — Grafana [Dashboard]` |
+| `Build — {Target} [{Subtype}]` | `Build — Ubuntu [VM]` |
+| `Deploy — {Target} [{Subtype}]` | `Deploy — Docker Stacks`, `Deploy — Grafana [Dashboard]` |
 | `Download — {Target} [{Subtype}]` | `Download — Videos [Channels]`, `Download — Videos [On Demand]` |
 | `Maintain — {Target} [{Subtype}]` | `Maintain — AMP [Cleanup]`, `Maintain — Cache [Flush]`, `Maintain — Docker [Cleanup]`, `Maintain — Health [Check]` |
 | `Restore — {Target} [{Subtype}]` | `Restore — Database [Primary PostgreSQL]`, `Restore — Docker Run [Appdata]` |
@@ -526,7 +545,7 @@ Templates are organized into views (tabs in the Semaphore UI) by verb:
 | Downloads | 2 | `Download —` |
 | Verify | 8 | `Verify —` |
 | Restore | 9 | `Restore —`, `Rollback —` |
-| Deploy | 1 | `Deploy —` |
+| Deploy | 3 | `Deploy —`, `Build —` |
 | Setup | 1 | `Add —` |
 
 When adding a new template, assign it to the matching view. Views are stored in the
@@ -1367,6 +1386,8 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `maintain_unifi.yaml` | Unifi | Appliances | Restart |
 | `maintain_amp.yaml` | AMP | Servers | Maintenance |
 | `maintain_health.yaml` | Semaphore | Local | Health Check |
+| `deploy_stacks.yaml` | Docker | Servers | Deploy |
+| `build_ubuntu.yaml` | Ubuntu | Servers | Build |
 
 **Restores** (type/subtype reuse the backup vars file values):
 
