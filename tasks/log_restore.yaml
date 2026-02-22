@@ -40,6 +40,10 @@
       - "{{ restore_operation }}"
       - "{{ restore_status }}"
       - "{{ restore_detail }}"
+  register: _log_restore_result
+  retries: 40
+  delay: 10
+  until: _log_restore_result is succeeded
   when: not ansible_check_mode
   no_log: true
   tags: [always]

@@ -70,6 +70,10 @@
     login_db: "{{ logging_db_name }}"
     query: "{{ _backup_query if log_table == 'backups' else (_update_query if log_table == 'updates' else _maintenance_query) }}"
     positional_args: "{{ _backup_args if log_table == 'backups' else (_update_args if log_table == 'updates' else _maintenance_args) }}"
+  register: _log_mariadb_result
+  retries: 40
+  delay: 10
+  until: _log_mariadb_result is succeeded
   when: not ansible_check_mode
   no_log: true
   tags: [always]

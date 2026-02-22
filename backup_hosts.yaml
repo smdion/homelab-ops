@@ -296,6 +296,30 @@
           ignore_errors: true
           tags: [docker]
 
+        # ===== WAIT FOR MARIADB AFTER DOCKER RESTART =====
+        - name: Wait for MariaDB logging database after Docker restart
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          become: false
+          connection: local
+          community.mysql.mysql_query:
+            login_host: "{{ logging_db_host }}"
+            login_port: "{{ logging_db_port }}"
+            login_user: "{{ logging_db_user }}"
+            login_password: "{{ logging_db_password }}"
+            login_db: "{{ logging_db_name }}"
+            query: "SELECT 1"
+          register: _mariadb_post_restart
+          retries: 40
+          delay: 10
+          until: _mariadb_post_restart is succeeded
+          when: inventory_hostname in groups["docker_stacks"] or inventory_hostname in groups["docker_run"]
+          changed_when: false
+          no_log: true
+          check_mode: false
+          ignore_errors: true
+          tags: [always]
+
         # ===== REPORTING =====
         - name: Send Discord notification
           include_tasks: tasks/notify_discord.yaml
