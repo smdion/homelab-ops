@@ -17,7 +17,7 @@
 #
 # Required vars (log_table = 'maintenance'):
 #   log_type        — 'Servers', 'Appliances', or 'Local'
-#   log_subtype     — 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check'
+#   log_subtype     — 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify'
 #   log_status      — 'success' or 'failed'
 #
 # Inherited from playbook scope (no need to pass):

@@ -135,7 +135,7 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 ├── tasks/
 │   ├── notify_discord.yaml          # Shared Discord notification task
 │   ├── log_mariadb.yaml             # Shared MariaDB logging task (backups, updates, maintenance tables)
-│   ├── log_restore.yaml             # Shared MariaDB logging task (restores table — verify/restore operations)
+│   ├── log_restore.yaml             # Shared MariaDB logging task (restores table — restore operations only)
 │   ├── log_health_check.yaml        # Shared MariaDB logging task (health_checks table — single row)
 │   ├── log_health_checks_batch.yaml # Shared MariaDB logging task (health_checks table — multi-row batch INSERT)
 │   ├── assert_config_file.yaml      # Shared pre-task: assert config_file is set
@@ -1046,7 +1046,7 @@ CREATE TABLE maintenance (
   application VARCHAR(100) NOT NULL,   -- System maintained (e.g., 'AMP', 'Docker', 'Semaphore')
   hostname    VARCHAR(255) NOT NULL,   -- FQDN of host that ran the task
   type        VARCHAR(50)  NOT NULL,   -- 'Servers', 'Appliances', or 'Local'
-  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check'
+  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify'
   status      VARCHAR(20)  NOT NULL DEFAULT 'success',  -- 'success', 'failed', or 'partial'
   timestamp   DATETIME,            -- UTC_TIMESTAMP() — always UTC regardless of server timezone
   INDEX idx_application (application),
@@ -1130,9 +1130,9 @@ CREATE TABLE restores (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 ```
 
-Logs both verification (`operation: verify`) and restore (`operation: restore`) operations.
-`source_file` tracks which backup file was used. `detail` holds free-text context (e.g.,
-"15 tables verified", "sonarr restored inplace + sonarr-log, sonarr-main DB(s) restored").
+Logs restore operations (`operation: restore`). Verification operations log to the `maintenance`
+table (subtype `Verify`) instead. `source_file` tracks which backup file was used. `detail`
+holds free-text context (e.g., "sonarr restored inplace + sonarr-log, sonarr-main DB(s) restored").
 Written by `tasks/log_restore.yaml`, separate from `log_mariadb.yaml` due to the different schema.
 
 ### Naming scheme
@@ -1280,12 +1280,15 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 
 | vars file source | application | restore_type | restore_subtype | operation |
 |---|---|---|---|---|
-| `vars/db_*.yaml` | (db name)-db | Servers | Database | verify / restore |
-| `vars/proxmox.yaml` | PVE or PBS | Appliances | Config | verify / restore |
-| `vars/docker_stacks.yaml` | Docker or (app name) | Servers | Appdata | verify / restore |
-| `vars/docker_run.yaml` | Docker or (app name) | Servers | Appdata | verify / restore |
-| `vars/unraid_os.yaml` | unRAID | Servers | Config | verify / restore |
-| `vars/pikvm.yaml` | PiKVM | Appliances | Config | verify / restore |
+| `vars/db_*.yaml` | (db name)-db | Servers | Database | restore |
+| `vars/proxmox.yaml` | PVE or PBS | Appliances | Config | restore |
+| `vars/docker_stacks.yaml` | Docker or (app name) | Servers | Appdata | restore |
+| `vars/docker_run.yaml` | Docker or (app name) | Servers | Appdata | restore |
+| `vars/unraid_os.yaml` | unRAID | Servers | Config | restore |
+| `vars/pikvm.yaml` | PiKVM | Appliances | Config | restore |
+
+**Verification** logs to the `maintenance` table (subtype `Verify`) using the same
+`backup_type` / `backup_name` values from the vars file. See [Maintenance](#maintenance).
 
 ### Expected hostname format
 
