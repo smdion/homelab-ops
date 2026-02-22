@@ -107,12 +107,13 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm.pve_target_node }}"
+            node: "{{ pve_template_node }}"
             clone: "{{ pve_template_name }}"
             newid: "{{ _vm.vm_id }}"
             name: "{{ _vm.vm_name }}"
             full: true
             storage: "{{ pve_storage }}"
+            target: "{{ _vm.pve_target_node }}"
             timeout: 300
           no_log: true
           when: _vm_state == 'present'

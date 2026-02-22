@@ -15,7 +15,10 @@ vm_cidr: 24
 
 # Cloud-init template — created automatically on first build.
 # Ceph (replicated) storage is shared across all nodes, so one template serves the entire cluster.
+# pve_template_node must match the node pve_api_host resolves to — that's where the
+# template config file lives. Clones use Ceph shared storage to target any node.
 pve_template_vmid: 9000
+pve_template_node: "REDACTED_NODE"
 pve_template_name: "ubuntu-cloud-template"
 pve_cloud_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 
