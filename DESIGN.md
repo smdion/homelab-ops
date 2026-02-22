@@ -499,16 +499,19 @@ where multiple backup types exist for the same target:
 | Pattern | Example |
 |---|---|
 | `Backup — {Target} [{Subtype}]` | `Backup — Proxmox [Config]`, `Backup — unRAID [Offline]` |
+| `Backup — Database [{Role} {Engine}]` | `Backup — Database [Primary PostgreSQL]`, `Backup — Database [Secondary PostgreSQL]` |
 | `Update — {Target}` | `Update — Proxmox`, `Update — Ubuntu`, `Update — Docker Stacks`, `Update — Docker Run` |
 | `Maintain — {Target}` | `Maintain — AMP`, `Maintain — Cache`, `Maintain — Docker`, `Maintain — Health` |
 | `Download — {Target} [{Subtype}]` | `Download — Videos`, `Download — Videos [On Demand]` |
-| `Verify — {Target} [{Subtype}]` | `Verify — PostgreSQL [Database]`, `Verify — Proxmox [Config]` |
-| `Restore — {Target} [{Subtype}]` | `Restore — PostgreSQL [Database]`, `Restore — Docker Run [Appdata]` |
+| `Verify — {Target} [{Subtype}]` | `Verify — Database [Primary PostgreSQL]`, `Verify — Proxmox [Config]` |
+| `Restore — {Target} [{Subtype}]` | `Restore — Database [Primary PostgreSQL]`, `Restore — Docker Run [Appdata]` |
 | `Rollback — {Target} [{Subtype}]` | `Rollback — Docker [Containers]` |
 
 The `[Subtype]` suffix makes templates instantly distinguishable when a target has more than one
 variant (e.g., `Backup — unRAID [Config]` vs `Backup — unRAID [Offline]`, or `Download — Videos`
-vs `Download — Videos [On Demand]`).
+vs `Download — Videos [On Demand]`). Database templates use `Database` as the target so all DB
+operations cluster together alphabetically, with `[Role Engine]` (e.g., `[Primary PostgreSQL]`,
+`[Secondary PostgreSQL]`) as the subtype.
 
 ### Managing templates via SQL (Adminer)
 
