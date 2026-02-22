@@ -160,6 +160,7 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 ├── maintain_health.yaml            # Scheduled health monitoring — 26 checks across all SSH hosts + DB/API; Uptime Kuma dead man's switch
 ├── download_videos.yaml            # MeTube yt-dlp downloads — per-video Discord notifications + temp file cleanup; parameterized on config_file; hosts via hosts_variable
 ├── add_ansible_user.yaml           # One-time utility: create ansible user on PVE/PBS/unRAID hosts (SSH key from vault, ansible_remote_tmp dir, validation assertions)
+├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
 ├── files/
 │   └── get_push_epoch.sh           # Helper script for Docker image age checks (deployed to remote hosts by update_systems.yaml)
@@ -295,6 +296,20 @@ play-level Docker vars) and uses `delegate_to: db_host` to restore databases on 
 apps handled via `app_restore[restore_app].containers` mapping in `vars/docker_*.yaml`. `serial: 1`
 matches `backup_hosts.yaml`. Requires `--limit <hostname>` when using `restore_app` on multi-host
 groups.
+
+**`deploy_grafana.yaml`** — Deploys the Grafana dashboard and `Ansible-Logging` MySQL datasource
+via the Grafana API. Runs from localhost (no SSH) — requires `grafana_url` and
+`grafana_service_account_token` in vault. The datasource is created only if missing (HTTP 404
+check); never overwrites existing configuration. Before importing, the playbook syncs threshold
+values from Ansible vars into the dashboard JSON:
+- **Stale Backups** — SQL query (`> N hours`), panel color thresholds (yellow/red), and title
+  all derive from `health_backup_stale_hours` (default 216). Yellow threshold is set to
+  `stale_hours - 48` (2-day warning before red).
+- **Stale Updates** — SQL query (`INTERVAL N DAY`) and title derive from
+  `grafana_stale_update_days` (default 14).
+
+The raw `grafana/grafana.json` keeps baseline values — the playbook replaces them at deploy time.
+Change the Ansible var, re-deploy, and the Grafana panels update automatically.
 
 **`tasks/log_restore.yaml`** — Shared MariaDB logging for the `restores` table. Uses
 `community.mysql.mysql_query` with parameterized queries. Separate from `log_mariadb.yaml` because
@@ -469,8 +484,9 @@ vs `Download — Videos [On Demand]`).
 
 ### Managing templates via SQL (Adminer)
 
-Semaphore stores templates, environments, and vault associations in MariaDB. When creating a
-new template programmatically (e.g., for a new download profile), three tables are involved:
+Semaphore stores templates, environments, and vault associations in MariaDB (MySQL syntax —
+use `LIKE` not `ILIKE`, backtick-quoted identifiers). When creating a new template
+programmatically (e.g., for a new download profile), three tables are involved:
 
 | Table | Purpose |
 |-------|---------|
@@ -589,6 +605,7 @@ vary by playbook category but follow consistent patterns within each category:
 | **Download** (`download_videos`) | `video.url` (per-video) | Custom per video | Always (success + failure) |
 | **Verify** (`verify_backups`) | `backup_url` (from `vars/*.yaml`) | Description, Host, Source File, Detail | Always |
 | **Restore** (`restore_databases`, `restore_hosts`) | `backup_url` (from `vars/*.yaml`) | Description, Host, Source File, Detail/Tables | Always |
+| **Deploy** (`deploy_grafana`) | `semaphore_ext_url` | Description, Host, Detail | Always |
 
 **URL variable conventions:**
 
@@ -795,6 +812,7 @@ and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
 | `verify_backups.yaml` | Backup file search runs. Integrity checks run. No temp databases created. No archives extracted. Discord/DB suppressed. |
 | `restore_databases.yaml` | Backup file search runs. Safety backup skipped. No restore performed. No container management. Discord/DB suppressed. |
 | `restore_hosts.yaml` | Backup file search runs. Archive integrity verified. No extraction or container management. Discord/DB suppressed. |
+| `deploy_grafana.yaml` | Dashboard JSON read and parsed. All API calls skipped (datasource check, create, dashboard import). Discord/DB suppressed. |
 
 ### Pre-task validations
 
@@ -1046,7 +1064,7 @@ CREATE TABLE maintenance (
   application VARCHAR(100) NOT NULL,   -- System maintained (e.g., 'AMP', 'Docker', 'Semaphore')
   hostname    VARCHAR(255) NOT NULL,   -- FQDN of host that ran the task
   type        VARCHAR(50)  NOT NULL,   -- 'Servers', 'Appliances', or 'Local'
-  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify'
+  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy'
   status      VARCHAR(20)  NOT NULL DEFAULT 'success',  -- 'success', 'failed', or 'partial'
   timestamp   DATETIME,            -- UTC_TIMESTAMP() — always UTC regardless of server timezone
   INDEX idx_application (application),
@@ -1340,6 +1358,8 @@ synology_ip: "..."                  # Synology NAS IP address (backup_offline.ya
 synology_mac: "..."                 # Synology NAS MAC for WOL (backup_offline.yaml via vars/synology.yaml)
 synology_name: "..."                # Synology NAS mount name (backup_offline.yaml via vars/synology.yaml)
 db_password: "..."                  # Database password for Docker container DB dumps (backup/restore/verify playbooks)
+grafana_url: "..."                  # Grafana base URL, e.g. "http://grafana-host:3000" (deploy_grafana.yaml)
+grafana_service_account_token: "..." # Grafana service account token with Editor role (deploy_grafana.yaml)
 vps_fqdn: "..."                    # VPS hostname for WireGuard config extraction (backup_hosts.yaml via vars/unifi_network.yaml)
 ```
 
@@ -1474,7 +1494,13 @@ ORDER BY timestamp DESC LIMIT 30;
 ### Grafana dashboard
 
 `grafana/grafana.json` is a Grafana dashboard that visualizes the data written by the Ansible
-playbooks. Import it via **Dashboards → Import → Upload JSON file**.
+playbooks. Deploy it using `deploy_grafana.yaml`, which provisions both the datasource and
+dashboard via the Grafana API. For manual import: **Dashboards → Import → Upload JSON file**.
+
+**Automated deploy:** `deploy_grafana.yaml` runs from localhost (no SSH). It creates the
+`Ansible-Logging` MySQL datasource if missing (using `logging_db_*` vault credentials), then
+imports the dashboard JSON with `overwrite: true`. Requires `grafana_url` and
+`grafana_service_account_token` in vault. See Semaphore template `Deploy — Grafana [Dashboard]`.
 
 **Datasource required:** a MySQL datasource named exactly `Ansible-Logging`, pointed at the
 `ansible_logging` database. All panel queries reference this datasource by name — the name must
@@ -1509,12 +1535,12 @@ Key panel features:
 - **Recent Updates** includes the `status` column (success/failed)
 - **Time series panels** use `spanNulls: true` — lines connect across days with no data instead
   of breaking, producing continuous trend lines even with irregular schedules (e.g., weekly backups)
-- **Threshold coupling:** Some panels have hardcoded color thresholds in the dashboard JSON
-  (e.g., Stale Backups uses green/yellow/red at 0/168/216 hours to match
-  `health_backup_stale_hours: 216`). These are display-only cell background colors, not Grafana
-  alerts — the actual alerting is done by Ansible. If you change thresholds in
-  `vars/semaphore_check.yaml`, update the matching Grafana panel overrides to keep visual
-  indicators in sync (edit panel → Field → Thresholds)
+- **Threshold syncing:** `deploy_grafana.yaml` automatically syncs Ansible thresholds into the
+  dashboard JSON before importing. The Stale Backups panel thresholds and SQL query use
+  `health_backup_stale_hours`, and the Stale Updates SQL uses `grafana_stale_update_days` —
+  both from `vars/semaphore_check.yaml`. Change the Ansible variable, re-deploy, and the
+  Grafana panels update automatically. The raw `grafana/grafana.json` file keeps the default
+  values (216 hours, 14 days) as a baseline — the playbook replaces them at deploy time
 
 ---
 

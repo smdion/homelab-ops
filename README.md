@@ -27,6 +27,7 @@ visibility.
 | **Health** | 26 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord alerts and anomaly detection |
 | **Updates** | OS package and Docker container updates with version tracking per host |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
+| **Deploy** | Grafana dashboard + datasource deployment via API with automatic threshold syncing |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
 version status per host, stale detection, health trends, and maintenance logs across 27 panels.
@@ -104,6 +105,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | WOL, rsync, shutdown verification |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with Discord notifications |
 | `add_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
+| `deploy_grafana.yaml` | Grafana (any host) | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
 ### Health checks by platform
 
@@ -154,7 +156,7 @@ for platforms you don't have are automatically skipped.
 ├── sql/
 │   └── init.sql                 # Database schema — run once to create all tables
 ├── grafana/
-│   └── grafana.json             # Grafana dashboard (import via UI)
+│   └── grafana.json             # Grafana dashboard (deployed via deploy_grafana.yaml or manual import)
 ├── files/
 │   ├── get_push_epoch.sh       # Helper script for Docker image age checks
 │   ├── grafana.png             # Grafana dashboard screenshot
@@ -168,6 +170,7 @@ for platforms you don't have are automatically skipped.
 ├── update_*.yaml                # Update playbook
 ├── maintain_*.yaml              # Maintenance + health playbooks
 ├── download_videos.yaml         # MeTube/yt-dlp automation
+├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
 ├── add_ansible_user.yaml        # One-time user setup utility
 ├── requirements.yaml            # Ansible Galaxy collection dependencies
 ├── inventory.example.yaml       # Example inventory with expected group structure
@@ -239,10 +242,25 @@ See [DESIGN.md](DESIGN.md#semaphore-setup) for the full Semaphore configuration 
 
 ### 6. Grafana (optional)
 
-Import `grafana/grafana.json` and create a MySQL datasource pointed at your `ansible_logging`
-database. On import, Grafana will prompt you to select the datasource for the `DS_MYSQL`
-variable — pick your MySQL datasource. The dashboard includes 27 panels across 5 collapsible
-row groups (Alerts, Trends, Distributions, Recent Activity, Status).
+`deploy_grafana.yaml` automates the full Grafana setup — it creates the `Ansible-Logging` MySQL
+datasource (if missing) and imports the dashboard via API. It also syncs threshold values from
+Ansible vars into the dashboard panels, so changing `health_backup_stale_hours` in
+`vars/semaphore_check.yaml` automatically updates the Grafana Stale Backups panel on next deploy.
+
+```bash
+# One-time: create a Grafana service account (Editor role), add to vault:
+ansible-vault edit vars/secrets.yaml
+# Add: grafana_url, grafana_service_account_token
+
+# Deploy dashboard + datasource
+ansible-playbook deploy_grafana.yaml --vault-password-file ~/.vault_pass
+
+# Dry run (no API calls)
+ansible-playbook deploy_grafana.yaml --vault-password-file ~/.vault_pass --check
+```
+
+The dashboard includes 21 panels across 5 collapsible row groups (Alerts, Trends, Distributions,
+Recent Activity, Status). Manual import via **Dashboards → Import → Upload JSON file** also works.
 
 <details>
 <summary>Dashboard screenshot</summary>

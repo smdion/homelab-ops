@@ -32,6 +32,7 @@ health_wan_check_url: "https://cloudflare.com/cdn-cgi/trace"  # WAN connectivity
 health_ntp_max_offset_ms: 500     # max acceptable NTP offset in milliseconds
 health_dns_test_hostname: "google.com"  # DNS resolution test target
 health_backup_size_min_pct: 50        # alert if latest backup < this % of 30-day average
+grafana_stale_update_days: 14         # Grafana panel: flag updates older than N days as stale
 
 # Appliance reachability check — tested via TCP connect (port 443)
 # CUSTOMIZE: list your network appliances that lack SSH access

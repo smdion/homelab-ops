@@ -1,0 +1,165 @@
+---
+# Deploy Grafana dashboard and Ansible-Logging datasource via API.
+# Reads grafana/grafana.json and pushes it to the Grafana instance.
+# Creates the Ansible-Logging MySQL datasource if it doesn't exist.
+# Syncs thresholds from Ansible vars into the dashboard before importing:
+#   - Stale Backups: health_backup_stale_hours (SQL query + panel thresholds + title)
+#   - Stale Updates: grafana_stale_update_days (SQL query + title)
+#
+# Runs from the Semaphore controller (localhost) — no SSH required.
+# Grafana must be reachable via grafana_url from the controller.
+#
+# Required variables (vars/secrets.yaml):
+#   grafana_url, grafana_service_account_token
+#   logging_db_host, logging_db_port, logging_db_user, logging_db_password, logging_db_name
+#   discord_webhook_id, discord_webhook_token
+#
+# Usage:
+#   ansible-playbook deploy_grafana.yaml
+
+- name: Deploy Grafana dashboard and datasource
+  hosts: localhost
+  gather_facts: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "Grafana"
+    maintenance_type: "Local"
+    maintenance_subtype: "Deploy"
+
+  tasks:
+    - name: Initialize deploy state
+      ansible.builtin.set_fact:
+        deploy_failed: false
+        _deploy_detail: ""
+
+    - block:
+        # ═══════════════════════════════════════════════════════════════════
+        # DATASOURCE — create Ansible-Logging MySQL datasource if missing
+        # ═══════════════════════════════════════════════════════════════════
+        - name: Check if Ansible-Logging datasource exists
+          ansible.builtin.uri:
+            url: "{{ grafana_url }}/api/datasources/name/Ansible-Logging"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ grafana_service_account_token }}"
+              Accept: "application/json"
+            status_code: [200, 404]
+          register: _ds_check
+          when: not ansible_check_mode
+          no_log: true
+
+        - name: Create Ansible-Logging datasource
+          ansible.builtin.uri:
+            url: "{{ grafana_url }}/api/datasources"
+            method: POST
+            headers:
+              Authorization: "Bearer {{ grafana_service_account_token }}"
+              Content-Type: "application/json"
+            body_format: json
+            body:
+              name: "Ansible-Logging"
+              type: "mysql"
+              access: "proxy"
+              url: "{{ logging_db_host }}:{{ logging_db_port }}"
+              database: "{{ logging_db_name }}"
+              user: "{{ logging_db_user }}"
+              secureJsonData:
+                password: "{{ logging_db_password }}"
+              isDefault: false
+            status_code: 200
+          when:
+            - not ansible_check_mode
+            - _ds_check.status == 404
+          no_log: true
+
+        - name: Record datasource status
+          ansible.builtin.set_fact:
+            _deploy_detail: >-
+              Datasource: {{ 'created' if (_ds_check.status | default(0)) == 404
+              else ('exists' if not ansible_check_mode else 'check mode') }}
+
+        # ═══════════════════════════════════════════════════════════════════
+        # DASHBOARD — sync thresholds and import grafana/grafana.json
+        # ═══════════════════════════════════════════════════════════════════
+        - name: Read dashboard JSON and sync thresholds from Ansible vars
+          ansible.builtin.set_fact:
+            _dashboard_json: >-
+              {{ lookup('file', 'grafana/grafana.json')
+                 | replace('> 216\\nORDER',
+                           '> ' ~ health_backup_stale_hours | string ~ '\\nORDER')
+                 | replace('"value": 216 }',
+                           '"value": ' ~ health_backup_stale_hours | string ~ ' }')
+                 | replace('"value": 168 }',
+                           '"value": ' ~ (health_backup_stale_hours - 48) | string ~ ' }')
+                 | replace('Stale Backups (9+ Days)',
+                           'Stale Backups (' ~ (health_backup_stale_hours / 24) | int | string ~ '+ Days)')
+                 | replace('INTERVAL 14 DAY',
+                           'INTERVAL ' ~ grafana_stale_update_days | string ~ ' DAY')
+                 | replace('Stale Updates (14+ Days)',
+                           'Stale Updates (' ~ grafana_stale_update_days | string ~ '+ Days)')
+                 | from_json }}
+
+        - name: Set dashboard id to null for import
+          ansible.builtin.set_fact:
+            _dashboard_import: "{{ _dashboard_json | combine({'id': none}) }}"
+
+        - name: Import dashboard via API
+          ansible.builtin.uri:
+            url: "{{ grafana_url }}/api/dashboards/db"
+            method: POST
+            headers:
+              Authorization: "Bearer {{ grafana_service_account_token }}"
+              Content-Type: "application/json"
+            body_format: json
+            body:
+              dashboard: "{{ _dashboard_import }}"
+              overwrite: true
+              folderId: 0
+              message: "Deployed via Ansible"
+            status_code: 200
+          when: not ansible_check_mode
+          no_log: true
+
+        - name: Record deploy detail
+          ansible.builtin.set_fact:
+            _deploy_detail: "{{ _deploy_detail }} | Dashboard: imported"
+
+      rescue:
+        - name: Set failure flag
+          ansible.builtin.set_fact:
+            deploy_failed: true
+            _deploy_detail: "{{ _deploy_detail }} | Error: {{ ansible_failed_result.msg | default('unknown') }}"
+
+      always:
+        - name: Send Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_title: "{{ maintenance_name }}"
+            discord_description: "{{ 'Deploy Failed' if deploy_failed else 'Dashboard Deployed' }}"
+            discord_color: "{{ 16711680 if deploy_failed else 32768 }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Description"
+                value: "{{ 'Grafana dashboard deploy failed' if deploy_failed else 'Grafana dashboard and datasource deployed' }}"
+              - name: "Host"
+                value: "{{ controller_fqdn }}"
+              - name: "Detail"
+                value: "{{ _deploy_detail }}"
+
+        - name: Log to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: "maintenance"
+            log_hostname: "{{ controller_fqdn }}"
+            log_application: "{{ maintenance_name }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if deploy_failed else 'success' }}"
+
+        - name: Fail play if deploy errored
+          ansible.builtin.fail:
+            msg: "Grafana deploy failed — see Discord notification for details"
+          when: deploy_failed
