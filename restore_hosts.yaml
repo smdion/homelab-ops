@@ -27,7 +27,7 @@
     - vars/{{ config_file }}.yaml
   vars:
     config_file: "{{ hosts_variable }}"
-    restore_mode: "{{ restore_mode | default('staging') }}"
+    restore_mode: staging
 
   pre_tasks:
     - name: Assert config_file is defined and non-empty
