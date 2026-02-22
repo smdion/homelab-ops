@@ -43,7 +43,7 @@ ansible-playbook backup_hosts.yaml -i inventory.yaml \
 ## Adding a New Platform
 
 1. Create `vars/<platform>.yaml` (copy from `vars/example.yaml`)
-2. Add hosts to inventory under a new group
+2. Add hosts to the appropriate Semaphore inventory under a new group
 3. Create a Semaphore variable group: `{"hosts_variable": "<platform>"}`
 4. If the platform has a version command, add it to `_os_version_commands` in `update_systems.yaml`
 5. Platform-specific health checks need `when: "'<platform>' in group_names"` in `maintain_health.yaml`

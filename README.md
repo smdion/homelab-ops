@@ -54,8 +54,8 @@ ansible-vault encrypt vars/secrets.yaml    # set a password, then edit with your
 # 3. Create the database
 mysql -u root -p < sql/init.sql
 
-# 4. Create a minimal inventory (just Docker hosts, for example)
-cp inventory.example.yaml inventory.yaml  # edit: keep only your hosts/groups
+# 4. Set up inventory in Semaphore UI (or create a local reference copy)
+cp inventory.example.yaml inventory.yaml  # local copy for CLI usage
 
 # 5. Run a backup
 ansible-playbook backup_hosts.yaml \
@@ -169,8 +169,9 @@ for platforms you don't have are automatically skipped.
 └── CONTRIBUTING.md              # Contribution guide
 ```
 
-Inventory is **not** stored here — it lives in Semaphore's database (or a local file for CLI
-usage). See [`inventory.example.yaml`](inventory.example.yaml) for the expected group structure.
+Inventory is **not** stored here — it lives in Semaphore's UI/database. A local
+`inventory.yaml` copy exists for convenience but is not version-controlled. See
+[`inventory.example.yaml`](inventory.example.yaml) for the expected group structure.
 
 ## Setup
 
@@ -197,13 +198,15 @@ API keys are optional — features degrade gracefully without them.
 
 ### 3. Inventory
 
+Inventory lives in **Semaphore's UI/database** — each inventory groups hosts by authentication
+method. A local `inventory.yaml` is kept for ease of viewing but is not the source of truth.
+
 ```bash
-cp inventory.example.yaml inventory.yaml
+cp inventory.example.yaml inventory.yaml  # local reference copy only
 ```
 
-Edit to include only your hosts and groups. The key concept: **functional groups** (`[ubuntu]`,
-`[pve]`, `[docker_stacks]`, etc.) determine which playbook logic applies. A host can belong to
-multiple groups.
+The key concept: **functional groups** (`[ubuntu]`, `[pve]`, `[docker_stacks]`, etc.) determine
+which playbook logic applies. A host can belong to multiple groups.
 
 ### 4. Platform vars files
 
@@ -306,7 +309,7 @@ extract the ID and token from the URL, and add them to your vault.
 
 To add a platform that isn't already covered (e.g., TrueNAS, Home Assistant, OPNsense):
 
-1. **Inventory** — add hosts to a new group (e.g., `[truenas]`)
+1. **Inventory** — add hosts to the appropriate Semaphore inventory under a new group (e.g., `[truenas]`)
 2. **Vars file** — copy `vars/example.yaml` to `vars/truenas.yaml`, fill in backup paths and names
 3. **Semaphore** (if using) — create a variable group: `{"hosts_variable": "truenas"}`
 4. **Update playbook** — if the platform has a version command, add one line to the

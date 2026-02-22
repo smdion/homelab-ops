@@ -105,7 +105,7 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 
 ```
 ├── ansible.cfg                     # Ansible settings: disable retry files, YAML stdout callback
-├── inventory.yaml                  # YAML-format Ansible inventory — NOT version-controlled (see below)
+├── inventory.yaml                  # Local reference copy of Semaphore inventory — NOT version-controlled
 ├── inventory.example.yaml          # Template inventory with example hosts and group structure
 │
 ├── group_vars/
