@@ -1,8 +1,13 @@
 ---
 # Provision Ubuntu VMs on Proxmox via API.
-# Play 1 (localhost): Create/configure/boot VM, or destroy if vm_state=absent.
+# Play 1 (localhost): Ensure cloud-init template, clone/configure/boot VM,
+#   or destroy if vm_state=absent.
 # Play 2 (new VM): Bootstrap Ubuntu with Docker and security hardening.
 # Deploy stacks separately via deploy_stacks.yaml after provisioning.
+#
+# The cloud-init template is created automatically on first run (one-time per cluster).
+# It downloads the Ubuntu Noble cloud image and converts it to a Proxmox template
+# on Ceph (replicated) storage, accessible from all nodes.
 #
 # Usage:
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm
@@ -57,30 +62,62 @@
         # ═════════════════════════════════════════════════════════
         # CREATE PATH — vm_state == 'present' (default)
         # ═════════════════════════════════════════════════════════
-        - name: Create Ubuntu VM on Proxmox
+
+        # --- Ensure cloud-init template exists (one-time per cluster) ---
+        - name: Add PVE host to in-memory inventory
+          ansible.builtin.add_host:
+            name: pve_builder
+            ansible_host: "{{ pve_api_host }}"
+            ansible_user: root
+          when: _vm_state == 'present'
+
+        - name: Ensure cloud-init template exists on Ceph storage
+          delegate_to: pve_builder
+          ansible.builtin.shell: |
+            if [ -f /etc/pve/qemu-server/{{ pve_template_vmid }}.conf ]; then
+              echo "Template already exists"
+              exit 0
+            fi
+            set -e
+            cd /tmp
+            wget -q "{{ pve_cloud_image_url }}" -O ubuntu-cloud.img
+            qm create {{ pve_template_vmid }} \
+              --name {{ pve_template_name }} \
+              --memory 2048 --cores 2 \
+              --net0 virtio,bridge={{ pve_bridge }}
+            qm importdisk {{ pve_template_vmid }} ubuntu-cloud.img {{ pve_storage }}
+            qm set {{ pve_template_vmid }} \
+              --scsi0 {{ pve_storage }}:vm-{{ pve_template_vmid }}-disk-0 \
+              --scsihw virtio-scsi-single
+            qm set {{ pve_template_vmid }} \
+              --ide2 {{ pve_storage }}:cloudinit \
+              --boot order=scsi0
+            qm template {{ pve_template_vmid }}
+            rm -f ubuntu-cloud.img
+            echo "Template created"
+          register: _template_result
+          changed_when: "'Template created' in _template_result.stdout"
+          when: _vm_state == 'present'
+
+        # --- Clone template to new VM ---
+        - name: Clone VM from cloud-init template
           community.general.proxmox_kvm:
             api_host: "{{ pve_api_host }}"
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
             node: "{{ _vm.pve_target_node }}"
+            clone: "{{ pve_template_name }}"
+            newid: "{{ _vm.vm_id }}"
             name: "{{ _vm.vm_name }}"
-            vmid: "{{ _vm.vm_id }}"
-            cores: "{{ _vm.vm_cores }}"
-            memory: "{{ _vm.vm_memory_mb }}"
-            scsihw: virtio-scsi-single
-            scsi:
-              scsi0: "{{ pve_storage }}:{{ _vm.vm_disk_gb }},iothread=1"
-            net:
-              net0: "virtio,bridge={{ pve_bridge }}"
-            ide:
-              ide2: "{{ pve_storage }}:cloudinit"
-            boot: order=scsi0
-            state: present
+            full: true
+            storage: "{{ pve_storage }}"
+            timeout: 300
           no_log: true
           when: _vm_state == 'present'
 
-        - name: Configure cloud-init
+        # --- Configure hardware and cloud-init ---
+        - name: Configure VM hardware and cloud-init
           community.general.proxmox_kvm:
             api_host: "{{ pve_api_host }}"
             api_user: "{{ pve_api_user }}"
@@ -88,6 +125,8 @@
             api_token_secret: "{{ pve_api_token_secret }}"
             node: "{{ _vm.pve_target_node }}"
             vmid: "{{ _vm.vm_id }}"
+            cores: "{{ _vm.vm_cores }}"
+            memory: "{{ _vm.vm_memory_mb }}"
             ciuser: "{{ vm_user }}"
             cipassword: "{{ vm_password }}"
             sshkeys: "{{ ansible_user_ssh_pubkey }}"
@@ -99,12 +138,29 @@
           no_log: true
           when: _vm_state == 'present'
 
+        # --- Resize disk from cloud image (~3.5G) to target size ---
+        - name: Resize VM disk
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/resize"
+            method: PUT
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              disk: scsi0
+              size: "{{ _vm.vm_disk_gb }}G"
+            validate_certs: false
+          no_log: true
+          when: _vm_state == 'present'
+
+        # --- Start and wait ---
         - name: Start VM
           community.general.proxmox_kvm:
             api_host: "{{ pve_api_host }}"
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm.pve_target_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: started
           no_log: true
@@ -135,6 +191,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm.pve_target_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
             force: true
@@ -147,6 +204,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm.pve_target_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: absent
           no_log: true
@@ -246,17 +304,34 @@
             enabled: true
             state: started
 
-        - name: Add user to docker group
+        - name: Add user to docker and sudo groups
           ansible.builtin.user:
             name: "{{ vm_user }}"
-            groups: docker
+            groups: docker,sudo
             append: true
 
-        - name: Disable SSH password authentication
+        - name: Grant passwordless sudo
+          ansible.builtin.copy:
+            content: |
+              # Passwordless sudo for Ansible automation — required for playbooks to
+              # execute privileged tasks (apt, docker, systemctl, etc.) without prompts.
+              {{ vm_user }} ALL=(ALL) NOPASSWD: ALL
+            dest: "/etc/sudoers.d/{{ vm_user }}"
+            mode: "0440"
+            owner: root
+            group: root
+            validate: /usr/sbin/visudo -cf %s
+
+        - name: Harden SSH configuration
           ansible.builtin.lineinfile:
             path: /etc/ssh/sshd_config
-            regexp: "^#?PasswordAuthentication"
-            line: "PasswordAuthentication no"
+            regexp: "{{ item.regexp }}"
+            line: "{{ item.line }}"
+            state: present
+          loop:
+            - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin prohibit-password' }
+            - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+            - { regexp: '^#?PubkeyAcceptedAlgorithms', line: 'PubkeyAcceptedAlgorithms +ssh-rsa' }
           register: _ssh_config
 
         - name: Restart sshd

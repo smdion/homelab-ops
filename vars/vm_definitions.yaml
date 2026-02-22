@@ -5,13 +5,19 @@
 # Proxmox infrastructure defaults — shared across all VMs.
 # pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret, vm_password
 # are secrets — defined in vars/secrets.yaml.
-pve_storage: "local-lvm"
+pve_storage: "replicated"
 pve_bridge: "vmbr0"
 vm_user: "ansible"
 vm_gateway: "REDACTED_GW"
 vm_dns: "REDACTED_GW"
 vm_search_domain: "REDACTED_DOMAIN"
 vm_cidr: 24
+
+# Cloud-init template — created automatically on first build.
+# Ceph (replicated) storage is shared across all nodes, so one template serves the entire cluster.
+pve_template_vmid: 9000
+pve_template_name: "ubuntu-cloud-template"
+pve_cloud_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 
 vm_definitions:
   tantiveiv:
