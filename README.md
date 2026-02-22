@@ -89,7 +89,7 @@ and go.
 | `backup_databases.yaml` | Dump Postgres/MariaDB databases from Docker containers | `vars/db_<role>_<engine>.yaml` with `db_names`, `container_name` |
 | `update_systems.yaml` | OS packages + Docker container updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers` | `vars/<platform>.yaml` with `update_*` vars |
 | `maintain_docker.yaml` | Prune unused Docker images | Needs `[docker]` group (children of `docker_stacks` + `docker_run`) |
-| `maintain_semaphore.yaml` | Clean stopped Semaphore tasks + prune logging rows older than `retention_days` (default 365) | Runs on localhost |
+| `maintain_semaphore.yaml` | Clean stopped Semaphore tasks, prune old download tasks (`download_task_retention_days`), and prune `ansible_logging` rows (`retention_days`) | Runs on localhost |
 | `maintain_health.yaml` | 26 health checks across all SSH hosts + DB/API | `vars/semaphore_check.yaml` for thresholds |
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm_restore=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
@@ -108,7 +108,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | WOL, rsync, shutdown verification |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `add_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
-| `deploy_grafana.yaml` | Grafana (any host) | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
+| `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
 ### Health checks by platform
 
@@ -248,8 +248,9 @@ See [DESIGN.md](DESIGN.md#semaphore-setup) for the full Semaphore configuration 
 
 `deploy_grafana.yaml` automates the full Grafana setup — it creates the `Ansible-Logging` MySQL
 datasource (if missing) and imports the dashboard via API. It also syncs threshold values from
-Ansible vars into the dashboard panels, so changing `health_backup_stale_hours` in
-`vars/semaphore_check.yaml` automatically updates the Grafana Stale Backups panel on next deploy.
+Ansible vars into the dashboard panels, so changing `health_backup_stale_hours` or
+`grafana_stale_update_days` in `vars/semaphore_check.yaml` automatically updates the
+corresponding Stale Backups and Stale Updates panels on next deploy.
 
 ```bash
 # One-time: create a Grafana service account (Editor role), add to vault:
