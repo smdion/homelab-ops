@@ -197,6 +197,7 @@
             dest: "{{ backup_tmp_file }}"
             format: gz
             remove: false
+            exclude_path: "{{ backup_exclude_dirs | default([]) }}"
           timeout: 3600
           when: inventory_hostname not in groups["unifi_protect"]
           tags: [always]

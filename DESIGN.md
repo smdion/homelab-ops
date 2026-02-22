@@ -128,6 +128,7 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 │   ├── synology.yaml                # Synology NAS sync
 │   ├── db_primary_postgres.yaml     # Primary host Postgres DB backup + db_container_deps for restore
 │   ├── db_primary_mariadb.yaml      # Primary host MariaDB backup + db_container_deps for restore
+│   ├── db_primary_influxdb.yaml     # Primary host InfluxDB backup + db_container_deps for restore
 │   ├── db_secondary_postgres.yaml   # Secondary host Postgres DB backup + db_container_deps for restore
 │   ├── download_default.yaml       # yt-dlp download profile: default (scheduled channel downloads)
 │   └── download_on_demand.yaml    # yt-dlp download profile: on_demand (bookmarklet-triggered; verbose, allows live streams)
@@ -146,7 +147,7 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 │   └── metube.conf.j2              # Jinja2 template for yt-dlp config — rendered per profile from vars/download_<name>.yaml
 │
 ├── backup_hosts.yaml               # Config/Appdata backups (Proxmox, PiKVM, Unifi, AMP, Docker, unRAID); integrity verification
-├── backup_databases.yaml           # Database backups (Postgres + MariaDB dumps); integrity verification
+├── backup_databases.yaml           # Database backups (Postgres + MariaDB dumps, InfluxDB portable backup); integrity verification
 ├── backup_offline.yaml             # unRAID → Synology offline sync (WOL + rsync); shutdown verification; logs both successful and failed syncs; hosts via hosts_variable
 ├── verify_backups.yaml             # On-demand backup verification — DB backups restored to temp DB; config archives integrity-checked and staged
 ├── restore_databases.yaml          # Database restore from backup dumps — safety-gated; supports single-DB restore on shared instances
@@ -454,8 +455,8 @@ When the `vars/*.yaml` filename differs from the `hosts_variable` value, add `co
 ```
 
 Current cases requiring explicit `config_file`: `ubuntu_os`, `unraid_os`, `synology`,
-`db_primary_postgres`, `db_primary_mariadb`, `db_secondary_postgres`, `download_default`,
-`download_on_demand`.
+`db_primary_postgres`, `db_primary_mariadb`, `db_primary_influxdb`, `db_secondary_postgres`,
+`download_default`, `download_on_demand`.
 
 **Environment naming convention:** Semaphore environment names match the `config_file` value
 (or `hosts_variable` when `config_file` is not needed). For database targets, use role-based
@@ -493,8 +494,8 @@ where multiple backup types exist for the same target:
 | `Update — {Target}` | `Update — Proxmox`, `Update — Ubuntu`, `Update — Docker Stacks`, `Update — Docker Run` |
 | `Maintain — {Target}` | `Maintain — AMP`, `Maintain — Cache`, `Maintain — Docker`, `Maintain — Health` |
 | `Download — {Target} [{Subtype}]` | `Download — Videos`, `Download — Videos [On Demand]` |
-| `Verify — {Target}` | `Verify — PostgreSQL Databases`, `Verify — Proxmox [Config]` |
-| `Restore — {Target} [{Subtype}]` | `Restore — PostgreSQL Databases`, `Restore — Docker Run [Appdata]` |
+| `Verify — {Target} [{Subtype}]` | `Verify — PostgreSQL [Database]`, `Verify — Proxmox [Config]` |
+| `Restore — {Target} [{Subtype}]` | `Restore — PostgreSQL [Database]`, `Restore — Docker Run [Appdata]` |
 | `Rollback — {Target} [{Subtype}]` | `Rollback — Docker [Containers]` |
 
 The `[Subtype]` suffix makes templates instantly distinguishable when a target has more than one
@@ -1296,6 +1297,9 @@ No SQL changes needed.
 | `vars/synology.yaml` | unRAID | Servers | Offline |
 | `vars/db_*.yaml` | (individual db name)-db | Servers | Database |
 
+Database vars files also set `backup_ext` (`"sql"` for PostgreSQL/MariaDB, `"tar.gz"` for InfluxDB)
+which controls file extensions in find/copy/cleanup paths across all three database playbooks.
+
 **Updates:**
 
 | vars file | application | update_type | update_subtype |
@@ -1664,3 +1668,5 @@ Key panel features:
   (loops over `db_names`).
 - **MariaDB dumps** (`backup_databases.yaml`): `gzip -t` validates each gzipped dump
   (matching PostgreSQL pattern; loops over `db_names`).
+- **InfluxDB backups** (`backup_databases.yaml`): `tar tzf` validates each tar.gz archive
+  (InfluxDB portable backups are directory-based, tar+gzipped before transfer).

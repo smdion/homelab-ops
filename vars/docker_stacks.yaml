@@ -3,6 +3,14 @@ compose_project_path: "/opt"
 
 src_raw_files:
   - "/opt"
+
+# Database directories excluded from appdata archive.
+# Only exclude directories that have dedicated backup jobs (SQL dumps or API exports).
+backup_exclude_dirs:
+  - /opt/mariadb
+  - /opt/postgres
+  - /opt/influxdb
+
 backup_tmp_dir: "/backup"
 backup_name: "Docker"
 backup_description: "Automatic Docker Opt Backup"

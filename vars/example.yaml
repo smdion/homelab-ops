@@ -81,6 +81,12 @@ update_subtype: "OS"
 #   - semaphore
 #   - mariadb
 
+# Directories excluded from the appdata archive (backup_hosts.yaml).
+# Only for dirs that have dedicated backup jobs (SQL dumps or API exports).
+# backup_exclude_dirs:
+#   - /opt/mariadb
+#   - /opt/postgres
+
 # =============================================================================
 # MAINTENANCE SETTINGS — deployment-specific values used by maintain_*.yaml
 # =============================================================================
@@ -110,9 +116,13 @@ update_subtype: "OS"
 #   - "mydb1"
 #   - "mydb2"
 
-# Database engine flags
+# Database engine flags (exactly one must be true)
 # is_postgres: true
 # is_mariadb: false
+# is_influxdb: false
+
+# Backup file extension — "sql" for SQL engines, "tar.gz" for InfluxDB portable backups
+# backup_ext: "sql"
 
 # Database password should be in vars/secrets.yaml (vault), not here
 # db_password: "{{ my_db_password_from_vault }}"

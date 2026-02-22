@@ -1,12 +1,13 @@
 ---
-# Back up PostgreSQL databases from remote Docker containers.
-# Dumps each DB via pg_dump inside the container, compresses, and fetches to controller.
+# Back up databases from remote Docker containers.
+# PostgreSQL/MariaDB: SQL dump piped through gzip. InfluxDB: portable backup → tar.gz.
 # Sends Discord notification and logs result to MariaDB.
 #
 # Usage:
 #   ansible-playbook backup_databases.yaml -e hosts_variable=db_primary_postgres
+#   ansible-playbook backup_databases.yaml -e hosts_variable=db_primary_influxdb
 
-- name: Back up PostgreSQL databases from Docker containers
+- name: Back up databases from Docker containers
   hosts: "{{ hosts_variable }}"
   gather_facts: true
   gather_subset: ['!all', 'date_time']
@@ -64,15 +65,20 @@
           register: backup_status
           become: true
           ansible.builtin.shell: |
-            if [ "{{ is_postgres | lower }}" = "true" ]; then
-              docker exec {{ container_name }} pg_dump {{ item }} --clean --if-exists --username={{ db_username }} | gzip > {{ backup_tmp_file }}
-            fi
-            if [ "{{ is_mariadb | lower }}" = "true" ]; then
-              docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysqldump --user {{ db_username }} {{ item }} | gzip > {{ backup_tmp_file }}
-            fi
+            {% if is_postgres | default(false) | bool %}
+            docker exec {{ container_name }} pg_dump {{ item }} --clean --if-exists --username={{ db_username }} | gzip > {{ backup_tmp_file }}
+            {% elif is_mariadb | default(false) | bool %}
+            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysqldump --user {{ db_username }} {{ item }} | gzip > {{ backup_tmp_file }}
+            {% elif is_influxdb | default(false) | bool %}
+            docker exec {{ container_name }} influxd backup -portable -database {{ item }} /tmp/backup_{{ item }}
+            docker cp {{ container_name }}:/tmp/backup_{{ item }} {{ backup_tmp_dir }}/backup_{{ item }}
+            tar czf {{ backup_tmp_file }} -C {{ backup_tmp_dir }} backup_{{ item }}
+            rm -rf {{ backup_tmp_dir }}/backup_{{ item }}
+            docker exec {{ container_name }} rm -rf /tmp/backup_{{ item }}
+            {% endif %}
           environment:
-            DB_PASSWORD: "{{ db_password }}"
-          no_log: true
+            DB_PASSWORD: "{{ db_password | default('') }}"
+          no_log: "{{ not (is_influxdb | default(false) | bool) }}"
           changed_when: true
           tags: [always]
 
@@ -98,6 +104,15 @@
           ansible.builtin.shell: gzip -t "{{ backup_tmp_file }}"
           loop: "{{ db_names }}"
           when: is_mariadb | default(false) | bool
+          changed_when: false
+          check_mode: false
+          tags: [always]
+
+        - name: Verify backup integrity (InfluxDB)
+          become: true
+          ansible.builtin.shell: tar tzf "{{ backup_tmp_file }}" > /dev/null
+          loop: "{{ db_names }}"
+          when: is_influxdb | default(false) | bool
           changed_when: false
           check_mode: false
           tags: [always]
@@ -148,7 +163,7 @@
               - name: "Host"
                 value: "{{ inventory_hostname }}"
               - name: "Backup Name"
-                value: "backup_{{ db_result.db_name }}_{{ ansible_date_time.date }}.sql"
+                value: "backup_{{ db_result.db_name }}_{{ ansible_date_time.date }}.{{ backup_ext | default('sql') }}"
               - name: "Backup Size"
                 value: "{{ (db_result.file_size / 1024 / 1024) | round(2) }}MB"
           tags: [always]
@@ -177,6 +192,6 @@
             log_table: backups
             log_application: "{{ db_result.db_name }}-db"
             log_hostname: "{{ inventory_hostname }}"
-            log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else 'backup_') + db_result.db_name + '_' + ansible_date_time.date + '.sql' }}"
+            log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else 'backup_') + db_result.db_name + '_' + ansible_date_time.date + '.' + (backup_ext | default('sql')) }}"
             log_file_size: "{{ (db_result.file_size / 1024 / 1024) | round(2) if db_result.backup_rc == 0 else 0 }}"
           tags: [always]
