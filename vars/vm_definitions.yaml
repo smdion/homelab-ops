@@ -1,0 +1,56 @@
+# VM provisioning definitions for build_ubuntu.yaml
+# Each entry maps vm_name → VM spec for Proxmox API.
+# Stack assignments derived from stack_assignments in vars/docker_stacks.yaml (single source of truth).
+
+# Proxmox infrastructure defaults — shared across all VMs.
+# pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret, vm_password
+# are secrets — defined in vars/secrets.yaml.
+pve_storage: "local-lvm"
+pve_bridge: "vmbr0"
+pve_ssh_pubkey_path: "~/.ssh/id_ed25519.pub"
+vm_user: "ansible"
+vm_gateway: "REDACTED_GW"
+vm_dns: "REDACTED_GW"
+vm_search_domain: "REDACTED_DOMAIN"
+vm_cidr: 24
+
+vm_definitions:
+  tantiveiv:
+    vm_id: 100
+    vm_name: tantive-iv
+    vm_hostname: tantiveiv.REDACTED_DOMAIN
+    vm_ip: REDACTED_IP
+    vm_cores: 4
+    vm_memory_mb: 12288
+    vm_disk_gb: 200
+    pve_target_node: REDACTED_NODE
+
+  odyssey:
+    vm_id: 101
+    vm_name: odyssey
+    vm_hostname: odyssey.REDACTED_DOMAIN
+    vm_ip: REDACTED_IP
+    vm_cores: 2
+    vm_memory_mb: 4096
+    vm_disk_gb: 100
+    pve_target_node: REDACTED_NODE
+
+  amp:
+    vm_id: 102
+    vm_name: amp
+    vm_hostname: amp.REDACTED_DOMAIN
+    vm_ip: REDACTED_IP
+    vm_cores: 4
+    vm_memory_mb: 8192
+    vm_disk_gb: 100
+    pve_target_node: REDACTED_NODE
+
+  test-vm:
+    vm_id: 199
+    vm_name: test-vm
+    vm_hostname: test-vm.REDACTED_DOMAIN
+    vm_ip: REDACTED_IP
+    vm_cores: 2
+    vm_memory_mb: 2048
+    vm_disk_gb: 20
+    pve_target_node: REDACTED_NODE

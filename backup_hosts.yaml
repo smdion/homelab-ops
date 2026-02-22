@@ -99,12 +99,25 @@
 
     - block:
         # ===== STOP DOCKER (COMPOSE) =====
-        - name: Stop Docker Compose
+        - name: Stop Docker stacks (stack mode)
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "/opt/stacks/{{ item }}"
+            state: stopped
+          loop: "{{ (stack_assignments[inventory_hostname] | default([])) | reverse | list }}"
+          when:
+            - inventory_hostname in groups["docker_stacks"]
+            - inventory_hostname in (stack_assignments | default({}))
+          tags: [docker]
+
+        - name: Stop Docker Compose (legacy mode)
           become: true
           community.docker.docker_compose_v2:
             project_src: "{{ compose_project_path }}"
             state: stopped
-          when: inventory_hostname in groups["docker_stacks"]
+          when:
+            - inventory_hostname in groups["docker_stacks"]
+            - inventory_hostname not in (stack_assignments | default({}))
           tags: [docker]
 
         # ===== STOP DOCKER - unRAID (SHELL COMMANDS) =====
@@ -230,12 +243,25 @@
           tags: [always]
 
         # ===== START DOCKER (COMPOSE) =====
-        - name: Start Docker Compose
+        - name: Start Docker stacks (stack mode)
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "/opt/stacks/{{ item }}"
+            state: present
+          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+          when:
+            - inventory_hostname in groups["docker_stacks"]
+            - inventory_hostname in (stack_assignments | default({}))
+          tags: [docker]
+
+        - name: Start Docker Compose (legacy mode)
           become: true
           community.docker.docker_compose_v2:
             project_src: "{{ compose_project_path }}"
             state: present
-          when: inventory_hostname in groups["docker_stacks"]
+          when:
+            - inventory_hostname in groups["docker_stacks"]
+            - inventory_hostname not in (stack_assignments | default({}))
           tags: [docker]
 
         # ===== START DOCKER - unRAID (SHELL COMMANDS) =====
@@ -287,13 +313,28 @@
 
       always:
         # ===== SAFETY NET: ENSURE DOCKER IS RUNNING =====
-        - name: Ensure Docker Compose is running (safety net)
+        - name: Ensure Docker stacks are running (safety net — stack mode)
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "/opt/stacks/{{ item }}"
+            state: present
+          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+          when:
+            - inventory_hostname in groups["docker_stacks"]
+            - inventory_hostname in (stack_assignments | default({}))
+          register: _rescue_stacks_result
+          ignore_errors: true
+          tags: [docker]
+
+        - name: Ensure Docker Compose is running (safety net — legacy mode)
           become: true
           community.docker.docker_compose_v2:
             project_src: "{{ compose_project_path }}"
             state: present
-          when: inventory_hostname in groups["docker_stacks"]
-          register: rescue_compose_result
+          when:
+            - inventory_hostname in groups["docker_stacks"]
+            - inventory_hostname not in (stack_assignments | default({}))
+          register: _rescue_legacy_result
           ignore_errors: true
           tags: [docker]
 
@@ -356,7 +397,8 @@
           include_tasks: tasks/notify_discord.yaml
           when:
             - backup_failed
-            - (rescue_compose_result is defined and rescue_compose_result is failed) or
+            - (_rescue_stacks_result is defined and _rescue_stacks_result is failed) or
+              (_rescue_legacy_result is defined and _rescue_legacy_result is failed) or
               (rescue_docker_result is defined and rescue_docker_result is failed)
           vars:
             discord_title: "{{ backup_name }}"

@@ -170,7 +170,47 @@
           tags: [software]
 
         # --- Docker Stacks (compose) update ---
-        - name: Enumerate compose services
+        # Stack mode: enumerate per-stack and build service map
+        - name: Enumerate stack services (stack mode)
+          become: true
+          ansible.builtin.shell: docker compose config --services
+          args:
+            chdir: "/opt/stacks/{{ item }}"
+          register: _stack_services_raw
+          changed_when: false
+          check_mode: false
+          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname in (stack_assignments | default({}))
+          tags: [docker]
+
+        - name: Build stack-to-services map (stack mode)
+          ansible.builtin.set_fact:
+            _stack_service_map: >-
+              {{ dict(_stack_services_raw.results
+                      | selectattr('stdout_lines', 'defined')
+                      | map(attribute='item')
+                      | zip(_stack_services_raw.results
+                            | selectattr('stdout_lines', 'defined')
+                            | map(attribute='stdout_lines'))) }}
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname in (stack_assignments | default({}))
+          tags: [docker]
+
+        - name: Set target services from stacks (stack mode)
+          ansible.builtin.set_fact:
+            _docker_target_services: >-
+              {{ _stack_service_map.values() | flatten
+                 | difference(update_exclude_services | default([])) }}
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname in (stack_assignments | default({}))
+          tags: [docker]
+
+        # Legacy mode: single compose project
+        - name: Enumerate compose services (legacy mode)
           become: true
           ansible.builtin.shell: docker compose config --services
           args:
@@ -178,16 +218,73 @@
           register: _compose_services_raw
           changed_when: false
           check_mode: false
-          when: inventory_hostname in groups["docker_stacks"] | default([])
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname not in (stack_assignments | default({}))
           tags: [docker]
 
-        - name: Filter excluded compose services
+        - name: Filter excluded compose services (legacy mode)
           ansible.builtin.set_fact:
             _docker_target_services: "{{ _compose_services_raw.stdout_lines | difference(update_exclude_services | default([])) }}"
-          when: inventory_hostname in groups["docker_stacks"] | default([])
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname not in (stack_assignments | default({}))
           tags: [docker]
 
-        - name: Save Docker rollback snapshot
+        # Stack mode: per-stack rollback snapshots
+        - name: Save Docker rollback snapshot (stack mode)
+          become: true
+          ansible.builtin.shell: |
+            echo '{'
+            echo '  "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'",'
+            echo '  "containers": {'
+            first=true
+            for svc in {{ (_stack_service_map[item] | default([])) | difference(update_exclude_services | default([])) | join(' ') }}; do
+              cid=$(docker compose ps -q "$svc" 2>/dev/null)
+              if [ -n "$cid" ]; then
+                img=$(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$cid")
+                iid=$(docker inspect --format {% raw %}'{{.Image}}'{% endraw %} "$cid")
+                version=""
+                for label in "org.opencontainers.image.version" "org.label-schema.version" "version"; do
+                  version=$(docker inspect --format {% raw %}'{{index .Config.Labels "'{% endraw %}${label}{% raw %}'"}}'{% endraw %} "$cid" 2>/dev/null)
+                  [ -n "$version" ] && [ "$version" != "<no value>" ] && break
+                  version=""
+                done
+                if [ -z "$version" ]; then
+                  case "$img" in *:*) version="${img##*:}" ;; *) version="latest" ;; esac
+                fi
+                $first || echo ','
+                first=false
+                printf '    "%s": {"image": "%s", "image_id": "%s", "version": "%s"}' "$svc" "$img" "$iid" "$version"
+              fi
+            done
+            echo ''
+            echo '  }'
+            echo '}'
+          args:
+            chdir: "/opt/stacks/{{ item }}"
+          register: _docker_snapshot_stacks
+          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname in (stack_assignments | default({}))
+            - (_stack_service_map[item] | default([])) | difference(update_exclude_services | default([])) | length > 0
+            - not ansible_check_mode
+          tags: [docker]
+
+        - name: Write rollback snapshot per stack (stack mode)
+          ansible.builtin.copy:
+            content: "{{ item.stdout }}"
+            dest: "/opt/stacks/{{ item.item }}/.rollback_snapshot.json"
+            mode: '0600'
+          loop: "{{ _docker_snapshot_stacks.results | default([]) | selectattr('stdout', 'defined') | list }}"
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname in (stack_assignments | default({}))
+          tags: [docker]
+
+        # Legacy mode: single rollback snapshot
+        - name: Save Docker rollback snapshot (legacy mode)
           become: true
           ansible.builtin.shell: |
             echo '{'
@@ -221,21 +318,117 @@
           register: _docker_snapshot_raw
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname not in (stack_assignments | default({}))
             - _docker_target_services | default([]) | length > 0
             - not ansible_check_mode
           tags: [docker]
 
-        - name: Write rollback snapshot to disk
+        - name: Write rollback snapshot to disk (legacy mode)
           ansible.builtin.copy:
             content: "{{ _docker_snapshot_raw.stdout }}"
             dest: "{{ compose_project_path }}/.rollback_snapshot.json"
             mode: '0600'
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname not in (stack_assignments | default({}))
             - _docker_snapshot_raw is not skipped
           tags: [docker]
 
-        - name: Pull, recreate, and compare compose containers
+        # Stack mode: per-stack pull/recreate
+        - name: Pull, recreate, and compare compose containers (stack mode)
+          become: true
+          ansible.builtin.shell: |
+            [ -f /tmp/get_push_epoch.sh ] && . /tmp/get_push_epoch.sh
+            before_file=$(mktemp)
+            trap 'rm -f "$before_file"' EXIT
+            delay_days={{ update_delay_days | default(0) }}
+            if [ "$delay_days" -gt 0 ]; then
+              threshold_epoch=$(date -d "-${delay_days} days" +%s)
+            fi
+            target_services="{{ (_stack_service_map[item] | default([])) | difference(update_exclude_services | default([])) | join(' ') }}"
+            for svc in $target_services; do
+              cid=$(docker compose ps -q "$svc" 2>/dev/null)
+              if [ -n "$cid" ]; then
+                iid=$(docker inspect --format {% raw %}'{{.Image}}'{% endraw %} "$cid" | cut -c8-19)
+                echo "${svc}|${iid}" >> "$before_file"
+              fi
+            done
+            docker compose pull $target_services >&2
+            approved=""
+            for svc in $target_services; do
+              if [ "$delay_days" -le 0 ]; then
+                approved="$approved $svc"
+              else
+                cid=$(docker compose ps -q "$svc" 2>/dev/null)
+                old_iid=$(docker inspect --format {% raw %}'{{.Image}}'{% endraw %} "$cid" 2>/dev/null)
+                img=$(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$cid" 2>/dev/null)
+                new_iid=$(docker image inspect --format {% raw %}'{{.Id}}'{% endraw %} "$img" 2>/dev/null)
+                if [ "$old_iid" = "$new_iid" ]; then
+                  approved="$approved $svc"
+                else
+                  push_epoch=$(get_push_epoch "$img")
+                  if [ "$push_epoch" -le "$threshold_epoch" ]; then
+                    approved="$approved $svc"
+                  fi
+                fi
+              fi
+            done
+            if [ -n "$approved" ]; then
+              docker compose up -d $approved >&2
+            fi
+            echo '['
+            first=true
+            for svc in $target_services; do
+              cid=$(docker compose ps -q "$svc" 2>/dev/null)
+              if [ -n "$cid" ]; then
+                img=$(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$cid")
+                new_id=$(docker inspect --format {% raw %}'{{.Image}}'{% endraw %} "$cid" | cut -c8-19)
+                old_id=$(grep "^${svc}|" "$before_file" | cut -d'|' -f2)
+                version=""
+                for label in "org.opencontainers.image.version" "org.label-schema.version" "version"; do
+                  version=$(docker inspect --format {% raw %}'{{index .Config.Labels "'{% endraw %}${label}{% raw %}'"}}'{% endraw %} "$cid" 2>/dev/null)
+                  [ -n "$version" ] && [ "$version" != "<no value>" ] && break
+                  version=""
+                done
+                if [ -z "$version" ]; then
+                  case "$img" in *:*) version="${img##*:}" ;; *) version="latest" ;; esac
+                fi
+                updated=false
+                [ -n "$old_id" ] && [ "$old_id" != "$new_id" ] && updated=true
+                $first || echo ','
+                first=false
+                printf '{"name":"%s","image":"%s","old_id":"%s","new_id":"%s","tag":"%s","updated":%s}' \
+                  "$svc" "$img" "$old_id" "$new_id" "$version" "$updated"
+              fi
+            done
+            echo ']'
+          args:
+            chdir: "/opt/stacks/{{ item }}"
+          register: _compose_update_stacks
+          changed_when: true
+          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname in (stack_assignments | default({}))
+            - (_stack_service_map[item] | default([])) | difference(update_exclude_services | default([])) | length > 0
+            - not ansible_check_mode
+          tags: [docker]
+
+        - name: Set compose update results (stack mode)
+          ansible.builtin.set_fact:
+            docker_update_results: >-
+              {{ _compose_update_stacks.results | default([])
+                 | selectattr('stdout', 'defined')
+                 | map(attribute='stdout')
+                 | map('from_json')
+                 | flatten }}
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname in (stack_assignments | default({}))
+          tags: [docker]
+
+        # Legacy mode: single compose project pull/recreate
+        - name: Pull, recreate, and compare compose containers (legacy mode)
           become: true
           ansible.builtin.shell: |
             [ -f /tmp/get_push_epoch.sh ] && . /tmp/get_push_epoch.sh
@@ -307,15 +500,17 @@
           changed_when: true
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname not in (stack_assignments | default({}))
             - _docker_target_services | default([]) | length > 0
             - not ansible_check_mode
           tags: [docker]
 
-        - name: Set compose update results
+        - name: Set compose update results (legacy mode)
           ansible.builtin.set_fact:
             docker_update_results: "{{ _compose_update_raw.stdout | from_json }}"
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname not in (stack_assignments | default({}))
             - _compose_update_raw is not skipped
           tags: [docker]
 

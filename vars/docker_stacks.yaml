@@ -1,4 +1,5 @@
 # Docker Compose project directory (used for stop/start and pull/up)
+# Legacy: kept during Phase D-pre migration, removed in D-post
 compose_project_path: "/opt"
 
 src_raw_files:
@@ -40,3 +41,32 @@ app_restore:
     db_config_file: db_primary_postgres
     db_host: "{{ db_host_primary }}"
     db_names: ["jellyseerr"]
+
+# --- Stack infrastructure (Phase 3) ---
+
+# Stack assignments: host → ordered list of stack names.
+# ORDER MATTERS: on tantive-iv, databases MUST precede auth (Authentik requires Postgres).
+# Empty initially — hosts added as they migrate through Phases A/B/C.
+stack_assignments: {}
+# After full migration, stack_assignments will contain:
+#   tantiveiv.REDACTED_DOMAIN: [infra, databases, auth, monitoring, dev]
+#   odyssey.REDACTED_DOMAIN: [infra, media, apps, nfs]
+#   vps.REDACTED_DOMAIN: [vpn]
+
+# Docker defaults — non-secret, shared across all stacks.
+# Per-host MEM_LIMIT: tantive-iv=10g (12GB RAM), others=3000m (4GB RAM).
+docker_mem_limit: >-
+  {{ '10g' if inventory_hostname in groups.get('tantiveiv', []) else '3000m' }}
+docker_tz: "America/Chicago"
+docker_puid: "1000"
+docker_pgid: "1000"
+docker_umask: "022"
+docker_appsdir: "/opt"
+docker_restart: "always"
+docker_postgres_user: "postgres"
+docker_postgres_default_db: "postgres"
+docker_adminer_design: "hydra"
+docker_authentik_image: "ghcr.io/goauthentik/server"
+docker_authentik_tag: "2025.12.4"
+docker_email_host: "smtp.gmail.com"
+docker_email_port: 587

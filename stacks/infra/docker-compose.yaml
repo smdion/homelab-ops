@@ -1,0 +1,67 @@
+x-base: &base
+  mem_limit: ${MEM_LIMIT}
+  restart: ${RESTART}
+x-smdionenv: &smdionenv
+  TZ: ${TZ}
+x-smdionbaseenv: &smdionbaseenv
+  <<: *base
+  environment:
+    <<: *smdionenv
+services:
+  dockerproxy:
+    <<: *base
+    container_name: dockerproxy
+    image: lscr.io/linuxserver/socket-proxy:latest
+    network_mode: bridge
+    ports:
+      - 2375:2375
+    environment:
+      CONTAINERS: ${DP_CONTAINERS}
+      POST: ${DP_POST}
+      INFO: ${DP_INFO}
+      VOLUMES: ${DP_VOLUMES}
+      SECRETS: ${DP_SECRETS}
+      IMAGES: ${DP_IMAGES}
+      NETWORKS: ${DP_NETWORKS}
+      ALLOW_RESTARTS: ${DP_ALLOW_RESTARTS}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    privileged: true
+  beszel-agent:
+    <<: *base
+    container_name: beszel-agent
+    image: henrygd/beszel-agent:latest
+    network_mode: host
+    volumes:
+      - ${APPSDIR}/beszel_socket:/beszel_socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      <<: *smdionenv
+      LISTEN: ${BESZEL_LISTEN}
+      KEY: ${BESZEL_KEY}
+  dozzle-agent:
+    <<: *smdionbaseenv
+    container_name: dozzle-agent
+    image: amir20/dozzle:latest
+    network_mode: bridge
+    ports:
+      - 7007:7007
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: agent
+    profiles: ["agent"]
+  dozzle:
+    <<: *base
+    container_name: dozzle
+    image: amir20/dozzle
+    network_mode: bridge
+    ports:
+      - 8081:8080
+    environment:
+      <<: *smdionenv
+      DOZZLE_LEVEL: ${DOZZLE_LEVEL}
+      DOZZLE_REMOTE_AGENT: ${DOZZLE_REMOTE_AGENT}
+      DOZZLE_HOSTNAME: ${DOZZLE_HOSTNAME}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    profiles: ["hub"]

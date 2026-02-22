@@ -1,0 +1,136 @@
+x-base: &base
+  mem_limit: ${MEM_LIMIT}
+  restart: ${RESTART}
+x-smdionenv: &smdionenv
+  TZ: ${TZ}
+x-smdionuid: &smdionuid
+  PUID: ${PUID}
+  PGID: ${PGID}
+  UMASK: ${UMASK}
+x-smdionenvuid: &smdionenvuid
+  <<:
+  - *smdionenv
+  - *smdionuid
+x-smdionbaseenv: &smdionbaseenv
+  <<: *base
+  environment:
+    <<: *smdionenv
+x-smdionbaseuid: &smdionbaseuid
+  <<: *base
+  environment:
+    <<: *smdionenvuid
+services:
+  homeassistant:
+    <<: *smdionbaseuid
+    container_name: homeassistant
+    image: lscr.io/linuxserver/homeassistant
+    network_mode: bridge
+    ports:
+    - 8123:8123
+    volumes:
+    - ${APPSDIR}/home_assistant/:/config
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8123/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+  guacamole:
+    <<: *base
+    container_name: guacamole
+    image: abesnier/guacamole
+    network_mode: bridge
+    ports:
+    - 8084:8080
+    environment:
+      <<: *smdionenv
+      EXTENSIONS: ${GUAC_EXTENSIONS}
+    volumes:
+    - ${APPSDIR}/guacamole:/config
+    - ${APPSDIR}/guacamole/server.xml:/usr/local/tomcat/conf/server.xml
+    privileged: true
+  firefox:
+    <<: *base
+    container_name: firefox
+    image: jlesage/firefox
+    network_mode: bridge
+    ports:
+    - 7814:5800
+    - 7914:5900
+    environment:
+      <<: *smdionenvuid
+      DISPLAY_WIDTH: ${FF_DISPLAY_WIDTH}
+      DISPLAY_HEIGHT: ${FF_DISPLAY_HEIGHT}
+      SECURE_CONNECTION: ${FF_SECURE_CONNECTION}
+      DARK_MODE: ${FF_DARK_MODE}
+      WEB_AUDIO: ${FF_WEB_AUDIO}
+    volumes:
+    - ${APPSDIR}/firefox:/config
+    shm_size: 2g
+  xbackbone:
+    <<: *smdionbaseuid
+    container_name: xbackbone
+    image: lscr.io/linuxserver/xbackbone
+    network_mode: bridge
+    ports:
+    - 8088:80
+    - 8444:443
+    volumes:
+    - ${APPSDIR}/xbackbone:/config
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:80 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  homepage:
+    <<: *base
+    container_name: homepage
+    image: ghcr.io/gethomepage/homepage:latest
+    network_mode: bridge
+    ports:
+      - 3003:3000
+    environment:
+      <<: *smdionenvuid
+      HOMEPAGE_ALLOWED_HOSTS: ${HOMEPAGE_ALLOWED_HOSTS}
+    volumes:
+      - ${APPSDIR}/homepage:/app/config
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  homebox:
+    <<: *smdionbaseenv
+    container_name: homebox
+    image: ghcr.io/sysadminsmedia/homebox:latest
+    network_mode: bridge
+    ports:
+      - 3100:7745
+    volumes:
+      - ${APPSDIR}/homebox:/data/
+  rickroll:
+    <<: *smdionbaseenv
+    container_name: rickroll
+    image: modem7/docker-rickroll
+    network_mode: bridge
+    ports:
+    - 7344:8080
+  cloudflareddns:
+    <<: *base
+    container_name: cloudflareddns
+    image: ghcr.io/hotio/cloudflareddns
+    network_mode: bridge
+    environment:
+      <<: *smdionenvuid
+      INTERVAL: ${DDNS_INTERVAL}
+      DETECTION_MODE: ${DDNS_DETECTION_MODE}
+      LOG_LEVEL: ${DDNS_LOG_LEVEL}
+      CF_USER: ${EMAIL}
+      CF_APIKEY: ${DDNS_CF_APIKEY}
+      CF_HOSTS: ${DDNS_CF_HOSTS}
+      CF_ZONES: ${DDNS_CF_ZONES}
+      CF_RECORDTYPES: ${DDNS_CF_RECORDTYPES}
+    volumes:
+    - ${APPSDIR}/cloudflareddns:/config

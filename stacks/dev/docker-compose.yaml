@@ -1,0 +1,61 @@
+x-base: &base
+  mem_limit: ${MEM_LIMIT}
+  restart: ${RESTART}
+x-smdionenv: &smdionenv
+  TZ: ${TZ}
+x-smdionuid: &smdionuid
+  PUID: ${PUID}
+  PGID: ${PGID}
+  UMASK: ${UMASK}
+x-smdionenvuid: &smdionenvuid
+  <<:
+  - *smdionenv
+  - *smdionuid
+services:
+  code-server:
+    <<: *base
+    container_name: code-server
+    image: lscr.io/linuxserver/code-server
+    network_mode: bridge
+    ports:
+    - 8443:8443
+    environment:
+      <<: *smdionenvuid
+      PROXY_DOMAIN: ${CODESERVER_PROXY_DOMAIN}
+      DEFAULT_WORKSPACE: ${CODESERVER_DEFAULT_WORKSPACE}
+    volumes:
+    - odyssey:/workspace/odyssey
+    - vps:/workspace/vps
+    - ${APPSDIR}/:/workspace/tantive-iv
+    - ${APPSDIR}/code-server:/config
+    healthcheck:
+      test: ["CMD-SHELL", "ls /workspace/odyssey /workspace/vps > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  netbootxyz:
+    <<: *base
+    container_name: netbootxyz
+    image: netbootxyz/netbootxyz:latest
+    network_mode: bridge
+    ports:
+      - 3002:3000
+      - 69:69/udp
+      - 8082:80
+    environment:
+      <<: *smdionenvuid
+    volumes:
+      - ${APPSDIR}/netboot/config:/config
+      - ${APPSDIR}/netboot/assets:/assets
+volumes:
+  odyssey:
+    driver_opts:
+      type: nfs4
+      o: addr=REDACTED_IP,soft,timeo=50,retrans=3
+      device: :/
+  vps:
+    driver_opts:
+      type: nfs4
+      o: addr=REDACTED_IP,soft,timeo=50,retrans=3
+      device: :/

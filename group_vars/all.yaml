@@ -9,3 +9,7 @@ backup_base_dir: "/backup"
 backup_tmp_file: "{{ backup_tmp_dir }}/{{ backup_file }}"
 backup_dest_path: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ backup_file }}"
 backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ logging_domain_ext }}"
+
+# Semaphore controller — used by deploy_stacks, deploy_grafana, maintain_health, maintain_semaphore
+controller_fqdn: "{{ controller_hostname }}.{{ logging_domain_local }}"
+semaphore_ext_url: "https://{{ controller_fqdn.split('.')[0] }}.{{ logging_domain_ext }}"

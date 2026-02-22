@@ -1,0 +1,62 @@
+---
+# Per-stack deploy loop body — called by deploy_stacks.yaml.
+# Expects _current_stack (string) from loop_control.
+#
+# Steps: mkdir -> template .env -> copy compose -> validate -> up -d -> wait (databases)
+
+- name: "Create stack directory — {{ _current_stack }}"
+  become: true
+  ansible.builtin.file:
+    path: "/opt/stacks/{{ _current_stack }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: "Template .env — {{ _current_stack }}"
+  become: true
+  ansible.builtin.template:
+    src: "stacks/{{ _current_stack }}/env.j2"
+    dest: "/opt/stacks/{{ _current_stack }}/.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: "{{ not (deploy_debug | default(false) | bool) }}"
+
+- name: "Copy docker-compose.yaml — {{ _current_stack }}"
+  become: true
+  ansible.builtin.copy:
+    src: "stacks/{{ _current_stack }}/docker-compose.yaml"
+    dest: "/opt/stacks/{{ _current_stack }}/docker-compose.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: "Validate compose config — {{ _current_stack }}"
+  become: true
+  ansible.builtin.command:
+    cmd: docker compose config --quiet
+    chdir: "/opt/stacks/{{ _current_stack }}"
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: "Start stack — {{ _current_stack }}"
+  become: true
+  community.docker.docker_compose_v2:
+    project_src: "/opt/stacks/{{ _current_stack }}"
+    state: present
+    remove_orphans: true
+  when:
+    - not ansible_check_mode
+    - not (deploy_skip_up | default(false) | bool)
+
+- name: "Wait for database ports — {{ _current_stack }}"
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ item }}"
+    timeout: 60
+  loop: [3306, 5432]
+  when:
+    - _current_stack == 'databases'
+    - not ansible_check_mode
+    - not (deploy_skip_up | default(false) | bool)

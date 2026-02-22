@@ -1,0 +1,318 @@
+---
+# Provision Ubuntu VMs on Proxmox via API.
+# Play 1 (localhost): Create/configure/boot VM, or destroy if vm_state=absent.
+# Play 2 (new VM): Bootstrap Ubuntu with Docker and security hardening.
+# Deploy stacks separately via deploy_stacks.yaml after provisioning.
+#
+# Usage:
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=absent
+#
+# Required extra vars:
+#   vm_name — key in vm_definitions (tantiveiv, odyssey, amp, test-vm)
+#
+# Optional extra vars:
+#   vm_state=absent — destroy VM instead of creating
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Provision or destroy VM on Proxmox
+# ═══════════════════════════════════════════════════════════════════
+- name: Provision Ubuntu VM on Proxmox
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+  vars:
+    maintenance_name: "Ubuntu"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Build"
+
+  pre_tasks:
+    - name: Assert vm_name is defined and exists in vm_definitions
+      ansible.builtin.assert:
+        that:
+          - vm_name is defined
+          - vm_name in vm_definitions
+        fail_msg: >-
+          vm_name '{{ vm_name | default('undefined') }}' not found in vm_definitions.
+          Valid names: {{ vm_definitions.keys() | list | join(', ') }}
+
+    - name: Resolve VM definition
+      ansible.builtin.set_fact:
+        _vm: "{{ vm_definitions[vm_name] }}"
+        _vm_state: "{{ vm_state | default('present') }}"
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize build state
+      ansible.builtin.set_fact:
+        build_failed: false
+        _build_detail: ""
+
+    - block:
+        # ═════════════════════════════════════════════════════════
+        # CREATE PATH — vm_state == 'present' (default)
+        # ═════════════════════════════════════════════════════════
+        - name: Create Ubuntu VM on Proxmox
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm.pve_target_node }}"
+            name: "{{ _vm.vm_name }}"
+            vmid: "{{ _vm.vm_id }}"
+            cores: "{{ _vm.vm_cores }}"
+            memory: "{{ _vm.vm_memory_mb }}"
+            scsihw: virtio-scsi-single
+            scsi:
+              scsi0: "{{ pve_storage }}:{{ _vm.vm_disk_gb }},iothread=1"
+            net:
+              net0: "virtio,bridge={{ pve_bridge }}"
+            ide:
+              ide2: "{{ pve_storage }}:cloudinit"
+            boot: order=scsi0
+            state: present
+          no_log: true
+          when: _vm_state == 'present'
+
+        - name: Configure cloud-init
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            vmid: "{{ _vm.vm_id }}"
+            ciuser: "{{ vm_user }}"
+            cipassword: "{{ vm_password }}"
+            sshkeys: "{{ lookup('file', pve_ssh_pubkey_path) }}"
+            ipconfig:
+              ipconfig0: "ip={{ _vm.vm_ip }}/{{ vm_cidr }},gw={{ vm_gateway }}"
+            nameservers: "{{ vm_dns }}"
+            searchdomains: "{{ vm_search_domain }}"
+            update: true
+          no_log: true
+          when: _vm_state == 'present'
+
+        - name: Start VM
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: started
+          no_log: true
+          when: _vm_state == 'present'
+
+        - name: Wait for SSH
+          ansible.builtin.wait_for:
+            host: "{{ _vm.vm_ip }}"
+            port: 22
+            delay: 10
+            timeout: 300
+          when: _vm_state == 'present'
+
+        - name: Add new VM to in-memory inventory
+          ansible.builtin.add_host:
+            name: "{{ _vm.vm_hostname }}"
+            ansible_host: "{{ _vm.vm_ip }}"
+            ansible_user: "{{ vm_user }}"
+            groups: build_target
+          when: _vm_state == 'present'
+
+        # ═════════════════════════════════════════════════════════
+        # DESTROY PATH — vm_state == 'absent'
+        # ═════════════════════════════════════════════════════════
+        - name: Stop VM
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: stopped
+            force: true
+          no_log: true
+          when: _vm_state == 'absent'
+
+        - name: Remove VM
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: absent
+          no_log: true
+          when: _vm_state == 'absent'
+
+        - name: Record build detail
+          ansible.builtin.set_fact:
+            _build_detail: >-
+              {{ 'VM destroyed' if _vm_state == 'absent' else 'VM provisioned' }}:
+              {{ _vm.vm_name }} ({{ _vm.vm_ip }}) on {{ _vm.pve_target_node }}
+
+      rescue:
+        - name: Set build failed flag
+          ansible.builtin.set_fact:
+            build_failed: true
+            _build_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Send Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_title: "{{ maintenance_name }}"
+            discord_description: "{{ _vm_state | capitalize }} {{ 'Failed' if build_failed else 'Successful' }}"
+            discord_color: "{{ 16711680 if build_failed else 32768 }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Description"
+                value: "Ubuntu VM {{ _vm_state }}"
+              - name: "VM Name"
+                value: "{{ _vm.vm_name }}"
+              - name: "Host IP"
+                value: "{{ _vm.vm_ip }}"
+              - name: "Proxmox Node"
+                value: "{{ _vm.pve_target_node }}"
+              - name: "Detail"
+                value: "{{ _build_detail }}"
+
+        - name: Log build to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ controller_fqdn }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if build_failed else 'success' }}"
+
+        - name: Fail play if build failed
+          ansible.builtin.fail:
+            msg: "Build failed: {{ _build_detail }}"
+          when: build_failed
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Bootstrap Ubuntu (skipped when vm_state=absent)
+# ═══════════════════════════════════════════════════════════════════
+- name: Bootstrap Ubuntu VM
+  hosts: build_target
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+  vars:
+    maintenance_name: "Ubuntu"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Build"
+
+  tasks:
+    - name: Initialize bootstrap state
+      ansible.builtin.set_fact:
+        bootstrap_failed: false
+        _bootstrap_detail: ""
+
+    - block:
+        - name: Update and upgrade apt packages
+          ansible.builtin.apt:
+            update_cache: true
+            upgrade: dist
+
+        - name: Install base packages
+          ansible.builtin.apt:
+            name:
+              - docker.io
+              - docker-compose-v2
+              - python3-pip
+              - python3-docker
+              - nfs-common
+              - curl
+              - htop
+              - unattended-upgrades
+            state: present
+
+        - name: Enable Docker service
+          ansible.builtin.systemd:
+            name: docker
+            enabled: true
+            state: started
+
+        - name: Add user to docker group
+          ansible.builtin.user:
+            name: "{{ vm_user }}"
+            groups: docker
+            append: true
+
+        - name: Disable SSH password authentication
+          ansible.builtin.lineinfile:
+            path: /etc/ssh/sshd_config
+            regexp: "^#?PasswordAuthentication"
+            line: "PasswordAuthentication no"
+          register: _ssh_config
+
+        - name: Restart sshd
+          ansible.builtin.systemd:
+            name: sshd
+            state: restarted
+          when: _ssh_config is changed
+
+        - name: Enable UFW with default deny incoming
+          community.general.ufw:
+            state: enabled
+            default: deny
+            direction: incoming
+
+        - name: Allow SSH through UFW
+          community.general.ufw:
+            rule: allow
+            port: "22"
+            proto: tcp
+
+        - name: Record bootstrap detail
+          ansible.builtin.set_fact:
+            _bootstrap_detail: "Bootstrap complete — Docker, security hardening"
+
+      rescue:
+        - name: Set bootstrap failed flag
+          ansible.builtin.set_fact:
+            bootstrap_failed: true
+            _bootstrap_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Send Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_title: "{{ maintenance_name }}"
+            discord_description: "Bootstrap {{ 'Failed' if bootstrap_failed else 'Complete' }}"
+            discord_color: "{{ 16711680 if bootstrap_failed else 32768 }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "Ubuntu VM bootstrap"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Detail"
+                value: "{{ _bootstrap_detail }}"
+
+        - name: Log bootstrap to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if bootstrap_failed else 'success' }}"
+
+        - name: Fail play if bootstrap failed
+          ansible.builtin.fail:
+            msg: "Bootstrap failed: {{ _bootstrap_detail }}"
+          when: bootstrap_failed

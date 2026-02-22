@@ -1,0 +1,148 @@
+x-base: &base
+  mem_limit: ${MEM_LIMIT}
+  restart: ${RESTART}
+x-smdionenv: &smdionenv
+  TZ: ${TZ}
+x-smdionuid: &smdionuid
+  PUID: ${PUID}
+  PGID: ${PGID}
+  UMASK: ${UMASK}
+x-smdionenvuid: &smdionenvuid
+  <<:
+  - *smdionenv
+  - *smdionuid
+services:
+  authentik:
+    <<: *base
+    container_name: authentik
+    image: ${AUTHENTIK_IMAGE}:${AUTHENTIK_TAG}
+    network_mode: bridge
+    ports:
+      - 9001:9000
+      - 9443:9443
+    environment:
+      <<: *smdionenvuid
+      AUTHENTIK_POSTGRESQL__HOST: ${POSTGRES_HOST}
+      AUTHENTIK_POSTGRESQL__USER: ${POSTGRES_USER}
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRES_DB}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${POSTGRES_PASSWORD}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING_ENABLED}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_EMAIL__HOST: ${EMAIL_HOST}
+      AUTHENTIK_EMAIL__PORT: ${EMAIL_PORT}
+      AUTHENTIK_EMAIL__USERNAME: ${EMAIL_USERNAME}
+      AUTHENTIK_EMAIL__PASSWORD: ${EMAIL_PASSWORD}
+      AUTHENTIK_EMAIL__FROM: ${AUTHENTIK_EMAIL_FROM}
+      AUTHENTIK_EMAIL__USE_TLS: ${AUTHENTIK_EMAIL_USE_TLS}
+      AUTHENTIK_EMAIL__TIMEOUT: ${AUTHENTIK_EMAIL_TIMEOUT}
+      AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: ${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS}
+      AUTHENTIK_WORKERS: ${AUTHENTIK_WORKERS}
+    volumes:
+      - ${APPSDIR}/authentik_worker/data:/data
+      - ${APPSDIR}/authentik_worker/templates:/templates
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: server
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+  authentik_worker:
+    <<: *base
+    container_name: authentik_worker
+    image: ${AUTHENTIK_IMAGE}:${AUTHENTIK_TAG}
+    network_mode: bridge
+    environment:
+      <<: *smdionenvuid
+      AUTHENTIK_POSTGRESQL__HOST: ${POSTGRES_HOST}
+      AUTHENTIK_POSTGRESQL__USER: ${POSTGRES_USER}
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRES_DB}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${POSTGRES_PASSWORD}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING_ENABLED}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_WORKER_CONCURRENCY: ${AUTHENTIK_WORKER_CONCURRENCY}
+      AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: ${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS}
+    volumes:
+      - ${APPSDIR}/authentik_worker/backups:/backups
+      - ${APPSDIR}/authentik_worker/data:/data
+      - ${APPSDIR}/authentik_worker/certs:/certs
+      - ${APPSDIR}/authentik_worker/templates:/templates
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: worker
+    healthcheck:
+      test: ["CMD", "ak", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+  swag:
+    <<: *base
+    container_name: swag
+    image: lscr.io/linuxserver/swag
+    network_mode: bridge
+    ports:
+      - 443:443
+      - 8081:8081
+      - 81:81
+    environment:
+      <<: *smdionenvuid
+      URL: ${SWAG_URL}
+      VALIDATION: ${SWAG_VALIDATION}
+      SUBDOMAINS: ${SWAG_SUBDOMAINS}
+      ONLY_SUBDOMAINS: ${SWAG_ONLY_SUBDOMAINS}
+      DNSPLUGIN: ${SWAG_DNSPLUGIN}
+      EMAIL: ${EMAIL}
+      EXTRA_DOMAINS: ${SWAG_EXTRA_DOMAINS}
+      STAGING: ${SWAG_STAGING}
+      SWAG_AUTORELOAD: ${SWAG_AUTORELOAD}
+      DOCKER_MODS: ${SWAG_DOCKER_MODS}
+      MAXMINDDB_LICENSE_KEY: ${MAXMINDDB_LICENSE_KEY}
+      MAXMINDDB_USER_ID: ${MAXMINDDB_USER_ID}
+      NGINX_LOG_PATH: ${SWAG_NGINX_LOG_PATH}
+      GEO_MEASUREMENT: ${SWAG_GEO_MEASUREMENT}
+      LOG_MEASUREMENT: ${SWAG_LOG_MEASUREMENT}
+      SEND_NGINX_LOGS: ${SWAG_GEOIP2_SEND_NGINX_LOGS}
+      GEOIP2INFLUX_LOG_LEVEL: ${SWAG_GEOIP2INFLUX_LOG_LEVEL}
+      INFLUX_HOST: ${INFLUX_HOST}
+      INFLUX_HOST_PORT: ${INFLUX_HOST_PORT}
+      INFLUX_DATABASE: ${SWAG_INFLUX_DATABASE}
+      INFLUX_RETENTION: ${INFLUX_RETENTION}
+      INFLUX_SHARD: ${INFLUX_SHARD}
+      CROWDSEC_API_KEY: ${SWAG_CROWDSEC_API_KEY}
+      CROWDSEC_LAPI_URL: ${CROWDSEC_LAPI_URL}
+      DISABLE_F2B: ${SWAG_DISABLE_F2B}
+    volumes:
+      - ${APPSDIR}/swag:/config
+    cap_add:
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsk https://localhost:443 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+  crowdsec:
+    <<: *base
+    container_name: crowdsec
+    image: docker.io/crowdsecurity/crowdsec:latest
+    network_mode: bridge
+    ports:
+      - 8080:8080
+      - 6060:6060
+    environment:
+      <<: *smdionenvuid
+      COLLECTIONS: ${CROWDSEC_COLLECTIONS}
+      CUSTOM_HOSTNAME: ${CROWDSEC_CUSTOM_HOSTNAME}
+    volumes:
+      - ${APPSDIR}/crowdsec/config:/etc/crowdsec
+      - ${APPSDIR}/crowdsec/data:/var/lib/crowdsec/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    security_opt:
+      - no-new-privileges=true
+    healthcheck:
+      test: ["CMD", "cscli", "version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

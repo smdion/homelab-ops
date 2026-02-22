@@ -1,0 +1,128 @@
+x-base: &base
+  mem_limit: ${MEM_LIMIT}
+  restart: ${RESTART}
+x-smdionenv: &smdionenv
+  TZ: ${TZ}
+x-smdionuid: &smdionuid
+  PUID: ${PUID}
+  PGID: ${PGID}
+  UMASK: ${UMASK}
+x-smdionenvuid: &smdionenvuid
+  <<:
+  - *smdionenv
+  - *smdionuid
+x-smdionwireguard: &smdionwireguard
+  network_mode: ${NETWORK_MODE}
+  depends_on:
+    - ${DEPENDS_ON}
+x-smdionbaseenv: &smdionbaseenv
+  <<: *base
+  environment:
+    <<: *smdionenv
+x-smdionbaseuid: &smdionbaseuid
+  <<: *base
+  environment:
+    <<: *smdionenvuid
+services:
+  wireguard:
+    <<: *base
+    container_name: wireguard
+    image: lscr.io/linuxserver/wireguard:latest
+    ports:
+      - 51820:51820/udp
+      - 443:443
+    environment:
+      SERVERURL: ${WG_SERVERURL}
+      SERVERPORT: ${WG_SERVERPORT}
+      PEERS: ${WG_PEERS}
+      INTERNAL_SUBNET: ${WG_INTERNAL_SUBNET}
+    volumes:
+      - ${APPSDIR}/wireguard:/config
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    cap_add:
+      - NET_ADMIN
+    healthcheck:
+      test: ["CMD-SHELL", "wg show wg0 > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  npm:
+    <<:
+    - *smdionbaseuid
+    - *smdionwireguard
+    container_name: npm
+    image: docker.io/jc21/nginx-proxy-manager:latest
+    volumes:
+      - ${APPSDIR}/npm:/data:rw
+      - ${APPSDIR}/npm-le:/etc/letsencrypt
+    privileged: true
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:81 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+  dockerproxy:
+    <<:
+    - *base
+    - *smdionwireguard
+    container_name: dockerproxy
+    image: lscr.io/linuxserver/socket-proxy:latest
+    environment:
+      CONTAINERS: ${DP_CONTAINERS}
+      POST: ${DP_POST}
+      INFO: ${DP_INFO}
+      VOLUMES: ${DP_VOLUMES}
+      SECRETS: ${DP_SECRETS}
+      IMAGES: ${DP_IMAGES}
+      NETWORKS: ${DP_NETWORKS}
+      ALLOW_RESTARTS: ${DP_ALLOW_RESTARTS}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    privileged: true
+  dozzle-agent:
+    <<:
+    - *smdionbaseenv
+    - *smdionwireguard
+    container_name: dozzle-agent
+    image: amir20/dozzle:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: agent
+  nfs:
+    <<:
+    - *base
+    - *smdionwireguard
+    container_name: nfs
+    image: itsthenetwork/nfs-server-alpine:latest
+    environment:
+      <<: *smdionenv
+      SHARED_DIRECTORY: ${NFS_SHARED_DIRECTORY}
+      SYNC: ${NFS_SYNC}
+    volumes:
+      - ${APPSDIR}:/nfsshare
+    privileged: true
+  beszel:
+    <<:
+    - *smdionbaseenv
+    - *smdionwireguard
+    container_name: beszel
+    image: henrygd/beszel
+    volumes:
+      - ${APPSDIR}/beszel:/beszel_data
+      - ${APPSDIR}/beszel_socket:/beszel_socket
+  beszel-agent:
+    <<:
+    - *base
+    - *smdionwireguard
+    container_name: beszel-agent
+    image: henrygd/beszel-agent:latest
+    volumes:
+      - ${APPSDIR}/beszel_socket:/beszel_socket
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      <<: *smdionenv
+      LISTEN: ${BESZEL_LISTEN}
+      KEY: ${BESZEL_KEY}

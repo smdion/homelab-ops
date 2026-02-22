@@ -45,15 +45,51 @@
         that: inventory_hostname in groups["docker_stacks"] | default([])
         fail_msg: "Rollback only supports docker_stacks hosts. For docker_run (unRAID), see DESIGN.md manual rollback section."
 
-    - name: Read rollback snapshot
+    # Stack mode: read and merge per-stack snapshots
+    - name: Read rollback snapshots (stack mode)
+      ansible.builtin.slurp:
+        src: "/opt/stacks/{{ item }}/.rollback_snapshot.json"
+      loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+      register: _snapshot_stacks_raw
+      check_mode: false
+      when: inventory_hostname in (stack_assignments | default({}))
+      ignore_errors: true
+
+    - name: Merge stack snapshots and build service map (stack mode)
+      ansible.builtin.set_fact:
+        rollback_snapshot: >-
+          {{ rollback_snapshot | default({'timestamp': '', 'containers': {}})
+             | combine({
+                 'timestamp': [
+                   (rollback_snapshot | default({'timestamp': ''})).timestamp,
+                   (item.content | b64decode | from_json).timestamp
+                 ] | max,
+                 'containers': (rollback_snapshot | default({'containers': {}})).containers
+                               | combine((item.content | b64decode | from_json).containers)
+               }) }}
+        _service_stack_map: >-
+          {{ _service_stack_map | default({})
+             | combine(dict(
+                 (item.content | b64decode | from_json).containers.keys() | list
+                 | zip(
+                   (item.content | b64decode | from_json).containers.keys()
+                   | map('regex_replace', '.*', item.item) | list
+                 ))) }}
+      loop: "{{ _snapshot_stacks_raw.results | default([]) | selectattr('content', 'defined') | list }}"
+      when: inventory_hostname in (stack_assignments | default({}))
+
+    # Legacy mode: single snapshot
+    - name: Read rollback snapshot (legacy mode)
       ansible.builtin.slurp:
         src: "{{ compose_project_path }}/.rollback_snapshot.json"
       register: _snapshot_raw
       check_mode: false
+      when: inventory_hostname not in (stack_assignments | default({}))
 
-    - name: Parse snapshot
+    - name: Parse snapshot (legacy mode)
       ansible.builtin.set_fact:
         rollback_snapshot: "{{ _snapshot_raw.content | b64decode | from_json }}"
+      when: inventory_hostname not in (stack_assignments | default({}))
 
     - name: Show snapshot info
       ansible.builtin.debug:
@@ -147,24 +183,59 @@
         # ═══════════════════════════════════════════════════════════════════
         # RECREATE — bring containers back with old images
         # ═══════════════════════════════════════════════════════════════════
-        - name: Recreate containers with old images
+        - name: Recreate containers with old images (stack mode)
+          become: true
+          ansible.builtin.shell: >
+            docker compose up -d --no-pull
+            {{ _rollback_targets
+               | select('in', (_service_stack_map | default({}) | dict2items
+                               | selectattr('value', 'eq', item)
+                               | map(attribute='key') | list))
+               | join(' ') }}
+          args:
+            chdir: "/opt/stacks/{{ item }}"
+          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+          when:
+            - inventory_hostname in (stack_assignments | default({}))
+            - _rollback_targets
+              | select('in', (_service_stack_map | default({}) | dict2items
+                              | selectattr('value', 'eq', item)
+                              | map(attribute='key') | list))
+              | list | length > 0
+
+        - name: Recreate containers with old images (legacy mode)
           become: true
           ansible.builtin.shell: >
             docker compose up -d --no-pull {{ _rollback_targets | join(' ') }}
           args:
             chdir: "{{ compose_project_path }}"
+          when: inventory_hostname not in (stack_assignments | default({}))
 
         - name: Wait for containers to stabilize
           ansible.builtin.pause:
             seconds: 10
 
-        - name: Verify containers are running
+        - name: Verify containers are running (stack mode)
           become: true
           ansible.builtin.shell: >
             docker compose ps --format json {{ item }}
+          args:
+            chdir: "/opt/stacks/{{ _service_stack_map[item] }}"
           loop: "{{ _rollback_targets }}"
           register: _container_status
           changed_when: false
+          when: inventory_hostname in (stack_assignments | default({}))
+
+        - name: Verify containers are running (legacy mode)
+          become: true
+          ansible.builtin.shell: >
+            docker compose ps --format json {{ item }}
+          args:
+            chdir: "{{ compose_project_path }}"
+          loop: "{{ _rollback_targets }}"
+          register: _container_status
+          changed_when: false
+          when: inventory_hostname not in (stack_assignments | default({}))
 
         - name: Record rollback detail
           ansible.builtin.set_fact:

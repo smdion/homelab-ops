@@ -1,0 +1,18 @@
+x-base: &base
+  mem_limit: ${MEM_LIMIT}
+  restart: ${RESTART}
+x-smdionenv: &smdionenv
+  TZ: ${TZ}
+services:
+  nfs:
+    <<: *base
+    container_name: nfs
+    image: itsthenetwork/nfs-server-alpine:latest
+    network_mode: host
+    environment:
+      <<: *smdionenv
+      SHARED_DIRECTORY: ${NFS_SHARED_DIRECTORY}
+      SYNC: ${NFS_SYNC}
+    volumes:
+      - ${APPSDIR}:/nfsshare
+    privileged: true

@@ -1,0 +1,59 @@
+x-base: &base
+  mem_limit: ${MEM_LIMIT}
+  restart: ${RESTART}
+x-smdionenv: &smdionenv
+  TZ: ${TZ}
+x-smdionbaseenv: &smdionbaseenv
+  <<: *base
+  environment:
+    <<: *smdionenv
+services:
+  grafana:
+    <<: *base
+    container_name: grafana
+    image: grafana/grafana
+    network_mode: bridge
+    ports:
+    - 3000:3000
+    environment:
+      <<: *smdionenv
+      GF_SERVER_ROOT_URL: ${GRAFANA_SERVER_ROOT_URL}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_SECURITY_ADMIN_PASSWORD}
+      GF_AUTH_GENERIC_OAUTH_ENABLED: ${GRAFANA_OAUTH_ENABLED}
+      GF_AUTH_GENERIC_OAUTH_NAME: ${OAUTH_NAME}
+      GF_AUTH_GENERIC_OAUTH_CLIENT_ID: ${GRAFANA_OAUTH_CLIENT_ID}
+      GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: ${GRAFANA_OAUTH_CLIENT_SECRET}
+      GF_AUTH_GENERIC_OAUTH_SCOPES: ${GRAFANA_OAUTH_SCOPES}
+      GF_AUTH_GENERIC_OAUTH_AUTH_URL: ${OAUTH_AUTH_URL}
+      GF_AUTH_GENERIC_OAUTH_TOKEN_URL: ${OAUTH_TOKEN_URL}
+      GF_AUTH_GENERIC_OAUTH_API_URL: ${OAUTH_API_URL}
+      GF_AUTH_SIGNOUT_REDIRECT_URL: ${GRAFANA_SIGNOUT_REDIRECT_URL}
+      GF_AUTH_OAUTH_AUTO_LOGIN: ${GRAFANA_OAUTH_AUTO_LOGIN}
+      GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: ${GRAFANA_ROLE_ATTRIBUTE_PATH}
+      GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH: ${GRAFANA_GROUPS_ATTRIBUTE_PATH}
+    volumes:
+    - ${APPSDIR}/grafana:/var/lib/grafana
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  victoriametrics:
+    <<: *smdionbaseenv
+    container_name: victoriametrics
+    image: victoriametrics/victoria-metrics:v1.114.0
+    network_mode: bridge
+    ports:
+      - 8428:8428
+      - 8089:8089
+      - 8089:8089/udp
+      - 2003:2003
+      - 2003:2003/udp
+      - 4242:4242
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8428/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

@@ -1,0 +1,106 @@
+---
+# Deploy Docker stacks from Git to target hosts.
+# Templates .env from vault, copies compose files, validates, and starts stacks.
+# Stacks deploy in stack_assignments order — databases before auth, etc.
+#
+# Usage:
+#   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks --limit tantiveiv
+#
+# Optional extra vars:
+#   deploy_stack=infra    — deploy a single stack instead of all assigned stacks
+#   deploy_skip_up=true   — render and validate only, skip docker compose up
+#   deploy_debug=true     — show template output in logs (NEVER in production)
+
+- name: Deploy Docker stacks from Git
+  hosts: "{{ hosts_variable }}"
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  serial: 1
+  vars_files:
+    - vars/secrets.yaml
+    - vars/{{ config_file }}.yaml
+  vars:
+    config_file: "{{ hosts_variable }}"
+    maintenance_name: "Docker"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Deploy"
+
+  pre_tasks:
+    - name: Assert config_file is defined and non-empty
+      include_tasks: tasks/assert_config_file.yaml
+
+    - name: Assert host has stack assignments
+      ansible.builtin.assert:
+        that: inventory_hostname in stack_assignments
+        fail_msg: >-
+          No stack_assignments entry for {{ inventory_hostname }}.
+          Add it to vars/docker_stacks.yaml.
+      when: deploy_stack | default('') | length == 0
+
+    - name: Assert sufficient disk space on target
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: /opt
+        assert_disk_min_gb: 1
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize deploy state
+      ansible.builtin.set_fact:
+        deploy_failed: false
+        _deploy_detail: ""
+        _deploy_stacks: >-
+          {{ [deploy_stack] if deploy_stack | default('') | length > 0
+             else stack_assignments[inventory_hostname] }}
+
+    - block:
+        - name: Deploy stacks
+          include_tasks: tasks/deploy_single_stack.yaml
+          loop: "{{ _deploy_stacks }}"
+          loop_control:
+            loop_var: _current_stack
+
+        - name: Record deploy detail
+          ansible.builtin.set_fact:
+            _deploy_detail: "Stacks deployed: {{ _deploy_stacks | join(', ') }}"
+
+      rescue:
+        - name: Set deploy failed flag
+          ansible.builtin.set_fact:
+            deploy_failed: true
+            _deploy_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Send Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_title: "{{ maintenance_name }}"
+            discord_description: "Deploy {{ 'Failed' if deploy_failed else 'Successful' }}"
+            discord_color: "{{ 16711680 if deploy_failed else 32768 }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_fields:
+              - name: "Description"
+                value: "Docker stack deploy"
+              - name: "Host"
+                value: "{{ inventory_hostname }}"
+              - name: "Stacks"
+                value: "{{ _deploy_stacks | join(', ') }}"
+              - name: "Detail"
+                value: "{{ _deploy_detail }}"
+
+        - name: Log deploy to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if deploy_failed else 'success' }}"
+
+        - name: Fail play if deploy failed
+          ansible.builtin.fail:
+            msg: "Deploy failed: {{ _deploy_detail }}"
+          when: deploy_failed

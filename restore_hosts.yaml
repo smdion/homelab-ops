@@ -123,7 +123,21 @@
             - not ansible_check_mode
           tags: [always]
 
-        - name: Stop Docker Compose (full restore)
+        - name: Stop Docker stacks (full restore — stack mode)
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "/opt/stacks/{{ item }}"
+            state: stopped
+          loop: "{{ (stack_assignments[inventory_hostname] | default([])) | reverse | list }}"
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_app | default('') | length == 0
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname in (stack_assignments | default({}))
+            - not ansible_check_mode
+          tags: [docker]
+
+        - name: Stop Docker Compose (full restore — legacy mode)
           become: true
           community.docker.docker_compose_v2:
             project_src: "{{ compose_project_path }}"
@@ -132,6 +146,7 @@
             - manage_docker | default('') == 'yes'
             - restore_app | default('') | length == 0
             - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname not in (stack_assignments | default({}))
             - not ansible_check_mode
           tags: [docker]
 
@@ -408,7 +423,21 @@
             - not ansible_check_mode
           tags: [always]
 
-        - name: Start Docker Compose (full restore)
+        - name: Start Docker stacks (full restore — stack mode)
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "/opt/stacks/{{ item }}"
+            state: present
+          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_app | default('') | length == 0
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname in (stack_assignments | default({}))
+            - not ansible_check_mode
+          tags: [docker]
+
+        - name: Start Docker Compose (full restore — legacy mode)
           become: true
           community.docker.docker_compose_v2:
             project_src: "{{ compose_project_path }}"
@@ -417,6 +446,7 @@
             - manage_docker | default('') == 'yes'
             - restore_app | default('') | length == 0
             - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname not in (stack_assignments | default({}))
             - not ansible_check_mode
           tags: [docker]
 
@@ -445,12 +475,26 @@
           ansible.builtin.set_fact:
             restore_failed: true
 
-        - name: Ensure Docker Compose is running (safety net)
+        - name: Ensure Docker stacks are running (safety net — stack mode)
+          become: true
+          community.docker.docker_compose_v2:
+            project_src: "/opt/stacks/{{ item }}"
+            state: present
+          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname in (stack_assignments | default({}))
+          ignore_errors: true
+          tags: [docker]
+
+        - name: Ensure Docker Compose is running (safety net — legacy mode)
           become: true
           community.docker.docker_compose_v2:
             project_src: "{{ compose_project_path }}"
             state: present
-          when: inventory_hostname in groups["docker_stacks"] | default([])
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - inventory_hostname not in (stack_assignments | default({}))
           ignore_errors: true
           tags: [docker]
 
