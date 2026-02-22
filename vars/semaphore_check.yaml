@@ -20,19 +20,19 @@ health_check_groups:
 health_disk_warn_pct: 80
 health_disk_crit_pct: 90
 health_mem_warn_pct: 85
-health_cpu_load_multiplier: 1.5      # alert if 5m load avg > vcpus * this
-health_journal_error_threshold: 50
-health_oom_threshold: 1              # any OOM kill triggers alert
-health_backup_stale_hours: 240    # 10 days — alerts if weekly backup has been missed by 3+ days
-health_ssl_warn_days: 30          # warn if SSL cert expires within 30 days
-health_ssl_crit_days: 14          # critical if SSL cert expires within 14 days
-health_maintenance_stale_days: 3  # alert if no successful maintenance run in N days
-health_mariadb_max_connections_pct: 80  # warn if connection count exceeds this % of max
-health_wan_check_url: "https://cloudflare.com/cdn-cgi/trace"  # WAN connectivity check target (customize if needed)
-health_ntp_max_offset_ms: 500     # max acceptable NTP offset in milliseconds
-health_dns_test_hostname: "google.com"  # DNS resolution test target
+health_cpu_load_multiplier: 1.5       # alert if 5m load avg > vcpus * this
+health_journal_errors_max: 50
+health_oom_kills_max: 1               # any OOM kill triggers alert
+health_backup_stale_days: 10          # alerts if weekly backup has been missed by 3+ days
+health_ssl_warn_days: 30              # warn if SSL cert expires within 30 days
+health_ssl_crit_days: 14              # critical if SSL cert expires within 14 days
+health_maintenance_stale_days: 3      # alert if no successful maintenance run in N days
+health_db_connections_warn_pct: 80    # warn if connection count exceeds this % of max
+health_wan_url: "https://cloudflare.com/cdn-cgi/trace"  # WAN connectivity check target
+health_ntp_max_offset_ms: 500         # max acceptable NTP offset in milliseconds
+health_dns_hostname: "google.com"     # DNS resolution test target
 health_backup_size_min_pct: 50        # alert if latest backup < this % of 30-day average
-grafana_stale_update_days: 14         # Grafana panel: flag updates older than N days as stale
+health_update_stale_days: 14          # Grafana panel: flag updates older than N days as stale
 
 # Appliance reachability check — tested via TCP connect (port 443)
 # CUSTOMIZE: list your network appliances that lack SSH access

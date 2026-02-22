@@ -248,8 +248,8 @@ See [DESIGN.md](DESIGN.md#semaphore-setup) for the full Semaphore configuration 
 
 `deploy_grafana.yaml` automates the full Grafana setup — it creates the `Ansible-Logging` MySQL
 datasource (if missing) and imports the dashboard via API. It also syncs threshold values from
-Ansible vars into the dashboard panels, so changing `health_backup_stale_hours` or
-`grafana_stale_update_days` in `vars/semaphore_check.yaml` automatically updates the
+Ansible vars into the dashboard panels, so changing `health_backup_stale_days` or
+`health_update_stale_days` in `vars/semaphore_check.yaml` automatically updates the
 corresponding Stale Backups and Stale Updates panels on next deploy.
 
 ```bash

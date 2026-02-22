@@ -304,10 +304,10 @@ via the Grafana API. Runs from localhost (no SSH) — requires `grafana_url` and
 check); never overwrites existing configuration. Before importing, the playbook syncs threshold
 values from Ansible vars into the dashboard JSON:
 - **Stale Backups** — SQL query (`> N hours`), panel color thresholds (yellow/red), and title
-  all derive from `health_backup_stale_hours` (default 216). Yellow threshold is set to
-  `stale_hours - 48` (2-day warning before red).
+  all derive from `health_backup_stale_days` (default 10, converted to hours internally).
+  Yellow threshold is set to `stale_days * 24 - 48` (2-day warning before red).
 - **Stale Updates** — SQL query (`INTERVAL N DAY`) and title derive from
-  `grafana_stale_update_days` (default 14).
+  `health_update_stale_days` (default 14).
 
 The raw `grafana/grafana.json` keeps baseline values — the playbook replaces them at deploy time.
 Change the Ansible var, re-deploy, and the Grafana panels update automatically.
@@ -387,12 +387,12 @@ and `add_ansible_user.yaml`).
 - `stale_maintenance`: mirrors the stale_backup query pattern — alerts if any host has no
   successful maintenance run within `health_maintenance_stale_days` (default: 3 days).
 - `mariadb_health`: checks connection count vs `max_connections` and scans `information_schema`
-  for crashed tables. Warning at `health_mariadb_max_connections_pct`% (default: 80).
-- `wan_connectivity`: simple HTTP GET to `health_wan_check_url` (default: Cloudflare CDN trace).
+  for crashed tables. Warning at `health_db_connections_warn_pct`% (default: 80).
+- `wan_connectivity`: simple HTTP GET to `health_wan_url` (default: Cloudflare CDN trace).
   Critical on any failure — indicates outbound internet is down.
 - `ntp_sync`: uses `timedatectl` on systemd hosts, `ntpq` on unRAID. Reports sync status or
   offset in milliseconds. Warning if not synced or offset exceeds `health_ntp_max_offset_ms`.
-- `dns_resolution`: `getent hosts` against `health_dns_test_hostname`. Critical on failure.
+- `dns_resolution`: `getent hosts` against `health_dns_hostname`. Critical on failure.
 - `unraid_array`: unRAID only — `mdcmd status` for array state, plus `disks.ini` for disabled
   disk count. Counts two failure modes: `DISK_DSBL` (present but disabled = real problem) and
   `DISK_NP_DSBL` with a non-empty `id` (configured disk went missing = real problem). Ignores
@@ -1588,7 +1588,7 @@ entire dashboard. When "All" is selected, Grafana expands `$hostname` to all val
 | **Status** | Collapsed | Current Version Status, Latest Health Status per Host, Recent Health Check Results |
 
 Key panel features:
-- **Stale Backups** uses 216h (9-day) threshold, aligned with `health_backup_stale_hours`
+- **Stale Backups** uses threshold aligned with `health_backup_stale_days` (default 10 days)
 - **Backup Size Trend** shows `AVG(file_size)` per application over 90 days (excludes FAILED_ entries)
 - **Non-OK Health Checks** includes `check_detail` column for actionable context
 - **Maintenance status** maps three colors: green=success, yellow=partial, red=failed
@@ -1598,7 +1598,7 @@ Key panel features:
   of breaking, producing continuous trend lines even with irregular schedules (e.g., weekly backups)
 - **Threshold syncing:** `deploy_grafana.yaml` automatically syncs Ansible thresholds into the
   dashboard JSON before importing. The Stale Backups panel thresholds and SQL query use
-  `health_backup_stale_hours`, and the Stale Updates SQL uses `grafana_stale_update_days` —
+  `health_backup_stale_days`, and the Stale Updates SQL uses `health_update_stale_days` —
   both from `vars/semaphore_check.yaml`. Change the Ansible variable, re-deploy, and the
   Grafana panels update automatically. The raw `grafana/grafana.json` file keeps the default
   values (216 hours, 14 days) as a baseline — the playbook replaces them at deploy time

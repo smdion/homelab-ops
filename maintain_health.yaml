@@ -27,11 +27,11 @@
 #
 # Threshold variables (vars/semaphore_check.yaml — all have defaults):
 #   health_disk_warn_pct, health_disk_crit_pct, health_mem_warn_pct
-#   health_cpu_load_multiplier, health_journal_error_threshold
-#   health_oom_threshold, health_backup_stale_hours
+#   health_cpu_load_multiplier, health_journal_errors_max
+#   health_oom_kills_max, health_backup_stale_days
 #   health_ssl_warn_days, health_ssl_crit_days
-#   health_maintenance_stale_days, health_mariadb_max_connections_pct
-#   health_wan_check_url, health_ntp_max_offset_ms, health_dns_test_hostname
+#   health_maintenance_stale_days, health_db_connections_warn_pct
+#   health_wan_url, health_ntp_max_offset_ms, health_dns_hostname
 #   health_backup_size_min_pct, appliance_check_hosts, appliance_check_port
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -189,7 +189,7 @@
     # ── CHECK 2: Stale backups ─────────────────────────────────────────────────
     - name: Check for stale backups
       block:
-        - name: Query for hosts with no backup in last {{ health_backup_stale_hours }}h
+        - name: Query for hosts with no backup in last {{ health_backup_stale_days }} days
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           community.mysql.mysql_query:
@@ -207,7 +207,7 @@
               ORDER BY TIMESTAMPDIFF(HOUR, MAX(timestamp), UTC_TIMESTAMP()) DESC
             positional_args:
               - "{{ display_timezone }}"
-              - "{{ health_backup_stale_hours }}"
+              - "{{ health_backup_stale_days * 24 }}"
           register: stale_backup_result
           no_log: true
           changed_when: false
@@ -223,7 +223,7 @@
           vars:
             discord_title: "⚠️ Stale Backup Alert"
             discord_color: 16753920
-            discord_description: "The following hosts have not had a successful backup in over {{ health_backup_stale_hours }} hours."
+            discord_description: "The following hosts have not had a successful backup in over {{ health_backup_stale_days }} days."
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
               - name: "Host / Last backup / Age"
@@ -467,13 +467,13 @@
                 'check_name': 'mariadb_health',
                 'status': (
                   'critical' if _crashed_tables | length > 0
-                  else ('warning' if _db_pct | float >= health_mariadb_max_connections_pct else 'ok')
+                  else ('warning' if _db_pct | float >= health_db_connections_warn_pct else 'ok')
                 ),
                 'value': _db_current | string + '/' + _db_max | string + ' connections' + (', ' + _crashed_tables | length | string + ' crashed' if _crashed_tables | length > 0 else ''),
                 'detail': (
                   ('crashed: ' + _crashed_tables | join(', ') if _crashed_tables | length > 0 else '')
-                  + (' | ' if _crashed_tables | length > 0 and _db_pct | float >= health_mariadb_max_connections_pct else '')
-                  + (_db_pct | string + '% of max_connections' if _db_pct | float >= health_mariadb_max_connections_pct else '')
+                  + (' | ' if _crashed_tables | length > 0 and _db_pct | float >= health_db_connections_warn_pct else '')
+                  + (_db_pct | string + '% of max_connections' if _db_pct | float >= health_db_connections_warn_pct else '')
                 )
               }] }}
 
@@ -490,7 +490,7 @@
       block:
         - name: Test outbound internet connectivity
           ansible.builtin.uri:
-            url: "{{ health_wan_check_url }}"
+            url: "{{ health_wan_url }}"
             method: GET
             status_code: 200
             timeout: 10
@@ -517,7 +517,7 @@
                 'check_name': 'wan_connectivity',
                 'status': 'critical',
                 'value': 'unreachable',
-                'detail': 'failed to reach ' + health_wan_check_url
+                'detail': 'failed to reach ' + health_wan_url
               }] }}
 
     # ── CHECK 8: Appliance reachability ──────────────────────────────────────────
@@ -753,11 +753,11 @@
               {{
                 host_health_issues + [{
                   'check_name': 'journal_errors',
-                  'status': 'warning' if journal_raw.stdout | int >= health_journal_error_threshold else 'ok',
+                  'status': 'warning' if journal_raw.stdout | int >= health_journal_errors_max else 'ok',
                   'value': journal_raw.stdout | string + ' errors',
                   'detail': (
                     journal_raw.stdout | string + ' journal errors since last check'
-                    if journal_raw.stdout | int >= health_journal_error_threshold else ''
+                    if journal_raw.stdout | int >= health_journal_errors_max else ''
                   )
                 }]
               }}
@@ -790,7 +790,7 @@
           changed_when: false
           failed_when: false
           check_mode: false
-          when: oom_count_raw.stdout | int >= health_oom_threshold
+          when: oom_count_raw.stdout | int >= health_oom_kills_max
 
         - name: Record OOM kill result
           ansible.builtin.set_fact:
@@ -798,14 +798,14 @@
               {{
                 host_health_issues + [{
                   'check_name': 'oom_kills',
-                  'status': 'critical' if oom_count_raw.stdout | int >= health_oom_threshold else 'ok',
+                  'status': 'critical' if oom_count_raw.stdout | int >= health_oom_kills_max else 'ok',
                   'value': oom_count_raw.stdout | string + ' kills',
                   'detail': (
                     oom_count_raw.stdout | string + ' OOM kills — '
                     + ('processes: ' + oom_procs_raw.stdout_lines | join(', ')
                        if (oom_procs_raw is defined and oom_procs_raw.stdout_lines | default([]) | length > 0)
                        else 'process names unavailable')
-                    if oom_count_raw.stdout | int >= health_oom_threshold else ''
+                    if oom_count_raw.stdout | int >= health_oom_kills_max else ''
                   )
                 }]
               }}
@@ -1131,7 +1131,7 @@
     - name: Check DNS resolution
       block:
         - name: Test DNS resolution
-          ansible.builtin.shell: "getent hosts {{ health_dns_test_hostname }} >/dev/null 2>&1 && echo ok || echo fail"
+          ansible.builtin.shell: "getent hosts {{ health_dns_hostname }} >/dev/null 2>&1 && echo ok || echo fail"
           register: dns_raw
           changed_when: false
           failed_when: false
@@ -1145,7 +1145,7 @@
                   'check_name': 'dns_resolution',
                   'status': 'ok' if dns_raw.stdout | trim == 'ok' else 'critical',
                   'value': 'ok' if dns_raw.stdout | trim == 'ok' else 'failed',
-                  'detail': '' if dns_raw.stdout | trim == 'ok' else 'cannot resolve ' + health_dns_test_hostname
+                  'detail': '' if dns_raw.stdout | trim == 'ok' else 'cannot resolve ' + health_dns_hostname
                 }]
               }}
 

@@ -3,8 +3,8 @@
 # Reads grafana/grafana.json and pushes it to the Grafana instance.
 # Creates the Ansible-Logging MySQL datasource if it doesn't exist.
 # Syncs thresholds from Ansible vars into the dashboard before importing:
-#   - Stale Backups: health_backup_stale_hours (SQL query + panel thresholds + title)
-#   - Stale Updates: grafana_stale_update_days (SQL query + title)
+#   - Stale Backups: health_backup_stale_days (SQL query + panel thresholds + title)
+#   - Stale Updates: health_update_stale_days (SQL query + title)
 #
 # Runs from the Semaphore controller (localhost) — no SSH required.
 # Grafana must be reachable via grafana_url from the controller.
@@ -88,17 +88,17 @@
             _dashboard_json: >-
               {{ lookup('file', 'grafana/grafana.json')
                  | replace('> 216\\nORDER',
-                           '> ' ~ health_backup_stale_hours | string ~ '\\nORDER')
+                           '> ' ~ (health_backup_stale_days * 24) | string ~ '\\nORDER')
                  | replace('"value": 216 }',
-                           '"value": ' ~ health_backup_stale_hours | string ~ ' }')
+                           '"value": ' ~ (health_backup_stale_days * 24) | string ~ ' }')
                  | replace('"value": 168 }',
-                           '"value": ' ~ (health_backup_stale_hours - 48) | string ~ ' }')
+                           '"value": ' ~ (health_backup_stale_days * 24 - 48) | string ~ ' }')
                  | replace('Stale Backups (9+ Days)',
-                           'Stale Backups (' ~ (health_backup_stale_hours / 24) | int | string ~ '+ Days)')
+                           'Stale Backups (' ~ health_backup_stale_days | string ~ '+ Days)')
                  | replace('INTERVAL 14 DAY',
-                           'INTERVAL ' ~ grafana_stale_update_days | string ~ ' DAY')
+                           'INTERVAL ' ~ health_update_stale_days | string ~ ' DAY')
                  | replace('Stale Updates (14+ Days)',
-                           'Stale Updates (' ~ grafana_stale_update_days | string ~ '+ Days)')
+                           'Stale Updates (' ~ health_update_stale_days | string ~ '+ Days)')
                  | from_json }}
 
         - name: Set dashboard id to null for import
