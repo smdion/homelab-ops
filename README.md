@@ -42,6 +42,7 @@ version status per host, stale detection, health trends, and maintenance logs ac
 | **Semaphore** | any | Scheduling UI, credential management | No — [CLI works too](#running-without-semaphore) |
 | **Grafana** | any | Dashboard (MySQL datasource) | No — data is in MariaDB regardless |
 | **Discord** | — | Notifications (webhooks) | No — [silently skipped if not configured](#discord-notifications) |
+| **Uptime Kuma** | any | Dead man's switch for health monitoring | No — [silently skipped if not configured](#uptime-kuma-dead-mans-switch) |
 
 ## Quick start
 
@@ -343,6 +344,28 @@ extract the ID and token from the URL, and add them to your vault.
 </tr>
 </table>
 </details>
+
+## Uptime Kuma dead man's switch
+
+Uptime Kuma is **optional**. If `uptime_kuma_push_url` is not defined in the vault, the heartbeat
+task is silently skipped.
+
+`maintain_health.yaml` sends a push heartbeat to Uptime Kuma at the end of every successful run.
+If the playbook crashes, hangs, or the Semaphore scheduler stops running, Uptime Kuma detects the
+missing heartbeat and alerts independently of Discord and Grafana.
+
+To enable:
+
+1. Create a **Push** monitor in Uptime Kuma
+2. Set the heartbeat interval to match your `maintain_health.yaml` schedule (e.g., every 1 hour)
+3. Copy the push URL into your vault:
+   ```bash
+   ansible-vault edit vars/secrets.yaml
+   # Add: uptime_kuma_push_url: "https://uptime.example.com/api/push/xxxx"
+   ```
+
+See [DESIGN.md](DESIGN.md#triple-alerting-discord-push--grafana-pull--uptime-kuma-dead-mans-switch)
+for how Uptime Kuma fits into the triple alerting architecture.
 
 ## Adding a new platform
 

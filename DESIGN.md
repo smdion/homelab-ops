@@ -15,7 +15,7 @@ to give a future maintainer (or future self) enough context to make changes conf
   - [Coding conventions](#coding-conventions)
   - [Check mode support](#check-mode-dry-run-support)
   - [Pre-task validations](#pre-task-validations)
-  - [Dual alerting](#dual-alerting-discord-push--grafana-pull)
+  - [Triple alerting](#triple-alerting-discord-push--grafana-pull--uptime-kuma-dead-mans-switch)
   - [Health check state management](#health-check-state-management)
   - [Version detection pattern](#version-detection-pattern-update_systemsyaml)
 - [Database Architecture](#database-architecture)
@@ -151,7 +151,8 @@ in Phase 1. Phase 3 will add build/provisioning playbooks for standing up new ho
 ├── verify_backups.yaml             # On-demand backup verification — DB backups restored to temp DB; config archives integrity-checked and staged
 ├── restore_databases.yaml          # Database restore from backup dumps — safety-gated; supports single-DB restore on shared instances
 ├── restore_hosts.yaml              # Config/appdata restore — staging (inspect) or inplace; selective app + coordinated cross-host DB restore
-├── update_systems.yaml             # OS, application, and Docker container updates (Proxmox, PiKVM, AMP, Ubuntu, Docker); PVE cluster quorum pre-check; unRAID update_container script
+├── rollback_docker.yaml            # Docker container rollback — revert to previous image versions; safety-gated; per-service targeting
+├── update_systems.yaml             # OS, application, and Docker container updates (Proxmox, PiKVM, AMP, Ubuntu, Docker); PVE cluster quorum pre-check; rollback snapshot; unRAID update_container script
 ├── maintain_amp.yaml               # AMP game server maintenance (versions, dumps, prune, journal)
 ├── maintain_semaphore.yaml         # Delete stopped/error + old download tasks from Semaphore DB + prune ansible_logging retention (runs on localhost)
 ├── maintain_docker.yaml            # Prune unused Docker images across all Docker hosts
@@ -310,6 +311,23 @@ values from Ansible vars into the dashboard JSON:
 
 The raw `grafana/grafana.json` keeps baseline values — the playbook replaces them at deploy time.
 Change the Ansible var, re-deploy, and the Grafana panels update automatically.
+
+**`rollback_docker.yaml`** — Reverts Docker containers to their previous image versions using
+the snapshot saved by `update_systems.yaml`. Two rollback paths: **fast** (old image still on
+disk — `docker tag` re-tag, no network needed) and **slow** (image pruned by
+`maintain_docker.yaml` — pulls old version tag from registry). Safety-gated with
+`confirm_rollback=yes`. Without it, shows snapshot info and exits (dry-run). Supports single
+service via `-e rollback_service=<name>` or all containers in the snapshot. Docker Compose
+hosts (`docker_stacks`) only — for unRAID `docker_run` hosts, see manual rollback guidance
+below. Uses `tasks/log_restore.yaml` with `operation: rollback` (per-service). Discord
+notification uses yellow (16776960) to distinguish from green/red.
+
+**`update_systems.yaml` — rollback snapshot:** Before pulling new Docker Compose images, the
+update playbook captures a `.rollback_snapshot.json` file in `{{ compose_project_path }}` with
+the timestamp, image name, full image ID (`sha256:...`), and version label for every target
+service. Uses the same 3-tier label detection as the update comparison. Each update overwrites
+the previous snapshot — only the last pre-update state is kept. The snapshot file is included
+in regular `/opt` appdata backups automatically.
 
 **`tasks/log_restore.yaml`** — Shared MariaDB logging for the `restores` table. Uses
 `community.mysql.mysql_query` with parameterized queries. Separate from `log_mariadb.yaml` because
@@ -477,6 +495,7 @@ where multiple backup types exist for the same target:
 | `Download — {Target} [{Subtype}]` | `Download — Videos`, `Download — Videos [On Demand]` |
 | `Verify — {Target}` | `Verify — PostgreSQL Databases`, `Verify — Proxmox [Config]` |
 | `Restore — {Target} [{Subtype}]` | `Restore — PostgreSQL Databases`, `Restore — Docker Run [Appdata]` |
+| `Rollback — {Target} [{Subtype}]` | `Rollback — Docker [Containers]` |
 
 The `[Subtype]` suffix makes templates instantly distinguishable when a target has more than one
 variant (e.g., `Backup — unRAID [Config]` vs `Backup — unRAID [Offline]`, or `Download — Videos`
@@ -605,6 +624,7 @@ vary by playbook category but follow consistent patterns within each category:
 | **Download** (`download_videos`) | `video.url` (per-video) | Custom per video | Always (success + failure) |
 | **Verify** (`verify_backups`) | `backup_url` (from `vars/*.yaml`) | Description, Host, Source File, Detail | Always |
 | **Restore** (`restore_databases`, `restore_hosts`) | `backup_url` (from `vars/*.yaml`) | Description, Host, Source File, Detail/Tables | Always |
+| **Rollback** (`rollback_docker`) | `backup_url` (from `group_vars/all.yaml`) | Description, Host, Services, Snapshot Date, Detail | Always |
 | **Deploy** (`deploy_grafana`) | `semaphore_ext_url` | Description, Host, Detail | Always |
 
 **URL variable conventions:**
@@ -840,19 +860,28 @@ The `assert_disk_space` and `assert_db_connectivity` tasks have `check_mode: fal
 shell/query pre-steps so they validate during `--check`. `assert_config_file` uses
 `ansible.builtin.assert` which runs natively in check mode.
 
-### Dual alerting: Discord push + Grafana pull
+### Triple alerting: Discord push + Grafana pull + Uptime Kuma dead man's switch
 
-Stale backups and failed maintenance are monitored by two independent systems:
+Stale backups and failed maintenance are monitored by three independent systems:
 
 1. **Discord (push):** `maintain_health.yaml` checks the DB for stale backups (>216h) and failed
    maintenance runs since the last health check, then sends Discord alerts immediately.
 2. **Grafana (pull):** The dashboard has "Stale Backups (9+ Days)" and "Stale Updates (14+ Days)"
    panels that query the same tables with aligned thresholds (216h = 9 days for backups).
+3. **Uptime Kuma (dead man's switch):** `maintain_health.yaml` sends a push heartbeat to Uptime
+   Kuma at the end of every successful run. If the playbook crashes, hangs, or the scheduler dies,
+   Uptime Kuma detects the missing heartbeat and alerts independently of both Discord and Grafana.
 
 This is intentional redundancy — Discord is push-based (immediate alerting even if nobody is
-looking at the dashboard), Grafana is pull-based (visual overview with drill-down). Both use the
-same underlying data. Do **not** consolidate them — losing either notification path reduces
-observability.
+looking at the dashboard), Grafana is pull-based (visual overview with drill-down), and Uptime
+Kuma catches total-failure scenarios where the health playbook itself never completes. All three
+are independent — do **not** consolidate them. Losing any notification path reduces observability.
+
+**Uptime Kuma setup:** Create a **Push** monitor in Uptime Kuma, set the heartbeat interval to
+match the `maintain_health.yaml` schedule (e.g., every 1 hour), and copy the push URL into the
+vault as `uptime_kuma_push_url`. The heartbeat is a simple HTTP GET — it fires only when the
+playbook completes without failure (`not maintenance_failed`) and is silently skipped in check
+mode or when the variable is not defined. See `vars/secrets.yaml.example` for the key format.
 
 ### Data retention
 
