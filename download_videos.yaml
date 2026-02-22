@@ -63,6 +63,21 @@
           failed_when: ytdlp_result.rc >= 2
 
         # -- Read download manifest ------------------------------------------
+        - name: Check manifest file size
+          become: true
+          ansible.builtin.shell: >
+            docker exec {{ metube_container }} stat -c%s {{ metube_manifest }} 2>/dev/null || echo 0
+          register: _manifest_size
+          changed_when: false
+          check_mode: false
+
+        - name: Fail if manifest exceeds 5 MB
+          ansible.builtin.fail:
+            msg: >-
+              Download manifest is {{ (_manifest_size.stdout | int / 1048576) | round(1) }} MB
+              (limit 5 MB). Prune {{ metube_manifest }} inside {{ metube_container }}.
+          when: _manifest_size.stdout | int > 5242880
+
         - name: Read download manifest from container
           become: true
           ansible.builtin.shell: >
