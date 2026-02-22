@@ -47,6 +47,7 @@
 
     # Stack mode: read and merge per-stack snapshots
     - name: Read rollback snapshots (stack mode)
+      become: true
       ansible.builtin.slurp:
         src: "/opt/stacks/{{ item }}/.rollback_snapshot.json"
       loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
@@ -154,8 +155,6 @@
             docker tag {{ rollback_snapshot.containers[item].image_id }}
             {{ rollback_snapshot.containers[item].image }}
           loop: "{{ _rollback_targets | select('in', _image_local | dict2items | selectattr('value') | map(attribute='key')) | list }}"
-          args:
-            chdir: "{{ compose_project_path }}"
 
         # ═══════════════════════════════════════════════════════════════════
         # SLOW PATH — image was pruned, pull old version from registry
@@ -175,8 +174,6 @@
             docker pull {{ _registry_pull[item] }}
             docker tag {{ _registry_pull[item] }} {{ rollback_snapshot.containers[item].image }}
           loop: "{{ _registry_pull | default({}) | list }}"
-          args:
-            chdir: "{{ compose_project_path }}"
           register: _registry_pull_result
           failed_when: _registry_pull_result.rc != 0
 
