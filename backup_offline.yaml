@@ -107,8 +107,8 @@
             else
               exit 1
             fi
-            if mountpoint -q {{ mnt_base_path }}{{ server_mountname }}_{{ item }}; then
-              rsync -a --stats {{ src_base_path }}{{ item }}/ {{ mnt_base_path }}{{ server_mountname }}_{{ item }}/ --delete-after
+            if mountpoint -q {{ mnt_base_path }}{{ server_mountname }}_{{ server_mount | regex_replace('^/', '') | replace('/', '_') }}; then
+              rsync -a --stats {{ src_base_path }}{{ item }}/ {{ mnt_base_path }}{{ server_mountname }}_{{ server_mount | regex_replace('^/', '') | replace('/', '_') }}/ --delete-after
             else
               exit 2
             fi
