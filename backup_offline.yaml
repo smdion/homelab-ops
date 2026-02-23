@@ -30,6 +30,7 @@
 
     - block:
         - name: Fix unRAID Backup file permissions
+          become: true
           ansible.builtin.file:
             path: "{{ src_backup_path }}"
             owner: nobody
@@ -39,6 +40,7 @@
             recurse: true
 
         - name: Find all files older than 31 days
+          become: true
           ansible.builtin.find:
             paths: "{{ src_backup_path }}"
             age: 31d
@@ -46,6 +48,7 @@
           register: _old_files
 
         - name: Remove files older than 31 days
+          become: true
           ansible.builtin.file:
             path: "{{ item.path }}"
             state: absent
