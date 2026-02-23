@@ -75,20 +75,51 @@ notification, and MariaDB logging patterns as backup playbooks. Additional conve
 
 ## Public Repository — Security
 
-This is a **public GitHub repository**. Never commit:
+This is a **public GitHub repository** and the production source that Semaphore pulls from.
+Never commit:
 
 - **Secrets or credentials** — passwords, API keys, tokens, webhook URLs, SSH keys
-- **Internal IP addresses** — private IPs (e.g., `192.168.x.x`, `10.x.x.x`)
-- **Internal domain names** — local DNS names (e.g., `*.home.local`, `*.internal.lan`)
+- **Internal IP addresses** — any private IP (`192.168.x.x`, `10.x.x.x`), including subnets
+  and gateway addresses. This includes WireGuard internal subnets and PVE node IPs.
+- **Internal domain names** — local DNS names (`*.home.local`, `*.internal.lan`, etc.)
+- **Infrastructure node names** — Proxmox node names, VM hostnames, server names
 - **Personally identifiable information** — real names, email addresses, physical locations
 
-All secrets belong in `vars/secrets.yaml` (encrypted vault). Internal hostnames and domains
-should use placeholder values in documentation and examples (e.g., `myhost.example.local`).
-The `vars/secrets.yaml.example` template demonstrates this pattern.
+### What goes where
 
-If you accidentally commit sensitive data, **do not** just delete it in a follow-up commit —
-it remains in git history. Instead, rotate the exposed credential immediately and contact
-the maintainer.
+| Value type | Where it belongs |
+|---|---|
+| Passwords, tokens, API keys | `vars/secrets.yaml` (vault) |
+| Internal IPs (hosts, gateways, subnets) | `vars/secrets.yaml` (vault) |
+| Internal FQDNs / search domain | `vars/secrets.yaml` (vault) |
+| Proxmox node names | `vars/secrets.yaml` (vault) |
+| Non-sensitive deployment config | `vars/*.yaml` (plain, use `vault_*` references) |
+
+### Comment examples
+
+When writing inline documentation or examples in `.yaml`/`.j2` files, use
+**TEST-NET addresses** (`192.0.2.x`, `198.51.100.x`) for IP examples and
+`myhost.example.local` for hostname examples. Never use real internal IPs even in comments.
+
+```yaml
+# Good — TEST-NET example
+nfs_mounts:
+  - src: "192.0.2.10:/mnt/share"
+
+# Bad — internal subnet even in a comment
+nfs_mounts:
+  - src: "10.10.10.10:/mnt/share"
+```
+
+### Accidentally committed sensitive data
+
+Deleting in a follow-up commit is **not enough** — the value remains in git history.
+Use `git filter-repo --replace-text` (or `git filter-branch --tree-filter` + `--msg-filter`
+if Python is unavailable) to rewrite history, then force-push. Coordinate with anyone who
+has cloned the repo — their local clones will diverge and need to be re-cloned.
+
+When in doubt, add the value to the vault first, reference it via `{{ vault_... }}` in the
+tracked file, and never include the raw value in any committed file or commit message.
 
 ## Pull Request Expectations
 

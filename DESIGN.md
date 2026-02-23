@@ -1673,7 +1673,52 @@ db_password: "..."                  # Database password for Docker container DB 
 grafana_url: "..."                  # Grafana base URL, e.g. "http://grafana-host:3000" (deploy_grafana.yaml)
 grafana_service_account_token: "..." # Grafana service account token with Editor role (deploy_grafana.yaml)
 vps_fqdn: "..."                    # VPS hostname for WireGuard config extraction (backup_hosts.yaml via vars/unifi_network.yaml)
+
+# --- PVE cluster (setup_pve_vip.yaml, provision_vm.yaml, build_ubuntu.yaml) ---
+pve_api_host: "..."              # Floating VIP — updated to vault_pve_vip after setup_pve_vip.yaml runs
+pve_api_user: "..."
+pve_api_token_id: "..."
+pve_api_token_secret: "..."
+pve_template_node: "..."         # Short name of the node that holds the cloud-init template
+pve_template_vmid: "..."
+pve_template_name: "..."
+pve_storage: "..."               # Ceph/local storage pool name
+pve_bridge: "..."                # VM network bridge (e.g. vmbr0)
+pve_cloud_image_url: "..."
+vault_pve_vip: "..."             # Floating management VIP (10.x.x.x, unused host in /24)
+vault_pve_vrrp_password: "..."
+vault_pve_vrrp_priorities: {}    # Dict: short node name → integer priority (highest = MASTER)
+vault_pve_template_node_ip: "..." # Direct IP of template node — SSH bypasses VIP
+vault_test_vm_ip_prefix: "..."   # e.g. "10.10.10." — prefix for test-vm pool
+vault_test_vm_ip_offset: "..."   # e.g. 90 — first slot; slots 0–9 = offset .. offset+9
+vm_user: "..."
+vm_password: "..."
+vm_cidr: "..."
+vm_gateway: "..."
+vm_dns: "..."
+vm_search_domain: "..."
+vm_template_memory: "..."
+vm_template_cores: "..."
+# Per-VM IPs and node assignments — one entry per VM in vars/vm_definitions.yaml:
+# vault_vm_<name>_ip: "..."      vault_vm_<name>_hostname: "..."    vault_vm_<name>_node: "..."
+
+# --- VPN stack (stacks/vpn/env.j2) ---
+vault_wg_internal_subnet: "..."  # WireGuard internal subnet (e.g. 10.x.x.0) — NOT a host IP
 ```
+
+### What must be in the vault (public repo rules)
+
+This repo is public and Semaphore pulls directly from GitHub. Any value that reveals internal
+network topology must live in the vault:
+
+- **All private IPs** — host IPs, gateway IPs, DNS IPs, WireGuard subnets (e.g. `10.x.x.0`), PVE node IPs
+- **All internal domain names** — `*.home.local`, `*.internal.lan`, internal search domains
+- **Infrastructure node names** — Proxmox node short names (e.g. `homeone`, `defiance`)
+- **All credentials** — passwords, tokens, API keys, SSH keys
+
+Plain `vars/*.yaml` files (committed, public) must only contain `{{ vault_... }}` references
+for any of the above. Never put a raw IP or internal hostname in a committed non-vault file,
+**including in comments** — use TEST-NET examples (`192.0.2.x`) instead.
 
 ### Editing the vault
 
