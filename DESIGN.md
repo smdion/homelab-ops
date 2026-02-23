@@ -761,6 +761,34 @@ WHERE t.project_id = 1 AND t.name = '<Template Name>';
 > in the SQL above are specific to one Semaphore instance. Replace them with actual IDs from your
 > deployment — use the verify query above to confirm IDs after insertion.
 
+### Managing schedules via SQL (Adminer)
+
+Schedules are stored in `project__schedule`. Add a schedule whenever a new template is created
+or when a template gains a new operational mode (e.g., a monthly extra-vars variant).
+
+```sql
+-- Add a schedule to an existing template (run in semaphore database)
+INSERT INTO project__schedule (project_id, template_id, name, cron_format, active)
+VALUES (
+  1,
+  (SELECT id FROM project__template WHERE project_id = 1 AND name = '<Template Name>'),
+  '<Schedule Label>',
+  '<cron expression>',
+  1
+);
+
+-- Audit all templates and their schedules
+SELECT t.id, t.name, s.cron_format, s.active
+FROM project__template t
+LEFT JOIN project__schedule s ON s.template_id = t.id
+WHERE t.project_id = 1
+ORDER BY t.name;
+```
+
+**Rule:** Every time a new template is created or an existing template gains a new
+operational mode, review schedules and add the appropriate cron entry. Templates with no
+schedule are ad-hoc only — document that intent in a comment if intentional.
+
 ---
 
 ## Playbook Patterns
