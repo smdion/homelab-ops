@@ -35,6 +35,13 @@ vm_template_cores: 2
 #   vault_vm_<name>_hostname  — FQDN for cloud-init hostname and Ansible inventory
 #   vault_vm_<name>_ip        — static IP for cloud-init network config
 #   vault_vm_<name>_node      — PVE node to place this VM on
+#
+# test-vm uses a dedicated IP range to avoid updating secrets per build.
+# Pass vm_index=0..9 (default 0) to select a slot:
+#   vault_test_vm_ip_prefix   — first 3 octets with trailing dot (e.g. "10.10.10.")
+#   vault_test_vm_ip_offset   — last octet of the first slot (e.g. 90)
+# Resulting IPs: <prefix><offset+vm_index>  (e.g. 10.10.10.90 .. REDACTED_IP)
+# VMIDs: 199+vm_index (199..208). VM names: test-vm0..test-vm9.
 vm_definitions:
   tantiveiv:
     vm_id: 100
@@ -67,10 +74,10 @@ vm_definitions:
     pve_target_node: "{{ vault_vm_amp_node }}"
 
   test-vm:
-    vm_id: 199
-    vm_name: test-vm
-    vm_hostname: "{{ vault_vm_testvm_hostname }}"
-    vm_ip: "{{ vault_vm_testvm_ip }}"
+    vm_id: "{{ (199 + (vm_index | default(0) | int)) | int }}"
+    vm_name: "test-vm{{ vm_index | default(0) | int }}"
+    vm_hostname: "test-vm{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
+    vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
     vm_cores: 2
     vm_memory_mb: 2048
     vm_disk_gb: 20
