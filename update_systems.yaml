@@ -152,12 +152,82 @@
           changed_when: false
           tags: [os]
 
+        - name: Enable PVE node maintenance mode (HA migration)
+          ansible.builtin.shell: ha-manager crm-command node-maintenance enable {{ ansible_hostname }}
+          become: true
+          register: _pve_maint_enabled
+          when:
+            - inventory_hostname in groups['pve'] | default([])
+            - reboot_required_file.stat.exists | default(false)
+          tags: [os]
+
+        - name: Wait for HA guests to migrate off this node
+          ansible.builtin.shell: |
+            for i in $(seq 1 36); do
+              remaining=$(ha-manager status 2>/dev/null | grep -c "node {{ ansible_hostname }},") || remaining=0
+              [ "$remaining" -eq 0 ] && echo "ALL_MIGRATED" && exit 0
+              sleep 5
+            done
+            echo "TIMEOUT: $(ha-manager status 2>/dev/null | grep 'node {{ ansible_hostname }},')"
+            exit 1
+          register: _ha_migrate_wait
+          changed_when: false
+          become: true
+          when:
+            - inventory_hostname in groups['pve'] | default([])
+            - _pve_maint_enabled is not skipped
+          tags: [os]
+
+        - name: Set Ceph maintenance flags before PVE reboot
+          ansible.builtin.shell: ceph osd set noout; ceph osd set nobackfill; ceph osd set norebalance
+          become: true
+          register: _ceph_noout_set
+          when:
+            - inventory_hostname in groups['pve'] | default([])
+            - _pve_maint_enabled is not skipped
+          tags: [os]
+
         - name: Reboot machines that require
           ansible.builtin.reboot:
           become: true
           when: >-
             (reboot_required_file.stat.exists | default(false)) or
             (inventory_hostname in groups["pikvm"] and pikvm_update_result.rc | default(0) == 100)
+          tags: [os]
+
+        - name: Wait for Ceph health to recover after PVE reboot
+          ansible.builtin.shell: |
+            for i in $(seq 1 30); do
+              ceph health 2>/dev/null | grep -qE "^HEALTH_OK" && echo "HEALTH_OK" && exit 0
+              sleep 10
+            done
+            echo "TIMEOUT: $(ceph health 2>/dev/null)"
+            exit 1
+          register: _ceph_post_reboot
+          changed_when: false
+          become: true
+          when:
+            - inventory_hostname in groups['pve'] | default([])
+            - _ceph_noout_set is defined
+            - not (_ceph_noout_set is skipped)
+          tags: [os]
+
+        - name: Unset Ceph maintenance flags after PVE reboot
+          ansible.builtin.shell: ceph osd unset noout; ceph osd unset nobackfill; ceph osd unset norebalance
+          become: true
+          when:
+            - inventory_hostname in groups['pve'] | default([])
+            - _ceph_noout_set is defined
+            - not (_ceph_noout_set is skipped)
+          tags: [os]
+
+        - name: Disable PVE node maintenance mode
+          ansible.builtin.shell: ha-manager crm-command node-maintenance disable {{ ansible_hostname }}
+          become: true
+          when:
+            - inventory_hostname in groups['pve'] | default([])
+            - _pve_maint_enabled is defined
+            - not (_pve_maint_enabled is skipped)
           tags: [os]
 
         - name: Update AMP
@@ -483,6 +553,18 @@
         - name: Set update failed flag
           ansible.builtin.set_fact:
             update_failed: true
+
+        - name: Best-effort cleanup — unset Ceph flags and disable node maintenance
+          ansible.builtin.shell: |
+            ceph osd unset noout; ceph osd unset nobackfill; ceph osd unset norebalance
+            ha-manager crm-command node-maintenance disable {{ ansible_hostname }}
+          become: true
+          failed_when: false
+          when:
+            - inventory_hostname in groups['pve'] | default([])
+            - _pve_maint_enabled is defined
+            - not (_pve_maint_enabled is skipped)
+          tags: [os]
 
       always:
         - name: Clean up get_push_epoch helper script
