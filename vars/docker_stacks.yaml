@@ -75,11 +75,13 @@ update_exclude_services:
 # Used by restore_hosts.yaml for selective and coordinated DB+appdata restore.
 app_restore:
   authentik:
+    stack: "auth"
     containers: ["authentik", "authentik_worker"]
     db_config_file: db_primary_postgres
     db_host: "{{ db_host_primary }}"
     db_names: ["authentik"]
   jellyseerr:
+    stack: "media"
     containers: ["jellyseerr"]
     db_config_file: db_primary_postgres
     db_host: "{{ db_host_primary }}"
