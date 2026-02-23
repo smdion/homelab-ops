@@ -25,7 +25,7 @@
       include_tasks: tasks/assert_disk_space.yaml
       vars:
         assert_disk_path: "{{ backup_tmp_dir }}"
-        assert_disk_min_gb: 2
+        assert_disk_min_gb: "{{ backup_assert_disk_min_gb | default(2) }}"
 
     - name: Assert sufficient disk space on controller
       include_tasks: tasks/assert_disk_space.yaml

@@ -40,7 +40,7 @@
       include_tasks: tasks/assert_disk_space.yaml
       vars:
         assert_disk_path: "{{ backup_base_dir }}"
-        assert_disk_min_gb: 2
+        assert_disk_min_gb: "{{ controller_assert_disk_min_gb | default(2) }}"
         assert_disk_delegate_to: localhost
         assert_disk_become: false
 
