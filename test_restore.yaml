@@ -73,7 +73,7 @@
              else stack_assignments[source_host] }}
 
     # ===== FIND BACKUP ARCHIVES =====
-    # Use stat with exact paths rather than ls glob — the /backup/ NFS mount
+    # Use stat with exact paths rather than ls glob — the /backup/ bind mount
     # allows execute (traverse) but not read (list) for the Ansible process user,
     # so glob expansion silently fails. Date is a gathered fact so path is known.
     - name: Find per-stack backup archives for source host
