@@ -6,7 +6,7 @@ backup_url: "https://unifi.ui.com/"
 backup_description: "Automatic Unifi Network Backup"
 backup_type: "Appliances"
 backup_subtype: "Config"
-backup_file: "backup_network_protect_config_{{ ansible_date_time.date }}.tar.gz"
+backup_file: "backup_network_config_{{ ansible_date_time.date }}.tar.gz"
 vps_address: "{{ vps_fqdn }}"
 
 # Unifi OS paths — WireGuard config extraction from gateway state
