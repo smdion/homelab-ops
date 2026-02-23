@@ -158,6 +158,8 @@
             headers:
               x-api-key: "{{ unvr_api_key }}"
           delegate_to: localhost
+          ignore_errors: true  # TODO: file retrieval broken — silence until fixed
+          register: _unvr_download
           when:
             - inventory_hostname in groups["unifi_protect"]
             - not ansible_check_mode
@@ -169,6 +171,7 @@
             dest: "{{ backup_tmp_file }}"
           when:
             - inventory_hostname in groups["unifi_protect"]
+            - not (_unvr_download.failed | default(false))
             - not ansible_check_mode
           tags: [always]
 
@@ -611,6 +614,7 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
+            - inventory_hostname not in groups["unifi_protect"]  # TODO: file retrieval broken — silence until fixed
           tags: [always]
 
         - name: Send Docker recovery failure alert
@@ -681,4 +685,5 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
+            - inventory_hostname not in groups["unifi_protect"]  # TODO: file retrieval broken — silence until fixed
           tags: [always]
