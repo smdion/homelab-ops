@@ -569,8 +569,133 @@
       "type": "timeseries"
     },
     {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "unit": "megabytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 30 },
+      "id": 144,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull"],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(timestamp)) * 1000 as time_sec, CONCAT(hostname, ' \u2014 images') as metric, ROUND(MAX(images_mb), 0) as value FROM docker_sizes WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY AND hostname IN ($hostname) GROUP BY DATE(timestamp), hostname UNION ALL SELECT UNIX_TIMESTAMP(DATE(timestamp)) * 1000, CONCAT(hostname, ' \u2014 volumes'), ROUND(MAX(volumes_mb), 0) FROM docker_sizes WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY AND hostname IN ($hostname) GROUP BY DATE(timestamp), hostname ORDER BY time_sec",
+          "refId": "A"
+        }
+      ],
+      "title": "Docker Disk Usage Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "images_mb" },
+            "properties": [{ "id": "unit", "value": "megabytes" }, { "id": "displayName", "value": "Images MB" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "volumes_mb" },
+            "properties": [{ "id": "unit", "value": "megabytes" }, { "id": "displayName", "value": "Volumes MB" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "total_mb" },
+            "properties": [{ "id": "unit", "value": "megabytes" }, { "id": "displayName", "value": "Total MB" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "images_count" },
+            "properties": [{ "id": "displayName", "value": "Images" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "volumes_count" },
+            "properties": [{ "id": "displayName", "value": "Volumes" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 38 },
+      "id": 145,
+      "options": {
+        "cellHeight": "sm",
+        "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false },
+        "showHeader": true,
+        "sortBy": [{ "desc": true, "displayName": "Total MB" }]
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT hostname, images_count, ROUND(images_mb, 0) as images_mb, volumes_count, ROUND(volumes_mb, 0) as volumes_mb, ROUND(images_mb + volumes_mb, 0) as total_mb, timestamp FROM docker_sizes d1 WHERE timestamp = (SELECT MAX(timestamp) FROM docker_sizes d2 WHERE d2.hostname = d1.hostname) AND hostname IN ($hostname) ORDER BY total_mb DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Docker Disk Usage \u2014 Current",
+      "type": "table"
+    },
+    {
       "collapsed": true,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 },
       "id": 120,
       "panels": [
         {

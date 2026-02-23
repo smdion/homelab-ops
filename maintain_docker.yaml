@@ -1,6 +1,7 @@
 ---
-# Prune unused Docker images across all Docker hosts.
-# Uses community.docker.docker_prune to remove dangling images.
+# Prune unused Docker images and volumes across all Docker hosts.
+# Captures post-prune disk usage (images, volumes, containers) and logs
+# metrics to the docker_sizes table for Grafana trend monitoring.
 # Schedule with Semaphore to run weekly.
 
 - name: Prune unused Docker images
@@ -26,12 +27,45 @@
         maintenance_failed: false
 
     - block:
-        - name: Prune unused Docker images
+        - name: Prune unused Docker images and volumes
           become: true
           community.docker.docker_prune:
             images: true
             images_filters:
               dangling: "false"
+            volumes: true
+
+        # docker system df default table output:
+        #   TYPE            TOTAL  ACTIVE  SIZE    RECLAIMABLE
+        #   Images          4      3       2.5GB   500MB (20%)
+        #   Containers      3      3       100MB   0B (0%)
+        #   Local Volumes   5      2       1.2GB   800MB (66%)
+        # awk converts SIZE to MB (GB*1000, kB/1000) — one value per line
+        - name: Capture Docker disk usage
+          become: true
+          ansible.builtin.shell: |
+            docker system df 2>/dev/null | awk '
+            function to_mb(s,   n) {
+              n = s + 0
+              if (s ~ /GB$/) return n * 1000
+              if (s ~ /MB$/) return n
+              if (s ~ /kB$/) return n / 1000
+              return 0
+            }
+            /^Images /       { ic = $2; im = to_mb($4) }
+            /^Containers /   { cm = to_mb($4) }
+            /^Local Volumes / { vc = $3; vm = to_mb($5) }
+            END { print ic; print im; print vc; print vm; print cm }'
+          register: _docker_df
+          changed_when: false
+
+        - name: Parse Docker disk usage metrics
+          ansible.builtin.set_fact:
+            _docker_images_count:  "{{ _docker_df.stdout_lines[0] | int }}"
+            _docker_images_mb:     "{{ _docker_df.stdout_lines[1] | float | round(2) }}"
+            _docker_volumes_count: "{{ _docker_df.stdout_lines[2] | int }}"
+            _docker_volumes_mb:    "{{ _docker_df.stdout_lines[3] | float | round(2) }}"
+            _docker_containers_mb: "{{ _docker_df.stdout_lines[4] | float | round(2) }}"
 
       rescue:
         - name: Set maintenance failed
@@ -59,3 +93,15 @@
             log_type: "{{ maintenance_type }}"
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+        - name: Log Docker disk usage to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          when: _docker_df is defined and not _docker_df.skipped | default(false)
+          vars:
+            log_table: "docker_sizes"
+            log_hostname: "{{ inventory_hostname }}"
+            log_images_count:  "{{ _docker_images_count | default(0) }}"
+            log_images_mb:     "{{ _docker_images_mb | default(0) }}"
+            log_volumes_count: "{{ _docker_volumes_count | default(0) }}"
+            log_volumes_mb:    "{{ _docker_volumes_mb | default(0) }}"
+            log_containers_mb: "{{ _docker_containers_mb | default(0) }}"
