@@ -326,7 +326,7 @@
             discord_description: >-
               {{ restore_mode | capitalize }} {{ 'Failed' if restore_failed else 'Successful' }}
               {{ '— ' + restore_app if restore_app | default('') | length > 0 else '' }}
-            discord_color: "{{ 16711680 if restore_failed else 32768 }}"
+            discord_color: "{{ discord_color_failure if restore_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Description"

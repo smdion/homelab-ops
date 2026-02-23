@@ -281,7 +281,8 @@
                 echo "${svc}|${iid}" >> "$before_file"
               fi
             done
-            docker compose pull $target_services >&2
+            pull_failed=false
+            docker compose pull $target_services >&2 || pull_failed=true
             approved=""
             for svc in $target_services; do
               if [ "$delay_days" -le 0 ]; then
@@ -325,8 +326,8 @@
                 [ -n "$old_id" ] && [ "$old_id" != "$new_id" ] && updated=true
                 $first || echo ','
                 first=false
-                printf '{"name":"%s","image":"%s","old_id":"%s","new_id":"%s","tag":"%s","updated":%s}' \
-                  "$svc" "$img" "$old_id" "$new_id" "$version" "$updated"
+                printf '{"name":"%s","image":"%s","old_id":"%s","new_id":"%s","tag":"%s","updated":%s,"pull_failed":%s}' \
+                  "$svc" "$img" "$old_id" "$new_id" "$version" "$updated" "$pull_failed"
               fi
             done
             echo ']'
@@ -383,12 +384,13 @@
               threshold_epoch=$(date -d "-${delay_days} days" +%s)
             fi
             # Batch pull all images first (faster than sequential per-container pulls)
+            pull_failed=false
             images=""
             for name in {{ _docker_target_containers | join(' ') }}; do
               images="$images $(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$name")"
             done
-            echo "$images" | tr ' ' '\n' | sort -u | while read -r img; do
-              [ -n "$img" ] && docker pull "$img" >&2
+            for img in $(echo "$images" | tr ' ' '\n' | sort -u); do
+              [ -n "$img" ] && docker pull "$img" >&2 || pull_failed=true
             done
             echo '['
             first=true
@@ -429,8 +431,8 @@
               fi
               $first || echo ','
               first=false
-              printf '{"name":"%s","image":"%s","old_id":"%s","new_id":"%s","tag":"%s","updated":%s}' \
-                "$name" "$img" "$old_id" "$new_id" "$version" "$updated"
+              printf '{"name":"%s","image":"%s","old_id":"%s","new_id":"%s","tag":"%s","updated":%s,"pull_failed":%s}' \
+                "$name" "$img" "$old_id" "$new_id" "$version" "$updated" "$pull_failed"
             done
             echo ']'
           register: _unraid_update_raw
@@ -495,7 +497,7 @@
           vars:
             discord_title: "{{ update_name }}"
             discord_description: "{{ 'Update Failed' if update_failed else 'Updated' }}"
-            discord_color: "{{ 16711680 if update_failed else 32768 }}"
+            discord_color: "{{ discord_color_failure if update_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Description"
@@ -530,10 +532,12 @@
           when:
             - _is_docker_update | bool
             - update_failed or (docker_update_results | selectattr('updated') | list | length > 0)
+              or (docker_update_results | selectattr('pull_failed', 'defined') | selectattr('pull_failed') | list | length > 0)
           vars:
+            _pull_failed: "{{ docker_update_results | selectattr('pull_failed', 'defined') | selectattr('pull_failed') | list | length > 0 }}"
             discord_title: "{{ update_name }}"
-            discord_description: "{{ 'Update Failed' if update_failed else 'Containers Updated' }}"
-            discord_color: "{{ 16711680 if update_failed else 32768 }}"
+            discord_description: "{{ 'Update Failed' if update_failed else 'Pull Failed — images may be stale' if _pull_failed | bool else 'Containers Updated' }}"
+            discord_color: "{{ discord_color_failure if update_failed or (_pull_failed | bool) else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Description"

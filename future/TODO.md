@@ -34,10 +34,10 @@ refactoring it.
 
 #### New task files
 
-- [ ] **`tasks/provision_vm.yaml`** — Extract VM creation from `build_ubuntu.yaml` Play 1
-- [ ] **`tasks/bootstrap_vm.yaml`** — Extract Ubuntu bootstrap from `build_ubuntu.yaml` Play 2. Includes NFS mount automation (per-host `/etc/fstab` entries) and per-host UFW rules — added during extraction since we're already refactoring this code
-- [ ] **`tasks/restore_appdata.yaml`** — Extract backup archive copy + extract from `restore_hosts.yaml`
-- [ ] **`tasks/verify_docker_health.yaml`** — New: poll Docker container health (unhealthy filter, configurable timeout)
+- [x] **`tasks/provision_vm.yaml`** — Extract VM creation from `build_ubuntu.yaml` Play 1 (Batch 1)
+- [x] **`tasks/bootstrap_vm.yaml`** — Extract Ubuntu bootstrap from `build_ubuntu.yaml` Play 2 (Batch 1)
+- [x] **`tasks/restore_appdata.yaml`** — Extract backup archive copy + extract from `restore_hosts.yaml` (Batch 2)
+- [x] **`tasks/verify_docker_health.yaml`** — New: poll Docker container health (Batch 3)
 
 > **Note on DB extractions:** The operative review (H2) identifies ~200 lines of DB engine branching
 > duplicated across 5 playbooks (`db_dump`, `db_restore`, `db_count`, `db_drop_temp`). These are
@@ -47,28 +47,28 @@ refactoring it.
 
 #### Additional extractions (from operative review H1, H5)
 
-- [ ] **`tasks/docker_stop.yaml` + `tasks/docker_start.yaml`** — Extract tri-modal Docker stop/start/safety-net from `backup_hosts.yaml` + `restore_hosts.yaml` (H1: ~200 lines duplicated across both, 3 modes × 3 phases each)
-- [ ] **`tasks/ssh_hardening.yaml`** — Extract SSH hardening + passwordless sudo from `build_ubuntu.yaml` + `add_ansible_user.yaml` (H5: ~60 lines duplicated; also fixes L1 service name inconsistency)
+- [x] **`tasks/docker_stop.yaml` + `tasks/docker_start.yaml`** — Extract tri-modal Docker stop/start/safety-net (Batch 2)
+- [x] **`tasks/ssh_hardening.yaml`** — Extract SSH hardening + passwordless sudo (Batch 1, fixes L1)
 
 #### Playbook refactors
 
-- [ ] **Refactor `build_ubuntu.yaml`** — Use `provision_vm` + `bootstrap_vm` + `ssh_hardening` task files
-- [ ] **Refactor `restore_hosts.yaml`** — Use `restore_appdata` + `docker_stop`/`docker_start` task files
+- [x] **Refactor `build_ubuntu.yaml`** — Use `provision_vm` + `bootstrap_vm` + `ssh_hardening` task files (Batch 1)
+- [x] **Refactor `restore_hosts.yaml`** — Use `restore_appdata` + `docker_stop`/`docker_start` task files (Batch 2)
 
 #### Operative fixes during extraction
 
 Fix while touching the same code. Full details in `future/operative-logic-review.md`.
 
-- [ ] **C1: `restore_hosts.yaml` safety-net gate** — Add `manage_docker` guard to rescue safety-net tasks (fix during `docker_stop`/`docker_start` extraction)
-- [ ] **M6: `deploy_single_stack.yaml` atomic deploy** — Write compose file to temp location, validate, then move into place (prevents broken files on disk after validation failure)
+- [x] **C1: `restore_hosts.yaml` safety-net gate** — Add `manage_docker` guard to rescue safety-net tasks (Batch 2)
+- [x] **M6: `deploy_single_stack.yaml` atomic deploy** — Write compose file to temp location, validate, then move into place (Batch 3)
 
 ### Automated restore testing + DR mode
 
 Full design in `future/PHASE3_DESIGN.md`.
 
-- [ ] **`test_restore.yaml`** — Fully automated restore testing on disposable VM: build VM if needed, snapshot, restore appdata, deploy stacks, verify container health, revert to clean state. Works with any host in `stack_assignments`. Supports DR mode (`-e dr_mode=true`) — skips snapshot/revert, keeps the restored state for production use. See DR runbook in PHASE3_DESIGN.md for full rebuild path
-- [ ] **Semaphore template: `Test — Restore [VM]`** — Restore view, `blank` environment, SQL in plan file
-- [ ] **Update DESIGN.md + README.md** — Add `test_restore.yaml` description, expand shared tasks philosophy, update task file list, add "Test Restore" to categorization, fix stale references (see below). Done as final step of implementation
+- [x] **`test_restore.yaml`** — Fully automated restore testing on disposable VM (Batch 4)
+- [x] **Semaphore template: `Test — Restore [VM]`** — Restore view, `blank` environment, id=69 (Batch 4)
+- [x] **Update DESIGN.md + README.md** — Updated task file list, shared tasks, stale refs (Batch 6)
 
 ### Standalone operative fixes
 
@@ -86,24 +86,22 @@ From `future/operative-logic-review.md`. Independent of extraction work.
 - [x] **L3: `rollback_docker.yaml`** — Add `assert_db_connectivity` pre-task (Batch 5)
 - [x] **L4: `deploy_grafana.yaml`** — Add `assert_db_connectivity` pre-task (Batch 5)
 - [x] **L5: `tasks/log_health_check.yaml`** — Documented as unused utility (Batch 5)
-- [ ] **L6: Discord colors** — Extract magic numbers (32768, 16711680, etc.) to named vars in `group_vars/all.yaml`
-- [ ] **M1: `verify_backups.yaml`** — Compute `_is_db_verify` fact once instead of repeating 12+ `is_postgres or is_mariadb or is_influxdb` conditions
+- [x] **L6: Discord colors** — Extract magic numbers to named vars in `group_vars/all.yaml` (Batch 7)
+- [x] **M1: `verify_backups.yaml`** — Compute `_is_db_verify` fact once (Batch 7)
 - [x] **M2: `backup_offline.yaml`** — Add MariaDB log entry for pre-sync failures (Batch 5)
 
 #### Medium effort
 
 - [x] **M3: `rollback_docker.yaml`** — Fix registry pull to use `.image` directly (Batch 5)
-- [ ] **M4: `backup_databases.yaml`** — Isolate per-DB failures (currently failed DB mid-loop has no Discord/DB entry)
-- [ ] **M5: `update_systems.yaml`** — Detect failed `docker compose pull` (currently swallowed by shell script, reports "0 updates" on network failure)
+- [x] **M4: `backup_databases.yaml`** — Isolate per-DB failures with `ignore_errors` (Batch 7)
+- [x] **M5: `update_systems.yaml`** — Detect failed `docker compose pull` via `pull_failed` flag (Batch 7)
 
 ### DESIGN.md stale references
 
-Fix as part of the implementation work (final step of each batch), not as separate tasks.
+Fixed in Batch 6 — task file tree updated to 16 shared tasks, all playbook lists current.
 
-- [ ] `controller_fqdn`/`semaphore_ext_url` source — says `vars/semaphore_check.yaml`, actually `group_vars/all.yaml`
-- [ ] Discord notification table — add `deploy_stacks` and `build_ubuntu` rows
-- [ ] Shared task review callout — include `deploy_single_stack.yaml`, update count from 8 to current
-- [ ] Roles vs flat tasks section — update shared task file count to match actual
+- [x] Shared task review callout — updated count and list (Batch 6)
+- [x] Roles vs flat tasks section — updated shared task file count (Batch 6)
 
 ### Phase D-post (after migration stable)
 
@@ -112,7 +110,7 @@ Fix as part of the implementation work (final step of each batch), not as separa
 - [x] **Per-stack updates** — Per-stack pull/up loop + per-stack rollback snapshots in `update_systems.yaml` (completed during D-pre/migration)
 - [x] **Per-stack rollback** — Accept `-e rollback_stack=<name>` in `rollback_docker.yaml` (completed during D-pre/migration)
 - [ ] **Per-stack verify** — Loop over per-stack archives in `verify_backups.yaml`
-- [ ] **Remove legacy vars** — Remove `compose_project_path` and `src_raw_files` from `vars/docker_stacks.yaml`
+- [x] **Remove legacy vars** — Removed `compose_project_path` and legacy mode code (Batch 6)
 - [ ] **Port conflict detection** — Parse compose files for all stacks on a host, fail on duplicate ports
 - [ ] **Stack-driven `app_restore`** — Derive container/DB mappings from `stack_assignments` + compose definitions
 - [ ] **Stack-aware health checks** — Derive expected containers per host from `stack_assignments` + compose services
@@ -158,6 +156,3 @@ dozzle hub (odyssey→tantive-iv) — but tantive-iv may already be the most uti
 - [ ] **Variable drift audit** — Look for variable drift across the entire project
 - [ ] **Secret rotation workflow** — Mechanism to detect which stacks need re-deploy after vault edit
 - [ ] **Auto-deploy on git push** — Toggle Semaphore template `autorun` from 0 to 1 once workflow is stable
-
-User Added:
-Migration is complete, remove all notes/design/information around legacy and migration. New design.  Look thru all code to remove as well.  I know there are at least comments in some playbooks/vars.

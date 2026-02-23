@@ -24,7 +24,7 @@ Reviewed: all 19 playbooks, 9 shared task files, all vars files, DESIGN.md, stac
 
 ## Critical: Operative Safety
 
-### C1. Docker safety net in `restore_hosts.yaml` doesn't cover the `manage_docker` gate
+### C1. Docker safety net in `restore_hosts.yaml` doesn't cover the `manage_docker` gate — **Fixed (Batch 2)**
 
 **Files:** `restore_hosts.yaml:113-177` (stop), `restore_hosts.yaml:473-521` (rescue)
 
@@ -110,7 +110,7 @@ the current per-DB granularity with the documented caveat.
 These are the core duplication areas identified in DESIGN.md's "Shared task review"
 callout. They represent real operative logic — not cosmetic repetition.
 
-### H1. Docker stop/start tri-modal control flow (highest value extraction)
+### H1. Docker stop/start tri-modal control flow (highest value extraction) — **Fixed (Batch 2)**
 
 **Files:**
 - `backup_hosts.yaml:102-142` (stop), `245-275` (start), `316-351` (safety net)
@@ -191,7 +191,7 @@ directory, and delay config. Returns the JSON results array.
 Extracting H3 and H4 together would remove ~190 lines of duplicated shell from
 `update_systems.yaml` (currently 733 lines — the largest playbook by far).
 
-### H5. SSH hardening + passwordless sudo
+### H5. SSH hardening + passwordless sudo — **Fixed (Batch 1)**
 
 **Files:**
 - `build_ubuntu.yaml:403-428` (SSH hardening + sudo)
@@ -210,7 +210,7 @@ authorized key task.
 
 ## Medium: Logic Correctness
 
-### M1. `verify_backups.yaml` repeated condition should be a computed fact
+### M1. `verify_backups.yaml` repeated condition should be a computed fact — **Fixed (Batch 7)**
 
 **File:** `verify_backups.yaml` (12+ occurrences)
 
@@ -293,7 +293,7 @@ This pulls the *current* latest — not the old version. To truly pull the old v
 the snapshot would need to record the full image digest
 (`image@sha256:abc123...`). This is a design limitation worth documenting.
 
-### M4. `backup_databases.yaml` — per-DB failure doesn't isolate
+### M4. `backup_databases.yaml` — per-DB failure doesn't isolate — **Fixed (Batch 7)**
 
 **File:** `backup_databases.yaml:62-148`
 
@@ -315,9 +315,9 @@ in `combined_results`, so:
 similar to how `backup_offline.yaml` handles per-share failures). This would ensure
 every DB gets a result entry even on partial failure.
 
-### M5. `update_systems.yaml` — Docker update shell scripts swallow non-zero exits
+### M5. `update_systems.yaml` — Docker update shell scripts swallow non-zero exits — **Fixed (Batch 7)**
 
-**File:** `update_systems.yaml:339-416` (stack mode), `432-507` (legacy mode)
+**File:** `update_systems.yaml` (stack mode + unRAID mode)
 
 The shell scripts use `docker compose pull` which may fail (network issues, registry
 down). If `docker compose pull` fails, the script continues to the comparison/output
@@ -339,7 +339,7 @@ docker compose pull $target_services >&2 || pull_failed=true
 Then set a non-zero exit code at the end if `pull_failed` is set, so Ansible can
 detect and report the failure.
 
-### M6. `deploy_single_stack.yaml` — no rollback on validation failure
+### M6. `deploy_single_stack.yaml` — no rollback on validation failure — **Fixed (Batch 3)**
 
 **File:** `tasks/deploy_single_stack.yaml:35-41`
 
@@ -363,7 +363,7 @@ pattern.
 
 ## Low: Consistency and Polish
 
-### L1. SSH service name inconsistency (`ssh` vs `sshd`)
+### L1. SSH service name inconsistency (`ssh` vs `sshd`) — **Fixed (Batch 1)**
 
 **Files:**
 - `build_ubuntu.yaml:428` — uses `ssh` (correct for Ubuntu Noble)
@@ -414,46 +414,41 @@ utility for future single-check playbooks.
 **Recommendation:** Add a comment to the file documenting its status, or remove it if
 no future use is planned.
 
-### L6. Discord color magic numbers
+### L6. Discord color magic numbers — **Fixed (Batch 7)**
 
 **Files:** All playbooks.
 
 Colors are hardcoded as integers: `32768` (green), `16711680` (red), `16753920` (orange),
 `16776960` (yellow). These appear ~40 times across the codebase.
 
-**Recommendation:** Define named variables in `group_vars/all.yaml`:
-```yaml
-discord_color_success: 32768
-discord_color_failure: 16711680
-discord_color_warning: 16753920
-discord_color_rollback: 16776960
-```
-This improves readability and makes the color scheme easy to change globally.
+**Fix:** Named variables defined in `group_vars/all.yaml` (`discord_color_success`,
+`discord_color_failure`, `discord_color_warning`, `discord_color_rollback`). All ~30
+occurrences across 18 playbooks replaced.
 
 ---
 
 ## Summary Priority Matrix
 
-| ID | Severity | Effort | Impact |
+| ID | Severity | Status | Impact |
 |----|----------|--------|--------|
-| C1 | Critical | Low | Safety net starts containers that were never stopped |
-| C2 | Critical | Low | Failed backups indistinguishable from zero-byte successes in DB |
-| C3 | Critical | Low | Latent fragility — multi-DB backup correctness depends on vars convention |
-| C4 | Critical | Low | Multi-DB restore has no rollback for partial failure |
-| H1 | High | Medium | ~200 lines of duplicated Docker stop/start/safety-net logic |
-| H2 | High | Medium | ~200 lines of duplicated DB engine branching across 5 playbooks |
-| H3 | High | Low | ~60 lines duplicated rollback snapshot shell |
-| H4 | High | Low | ~130 lines duplicated update shell |
-| H5 | High | Low | ~60 lines duplicated SSH hardening |
-| M1 | Medium | Low | Verbose repeated condition; new-engine maintenance burden |
-| M2 | Medium | Low | Missing DB log on pre-sync failure |
-| M3 | Medium | Medium | Registry rollback pulls wrong version for label != tag images |
-| M4 | Medium | Medium | Per-DB failure info lost mid-loop |
-| M5 | Medium | Medium | Failed docker pull silently reports "no updates" |
-| M6 | Medium | Medium | Broken compose files left on disk after validation failure |
-| L1 | Low | Low | SSH handler fails on Ubuntu Noble |
-| L2 | Low | Low | Inconsistent vars_files order |
-| L3 | Low | Low | Missing db_connectivity pre-task |
-| L4 | Low | Low | Missing db_connectivity pre-task |
-| L5 | Low | Low | Potentially dead code |
-| L6 | Low | Low | Magic number readability |
+| C1 | Critical | **Fixed (B2)** | Safety net starts containers that were never stopped |
+| C2 | Critical | **Fixed (B5)** | Failed backups indistinguishable from zero-byte successes in DB |
+| C3 | Critical | **Fixed (B5)** | Latent fragility — multi-DB backup correctness depends on vars convention |
+| C4 | Critical | **Fixed (B5)** | Multi-DB restore has no rollback for partial failure |
+| H1 | High | **Fixed (B2)** | ~200 lines of duplicated Docker stop/start/safety-net logic |
+| H2 | High | Deferred | ~200 lines of duplicated DB engine branching across 5 playbooks |
+| H3 | High | Deferred | ~60 lines duplicated rollback snapshot shell |
+| H4 | High | Deferred | ~130 lines duplicated update shell |
+| H5 | High | **Fixed (B1)** | ~60 lines duplicated SSH hardening |
+| M1 | Medium | **Fixed (B7)** | Verbose repeated condition; new-engine maintenance burden |
+| M2 | Medium | **Fixed (B5)** | Missing DB log on pre-sync failure |
+| M3 | Medium | **Fixed (B5)** | Registry rollback pulls wrong version for label != tag images |
+| M4 | Medium | **Fixed (B7)** | Per-DB failure info lost mid-loop |
+| M5 | Medium | **Fixed (B7)** | Failed docker pull silently reports "no updates" |
+| M6 | Medium | **Fixed (B3)** | Broken compose files left on disk after validation failure |
+| L1 | Low | **Fixed (B1)** | SSH handler fails on Ubuntu Noble |
+| L2 | Low | **Fixed (B5)** | Inconsistent vars_files order |
+| L3 | Low | **Fixed (B5)** | Missing db_connectivity pre-task |
+| L4 | Low | **Fixed (B5)** | Missing db_connectivity pre-task |
+| L5 | Low | **Fixed (B5)** | Potentially dead code |
+| L6 | Low | **Fixed (B7)** | Magic number readability |

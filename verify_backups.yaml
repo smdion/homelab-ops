@@ -31,6 +31,7 @@
       ansible.builtin.set_fact:
         verify_failed: false
         combined_results: []
+        _is_db_verify: "{{ is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool }}"
       tags: [always]
 
     - block:
@@ -43,7 +44,7 @@
           become: false
           changed_when: false
           check_mode: false
-          when: is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool
+          when: _is_db_verify | bool
           tags: [always]
 
         - name: Assert backup files exist
@@ -53,7 +54,7 @@
           loop: "{{ db_names }}"
           loop_control:
             index_var: idx
-          when: is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool
+          when: _is_db_verify | bool
           tags: [always]
 
         - name: Copy backup files to target host
@@ -64,7 +65,7 @@
           loop_control:
             index_var: idx
           become: true
-          when: is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool
+          when: _is_db_verify | bool
           tags: [always]
 
         - name: Create temp verification databases and restore
@@ -87,7 +88,7 @@
           become: true
           no_log: "{{ not (is_influxdb | default(false) | bool) }}"
           when:
-            - is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool
+            - _is_db_verify | bool
             - not ansible_check_mode
           tags: [always]
 
@@ -108,7 +109,7 @@
           changed_when: false
           no_log: "{{ not (is_influxdb | default(false) | bool) }}"
           when:
-            - is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool
+            - _is_db_verify | bool
             - not ansible_check_mode
           tags: [always]
 
@@ -128,7 +129,7 @@
           become: true
           no_log: "{{ not (is_influxdb | default(false) | bool) }}"
           when:
-            - is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool
+            - _is_db_verify | bool
             - not ansible_check_mode
           tags: [always]
 
@@ -138,7 +139,7 @@
             state: absent
           loop: "{{ db_names }}"
           become: true
-          when: is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool
+          when: _is_db_verify | bool
           tags: [always]
 
         - name: Collect database verification results
@@ -156,7 +157,7 @@
           loop_control:
             loop_var: idx
           when:
-            - is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool
+            - _is_db_verify | bool
             - not ansible_check_mode
           tags: [always]
 
@@ -168,14 +169,14 @@
           become: false
           changed_when: false
           check_mode: false
-          when: src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool)
+          when: src_raw_files is defined and not (_is_db_verify | bool)
           tags: [always]
 
         - name: Assert config backup file exists
           ansible.builtin.assert:
             that: _config_backup_file.stdout | length > 0
             fail_msg: "No config backup found for {{ inventory_hostname }} on controller"
-          when: src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool)
+          when: src_raw_files is defined and not (_is_db_verify | bool)
           tags: [always]
 
         - name: Verify config backup integrity
@@ -184,7 +185,7 @@
           become: false
           changed_when: false
           check_mode: false
-          when: src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool)
+          when: src_raw_files is defined and not (_is_db_verify | bool)
           tags: [always]
 
         - name: Create staging directory on controller
@@ -194,7 +195,7 @@
           delegate_to: localhost
           become: false
           when:
-            - src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool)
+            - src_raw_files is defined and not (_is_db_verify | bool)
             - not ansible_check_mode
           tags: [always]
 
@@ -205,7 +206,7 @@
           become: false
           failed_when: _tar_extract.rc != 0 and 'Cannot hard link' not in _tar_extract.stderr
           when:
-            - src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool)
+            - src_raw_files is defined and not (_is_db_verify | bool)
             - not ansible_check_mode
           tags: [always]
 
@@ -216,7 +217,7 @@
           become: false
           changed_when: false
           when:
-            - src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool)
+            - src_raw_files is defined and not (_is_db_verify | bool)
             - not ansible_check_mode
           tags: [always]
 
@@ -226,7 +227,7 @@
             state: absent
           delegate_to: localhost
           become: false
-          when: src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool)
+          when: src_raw_files is defined and not (_is_db_verify | bool)
           tags: [always]
 
         - name: Collect config verification results
@@ -241,7 +242,7 @@
                 }]
               }}
           when:
-            - src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool)
+            - src_raw_files is defined and not (_is_db_verify | bool)
             - not ansible_check_mode
           tags: [always]
 
@@ -266,7 +267,7 @@
           become: true
           ignore_errors: true
           no_log: "{{ not (is_influxdb | default(false) | bool) }}"
-          when: is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool
+          when: _is_db_verify | bool
           tags: [always]
 
         - name: Clean up staging directory on failure
@@ -276,7 +277,7 @@
           delegate_to: localhost
           become: false
           ignore_errors: true
-          when: src_raw_files is defined and not (is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool)
+          when: src_raw_files is defined and not (_is_db_verify | bool)
           tags: [always]
 
       always:
@@ -288,7 +289,7 @@
           vars:
             discord_title: "{{ backup_name }}"
             discord_description: "Verification {{ 'Successful' if not verify_failed else 'Failed' }} — {{ verify_result.db_name }}"
-            discord_color: "{{ 32768 if not verify_failed else 16711680 }}"
+            discord_color: "{{ discord_color_success if not verify_failed else discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Description"
@@ -307,7 +308,7 @@
           vars:
             discord_title: "{{ backup_name }}"
             discord_description: "Verification Failed — check Semaphore logs for details"
-            discord_color: 16711680
+            discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Description"
@@ -323,7 +324,7 @@
             loop_var: verify_result
           vars:
             log_table: maintenance
-            log_application: "{{ verify_result.db_name }}{{ '-db' if is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool else '' }}"
+            log_application: "{{ verify_result.db_name }}{{ '-db' if _is_db_verify | bool else '' }}"
             log_hostname: "{{ inventory_hostname }}"
             log_type: "{{ backup_type }}"
             log_subtype: "Verify"

@@ -241,7 +241,7 @@
           vars:
             discord_title: "{{ update_name | default('Docker') }}"
             discord_description: "{{ 'Rollback Failed' if rollback_failed else 'Containers Rolled Back' }}"
-            discord_color: "{{ 16711680 if rollback_failed else 16776960 }}"
+            discord_color: "{{ discord_color_failure if rollback_failed else discord_color_rollback }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Description"

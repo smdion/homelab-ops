@@ -4,7 +4,7 @@
 #
 # Required vars (used by ALL callers):
 #   discord_title        — embed title
-#   discord_color        — embed color as integer (32768=green, 16711680=red, 16753920=orange)
+#   discord_color        — embed color (use discord_color_success/failure/warning/rollback from group_vars/all.yaml)
 #   discord_fields       — list of {name: ..., value: ...} dicts
 #
 # Optional vars — embed content:
