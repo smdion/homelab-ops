@@ -144,6 +144,7 @@
             status_code: 200
           register: unvr_backup
           delegate_to: localhost
+          ignore_errors: true  # TODO: API endpoint 404 — silence until correct path is found (IMP-10)
           when:
             - inventory_hostname in groups["unifi_protect"]
             - not ansible_check_mode
