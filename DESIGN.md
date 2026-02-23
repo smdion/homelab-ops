@@ -190,7 +190,9 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 ├── setup_pve_vip.yaml              # One-time VIP setup: install and configure keepalived on PVE nodes; verifies VIP reachable on port 22
 ├── deploy_stacks.yaml             # Deploy Docker stacks from Git — templates .env from vault, copies compose, starts stacks
 ├── build_ubuntu.yaml              # Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH config
+├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert
+├── test_app_restore.yaml          # Test all app_restore apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
 ├── files/
@@ -2092,4 +2094,19 @@ ansible-playbook test_restore.yaml -e vm_name=<test-vm> -e source_host=<source-f
 
 # DR mode — same playbook, keeps the VM running after restore (no revert)
 ansible-playbook test_restore.yaml -e vm_name=<dr-vm> -e source_host=<source-fqdn> -e dr_mode=true --vault-password-file ~/.vault_pass
+
+# Test all app_restore apps on a disposable VM (per-app DB + appdata restore, health check, revert)
+ansible-playbook test_app_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
+
+# Restore a single app to production (requires confirm=yes safety gate)
+ansible-playbook restore_app.yaml -e restore_app=authentik -e restore_target=<host-fqdn> -e confirm=yes --vault-password-file ~/.vault_pass
 ```
+
+**Per-stack health check timeouts** — `stack_health_timeouts` in `vars/docker_stacks.yaml` controls
+how long `test_restore.yaml` and `test_app_restore.yaml` wait for containers to become healthy after
+a stack is started. The maximum timeout across all stacks being tested is used. Default fallback is
+120 s. Authentik (`auth` stack) is set to 420 s due to its multi-container worker startup time.
+
+**OOM auto-recovery** — `test_app_restore.yaml` detects OOM kill events (via `dmesg`) in its rescue
+block. If any app fails due to OOM, after the full app loop it doubles VM memory via the PVE API,
+reboots the VM, and retries only the OOM-failed apps with the new memory ceiling.
