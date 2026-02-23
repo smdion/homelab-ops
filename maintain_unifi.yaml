@@ -1,7 +1,9 @@
 ---
 # Restart Unifi Network services.
 # Restarts the Unifi Network application service on the controller.
-# Schedule with Semaphore to run weekly.
+# Runs daily (not weekly) — Unifi Network has a known memory leak; daily restart
+# keeps memory usage in check. This restarts only the controller service, not the
+# network hardware, so there is no connectivity outage.
 
 - name: Restart Unifi Network services
   hosts: "unifi_network"
