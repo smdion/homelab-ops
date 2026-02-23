@@ -60,6 +60,17 @@
       - "{{ log_type }}"
       - "{{ log_subtype }}"
       - "{{ log_status }}"
+    _docker_sizes_query: >-
+      INSERT INTO docker_sizes
+        (hostname, timestamp, images_count, images_mb, volumes_count, volumes_mb, containers_mb)
+      VALUES (%s, UTC_TIMESTAMP(), %s, %s, %s, %s, %s)
+    _docker_sizes_args:
+      - "{{ log_hostname }}"
+      - "{{ log_images_count | default(0) }}"
+      - "{{ log_images_mb | default(0) }}"
+      - "{{ log_volumes_count | default(0) }}"
+      - "{{ log_volumes_mb | default(0) }}"
+      - "{{ log_containers_mb | default(0) }}"
   become: false
   connection: local
   community.mysql.mysql_query:
@@ -68,8 +79,8 @@
     login_user: "{{ logging_db_user }}"
     login_password: "{{ logging_db_password }}"
     login_db: "{{ logging_db_name }}"
-    query: "{{ _backup_query if log_table == 'backups' else (_update_query if log_table == 'updates' else _maintenance_query) }}"
-    positional_args: "{{ _backup_args if log_table == 'backups' else (_update_args if log_table == 'updates' else _maintenance_args) }}"
+    query: "{{ _backup_query if log_table == 'backups' else (_update_query if log_table == 'updates' else (_maintenance_query if log_table == 'maintenance' else _docker_sizes_query)) }}"
+    positional_args: "{{ _backup_args if log_table == 'backups' else (_update_args if log_table == 'updates' else (_maintenance_args if log_table == 'maintenance' else _docker_sizes_args)) }}"
   register: _log_mariadb_result
   retries: 40
   delay: 10

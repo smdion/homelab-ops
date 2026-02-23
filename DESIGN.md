@@ -1021,6 +1021,38 @@ when: inventory_hostname in groups['pbs']    # not: ansible_hostname == 'backup'
 when: inventory_hostname in groups['docker_stacks']
 ```
 
+### Docker and unRAID group hierarchy
+
+`docker` is a **parent group** with two children:
+- `docker_stacks` — hosts using Docker Compose (per-stack backup/start/stop orchestration)
+- `docker_run` — hosts running containers via `docker run` directly (monolithic backup + Docker API mode)
+
+`unraid` is a **platform identity group** — hosts running the unRAID OS. It is semantically distinct
+from Docker groups. Currently `docker_run` and `unraid` contain the same hosts, but this is
+**coincidental, not structural**. Future hosts may diverge:
+- A plain Linux host could join `docker_run` without running unRAID
+- A new unRAID host might not run Docker at all
+
+**unRAID platform characteristics:**
+- Management is via a custom PHP-based web UI/API; some operations (array, disk, container
+  management) go through this PHP layer — Ansible playbooks must use `uri` or shell wrappers
+  where a direct Ansible module doesn't exist
+- Flash-based boot config at `/boot/config/`; array state at `/var/local/emhttp/`
+- Disk assignment data at `/var/local/emhttp/disks.ini`
+- Nerd Tools is deprecated — playbooks must never assume any Nerd Tools binary is installed.
+  Any required tool must be installed by the playbook itself or be part of the base unRAID image.
+  Always assert with `command -v <bin>` before use.
+
+**Rules:**
+- `unraid` membership does NOT imply Docker. Never use `unraid` in place of `docker_run`.
+- `docker_run` membership does NOT imply unRAID.
+- Docker playbooks target `hosts: "docker"` — never append `:unraid` (would duplicate current
+  hosts and break future non-Docker unRAID hosts).
+- unRAID-specific tasks (disk assignment snapshot, array find-index, boot backup) guard on
+  `groups['unraid']`, not `groups['docker_run']`.
+- Docker stop/start in backup must guard on `groups['docker_run']`, not just
+  `not in groups['docker_stacks']` (too broad — would target future non-Docker unRAID hosts).
+
 ### Check mode (dry-run) support
 
 All playbooks support `ansible-playbook --check` for safe dry-run previews. Three annotation

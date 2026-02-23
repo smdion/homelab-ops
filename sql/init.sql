@@ -97,3 +97,17 @@ CREATE TABLE IF NOT EXISTS health_check_state (
   last_check  DATETIME NOT NULL,
   CONSTRAINT single_row CHECK (id = 1)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Docker disk usage — one row per host per maintain_docker run
+CREATE TABLE IF NOT EXISTS docker_sizes (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  hostname      VARCHAR(255) NOT NULL,
+  timestamp     DATETIME     NOT NULL,
+  images_count  INT,
+  images_mb     DECIMAL(10,2),
+  volumes_count INT,
+  volumes_mb    DECIMAL(10,2),
+  containers_mb DECIMAL(10,2),
+  INDEX idx_hostname  (hostname),
+  INDEX idx_timestamp (timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

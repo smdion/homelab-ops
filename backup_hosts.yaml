@@ -123,7 +123,9 @@
         - include_tasks: tasks/docker_stop.yaml
           vars:
             _docker_exclude_containers: "{{ backup_exclude_containers | default([]) }}"
-          when: inventory_hostname not in groups["docker_stacks"] | default([])
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname in groups["docker_run"] | default([])
           tags: [docker]
 
         # ===== UNVR PROTECT BACKUP VIA API =====
@@ -206,6 +208,44 @@
             - backup_exclude_dirs | default([]) | length > 0
           tags: [always]
 
+        # === unRAID: snapshot disk assignments to boot config (included in /boot archive) ===
+        - name: Snapshot disk assignments to boot config
+          ansible.builtin.copy:
+            src: /var/local/emhttp/disks.ini
+            dest: /boot/config/DISK_ASSIGNMENTS.ini
+            remote_src: true
+            mode: "0644"
+          when:
+            - inventory_hostname in groups['unraid'] | default([])
+            - not ansible_check_mode
+
+        # === unRAID: file inventory of all array shares (monthly — pass -e run_tree_index=true) ===
+        - name: Assert find command is available
+          ansible.builtin.shell: command -v find
+          changed_when: false
+          register: _find_check
+          failed_when: _find_check.rc != 0
+          check_mode: false
+          when:
+            - inventory_hostname in groups['unraid'] | default([])
+            - run_tree_index | default(false) | bool
+
+        - name: Generate file inventory of all array shares
+          ansible.builtin.shell: |
+            SAVEPATH="/mnt/user/Backup/{{ inventory_hostname }}/tree/array"
+            for f in /mnt/user/*/; do
+              share=$(basename "$f")
+              mkdir -p "$SAVEPATH/$share"
+              find "$f" | sort > "$SAVEPATH/$share/$(date +%Y%m%d).txt"
+            done
+          args:
+            executable: /bin/bash
+          changed_when: true
+          when:
+            - inventory_hostname in groups['unraid'] | default([])
+            - run_tree_index | default(false) | bool
+            - not ansible_check_mode
+
         - name: Create compressed backup archive
           become: true
           community.general.archive:
@@ -242,7 +282,9 @@
         - include_tasks: tasks/docker_start.yaml
           vars:
             _docker_wait_ssh: true
-          when: inventory_hostname not in groups["docker_stacks"] | default([])
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname in groups["docker_run"] | default([])
           tags: [docker]
 
         # ===== FETCH AND CLEANUP =====
@@ -280,6 +322,7 @@
         - include_tasks: tasks/docker_start.yaml
           vars:
             _docker_ignore_errors: true
+          when: inventory_hostname in groups["docker_run"] | default([])
           tags: [docker]
 
         # ===== WAIT FOR MARIADB AFTER DOCKER RESTART =====
