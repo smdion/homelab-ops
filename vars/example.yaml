@@ -39,6 +39,7 @@ backup_type: "Servers"
 backup_subtype: "Config"
 
 # Backup filename pattern (date-stamped so same-day reruns overwrite)
+# For database vars files, include {{ item }} so each DB gets a unique filename.
 backup_file: "backup_myapp_config_{{ ansible_date_time.date }}.tar.gz"
 
 # =============================================================================

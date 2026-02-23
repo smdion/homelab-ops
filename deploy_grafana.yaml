@@ -28,6 +28,10 @@
     maintenance_type: "Local"
     maintenance_subtype: "Deploy"
 
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
   tasks:
     - name: Initialize deploy state
       ansible.builtin.set_fact:

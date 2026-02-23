@@ -323,6 +323,6 @@
             log_table: backups
             log_application: "{{ backup_name }}"
             log_hostname: "{{ inventory_hostname }}"
-            log_file_name: "{{ backup_file }}"
+            log_file_name: "{{ ('FAILED_' if backup_failed else '') + backup_file }}"
             log_file_size: "{{ (file_size.stat.size / 1024 / 1024) | round(2) }}"
           tags: [always]
