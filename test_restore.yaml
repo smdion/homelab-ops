@@ -172,7 +172,7 @@
         - _vm_status.json.data.status == 'stopped'
 
 # ═══════════════════════════════════════════════════════════════════
-# Play 2 — Bootstrap (only if VM was just built)
+# Play 2 — Bootstrap (new VM or Docker missing)
 # ═══════════════════════════════════════════════════════════════════
 - name: Bootstrap test VM
   hosts: test_target
@@ -183,11 +183,18 @@
     - vars/vm_definitions.yaml
 
   tasks:
+    - name: Check if Docker is installed
+      ansible.builtin.command: docker --version
+      register: _docker_check
+      failed_when: false
+      changed_when: false
+      become: false
+
     - name: Bootstrap Ubuntu with Docker and security hardening
       include_tasks: tasks/bootstrap_vm.yaml
       vars:
         _vm: "{{ hostvars['localhost']._vm }}"
-      when: hostvars[inventory_hostname]._needs_bootstrap | default(false)
+      when: hostvars[inventory_hostname]._needs_bootstrap | default(false) or _docker_check.rc != 0
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 3 — Snapshot clean post-bootstrap state for revert
