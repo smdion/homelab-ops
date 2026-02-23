@@ -600,11 +600,13 @@ playbook to the correct functional group.
 | Inventory | Credential (Key Store) | Covers |
 |-----------|----------------------|--------|
 | `ansible-user-ssh` | ansible SSH key (id=8) | Ubuntu, Docker, Proxmox, unRAID, controller, amp, vps; maintain_health (all SSH hosts + localhost) |
-| `root` | root login_password (id=13) | Synology, NAS host |
+| `root` | root login_password (id=13) | Synology, NAS host only |
 | `pikvm` | PiKVM login_password (id=11) | pikvm |
 | `unifi_network` | root login_password (id=13) | udmp |
 | `unifi_protect` | unifi_protect login_password (id=29) | unvr |
 | `local` | — | localhost only (no templates currently use this inventory) |
+
+> **Rule:** Use `ansible-user-ssh` (id=3) for all recurring/scheduled templates — Ubuntu, Proxmox, PBS, unRAID, AMP, VPS. The `root` inventory (id=12) is reserved for Synology/NAS targets only; do not assign it to Proxmox or other SSH-key hosts even as a convenience shortcut.
 
 ### Variable Groups
 
