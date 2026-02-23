@@ -107,11 +107,11 @@
             else
               exit 1
             fi
-            if mountpoint -q {{ mnt_base_path }}{{ server_mountname }}_{{ server_mount | regex_replace('^/', '') | replace('/', '_') }}; then
-              rsync -a --stats {{ src_base_path }}{{ item }}/ {{ mnt_base_path }}{{ server_mountname }}_{{ server_mount | regex_replace('^/', '') | replace('/', '_') }}/ --delete-after
-            else
+            MOUNT_POINT=$(awk '$1 == "{{ server_mountname }}:{{ server_mount }}" { print $2; exit }' /proc/mounts)
+            if [ -z "$MOUNT_POINT" ]; then
               exit 2
             fi
+            rsync -a --stats {{ src_base_path }}{{ item }}/ "$MOUNT_POINT"/ --delete-after
             sync
             sleep 60
             let "n = {{ umount_timeout }}"
