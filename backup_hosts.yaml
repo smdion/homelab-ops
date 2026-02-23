@@ -104,7 +104,7 @@
         # ===== PER-STACK BACKUP (docker_stacks hosts) =====
         - name: Back up per-stack archives
           include_tasks: tasks/backup_single_stack.yaml
-          loop: "{{ stack_assignments[inventory_hostname] | default([]) | reverse | list }}"
+          loop: "{{ backup_stack_order[inventory_hostname] | default(stack_assignments[inventory_hostname] | default([]) | reverse | list) }}"
           loop_control:
             loop_var: _backup_stack
           when:

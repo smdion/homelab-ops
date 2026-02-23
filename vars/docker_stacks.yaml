@@ -72,6 +72,13 @@ stack_assignments:
   odyssey.REDACTED_DOMAIN: [infra, media, apps, nfs]
   tantiveiv.REDACTED_DOMAIN: [infra, databases, auth, monitoring, dev]
 
+# Backup order: least-critical stacks first so auth/databases go down last.
+# Defaults to reverse of stack_assignments if not specified.
+backup_stack_order:
+  vps.REDACTED_DOMAIN: [vpn]
+  odyssey.REDACTED_DOMAIN: [nfs, media, apps, infra]
+  tantiveiv.REDACTED_DOMAIN: [dev, monitoring, infra, databases, auth]
+
 # Docker defaults — non-secret, shared across all stacks.
 # Per-host MEM_LIMIT: tantive-iv=10g (12GB RAM), others=3000m (4GB RAM).
 docker_mem_limit: >-
