@@ -196,10 +196,13 @@
             discord_fields:
               - name: "VM Name"
                 value: "{{ _vm.vm_name }}"
+                inline: true
               - name: "Host IP"
                 value: "{{ _vm.vm_ip }}"
+                inline: true
               - name: "Proxmox Node"
                 value: "{{ _vm.pve_target_node }}"
+                inline: true
               - name: "Detail"
                 value: "{{ _build_detail }}"
 

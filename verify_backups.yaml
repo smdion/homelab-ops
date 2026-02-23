@@ -583,7 +583,7 @@
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Source File"
-                value: "{{ verify_result.source_file }}"
+                value: "{{ verify_result.source_file | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1') }}"
               - name: "Detail"
                 value: "{{ verify_result.table_count }} {{ 'measurements' if is_influxdb | default(false) | bool else 'tables' if is_postgres | default(false) | bool or is_mariadb | default(false) | bool else 'files' }} verified"
           tags: [always]

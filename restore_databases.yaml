@@ -220,7 +220,7 @@
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Source File"
-                value: "{{ restore_result.source_file }}"
+                value: "{{ restore_result.source_file | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1') }}"
               - name: "{{ 'Measurements' if is_influxdb | default(false) | bool else 'Tables' }}"
                 value: "{{ restore_result.table_count }}"
           tags: [always]

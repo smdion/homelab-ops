@@ -349,6 +349,15 @@
              | zip(_all_results | map(attribute='passed') | map('ternary', 'PASS', 'FAIL'))
              | list | map('join', ': ') | list | join(' | ') }}
 
+    - name: Build per-app Discord fields
+      ansible.builtin.set_fact:
+        _app_discord_fields: >-
+          [
+           {% for r in _all_results %}
+           {% if not loop.first %},{% endif %}
+           {"name": "{{ ('❌ ' if not r.passed else '✅ ') + r.app }}", "value": "{{ 'FAILED' if not r.passed else 'OK' }}", "inline": true}
+           {% endfor %}]
+
     - name: Send Discord summary
       include_tasks: tasks/notify_discord.yaml
       vars:
@@ -359,15 +368,7 @@
         discord_color: "{{ discord_color_failure if _any_failed else discord_color_success }}"
         discord_url: "{{ semaphore_ext_url }}"
         discord_author: "{{ controller_fqdn }}"
-        discord_fields:
-          - name: "Source Host"
-            value: "{{ source_host }}"
-          - name: "Test VM"
-            value: "{{ hostvars['localhost']._vm.vm_name }}"
-          - name: "Apps Tested"
-            value: "{{ _all_results | map(attribute='app') | list | join(', ') }}"
-          - name: "Results"
-            value: "{{ _result_summary }}"
+        discord_fields: "{{ _app_discord_fields }}"
 
     - name: Log app restore test to MariaDB
       include_tasks: tasks/log_mariadb.yaml

@@ -343,8 +343,10 @@
             discord_fields:
               - name: "Source Host"
                 value: "{{ source_host }}"
+                inline: true
               - name: "Test VM"
                 value: "{{ hostvars['localhost']._vm.vm_name }}"
+                inline: true
               - name: "Stacks"
                 value: "{{ hostvars['localhost']._stacks | join(', ') }}"
               - name: "Detail"

@@ -535,7 +535,7 @@
               [
                {% for r in _stack_backup_results %}
                {% if not loop.first %},{% endif %}
-               {"name": "{{ r.stack }}", "value": "{{ 'FAILED' if r.failed else ('Nothing to back up' if r.file_size == 0 else ((r.file_size / 1024 / 1024) | round(2) | string + 'MB')) }}"}
+               {"name": "{{ ('❌ ' if r.failed else '✅ ') + r.stack }}", "value": "{{ 'FAILED' if r.failed else ('empty' if r.file_size == 0 else ((r.file_size / 1024 / 1024) | round(2) | string + ' MB')) }}", "inline": true}
                {% endfor %}]
           when: inventory_hostname in groups["docker_stacks"] | default([])
           tags: [always]
@@ -565,7 +565,7 @@
               [
                {% for r in _amp_backup_results %}
                {% if not loop.first %},{% endif %}
-               {"name": "{{ r.instance }}", "value": "{{ 'FAILED' if r.failed else ('Nothing to back up' if r.file_size == 0 else ((r.file_size / 1024 / 1024) | round(2) | string + 'MB')) }}"}
+               {"name": "{{ ('❌ ' if r.failed else '✅ ') + r.instance }}", "value": "{{ 'FAILED' if r.failed else ('empty' if r.file_size == 0 else ((r.file_size / 1024 / 1024) | round(2) | string + ' MB')) }}", "inline": true}
                {% endfor %}]
           when: inventory_hostname in groups["amp"] | default([])
           tags: [always]

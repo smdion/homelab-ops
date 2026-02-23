@@ -9,7 +9,7 @@
   <text x="16" y="60" fill="#5ca5f7" font-size="15" font-weight="bold" font-family="Arial, Helvetica, sans-serif">Database Verification</text>
   <text x="16" y="80" fill="#dcddde" font-size="14" font-family="Arial, Helvetica, sans-serif">Successful — authentik</text>
   <text x="16" y="108" fill="#ffffff" font-size="13" font-weight="bold" font-family="Arial, Helvetica, sans-serif">Source File</text>
-  <text x="16" y="124" fill="#b5bac1" font-size="13" font-family="Arial, Helvetica, sans-serif">backup_authentik_2026-02-21.sql</text>
+  <text x="16" y="124" fill="#b5bac1" font-size="13" font-family="Arial, Helvetica, sans-serif">2026-02-21</text>
   <text x="16" y="146" fill="#ffffff" font-size="13" font-weight="bold" font-family="Arial, Helvetica, sans-serif">Detail</text>
   <text x="16" y="162" fill="#b5bac1" font-size="13" font-family="Arial, Helvetica, sans-serif">24 tables verified</text>
   <text x="16" y="190" fill="#5ca5f7" font-size="12" font-family="Arial, Helvetica, sans-serif">Today at 5:15 AM</text>

@@ -8,7 +8,7 @@
   <circle cx="374" cy="33" r="2" fill="white"/>
   <text x="16" y="60" fill="#5ca5f7" font-size="15" font-weight="bold" font-family="Arial, Helvetica, sans-serif">Database Backup</text>
   <text x="16" y="80" fill="#dcddde" font-size="14" font-family="Arial, Helvetica, sans-serif">Failed — nextcloud</text>
-  <text x="16" y="108" fill="#ffffff" font-size="13" font-weight="bold" font-family="Arial, Helvetica, sans-serif">Backup Name</text>
-  <text x="16" y="124" fill="#b5bac1" font-size="13" font-family="Arial, Helvetica, sans-serif">FAILED_nextcloud_2026-02-21.sql</text>
+  <text x="16" y="108" fill="#ffffff" font-size="13" font-weight="bold" font-family="Arial, Helvetica, sans-serif">Date</text>
+  <text x="16" y="124" fill="#b5bac1" font-size="13" font-family="Arial, Helvetica, sans-serif">2026-02-21</text>
   <text x="16" y="152" fill="#5ca5f7" font-size="12" font-family="Arial, Helvetica, sans-serif">Today at 2:03 AM</text>
 </svg>
