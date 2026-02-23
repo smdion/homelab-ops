@@ -10,10 +10,11 @@
 
 - name: Wait for containers to become healthy
   become: true
-  ansible.builtin.shell: |
-    timeout={{ _health_timeout | default(120) }}
-    delay={{ _health_delay | default(10) }}
-    elapsed=0
+  ansible.builtin.shell:
+    cmd: |
+      timeout={{ _health_timeout | default(120) }}
+      delay={{ _health_delay | default(10) }}
+      elapsed=0
     while [ $elapsed -lt $timeout ]; do
       unhealthy=$(docker ps --filter health=unhealthy --format '{% raw %}{{.Names}}{% endraw %}' 2>/dev/null)
       starting=$(docker ps --filter health=starting --format '{% raw %}{{.Names}}{% endraw %}' 2>/dev/null)
