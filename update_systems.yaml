@@ -40,7 +40,7 @@
       include_tasks: tasks/assert_disk_space.yaml
       vars:
         assert_disk_path: /
-        assert_disk_min_gb: 2
+        assert_disk_min_gb: "{{ backup_assert_disk_min_gb | default(2) }}"
 
     - name: Assert MariaDB logging database is reachable
       include_tasks: tasks/assert_db_connectivity.yaml
