@@ -1,11 +1,12 @@
-src_raw_files:
-  - "/home/amp/.ampdata"
+# Per-instance backup — instances auto-discovered from filesystem at runtime.
+# Each instance gets its own archive; shared root data (instances.json) backed up separately.
+# No src_raw_files — AMP uses the per-instance backup path, not the monolithic archive path.
 backup_tmp_dir: "/tmp/backup"
 backup_name: "AMP"
-backup_description: "Automatic AMP Datastore Backup"
+backup_description: "Automatic AMP Instance Backup"
 backup_type: "Servers"
 backup_subtype: "Config"
-backup_file: "backup_amp_datastore_{{ ansible_date_time.date }}.tar.gz"
+backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ logging_domain_ext }}"
 update_name: "AMP"
 update_description: "Automatic AMP Update"
 update_type: "Servers"

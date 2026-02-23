@@ -1,3 +1,5 @@
+# unifi_network_api_key is in vars/secrets.yaml (vault)
+# Create in Unifi Network → Settings → Control Plane → Integrations → API Key
 src_raw_files:
   - "/data/unifi/data/backup/autobackup/"
 unifi_backup_retention: "10d"

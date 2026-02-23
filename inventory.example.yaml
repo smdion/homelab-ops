@@ -87,3 +87,6 @@ unvr.home.local
 [unraid]
 nas02.home.local
 nas01.home.local
+
+[amp]
+gameserver.home.local
