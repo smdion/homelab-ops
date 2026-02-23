@@ -24,7 +24,7 @@
     owner: root
     group: root
     mode: "0600"
-  no_log: "{{ not (deploy_debug | default(false) | bool) }}"
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
 - name: "Copy docker-compose.yaml (staging) — {{ _current_stack }}"
   become: true

@@ -234,7 +234,7 @@
             restore_application: "{{ restore_app }}"
             restore_source_file: "{{ hostvars['localhost']._stack_archive_path | basename }}"
             restore_type: "{{ backup_type }}"
-            restore_subtype: "App Restore"
+            restore_subtype: "Appdata"
             restore_operation: "restore"
             restore_status: "{{ 'failed' if _restore_failed else 'success' }}"
             restore_detail: "{{ _restore_detail | default('check Semaphore logs') }}"

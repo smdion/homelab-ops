@@ -1,0 +1,153 @@
+---
+# Restore a single AMP game server instance from backup.
+# Called in a loop from restore_amp.yaml with loop_var: _amp_instance.
+#
+# Stops the instance (if running), removes existing data dir, extracts archive,
+# restarts instance (if it was running before), and records the result.
+# On failure the instance is restarted and the failure recorded
+# (not re-raised — caller checks _amp_restore_results).
+# Instances that were offline before restore are not started afterward.
+#
+# Required (from caller scope):
+#   _amp_instance          — instance name (e.g. 'ADS01', 'Minecraft01')
+#   _restore_archive_map   — dict: instance → archive path on controller
+#   amp_home               — AMP user home dir (e.g. /home/amp)
+#   amp_user               — AMP unix user (e.g. amp)
+#   _amp_restore_results   — list to append results to (caller initializes to [])
+
+- name: Set restore paths for {{ _amp_instance }}
+  ansible.builtin.set_fact:
+    _amp_restore_archive: "{{ _restore_archive_map[_amp_instance] }}"
+    _amp_restore_tmp: "/tmp/restore_amp_{{ _amp_instance }}"
+  tags: [always]
+
+- name: Check if AMP instance {{ _amp_instance }} is running before restore
+  become: true
+  become_user: "{{ amp_user }}"
+  become_method: su
+  become_exe: sudo su -l
+  ansible.builtin.shell: |
+    ampinstmgr list 2>/dev/null \
+      | awk '/{{ _amp_instance }}/{found=1} found && /Running/{print; exit}' \
+      | grep -q "Yes"
+  args:
+    executable: /bin/bash
+  register: _amp_was_running_check
+  changed_when: false
+  failed_when: false
+
+- name: Record pre-restore running state for {{ _amp_instance }}
+  ansible.builtin.set_fact:
+    _amp_was_running: "{{ _amp_was_running_check.rc == 0 }}"
+
+- block:
+    - name: Stop AMP instance {{ _amp_instance }}
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.shell: ampinstmgr StopInstance {{ _amp_instance }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+      when: _amp_was_running
+
+    - name: Wait for AMP instance {{ _amp_instance }} to fully stop
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.shell: |
+        ampinstmgr list 2>/dev/null \
+          | awk '/{{ _amp_instance }}/{found=1} found && /Running/{print; exit}' \
+          | grep -q "No"
+      args:
+        executable: /bin/bash
+      register: _amp_stop_status
+      until: _amp_stop_status.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+      when: _amp_was_running
+
+    - name: Create temp restore staging dir for {{ _amp_instance }}
+      become: true
+      ansible.builtin.file:
+        path: "{{ _amp_restore_tmp }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy archive to temp dir for {{ _amp_instance }}
+      become: true
+      ansible.builtin.copy:
+        src: "{{ _amp_restore_archive }}"
+        dest: "{{ _amp_restore_tmp }}/{{ _amp_restore_archive | basename }}"
+        mode: "0600"
+
+    - name: Remove existing instance data for {{ _amp_instance }}
+      become: true
+      ansible.builtin.file:
+        path: "{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}"
+        state: absent
+
+    - name: Extract archive for {{ _amp_instance }}
+      become: true
+      ansible.builtin.shell: |
+        tar xzf "{{ _amp_restore_tmp }}/{{ _amp_restore_archive | basename }}" \
+            -C "{{ amp_home }}/.ampdata/instances"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Record success for {{ _amp_instance }}
+      ansible.builtin.set_fact:
+        _amp_restore_results: >-
+          {{ _amp_restore_results + [{'instance': _amp_instance,
+             'archive': _amp_restore_archive | basename,
+             'failed': false}] }}
+
+  rescue:
+    - name: Record failure for {{ _amp_instance }}
+      ansible.builtin.set_fact:
+        _amp_restore_results: >-
+          {{ _amp_restore_results + [{'instance': _amp_instance,
+             'archive': _amp_restore_archive | basename,
+             'failed': true}] }}
+
+  always:
+    - name: Start AMP instance {{ _amp_instance }}
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.shell: ampinstmgr StartInstance {{ _amp_instance }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+      ignore_errors: true
+      when: _amp_was_running | default(false)
+
+    - name: Wait for AMP instance {{ _amp_instance }} to be running
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.shell: |
+        ampinstmgr list 2>/dev/null \
+          | awk '/{{ _amp_instance }}/{found=1} found && /Running/{print; exit}' \
+          | grep -q "Yes"
+      args:
+        executable: /bin/bash
+      register: _amp_start_status
+      until: _amp_start_status.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+      ignore_errors: true
+      when: _amp_was_running | default(false)
+
+    - name: Delete temp restore staging dir for {{ _amp_instance }}
+      become: true
+      ansible.builtin.file:
+        path: "{{ _amp_restore_tmp }}"
+        state: absent

@@ -263,6 +263,152 @@
             - not ansible_check_mode
           tags: [always]
 
+        # ===== AMP PER-INSTANCE CONFIG VERIFICATION (amp hosts) =====
+        - name: Discover AMP instances for verification
+          become: true
+          ansible.builtin.find:
+            paths: "{{ amp_home }}/.ampdata/instances"
+            file_type: directory
+            recurse: false
+          register: _amp_verify_instances_found
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+          tags: [always]
+
+        - name: Set AMP instance list for verification
+          ansible.builtin.set_fact:
+            _amp_verify_instances: >-
+              {{ [amp_instance_filter] if amp_instance_filter is defined
+                 else (_amp_verify_instances_found.files
+                       | map(attribute='path') | map('basename') | sort | list) }}
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+          tags: [always]
+
+        - name: Find latest AMP instance archive on controller
+          ansible.builtin.shell: >
+            ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_amp_{{ item }}_*.tar.gz
+            2>/dev/null | head -1
+          loop: "{{ _amp_verify_instances | default([]) }}"
+          register: _amp_archive_files
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          check_mode: false
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+          tags: [always]
+
+        - name: Build valid AMP archive list
+          ansible.builtin.set_fact:
+            _valid_amp_archives: >-
+              {{ _amp_archive_files.results | default([]) | selectattr('stdout', 'ne', '') | list }}
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+          tags: [always]
+
+        - name: Assert at least one AMP instance archive exists
+          ansible.builtin.assert:
+            that: _valid_amp_archives | length > 0
+            fail_msg: "No AMP instance backup archives found for {{ inventory_hostname }} on controller"
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+          tags: [always]
+
+        - name: Verify AMP instance archive integrity
+          ansible.builtin.shell: gunzip -t "{{ item.stdout }}"
+          loop: "{{ _valid_amp_archives }}"
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          check_mode: false
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+          tags: [always]
+
+        - name: Create per-instance AMP staging directories
+          ansible.builtin.file:
+            state: directory
+            path: "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_{{ item.item }}"
+          loop: "{{ _valid_amp_archives }}"
+          delegate_to: localhost
+          become: false
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Extract AMP instance archives to staging
+          ansible.builtin.shell: >
+            tar xzf "{{ item.stdout }}"
+            -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_{{ item.item }}"
+          loop: "{{ _valid_amp_archives }}"
+          register: _amp_tar_extract
+          delegate_to: localhost
+          become: false
+          failed_when: >-
+            item.rc is defined and item.rc != 0
+            and 'Cannot hard link' not in (item.stderr | default(''))
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Count per-instance AMP extracted files
+          ansible.builtin.shell: >
+            find "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_{{ item.item }}"
+            -type f | wc -l
+          loop: "{{ _valid_amp_archives }}"
+          register: _amp_extracted_counts
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Clean up per-instance AMP staging directories
+          ansible.builtin.file:
+            path: "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_{{ item.item }}"
+            state: absent
+          loop: "{{ _valid_amp_archives }}"
+          delegate_to: localhost
+          become: false
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+          tags: [always]
+
+        - name: Collect AMP instance verification results
+          ansible.builtin.set_fact:
+            combined_results: >-
+              {{
+                combined_results + [{
+                  'db_name': _valid_amp_archives[idx].item,
+                  'source_file': _valid_amp_archives[idx].stdout | basename,
+                  'table_count': _amp_extracted_counts.results[idx].stdout | default('0') | trim,
+                  'status': 'success'
+                }]
+              }}
+          loop: "{{ range(0, _valid_amp_archives | default([]) | length) | list }}"
+          loop_control:
+            loop_var: idx
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not (_is_db_verify | bool)
+            - not ansible_check_mode
+          tags: [always]
+
         # ===== MONOLITHIC CONFIG VERIFICATION (non-docker_stacks hosts) =====
         - name: Find latest config backup on controller
           ansible.builtin.shell: ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_*.tar.gz 2>/dev/null | head -1
@@ -396,6 +542,16 @@
           ignore_errors: true
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
+            - not (_is_db_verify | bool)
+          tags: [always]
+
+        - name: Clean up per-instance AMP staging directories on failure
+          ansible.builtin.shell: rm -rf "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_"*
+          delegate_to: localhost
+          become: false
+          ignore_errors: true
+          when:
+            - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
           tags: [always]
 

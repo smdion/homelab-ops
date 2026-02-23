@@ -303,6 +303,7 @@
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not ansible_check_mode
+            - amp_instance_filter is not defined or _amp_instance == amp_instance_filter
           tags: [always]
 
         - name: Set failed flag from per-instance AMP results

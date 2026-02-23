@@ -29,7 +29,7 @@
     - vars/{{ config_file }}.yaml
   vars:
     config_file: "{{ hosts_variable }}"
-    pre_backup: "{{ pre_backup | default('yes') }}"
+    pre_backup: "{{ pre_backup | default('true') }}"
 
   pre_tasks:
     - name: Assert config_file is defined and non-empty

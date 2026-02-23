@@ -8,7 +8,7 @@
 #   ansible-playbook setup_pve_vip.yaml
 #
 # Required vault vars (add to vars/secrets.yaml before running):
-#   vault_pve_vip               — unused IP in 10.10.10.0/24 for the floating address
+#   vault_pve_vip               — unused IP in 192.0.2.0/24 for the floating address
 #   vault_pve_vrrp_password     — VRRP authentication passphrase (any string)
 #   vault_pve_vrrp_priorities   — dict: short node name → integer priority (domain from vault_vm_search_domain)
 #                                   e.g. node1: 150 / node2: 100 / node3: 50
