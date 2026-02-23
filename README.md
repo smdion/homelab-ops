@@ -30,6 +30,7 @@ visibility.
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
 | **Deploy** | Docker stacks from Git — templates `.env` from vault, copies compose files, validates, and starts stacks in dependency order; Grafana dashboard + datasource via API with automatic threshold syncing |
 | **Build** | Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH hardening, UFW firewall; create, destroy, snapshot, or revert |
+| **Test Restore** | End-to-end restore test on a disposable Proxmox VM — provisions or reuses a VM, snapshots it, restores a source host's full appdata, deploys stacks, verifies container health, reverts to clean state; also serves as a DR recovery tool |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
 version status per host, stale detection, health trends, and maintenance logs across 21 panels.
@@ -112,6 +113,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `add_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
+| `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=true`) keeps restored state |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
 ### Health checks by platform
@@ -184,6 +186,7 @@ for platforms you don't have are automatically skipped.
 ├── download_videos.yaml         # MeTube/yt-dlp automation
 ├── deploy_stacks.yaml           # Docker stack deploy from Git — .env templating, compose copy, validate, start
 ├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
+├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks)
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
 ├── add_ansible_user.yaml        # One-time user setup utility
 ├── requirements.txt             # Python pip dependencies (PyMySQL, proxmoxer)
@@ -418,6 +421,45 @@ ansible-playbook deploy_stacks.yaml \
   -e hosts_variable=docker_stacks \
   -e deploy_skip_up=true \
   --limit myhost \
+  --vault-password-file ~/.vault_pass
+
+# Test full restore for a docker_stacks host onto a disposable VM
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e source_host=myhost.home.local \
+  --vault-password-file ~/.vault_pass
+
+# Test restore for a single app only
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e source_host=myhost.home.local \
+  -e restore_app=authentik \
+  --vault-password-file ~/.vault_pass
+
+# Test restore for a single stack only
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e source_host=myhost.home.local \
+  -e deploy_stack=auth \
+  --vault-password-file ~/.vault_pass
+
+# DR recovery mode — restore and keep state (no snapshot revert)
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e source_host=myhost.home.local \
+  -e dr_mode=true \
+  --vault-password-file ~/.vault_pass
+
+# Restore from a specific date's backups
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e source_host=myhost.home.local \
+  -e restore_date=2026-02-22 \
   --vault-password-file ~/.vault_pass
 
 # Provision a new Ubuntu VM on Proxmox
