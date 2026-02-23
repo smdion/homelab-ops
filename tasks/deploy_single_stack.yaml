@@ -2,7 +2,10 @@
 # Per-stack deploy loop body — called by deploy_stacks.yaml.
 # Expects _current_stack (string) from loop_control.
 #
-# Steps: mkdir -> template .env -> copy compose -> validate -> up -d -> wait (databases)
+# Atomic deploy: writes .env and compose to temp files, validates against those,
+# then moves into place only on success. Originals are preserved on validation failure.
+#
+# Steps: mkdir -> template .env.new -> copy compose.new -> validate -> move -> up -d -> wait (databases)
 
 - name: "Create stack directory — {{ _current_stack }}"
   become: true
@@ -13,21 +16,21 @@
     group: root
     mode: "0755"
 
-- name: "Template .env — {{ _current_stack }}"
+- name: "Template .env (staging) — {{ _current_stack }}"
   become: true
   ansible.builtin.template:
     src: "stacks/{{ _current_stack }}/env.j2"
-    dest: "/opt/stacks/{{ _current_stack }}/.env"
+    dest: "/opt/stacks/{{ _current_stack }}/.env.new"
     owner: root
     group: root
     mode: "0600"
   no_log: "{{ not (deploy_debug | default(false) | bool) }}"
 
-- name: "Copy docker-compose.yaml — {{ _current_stack }}"
+- name: "Copy docker-compose.yaml (staging) — {{ _current_stack }}"
   become: true
   ansible.builtin.copy:
     src: "stacks/{{ _current_stack }}/docker-compose.yaml"
-    dest: "/opt/stacks/{{ _current_stack }}/docker-compose.yaml"
+    dest: "/opt/stacks/{{ _current_stack }}/docker-compose.yaml.new"
     owner: root
     group: root
     mode: "0644"
@@ -35,9 +38,16 @@
 - name: "Validate compose config — {{ _current_stack }}"
   become: true
   ansible.builtin.command:
-    cmd: docker compose config --quiet
+    cmd: docker compose -f docker-compose.yaml.new --env-file .env.new config --quiet
     chdir: "/opt/stacks/{{ _current_stack }}"
   changed_when: false
+  when: not ansible_check_mode
+
+- name: "Activate validated config — {{ _current_stack }}"
+  become: true
+  ansible.builtin.shell: |
+    mv -f /opt/stacks/{{ _current_stack }}/.env.new /opt/stacks/{{ _current_stack }}/.env
+    mv -f /opt/stacks/{{ _current_stack }}/docker-compose.yaml.new /opt/stacks/{{ _current_stack }}/docker-compose.yaml
   when: not ansible_check_mode
 
 - name: "Start stack — {{ _current_stack }}"
