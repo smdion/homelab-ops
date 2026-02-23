@@ -412,7 +412,7 @@ ansible-playbook deploy_stacks.yaml \
   --limit myhost \
   --vault-password-file ~/.vault_pass
 
-# Render .env and compose files without starting containers (validation/pre-migration)
+# Render .env and compose files without starting containers (validation only)
 ansible-playbook deploy_stacks.yaml \
   -i inventory.yaml \
   -e hosts_variable=docker_stacks \

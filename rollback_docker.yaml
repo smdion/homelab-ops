@@ -86,19 +86,6 @@
       loop: "{{ _snapshot_stacks_raw.results | default([]) | selectattr('content', 'defined') | list }}"
       when: inventory_hostname in (stack_assignments | default({}))
 
-    # Legacy mode: single snapshot
-    - name: Read rollback snapshot (legacy mode)
-      ansible.builtin.slurp:
-        src: "{{ compose_project_path }}/.rollback_snapshot.json"
-      register: _snapshot_raw
-      check_mode: false
-      when: inventory_hostname not in (stack_assignments | default({}))
-
-    - name: Parse snapshot (legacy mode)
-      ansible.builtin.set_fact:
-        rollback_snapshot: "{{ _snapshot_raw.content | b64decode | from_json }}"
-      when: inventory_hostname not in (stack_assignments | default({}))
-
     - name: Assert rollback snapshot exists
       ansible.builtin.assert:
         that: rollback_snapshot is defined and rollback_snapshot.containers | length > 0
@@ -220,14 +207,6 @@
                               | map(attribute='key') | list))
               | list | length > 0
 
-        - name: Recreate containers with old images (legacy mode)
-          become: true
-          ansible.builtin.shell: >
-            docker compose up -d {{ _rollback_targets | join(' ') }}
-          args:
-            chdir: "{{ compose_project_path }}"
-          when: inventory_hostname not in (stack_assignments | default({}))
-
         - name: Wait for containers to stabilize
           ansible.builtin.pause:
             seconds: 10
@@ -242,17 +221,6 @@
           register: _container_status
           changed_when: false
           when: inventory_hostname in (stack_assignments | default({}))
-
-        - name: Verify containers are running (legacy mode)
-          become: true
-          ansible.builtin.shell: >
-            docker compose ps --format json {{ item }}
-          args:
-            chdir: "{{ compose_project_path }}"
-          loop: "{{ _rollback_targets }}"
-          register: _container_status
-          changed_when: false
-          when: inventory_hostname not in (stack_assignments | default({}))
 
         - name: Record rollback detail
           ansible.builtin.set_fact:

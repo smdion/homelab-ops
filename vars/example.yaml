@@ -63,9 +63,6 @@ update_subtype: "OS"
 # DOCKER-SPECIFIC — only for docker_stacks / docker_run vars files
 # =============================================================================
 
-# Docker Compose project directory (where docker-compose.yaml lives)
-# compose_project_path: "/opt"
-
 # Days to delay container updates after image publish (0 = update immediately)
 # update_delay_days: 3
 

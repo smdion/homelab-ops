@@ -1,5 +1,5 @@
 ---
-# Start Docker containers/stacks. Tri-modal: selective, stack/legacy, unRAID.
+# Start Docker containers/stacks. Tri-modal: selective, stack, unRAID.
 # Caller gates with `when:` for manage_docker, check_mode, etc.
 #
 # Optional:
@@ -27,18 +27,6 @@
     - inventory_hostname in groups["docker_stacks"] | default([])
     - inventory_hostname in (stack_assignments | default({}))
   register: _docker_start_stacks
-  ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
-
-- name: Start Docker Compose (legacy mode)
-  become: true
-  community.docker.docker_compose_v2:
-    project_src: "{{ compose_project_path }}"
-    state: present
-  when:
-    - _docker_selective_containers is not defined
-    - inventory_hostname in groups["docker_stacks"] | default([])
-    - inventory_hostname not in (stack_assignments | default({}))
-  register: _docker_start_legacy
   ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
 
 - name: Start Docker containers (unRAID)

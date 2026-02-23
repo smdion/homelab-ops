@@ -283,7 +283,7 @@
               - name: "Host"
                 value: "{{ inventory_hostname }}"
               - name: "Stacks"
-                value: "{{ stack_assignments[inventory_hostname] | default(['legacy']) | join(', ') }}"
+                value: "{{ stack_assignments[inventory_hostname] | default([]) | join(', ') }}"
               - name: "Backup Name"
                 value: "{{ backup_file }}"
               - name: "Backup Size"
@@ -295,7 +295,6 @@
           when:
             - backup_failed
             - (_docker_start_stacks is defined and _docker_start_stacks is failed) or
-              (_docker_start_legacy is defined and _docker_start_legacy is failed) or
               (_docker_start_containers is defined and _docker_start_containers is failed)
           vars:
             discord_title: "{{ backup_name }}"
