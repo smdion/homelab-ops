@@ -312,7 +312,7 @@
               [{"name": "Host", "value": "{{ inventory_hostname }}"},
                {"name": "Description", "value": "{{ backup_description }}"}
                {% for r in _stack_backup_results %}
-              ,{"name": "{{ r.stack }}", "value": "{{ 'FAILED' if r.failed else ((r.file_size / 1024 / 1024) | round(2) | string + 'MB') }}"}
+              ,{"name": "{{ r.stack }}", "value": "{{ 'FAILED' if r.failed else ('Nothing to back up' if r.file_size == 0 else ((r.file_size / 1024 / 1024) | round(2) | string + 'MB')) }}"}
                {% endfor %}]
           when: inventory_hostname in groups["docker_stacks"] | default([])
           tags: [always]
