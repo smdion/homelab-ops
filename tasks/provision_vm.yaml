@@ -18,7 +18,7 @@
 - name: Add PVE host to in-memory inventory
   ansible.builtin.add_host:
     name: pve_builder
-    ansible_host: "{{ pve_api_host }}"
+    ansible_host: "{{ pve_template_node_ip }}"  # direct IP — bypasses VIP so template is always created on the right node
     ansible_user: ansible
 
 - name: Ensure cloud-init template exists on Ceph storage

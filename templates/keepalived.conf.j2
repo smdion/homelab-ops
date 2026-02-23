@@ -1,0 +1,27 @@
+# Managed by Ansible — setup_pve_vip.yaml
+# VRRP instance: floating management VIP across Proxmox cluster nodes.
+# The node with the highest vault_pve_vrrp_priorities entry holds the VIP (MASTER).
+# All other nodes are BACKUP and take over in priority order on failure.
+#
+# To check status: keepalived -t  (config test)  or  ip addr show vmbr0
+# To see current state: journalctl -u keepalived -f
+{% set my_priority = vault_pve_vrrp_priorities[inventory_hostname] | default(50) %}
+{% set max_priority = vault_pve_vrrp_priorities.values() | list | max %}
+
+vrrp_instance {{ pve_vrrp_instance }} {
+    state {{ 'MASTER' if my_priority == max_priority else 'BACKUP' }}
+    interface {{ pve_vrrp_interface }}
+    virtual_router_id {{ pve_vrrp_router_id }}
+    priority {{ my_priority }}
+    advert_int 1
+    preempt_delay 30
+
+    authentication {
+        auth_type PASS
+        auth_pass {{ vault_pve_vrrp_password }}
+    }
+
+    virtual_ipaddress {
+        {{ vault_pve_vip }}/{{ pve_vip_cidr }}
+    }
+}

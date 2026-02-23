@@ -25,6 +25,7 @@ vm_cidr: 24
 # template config file lives. Clones use Ceph shared storage to target any node.
 pve_template_vmid: 9000
 pve_template_node: "{{ vault_pve_template_node }}"
+pve_template_node_ip: "{{ vault_pve_template_node_ip }}"
 pve_template_name: "ubuntu-cloud-template"
 pve_cloud_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 vm_template_memory: 2048
@@ -81,7 +82,7 @@ vm_definitions:
     vm_cores: 2
     vm_memory_mb: 2048
     vm_disk_gb: 20
-    pve_target_node: "{{ vault_vm_testvm_node }}"
+    pve_target_node: "{{ vm_node | default(pve_template_node) }}"
 
 # Optional per-VM fields (used by tasks/bootstrap_vm.yaml when defined):
 #
