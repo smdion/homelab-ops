@@ -1,0 +1,4 @@
+---
+# PiKVM uses a read-only root filesystem. /tmp is tmpfs and stays writable
+# even in RO mode, so Ansible can create its temp dir before the rw task runs.
+ansible_remote_tmp: /tmp/.ansible/tmp
