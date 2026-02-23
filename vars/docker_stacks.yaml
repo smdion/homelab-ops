@@ -7,6 +7,12 @@ backup_description: "Automatic Docker Appdata Backup"
 backup_type: "Servers"
 backup_subtype: "Appdata"
 
+# Per-stack TCP ports to wait for after docker compose up.
+# Any stack listed here will have its ports polled before the deploy task returns.
+# Add entries for stacks that expose ports that downstream stacks depend on.
+stack_wait_ports:
+  databases: [3306, 5432]
+
 # Per-stack backup paths — appdata directories to archive for each stack.
 # /opt/stacks/{name}/ is always included automatically (compose + .env).
 # DB data dirs (mariadb, postgres, influxdb) are excluded — they have dedicated SQL dump jobs.
@@ -67,22 +73,28 @@ app_restore:
 
 # Stack assignments: host → ordered list of stack names.
 # ORDER MATTERS: on tantive-iv, databases MUST precede auth (Authentik requires Postgres).
-stack_assignments:
-  vps.REDACTED_DOMAIN: [vpn]
-  odyssey.REDACTED_DOMAIN: [infra, media, apps, nfs]
-  tantiveiv.REDACTED_DOMAIN: [infra, databases, auth, monitoring, dev]
+# Keys are inventory_hostname (FQDNs) — must be set in vault as vault_stack_assignments.
+# Example structure:
+#   vault_stack_assignments:
+#     <vps-fqdn>:      [vpn]
+#     <odyssey-fqdn>:  [infra, media, apps, nfs]
+#     <tantiveiv-fqdn>: [infra, databases, auth, monitoring, dev]
+stack_assignments: "{{ vault_stack_assignments }}"
 
 # Backup order: least-critical stacks first so auth/databases go down last.
 # Defaults to reverse of stack_assignments if not specified.
-backup_stack_order:
-  vps.REDACTED_DOMAIN: [vpn]
-  odyssey.REDACTED_DOMAIN: [nfs, media, apps, infra]
-  tantiveiv.REDACTED_DOMAIN: [dev, monitoring, infra, databases, auth]
+# Keys are inventory_hostname (FQDNs) — must be set in vault as vault_backup_stack_order.
+# Example structure:
+#   vault_backup_stack_order:
+#     <vps-fqdn>:       [vpn]
+#     <odyssey-fqdn>:   [nfs, media, apps, infra]
+#     <tantiveiv-fqdn>: [dev, monitoring, infra, databases, auth]
+backup_stack_order: "{{ vault_backup_stack_order }}"
 
 # Docker defaults — non-secret, shared across all stacks.
-# Per-host MEM_LIMIT: tantive-iv=10g (12GB RAM), others=3000m (4GB RAM).
-docker_mem_limit: >-
-  {{ '10g' if inventory_hostname in groups.get('tantiveiv', []) else '3000m' }}
+# docker_mem_limit default (3000m) suits 4GB hosts. Override in group_vars/<group>.yaml
+# for hosts with more RAM (e.g. group_vars/tantiveiv.yaml sets docker_mem_limit: "10g").
+docker_mem_limit: "3000m"
 docker_tz: "America/Chicago"
 docker_puid: "1000"
 docker_pgid: "1000"
@@ -97,5 +109,5 @@ docker_authentik_tag: "2025.12.4"
 docker_email_host: "smtp.gmail.com"
 docker_email_port: 587
 docker_dozzle_level: "info"
-docker_dozzle_remote_agent: "REDACTED_IP:7007,REDACTED_IP:7007,REDACTED_IP:7007,REDACTED_IP:7007"
+docker_dozzle_remote_agent: "{{ vault_docker_dozzle_remote_agent }}"
 docker_dozzle_hostname: "Odyssey"

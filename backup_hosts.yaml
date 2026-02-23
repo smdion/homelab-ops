@@ -66,7 +66,7 @@
       become: true
       ansible.builtin.find:
         paths: "{{ item }}"
-        age: 10d
+        age: "{{ unifi_backup_retention }}"
         age_stamp: mtime
         recurse: false
       register: _old_backups
@@ -135,7 +135,7 @@
             body:
               cmd: "backup"
               days: "-1"
-            validate_certs: false  # UNVR self-signed cert — IMP-10 in DEFERRED.md
+            validate_certs: false  # UNVR uses a self-signed cert; vendor API prevents proper TLS cert management
             headers:
               x-api-key: "{{ unvr_api_key }}"
             status_code: 200
@@ -151,7 +151,7 @@
             url: "https://{{ inventory_hostname }}{{ unvr_backup.json.data[0].url }}"
             dest: "{{ protect_temp_file }}"
             mode: "0600"
-            validate_certs: false  # UNVR self-signed cert — IMP-10 in DEFERRED.md
+            validate_certs: false  # UNVR uses a self-signed cert; vendor API prevents proper TLS cert management
             headers:
               x-api-key: "{{ unvr_api_key }}"
           delegate_to: localhost

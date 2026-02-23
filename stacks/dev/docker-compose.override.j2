@@ -1,0 +1,17 @@
+# Docker Compose override — NFS volume definitions for the dev stack.
+# Templated by deploy_stacks.yaml to docker-compose.override.yaml on the host.
+# Not committed (docker-compose.override.yaml is gitignored); this template is.
+# Vault vars required:
+#   vault_odyssey_nfs_ip  — IP address of the odyssey NFS server
+#   vault_vps_nfs_ip      — IP address of the VPS NFS server
+volumes:
+  odyssey:
+    driver_opts:
+      type: nfs4
+      o: "addr={{ vault_odyssey_nfs_ip }},soft,timeo=50,retrans=3"
+      device: :/
+  vps:
+    driver_opts:
+      type: nfs4
+      o: "addr={{ vault_vps_nfs_ip }},soft,timeo=50,retrans=3"
+      device: :/

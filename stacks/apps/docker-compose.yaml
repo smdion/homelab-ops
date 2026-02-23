@@ -1,27 +1,27 @@
 x-base: &base
   mem_limit: ${MEM_LIMIT}
   restart: ${RESTART}
-x-smdionenv: &smdionenv
+x-env: &env
   TZ: ${TZ}
-x-smdionuid: &smdionuid
+x-uid: &uid
   PUID: ${PUID}
   PGID: ${PGID}
   UMASK: ${UMASK}
-x-smdionenvuid: &smdionenvuid
+x-envuid: &envuid
   <<:
-  - *smdionenv
-  - *smdionuid
-x-smdionbaseenv: &smdionbaseenv
+  - *env
+  - *uid
+x-baseenv: &baseenv
   <<: *base
   environment:
-    <<: *smdionenv
-x-smdionbaseuid: &smdionbaseuid
+    <<: *env
+x-baseuid: &baseuid
   <<: *base
   environment:
-    <<: *smdionenvuid
+    <<: *envuid
 services:
   homeassistant:
-    <<: *smdionbaseuid
+    <<: *baseuid
     container_name: homeassistant
     image: lscr.io/linuxserver/homeassistant
     network_mode: bridge
@@ -43,7 +43,7 @@ services:
     ports:
     - 8084:8080
     environment:
-      <<: *smdionenv
+      <<: *env
       EXTENSIONS: ${GUAC_EXTENSIONS}
     volumes:
     - ${APPSDIR}/guacamole:/config
@@ -58,7 +58,7 @@ services:
     - 7814:5800
     - 7914:5900
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
       DISPLAY_WIDTH: ${FF_DISPLAY_WIDTH}
       DISPLAY_HEIGHT: ${FF_DISPLAY_HEIGHT}
       SECURE_CONNECTION: ${FF_SECURE_CONNECTION}
@@ -68,7 +68,7 @@ services:
     - ${APPSDIR}/firefox:/config
     shm_size: 2g
   xbackbone:
-    <<: *smdionbaseuid
+    <<: *baseuid
     container_name: xbackbone
     image: lscr.io/linuxserver/xbackbone
     network_mode: bridge
@@ -91,7 +91,7 @@ services:
     ports:
       - 3003:3000
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
       HOMEPAGE_ALLOWED_HOSTS: ${HOMEPAGE_ALLOWED_HOSTS}
     volumes:
       - ${APPSDIR}/homepage:/app/config
@@ -102,7 +102,7 @@ services:
       retries: 3
       start_period: 30s
   homebox:
-    <<: *smdionbaseenv
+    <<: *baseenv
     container_name: homebox
     image: ghcr.io/sysadminsmedia/homebox:latest
     network_mode: bridge
@@ -111,7 +111,7 @@ services:
     volumes:
       - ${APPSDIR}/homebox:/data/
   rickroll:
-    <<: *smdionbaseenv
+    <<: *baseenv
     container_name: rickroll
     image: modem7/docker-rickroll
     network_mode: bridge
@@ -123,7 +123,7 @@ services:
     image: ghcr.io/hotio/cloudflareddns
     network_mode: bridge
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
       INTERVAL: ${DDNS_INTERVAL}
       DETECTION_MODE: ${DDNS_DETECTION_MODE}
       LOG_LEVEL: ${DDNS_LOG_LEVEL}

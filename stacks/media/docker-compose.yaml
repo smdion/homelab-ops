@@ -1,23 +1,23 @@
 x-base: &base
   mem_limit: ${MEM_LIMIT}
   restart: ${RESTART}
-x-smdionenv: &smdionenv
+x-env: &env
   TZ: ${TZ}
-x-smdionuid: &smdionuid
+x-uid: &uid
   PUID: ${PUID}
   PGID: ${PGID}
   UMASK: ${UMASK}
-x-smdionenvuid: &smdionenvuid
+x-envuid: &envuid
   <<:
-  - *smdionenv
-  - *smdionuid
-x-smdionbaseuid: &smdionbaseuid
+  - *env
+  - *uid
+x-baseuid: &baseuid
   <<: *base
   environment:
-    <<: *smdionenvuid
+    <<: *envuid
 services:
   tautulli:
-    <<: *smdionbaseuid
+    <<: *baseuid
     container_name: tautulli
     image: lscr.io/linuxserver/tautulli
     network_mode: bridge
@@ -38,7 +38,7 @@ services:
     ports:
     - 5055:5055
     environment:
-      <<: *smdionenv
+      <<: *env
       DB_TYPE: ${JELLYSEERR_DB_TYPE}
       DB_HOST: ${POSTGRES_HOST}
       DB_PORT: ${POSTGRES_PORT}

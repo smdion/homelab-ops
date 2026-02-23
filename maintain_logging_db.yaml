@@ -10,6 +10,7 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
+    - vars/semaphore_check.yaml
   vars:
     maintenance_name: "Logging DB"
     maintenance_type: "Local"

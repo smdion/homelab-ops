@@ -1,16 +1,16 @@
 x-base: &base
   mem_limit: ${MEM_LIMIT}
   restart: ${RESTART}
-x-smdionenv: &smdionenv
+x-env: &env
   TZ: ${TZ}
-x-smdionuid: &smdionuid
+x-uid: &uid
   PUID: ${PUID}
   PGID: ${PGID}
   UMASK: ${UMASK}
-x-smdionenvuid: &smdionenvuid
+x-envuid: &envuid
   <<:
-  - *smdionenv
-  - *smdionuid
+  - *env
+  - *uid
 services:
   code-server:
     <<: *base
@@ -20,7 +20,7 @@ services:
     ports:
     - 8443:8443
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
       PROXY_DOMAIN: ${CODESERVER_PROXY_DOMAIN}
       DEFAULT_WORKSPACE: ${CODESERVER_DEFAULT_WORKSPACE}
     volumes:
@@ -44,18 +44,13 @@ services:
       - 69:69/udp
       - 8082:80
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
     volumes:
       - ${APPSDIR}/netboot/config:/config
       - ${APPSDIR}/netboot/assets:/assets
 volumes:
+  # NFS driver_opts (addr=...) are deployment-specific — defined via vault in
+  # docker-compose.override.j2, which deploy_stacks.yaml templates to
+  # docker-compose.override.yaml on the host. See DESIGN.md for details.
   odyssey:
-    driver_opts:
-      type: nfs4
-      o: addr=REDACTED_IP,soft,timeo=50,retrans=3
-      device: :/
   vps:
-    driver_opts:
-      type: nfs4
-      o: addr=REDACTED_IP,soft,timeo=50,retrans=3
-      device: :/

@@ -1,12 +1,12 @@
 x-base: &base
   mem_limit: ${MEM_LIMIT}
   restart: ${RESTART}
-x-smdionenv: &smdionenv
+x-env: &env
   TZ: ${TZ}
-x-smdionbaseenv: &smdionbaseenv
+x-baseenv: &baseenv
   <<: *base
   environment:
-    <<: *smdionenv
+    <<: *env
 services:
   grafana:
     <<: *base
@@ -16,7 +16,7 @@ services:
     ports:
     - 3000:3000
     environment:
-      <<: *smdionenv
+      <<: *env
       GF_SERVER_ROOT_URL: ${GRAFANA_SERVER_ROOT_URL}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_SECURITY_ADMIN_PASSWORD}
       GF_AUTH_GENERIC_OAUTH_ENABLED: ${GRAFANA_OAUTH_ENABLED}
@@ -40,7 +40,7 @@ services:
       retries: 3
       start_period: 30s
   victoriametrics:
-    <<: *smdionbaseenv
+    <<: *baseenv
     container_name: victoriametrics
     image: victoriametrics/victoria-metrics:v1.114.0
     network_mode: bridge

@@ -52,7 +52,7 @@
         dest: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
         format: gz
         remove: false
-      timeout: 1800
+      timeout: "{{ stack_backup_timeout | default(1800) }}"
 
     - name: Verify archive integrity for {{ _backup_stack }}
       become: true
