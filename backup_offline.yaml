@@ -13,6 +13,7 @@
   vars_files:
     - vars/secrets.yaml
     - "vars/{{ config_file }}.yaml"
+    - vars/synology.yaml
   vars:
     config_file: "{{ hosts_variable }}"
   pre_tasks:
