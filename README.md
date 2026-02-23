@@ -299,7 +299,13 @@ Recent Activity, Status). Manual import via **Dashboards → Import → Upload J
 ## Running without Semaphore
 
 Every playbook can be run directly with `ansible-playbook`. Pass `hosts_variable` and
-`config_file` as extra vars — these are normally set by Semaphore's variable groups:
+`config_file` as extra vars — these are normally set by Semaphore's variable groups.
+
+When `config_file` matches `hosts_variable` (e.g., both are `docker_stacks`), you can omit
+`config_file` — it defaults to `hosts_variable`.
+
+<details>
+<summary>Backup &amp; Updates</summary>
 
 ```bash
 # Backup Docker Compose hosts
@@ -327,7 +333,13 @@ ansible-playbook update_systems.yaml \
 ansible-playbook maintain_health.yaml \
   -i inventory.yaml \
   --vault-password-file ~/.vault_pass
+```
+</details>
 
+<details>
+<summary>Verify</summary>
+
+```bash
 # Verify database backups (restore to temp DB, count tables/measurements, drop)
 ansible-playbook verify_backups.yaml \
   -i inventory.yaml \
@@ -335,6 +347,18 @@ ansible-playbook verify_backups.yaml \
   -e config_file=db_primary_postgres \
   --vault-password-file ~/.vault_pass
 
+# Verify config archives for Docker Compose hosts
+ansible-playbook verify_backups.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=docker_stacks \
+  --vault-password-file ~/.vault_pass
+```
+</details>
+
+<details>
+<summary>Restore &amp; Rollback</summary>
+
+```bash
 # Restore a single database (requires confirm_restore=yes safety gate)
 ansible-playbook restore_databases.yaml \
   -i inventory.yaml \
@@ -399,7 +423,58 @@ ansible-playbook rollback_docker.yaml \
   -e confirm_rollback=yes \
   --limit myhost \
   --vault-password-file ~/.vault_pass
+```
+</details>
 
+<details>
+<summary>Test Restore</summary>
+
+```bash
+# Full restore test — provisions or reuses a disposable VM, restores all stacks, verifies health
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e source_host=myhost.home.local \
+  --vault-password-file ~/.vault_pass
+
+# Restore a single app only
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e source_host=myhost.home.local \
+  -e restore_app=authentik \
+  --vault-password-file ~/.vault_pass
+
+# Restore a single stack only
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e source_host=myhost.home.local \
+  -e deploy_stack=auth \
+  --vault-password-file ~/.vault_pass
+
+# DR recovery mode — restore and keep state (no snapshot revert at end)
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e source_host=myhost.home.local \
+  -e dr_mode=true \
+  --vault-password-file ~/.vault_pass
+
+# Restore from a specific date's backups (default: today)
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e vm_name=test-vm \
+  -e source_host=myhost.home.local \
+  -e restore_date=2026-02-22 \
+  --vault-password-file ~/.vault_pass
+```
+</details>
+
+<details>
+<summary>Deploy &amp; Build</summary>
+
+```bash
 # Deploy all assigned Docker stacks to a host
 ansible-playbook deploy_stacks.yaml \
   -i inventory.yaml \
@@ -421,45 +496,6 @@ ansible-playbook deploy_stacks.yaml \
   -e hosts_variable=docker_stacks \
   -e deploy_skip_up=true \
   --limit myhost \
-  --vault-password-file ~/.vault_pass
-
-# Test full restore for a docker_stacks host onto a disposable VM
-ansible-playbook test_restore.yaml \
-  -i inventory.yaml \
-  -e vm_name=test-vm \
-  -e source_host=myhost.home.local \
-  --vault-password-file ~/.vault_pass
-
-# Test restore for a single app only
-ansible-playbook test_restore.yaml \
-  -i inventory.yaml \
-  -e vm_name=test-vm \
-  -e source_host=myhost.home.local \
-  -e restore_app=authentik \
-  --vault-password-file ~/.vault_pass
-
-# Test restore for a single stack only
-ansible-playbook test_restore.yaml \
-  -i inventory.yaml \
-  -e vm_name=test-vm \
-  -e source_host=myhost.home.local \
-  -e deploy_stack=auth \
-  --vault-password-file ~/.vault_pass
-
-# DR recovery mode — restore and keep state (no snapshot revert)
-ansible-playbook test_restore.yaml \
-  -i inventory.yaml \
-  -e vm_name=test-vm \
-  -e source_host=myhost.home.local \
-  -e dr_mode=true \
-  --vault-password-file ~/.vault_pass
-
-# Restore from a specific date's backups
-ansible-playbook test_restore.yaml \
-  -i inventory.yaml \
-  -e vm_name=test-vm \
-  -e source_host=myhost.home.local \
-  -e restore_date=2026-02-22 \
   --vault-password-file ~/.vault_pass
 
 # Provision a new Ubuntu VM on Proxmox
@@ -490,16 +526,20 @@ ansible-playbook build_ubuntu.yaml \
   -e vm_state=revert \
   -e snapshot_name=post-bootstrap \
   --vault-password-file ~/.vault_pass
+```
+</details>
 
+<details>
+<summary>Dry run</summary>
+
+```bash
 # Dry-run any playbook (no changes, no notifications, no DB writes)
 ansible-playbook maintain_health.yaml \
   -i inventory.yaml \
   --vault-password-file ~/.vault_pass \
   --check
 ```
-
-When `config_file` matches `hosts_variable` (e.g., both are `docker_stacks`), you can omit
-`config_file` — it defaults to `hosts_variable`.
+</details>
 
 ## Discord notifications
 
