@@ -505,6 +505,20 @@ installed via the container's post-argument (Docker UI → Post Arguments):
 
 This runs on every container start, so packages persist across restarts and recreates.
 
+### Container Group Membership
+
+The Semaphore container process must have read access to the `/backup` bind mount. If the
+backup storage is owned by a specific group (e.g. `users`, GID 100), add the container to
+that group so it can list and read backup archives:
+
+```
+--group-add <GID>
+```
+
+In Docker Compose this is `group_add: ["<GID>"]`. Without this, archive discovery in
+`test_restore.yaml` and `verify_backups.yaml` silently fails — the shell glob returns empty
+and `stat` returns permission denied.
+
 ### Inventories
 
 Inventories are stored in **Semaphore's database**, not in this repository. `inventory.yaml` is
