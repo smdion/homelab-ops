@@ -149,6 +149,12 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 │   ├── assert_config_file.yaml      # Shared pre-task: assert config_file is set
 │   ├── assert_disk_space.yaml       # Shared pre-task: assert sufficient disk space
 │   ├── assert_db_connectivity.yaml  # Shared pre-task: assert MariaDB logging DB is reachable
+│   ├── backup_single_stack.yaml     # Per-stack backup loop body (stop stack, archive appdata, verify, fetch, restart, record result)
+│   ├── backup_single_db.yaml        # Per-DB backup loop body (dump, verify integrity, fetch to controller, record result)
+│   ├── db_dump.yaml                 # Dump a single DB from a Docker container — PostgreSQL/MariaDB/InfluxDB engine abstraction
+│   ├── db_restore.yaml              # Restore a single DB from backup — verify (temp DB) or production overwrite, all engines
+│   ├── db_count.yaml                # Count tables/measurements in a database — PostgreSQL/MariaDB/InfluxDB
+│   ├── db_drop_temp.yaml            # Drop a database and clean up container temp files — all engines
 │   ├── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, up)
 │   ├── provision_vm.yaml            # Provision VM on Proxmox via cloud-init template clone + API config
 │   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS
@@ -405,6 +411,46 @@ automatically. Database data directories are excluded because they have dedicate
 Non-docker_stacks hosts (proxmox, pikvm, unraid, unifi) still use monolithic archives with
 `backup_exclude_dirs | default([])` for hosts that define exclusions.
 
+**`tasks/backup_single_stack.yaml`** — Per-stack backup loop body called by `backup_hosts.yaml`
+(loop var: `_backup_stack`). Stops the named stack via `docker_stop.yaml`, computes the full
+archive path list from `stack_backup_paths[stack] + ['/opt/stacks/<stack>']`, filters to paths
+that exist (via `stat`), creates a `.tar.gz` archive, verifies integrity with `gunzip -t`, fetches
+to the controller, and records success/failure in `_stack_backup_results`. The `always:` block
+restarts the stack and deletes the temp archive regardless of outcome — containers are always
+brought back up even when the backup fails.
+
+**`tasks/backup_single_db.yaml`** — Per-database backup loop body called by `backup_databases.yaml`
+(loop var: `_current_db`). Delegates to `db_dump.yaml`, verifies integrity (`gzip -t` for SQL
+dumps, `tar tzf` for InfluxDB), fetches the dump to the controller, and appends a success/failure
+record to `combined_results`. Inherits engine flags (`is_postgres`, `is_mariadb`, `is_influxdb`),
+credentials, and paths from the caller's scope.
+
+**`tasks/db_dump.yaml`** — Single-database dump engine abstraction. Accepts `_db_name`,
+`_db_container`, `_db_username`, `_db_password`, `_db_dest_file`, and engine flags
+(`_db_is_postgres`, `_db_is_mariadb`, `_db_is_influxdb`). For PostgreSQL: `pg_dump | gzip`.
+For MariaDB: `mysqldump | gzip` (password via `MYSQL_PWD` env var, never on the command line).
+For InfluxDB: `influxd backup -portable` → `docker cp` → `tar czf`. Used by `backup_single_db.yaml`
+and `verify_backups.yaml` (for the restore-test flow).
+
+**`tasks/db_restore.yaml`** — Single-database restore engine abstraction. Accepts the same engine
+flags plus `_db_source_file` and optional `_db_target_name` (when set, creates the target DB first
+rather than overwriting the source — used by `verify_backups.yaml` to restore to a temp DB without
+touching production). For PostgreSQL: `gunzip -cf | psql`. For MariaDB: `gunzip -cf | mysql`.
+For InfluxDB: `tar xzf` → `docker cp` → `influxd restore -portable`. Used by both
+`verify_backups.yaml` (temp restore) and `restore_databases.yaml` (production restore).
+
+**`tasks/db_count.yaml`** — Count tables or measurements in a database for verification.
+For PostgreSQL: queries `information_schema.tables WHERE table_schema = 'public'`. For MariaDB:
+queries `information_schema.tables WHERE table_schema = '<db>'`. For InfluxDB: `SHOW MEASUREMENTS`
+piped through `wc -l`. Accumulates results in `_db_count_results` dict (keyed by `_db_name`).
+Used by `verify_backups.yaml` to confirm a restored backup is non-empty.
+
+**`tasks/db_drop_temp.yaml`** — Drop a database and clean up container temp files. For
+PostgreSQL: `DROP DATABASE IF EXISTS` on the `postgres` maintenance DB. For MariaDB:
+`DROP DATABASE IF EXISTS`. For InfluxDB: `DROP DATABASE` + container temp directory cleanup.
+Accepts optional `_db_influx_source_name` for InfluxDB temp path cleanup. Used by
+`verify_backups.yaml` after counting tables in a temp restore DB.
+
 **`tasks/log_restore.yaml`** — Shared MariaDB logging for the `restores` table. Uses
 `community.mysql.mysql_query` with parameterized queries. Separate from `log_mariadb.yaml` because
 the `restores` table has a different schema (`source_file`, `operation`, `detail` instead of
@@ -438,7 +484,7 @@ and `assert_disk_min_gb`. Uses `df --output=avail` + `ansible.builtin.assert`. H
 **`tasks/assert_db_connectivity.yaml`** — Shared pre-task assertion that the MariaDB logging
 database is reachable. Runs `SELECT 1` via `community.mysql.mysql_query`. Inherits `logging_db_*`
 vars from playbook scope. Has `check_mode: false` so it validates connectivity during `--check`.
-Used by all 13 operational playbooks that log to MariaDB (every playbook except `download_videos.yaml`
+Used by all 18 operational playbooks that log to MariaDB (every playbook except `download_videos.yaml`
 and `add_ansible_user.yaml`).
 
 **`maintain_health.yaml` — check notes:**
@@ -984,10 +1030,10 @@ any work starts. Two shared assertion task files are available:
 `restore_hosts.yaml` (`backup_tmp_dir` for staging, `/` for inplace).
 
 **`tasks/assert_db_connectivity.yaml`** — Verifies the MariaDB logging database is reachable
-via `SELECT 1`. Used by all 13 operational playbooks that call `tasks/log_mariadb.yaml` or
-`tasks/log_restore.yaml` in their
-`always:` block. Catches MariaDB outages early — before any backup, update, or maintenance work
-starts — rather than failing silently in the `always:` logging step.
+via `SELECT 1`. Used by all 18 operational playbooks that call `tasks/log_mariadb.yaml` or
+`tasks/log_restore.yaml` in their `always:` block (every playbook except `download_videos.yaml`
+and `add_ansible_user.yaml`). Catches MariaDB outages early — before any backup, update, or
+maintenance work starts — rather than failing silently in the `always:` logging step.
 
 **`tasks/assert_config_file.yaml`** — Asserts `config_file` is defined and non-empty, catching
 misconfigured Semaphore variable groups before work starts. Used by `backup_hosts.yaml`,

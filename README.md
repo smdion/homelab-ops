@@ -88,7 +88,7 @@ and go.
 
 | Playbook | What it does | Vars file pattern |
 |---|---|---|
-| `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller; auto-handles PiKVM RW/RO filesystem | `vars/<platform>.yaml` with `src_raw_files`, `backup_*` vars |
+| `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller; `docker_stacks` hosts use per-stack archives (stop → archive → restart each stack individually to minimize downtime); auto-handles PiKVM RW/RO filesystem | `vars/<platform>.yaml` with `backup_*` vars; `docker_stacks` uses `stack_backup_paths` |
 | `backup_databases.yaml` | Dump Postgres/MariaDB/InfluxDB databases from Docker containers | `vars/db_<role>_<engine>.yaml` with `db_names`, `container_name` |
 | `update_systems.yaml` | OS packages + Docker container updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers` | `vars/<platform>.yaml` with `update_*` vars |
 | `maintain_docker.yaml` | Prune unused Docker images | Needs `[docker]` group (children of `docker_stacks` + `docker_run`) |
@@ -161,7 +161,7 @@ for platforms you don't have are automatically skipped.
 │   ├── example.yaml              # Template — copy for new platform vars files
 │   ├── semaphore_check.yaml      # Health thresholds, controller config, retention
 │   └── <platform>.yaml           # One per platform (proxmox, docker_stacks, etc.)
-├── tasks/                       # Shared task files (Discord, DB logging, assertions)
+├── tasks/                       # Shared task files (Discord notifications, DB logging, assertions, DB engine abstraction, per-stack/per-DB backup orchestration, VM provisioning, Docker management)
 ├── sql/
 │   └── init.sql                 # Database schema — run once to create all tables
 ├── grafana/
