@@ -239,16 +239,29 @@
           tags: [always]
 
         # ===== AMP PER-INSTANCE BACKUP =====
-        # Step 1: fetch instances.json registry directly (no archive needed — file is ~28KB)
-        - name: Fetch instances.json registry to controller
-          ansible.builtin.fetch:
+        # Step 1: slurp instances.json (become: true to read root-protected home dir)
+        # then copy to controller via delegate_to (avoids fetch + FUSE mount issue)
+        - name: Slurp instances.json registry
+          become: true
+          ansible.builtin.slurp:
             src: "{{ amp_home }}/.ampdata/instances.json"
-            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/amp_instances_{{ ansible_date_time.date }}.json"
-            flat: true
-          become: false
+          register: _amp_instances_json
           ignore_errors: true  # non-fatal — per-instance backups must still run
           when:
             - inventory_hostname in groups["amp"] | default([])
+            - not ansible_check_mode
+
+        - name: Save instances.json registry to controller
+          ansible.builtin.copy:
+            content: "{{ _amp_instances_json.content | b64decode }}"
+            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/amp_instances_{{ ansible_date_time.date }}.json"
+            mode: "0600"
+          delegate_to: localhost
+          become: false
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - _amp_instances_json is defined
+            - not (_amp_instances_json.failed | default(false))
             - not ansible_check_mode
 
         # Step 2: discover and back up each instance
