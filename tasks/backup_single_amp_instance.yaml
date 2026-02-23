@@ -32,6 +32,23 @@
         executable: /bin/bash
       changed_when: true
 
+    - name: Wait for AMP instance {{ _amp_instance }} to fully stop
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.shell: |
+        ampinstmgr list 2>/dev/null \
+          | awk '/{{ _amp_instance }}/{found=1} found && /Running/{print; exit}' \
+          | grep -q "No"
+      args:
+        executable: /bin/bash
+      register: _amp_stop_status
+      until: _amp_stop_status.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+
     - name: Create compressed archive for {{ _amp_instance }}
       become: true
       ansible.builtin.shell: |
