@@ -554,9 +554,11 @@ This runs on every container start, so packages persist across restarts and recr
 
 ### Container Group Membership
 
-The Semaphore container process must have read access to the `/backup` bind mount. If the
-backup storage is owned by a specific group (e.g. `users`, GID 100), add the container to
-that group so it can list and read backup archives:
+The Semaphore container process must have **read and write** access to the `/backup` bind
+mount. If the backup storage is owned by a specific group (e.g. `users`, GID 100), the
+container's process user may not be the owner — access is via group membership.
+
+Add the container to that group:
 
 ```
 --group-add <GID>
@@ -565,6 +567,17 @@ that group so it can list and read backup archives:
 In Docker Compose this is `group_add: ["<GID>"]`. Without this, archive discovery in
 `test_restore.yaml` and `verify_backups.yaml` silently fails — the shell glob returns empty
 and `stat` returns permission denied.
+
+The backup directories must have **group write** enabled (`mode: 0770`, not 0750).
+`backup_offline.yaml` enforces permissions recursively on every run — if the mode is ever set
+to 0750, all fetch-based backup tasks will fail with permission denied on the controller side.
+
+#### fetch tasks and `become`
+
+All `ansible.builtin.fetch` tasks that write to `/backup` must include `become: false`. The
+Semaphore template sets `become: true` globally; without the override, the fetch write runs as
+root, which a FUSE-mounted backup share (using `default_permissions`) may block. This affects
+`backup_single_db.yaml`, `backup_single_stack.yaml`, and `backup_hosts.yaml`.
 
 ### Inventories
 
@@ -1820,8 +1833,10 @@ Key panel features:
 
 ### File permissions
 
-- **Backup source directory** (`backup_offline.yaml`): Uses `mode: '0750'` (owner rwx, group rx,
-  other none) — never world-writable.
+- **Backup source directory** (`backup_offline.yaml`): Uses `mode: '0770'` (owner rwx, group
+  rwx, other none). Group write is required because the Semaphore container process accesses
+  the backup storage via group membership, not as the owner. Using 0750 would strip group write
+  on every offline backup run and break all fetch-based backups.
 - **UNVR temp backup file** (`backup_hosts.yaml`): The downloaded `.unf` file gets `mode: "0600"`
   and is cleaned up in the `always:` block after backup completes.
 - **ansible_remote_tmp** (`group_vars/all.yaml`): Set to `~/.ansible/tmp` (user-private) instead
