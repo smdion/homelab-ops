@@ -43,7 +43,9 @@
             "{{ _amp_instance }}"
       args:
         executable: /bin/bash
+      register: _amp_tar
       changed_when: true
+      failed_when: _amp_tar.rc > 1  # rc=1 = files changed/removed during shutdown (expected); rc=2 = fatal
       timeout: "{{ amp_backup_timeout | default(1800) }}"
 
     - name: Verify archive integrity for {{ _amp_instance }}
