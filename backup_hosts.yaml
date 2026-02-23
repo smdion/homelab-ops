@@ -310,10 +310,10 @@
         - name: Build per-stack Discord fields
           ansible.builtin.set_fact:
             _stack_discord_fields: >-
-              [{"name": "Host", "value": "{{ inventory_hostname }}"},
-               {"name": "Description", "value": "{{ backup_description }}"}
+              [
                {% for r in _stack_backup_results %}
-              ,{"name": "{{ r.stack }}", "value": "{{ 'FAILED' if r.failed else ('Nothing to back up' if r.file_size == 0 else ((r.file_size / 1024 / 1024) | round(2) | string + 'MB')) }}"}
+               {% if not loop.first %},{% endif %}
+               {"name": "{{ r.stack }}", "value": "{{ 'FAILED' if r.failed else ('Nothing to back up' if r.file_size == 0 else ((r.file_size / 1024 / 1024) | round(2) | string + 'MB')) }}"}
                {% endfor %}]
           when: inventory_hostname in groups["docker_stacks"] | default([])
           tags: [always]
@@ -321,11 +321,12 @@
         - name: Send per-stack Discord notification
           include_tasks: tasks/notify_discord.yaml
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: >-
-              {{ 'Backup Successful' if not (backup_failed | bool)
-                 else ('Backup Failed' if (_stack_backup_results | rejectattr('failed') | list | length == 0)
-                       else 'Backup Partial') }}
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Backup"
+            discord_status: >-
+              {{ 'successful' if not (backup_failed | bool)
+                 else ('failed' if (_stack_backup_results | rejectattr('failed') | list | length == 0)
+                       else 'partial') }}
             discord_color: >-
               {{ discord_color_success if not (backup_failed | bool)
                  else (discord_color_failure if (_stack_backup_results | rejectattr('failed') | list | length == 0)
@@ -339,15 +340,12 @@
         - name: Send Discord notification
           include_tasks: tasks/notify_discord.yaml
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: "{{ 'Backup Failed' if backup_failed else 'Backup Successful' }}"
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Backup"
+            discord_status: "{{ 'failed' if backup_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if backup_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Description"
-                value: "{{ backup_description }}"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
               - name: "Stacks"
                 value: "{{ stack_assignments[inventory_hostname] | default([]) | join(', ') }}"
               - name: "Backup Name"
@@ -364,15 +362,15 @@
             - (_docker_start_stacks is defined and _docker_start_stacks is failed) or
               (_docker_start_containers is defined and _docker_start_containers is failed)
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: "Docker recovery FAILED after backup failure"
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Backup"
+            discord_status: "failed"
+            discord_detail: "containers could not be restarted"
             discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
               - name: "Docker Recovery"
-                value: "Containers could not be restarted — manual intervention required"
+                value: "Manual intervention required"
           tags: [always]
 
         - name: Clean up UNVR temp backup file

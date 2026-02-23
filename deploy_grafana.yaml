@@ -140,16 +140,13 @@
         - name: Send Discord notification
           include_tasks: tasks/notify_discord.yaml
           vars:
-            discord_title: "{{ maintenance_name }}"
-            discord_description: "{{ 'Deploy Failed' if deploy_failed else 'Dashboard Deployed' }}"
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Deploy"
+            discord_status: "{{ 'failed' if deploy_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if deploy_failed else discord_color_success }}"
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
-              - name: "Description"
-                value: "{{ 'Grafana dashboard deploy failed' if deploy_failed else 'Grafana dashboard and datasource deployed' }}"
-              - name: "Host"
-                value: "{{ controller_fqdn }}"
               - name: "Detail"
                 value: "{{ _deploy_detail }}"
 

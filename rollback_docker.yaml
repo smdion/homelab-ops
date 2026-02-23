@@ -239,15 +239,12 @@
         - name: Send Discord notification
           include_tasks: tasks/notify_discord.yaml
           vars:
-            discord_title: "{{ update_name | default('Docker') }}"
-            discord_description: "{{ 'Rollback Failed' if rollback_failed else 'Containers Rolled Back' }}"
+            discord_name: "{{ update_name | default('Docker') }}"
+            discord_operation: "Rollback"
+            discord_status: "{{ 'failed' if rollback_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if rollback_failed else discord_color_rollback }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Description"
-                value: "{{ 'Docker container rollback failed' if rollback_failed else 'Docker containers rolled back to previous versions' }}"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
               - name: "Services"
                 value: "{{ _rollback_targets | join(', ') }}"
               - name: "Snapshot Date"
