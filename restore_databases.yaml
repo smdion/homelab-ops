@@ -81,23 +81,18 @@
           tags: [always]
 
         - name: Create pre-restore safety backup
-          ansible.builtin.shell: |
-            {% if is_postgres | default(false) | bool %}
-            docker exec {{ container_name }} pg_dump {{ item }} --clean --if-exists --username={{ db_username }} | gzip > {{ backup_tmp_dir }}/pre_restore_{{ item }}_{{ ansible_date_time.date }}.sql
-            {% elif is_mariadb | default(false) | bool %}
-            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysqldump --user {{ db_username }} {{ item }} | gzip > {{ backup_tmp_dir }}/pre_restore_{{ item }}_{{ ansible_date_time.date }}.sql
-            {% elif is_influxdb | default(false) | bool %}
-            docker exec {{ container_name }} influxd backup -portable -database {{ item }} /tmp/pre_restore_{{ item }}
-            docker cp {{ container_name }}:/tmp/pre_restore_{{ item }} {{ backup_tmp_dir }}/pre_restore_{{ item }}
-            tar czf {{ backup_tmp_dir }}/pre_restore_{{ item }}_{{ ansible_date_time.date }}.tar.gz -C {{ backup_tmp_dir }} pre_restore_{{ item }}
-            rm -rf {{ backup_tmp_dir }}/pre_restore_{{ item }}
-            docker exec {{ container_name }} rm -rf /tmp/pre_restore_{{ item }}
-            {% endif %}
-          environment:
-            DB_PASSWORD: "{{ db_password | default('') }}"
+          include_tasks: tasks/db_dump.yaml
           loop: "{{ _restore_db_list }}"
-          become: true
-          no_log: "{{ not (is_influxdb | default(false) | bool) }}"
+          vars:
+            _db_name: "{{ item }}"
+            _db_container: "{{ container_name }}"
+            _db_username: "{{ db_username }}"
+            _db_password: "{{ db_password | default('') }}"
+            _db_dest_file: "{{ backup_tmp_dir }}/pre_restore_{{ item }}_{{ ansible_date_time.date }}.{{ backup_ext | default('sql') }}"
+            _db_is_postgres: "{{ is_postgres | default(false) }}"
+            _db_is_mariadb: "{{ is_mariadb | default(false) }}"
+            _db_is_influxdb: "{{ is_influxdb | default(false) }}"
+            _db_tmp_dir: "{{ backup_tmp_dir }}"
           when:
             - pre_backup | bool
             - not ansible_check_mode
@@ -129,43 +124,32 @@
           tags: [always]
 
         - name: Restore databases
-          ansible.builtin.shell: |
-            {% if is_postgres | default(false) | bool %}
-            gunzip -cf {{ backup_tmp_dir }}/restore_{{ item }}.sql | docker exec -i {{ container_name }} psql -U {{ db_username }} {{ item }}
-            {% elif is_mariadb | default(false) | bool %}
-            gunzip -cf {{ backup_tmp_dir }}/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} {{ item }}
-            {% elif is_influxdb | default(false) | bool %}
-            docker exec {{ container_name }} influx -execute "DROP DATABASE \"{{ item }}\""
-            tar xzf {{ backup_tmp_dir }}/restore_{{ item }}.tar.gz -C {{ backup_tmp_dir }}
-            docker cp {{ backup_tmp_dir }}/backup_{{ item }} {{ container_name }}:/tmp/influx_restore_{{ item }}
-            docker exec {{ container_name }} influxd restore -portable -database {{ item }} /tmp/influx_restore_{{ item }}
-            rm -rf {{ backup_tmp_dir }}/backup_{{ item }}
-            docker exec {{ container_name }} rm -rf /tmp/influx_restore_{{ item }}
-            {% endif %}
-          environment:
-            DB_PASSWORD: "{{ db_password | default('') }}"
+          include_tasks: tasks/db_restore.yaml
           loop: "{{ _restore_db_list }}"
-          become: true
-          no_log: "{{ not (is_influxdb | default(false) | bool) }}"
+          vars:
+            _db_name: "{{ item }}"
+            _db_container: "{{ container_name }}"
+            _db_username: "{{ db_username }}"
+            _db_password: "{{ db_password | default('') }}"
+            _db_source_file: "{{ backup_tmp_dir }}/restore_{{ item }}.{{ backup_ext | default('sql') }}"
+            _db_is_postgres: "{{ is_postgres | default(false) }}"
+            _db_is_mariadb: "{{ is_mariadb | default(false) }}"
+            _db_is_influxdb: "{{ is_influxdb | default(false) }}"
+            _db_tmp_dir: "{{ backup_tmp_dir }}"
           when: not ansible_check_mode
           tags: [always]
 
-        - name: Validate restored databases (count tables/measurements)
-          ansible.builtin.shell: |
-            {% if is_postgres | default(false) | bool %}
-            docker exec {{ container_name }} psql -U {{ db_username }} -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" {{ item }}
-            {% elif is_mariadb | default(false) | bool %}
-            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysql -u {{ db_username }} -sN -e "SELECT count(*) FROM information_schema.tables WHERE table_schema = '{{ item }}';"
-            {% elif is_influxdb | default(false) | bool %}
-            docker exec {{ container_name }} influx -database {{ item }} -execute "SHOW MEASUREMENTS" -format csv | tail -n +2 | wc -l
-            {% endif %}
-          environment:
-            DB_PASSWORD: "{{ db_password | default('') }}"
+        - name: Validate restored databases
+          include_tasks: tasks/db_count.yaml
           loop: "{{ _restore_db_list }}"
-          register: _table_counts
-          become: true
-          changed_when: false
-          no_log: "{{ not (is_influxdb | default(false) | bool) }}"
+          vars:
+            _db_name: "{{ item }}"
+            _db_container: "{{ container_name }}"
+            _db_username: "{{ db_username }}"
+            _db_password: "{{ db_password | default('') }}"
+            _db_is_postgres: "{{ is_postgres | default(false) }}"
+            _db_is_mariadb: "{{ is_mariadb | default(false) }}"
+            _db_is_influxdb: "{{ is_influxdb | default(false) }}"
           when: not ansible_check_mode
           tags: [always]
 
@@ -195,7 +179,7 @@
                 combined_results + [{
                   'db_name': _restore_db_list[idx],
                   'source_file': _backup_files.results[idx].stdout | basename,
-                  'table_count': _table_counts.results[idx].stdout | default('0') | trim,
+                  'table_count': _db_count_results[_restore_db_list[idx]] | default('0'),
                   'status': 'success'
                 }]
               }}

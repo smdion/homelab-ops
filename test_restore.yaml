@@ -72,21 +72,42 @@
           {{ [deploy_stack] if deploy_stack | default('') | length > 0
              else stack_assignments[source_host] }}
 
-    # ===== FIND BACKUP ARCHIVE =====
-    - name: Find latest backup archive for source host
+    # ===== FIND BACKUP ARCHIVES =====
+    - name: Find per-stack backup archives for source host
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_*.tar.gz 2>/dev/null | head -1
-      register: _archive_file
+        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
+      loop: "{{ _stacks }}"
+      register: _per_stack_archives
       changed_when: false
       check_mode: false
 
-    - name: Assert backup archive exists
+    - name: Set per-stack archive list
+      ansible.builtin.set_fact:
+        _archive_files: "{{ _per_stack_archives.results | selectattr('stdout', 'ne', '') | map(attribute='stdout') | list }}"
+
+    - name: Fall back to monolithic archive
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_*.tar.gz 2>/dev/null | head -1
+      register: _monolithic_archive
+      changed_when: false
+      check_mode: false
+      when: _archive_files | length == 0
+
+    - name: Use monolithic archive as fallback
+      ansible.builtin.set_fact:
+        _archive_files: "{{ [_monolithic_archive.stdout] }}"
+      when:
+        - _archive_files | length == 0
+        - _monolithic_archive.stdout | default('') | length > 0
+
+    - name: Assert backup archives exist
       ansible.builtin.assert:
-        that: _archive_file.stdout | length > 0
-        fail_msg: "No backup archive found for {{ source_host }}"
+        that: _archive_files | length > 0
+        fail_msg: "No backup archives found for {{ source_host }}"
 
     - name: Verify archive integrity
-      ansible.builtin.shell: gunzip -t "{{ _archive_file.stdout }}"
+      ansible.builtin.shell: gunzip -t "{{ item }}"
+      loop: "{{ _archive_files }}"
       changed_when: false
       check_mode: false
 
@@ -186,9 +207,13 @@
             _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
           when: restore_app | default('') | length > 0
 
-        - include_tasks: tasks/restore_appdata.yaml
+        - name: Restore appdata from each archive
+          include_tasks: tasks/restore_appdata.yaml
+          loop: "{{ hostvars['localhost']._archive_files }}"
+          loop_control:
+            loop_var: _current_archive
           vars:
-            _restore_archive_path: "{{ hostvars['localhost']._archive_file.stdout }}"
+            _restore_archive_path: "{{ _current_archive }}"
             _restore_mode: inplace
             _restore_extract_path: "{{ _extract_path | default('') }}"
             _restore_app_name: "{{ restore_app | default('') }}"

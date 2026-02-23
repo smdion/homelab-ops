@@ -1,19 +1,46 @@
 src_raw_files:
   - "/opt"
 
-# Database directories excluded from appdata archive.
-# Only exclude directories that have dedicated backup jobs (SQL dumps or API exports).
-backup_exclude_dirs:
-  - /opt/mariadb
-  - /opt/postgres
-  - /opt/influxdb
-
 backup_tmp_dir: "/backup"
 backup_name: "Docker"
-backup_description: "Automatic Docker Opt Backup"
+backup_description: "Automatic Docker Appdata Backup"
 backup_type: "Servers"
 backup_subtype: "Appdata"
-backup_file: "backup_docker_opt_{{ ansible_date_time.date }}.tar.gz"
+
+# Per-stack backup paths — appdata directories to archive for each stack.
+# /opt/stacks/{name}/ is always included automatically (compose + .env).
+# DB data dirs (mariadb, postgres, influxdb) are excluded — they have dedicated SQL dump jobs.
+stack_backup_paths:
+  infra:
+    - /opt/beszel_socket
+  databases:
+    - /opt/adminer
+  auth:
+    - /opt/authentik_worker
+    - /opt/swag
+    - /opt/crowdsec
+  monitoring:
+    - /opt/grafana
+  dev:
+    - /opt/code-server
+    - /opt/netboot
+  media:
+    - /opt/tautulli
+    - /opt/jellyseerr
+  apps:
+    - /opt/home_assistant
+    - /opt/guacamole
+    - /opt/firefox
+    - /opt/xbackbone
+    - /opt/homepage
+    - /opt/homebox
+    - /opt/cloudflareddns
+  nfs: []
+  vpn:
+    - /opt/wireguard
+    - /opt/npm
+    - /opt/npm-le
+    - /opt/beszel
 
 # Update vars
 update_name: "Docker"

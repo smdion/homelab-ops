@@ -1,0 +1,61 @@
+---
+# Back up a single database: dump, verify, fetch, collect result.
+# Called in a loop from backup_databases.yaml.
+#
+# Expects:
+#   _current_db — database name (loop_var from caller)
+#   combined_results — list to append to (initialized by caller)
+# Inherits from playbook scope:
+#   container_name, db_username, db_password, backup_tmp_dir, backup_ext,
+#   backup_base_dir, ansible_date_time, is_postgres, is_mariadb, is_influxdb
+
+- name: "Set file paths for {{ _current_db }}"
+  ansible.builtin.set_fact:
+    _db_file: "backup_{{ _current_db }}_{{ ansible_date_time.date }}.{{ backup_ext | default('sql') }}"
+
+- block:
+    - name: "Dump {{ _current_db }}"
+      include_tasks: tasks/db_dump.yaml
+      vars:
+        _db_name: "{{ _current_db }}"
+        _db_container: "{{ container_name }}"
+        _db_username: "{{ db_username }}"
+        _db_password: "{{ db_password | default('') }}"
+        _db_dest_file: "{{ backup_tmp_dir }}/{{ _db_file }}"
+        _db_is_postgres: "{{ is_postgres | default(false) }}"
+        _db_is_mariadb: "{{ is_mariadb | default(false) }}"
+        _db_is_influxdb: "{{ is_influxdb | default(false) }}"
+        _db_tmp_dir: "{{ backup_tmp_dir }}"
+
+    - name: "Get file size — {{ _current_db }}"
+      ansible.builtin.stat:
+        path: "{{ backup_tmp_dir }}/{{ _db_file }}"
+      register: _db_file_size
+
+    - name: "Verify integrity — {{ _current_db }}"
+      become: true
+      ansible.builtin.shell: |
+        {% if is_influxdb | default(false) | bool %}
+        tar tzf "{{ backup_tmp_dir }}/{{ _db_file }}" > /dev/null
+        {% else %}
+        gzip -t "{{ backup_tmp_dir }}/{{ _db_file }}"
+        {% endif %}
+      changed_when: false
+      check_mode: false
+
+    - name: "Fetch to controller — {{ _current_db }}"
+      ansible.builtin.fetch:
+        src: "{{ backup_tmp_dir }}/{{ _db_file }}"
+        dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _db_file }}"
+        flat: true
+
+    - name: "Record success — {{ _current_db }}"
+      ansible.builtin.set_fact:
+        combined_results: >-
+          {{ combined_results + [{'db_name': _current_db, 'backup_rc': 0, 'file_size': _db_file_size.stat.size | default(0)}] }}
+
+  rescue:
+    - name: "Record failure — {{ _current_db }}"
+      ansible.builtin.set_fact:
+        combined_results: >-
+          {{ combined_results + [{'db_name': _current_db, 'backup_rc': 1, 'file_size': 0}] }}

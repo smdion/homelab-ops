@@ -1,0 +1,26 @@
+---
+# Drop a temporary database.
+#
+# Expects:
+#   _db_name — temp DB name to drop
+#   _db_container, _db_username, _db_password (default ''),
+#   _db_is_postgres, _db_is_mariadb, _db_is_influxdb
+# Optional:
+#   _db_influx_source_name — source DB name for InfluxDB container file cleanup
+
+- name: "Drop temp database — {{ _db_name }}"
+  ansible.builtin.shell: |
+    {% if _db_is_postgres | default(false) | bool %}
+    docker exec {{ _db_container }} psql -U {{ _db_username }} -c 'DROP DATABASE IF EXISTS "{{ _db_name }}";' postgres
+    {% elif _db_is_mariadb | default(false) | bool %}
+    docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysql -u {{ _db_username }} -e "DROP DATABASE IF EXISTS \`{{ _db_name }}\`;"
+    {% elif _db_is_influxdb | default(false) | bool %}
+    docker exec {{ _db_container }} influx -execute "DROP DATABASE \"{{ _db_name }}\"" || true
+    {% if _db_influx_source_name | default('') | length > 0 %}
+    docker exec {{ _db_container }} rm -rf /tmp/db_restore_{{ _db_influx_source_name }} || true
+    {% endif %}
+    {% endif %}
+  environment:
+    DB_PASSWORD: "{{ _db_password | default('') }}"
+  become: true
+  no_log: "{{ not (_db_is_influxdb | default(false) | bool) }}"

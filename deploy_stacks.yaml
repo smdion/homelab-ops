@@ -56,6 +56,33 @@
              else stack_assignments[inventory_hostname] }}
 
     - block:
+        - name: Check for port conflicts across stacks
+          ansible.builtin.shell: |
+            conflicts=""
+            declare -A port_map
+            for stack in {{ _deploy_stacks | join(' ') }}; do
+              cd "/opt/stacks/$stack" 2>/dev/null || continue
+              ports=$(docker compose config 2>/dev/null | grep -oP 'published: "\K\d+' | sort -u)
+              for port in $ports; do
+                if [ -n "${port_map[$port]:-}" ]; then
+                  conflicts="$conflicts Port $port: ${port_map[$port]} vs $stack;"
+                fi
+                port_map[$port]="$stack"
+              done
+            done
+            if [ -n "$conflicts" ]; then
+              echo "$conflicts"
+              exit 1
+            fi
+          become: true
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - _deploy_stacks | length > 1
+          register: _port_check
+          failed_when: _port_check.rc | default(0) != 0
+          changed_when: false
+          check_mode: false
+
         - name: Deploy stacks
           include_tasks: tasks/deploy_single_stack.yaml
           loop: "{{ _deploy_stacks }}"

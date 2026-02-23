@@ -1,0 +1,103 @@
+---
+# Back up a single Docker Compose stack's appdata.
+# Called in a loop from backup_hosts.yaml with loop_var: _backup_stack.
+#
+# Stops the stack, archives its appdata + compose dir, verifies integrity,
+# starts the stack, and records the result. On failure the stack is restarted
+# and the failure is recorded (not re-raised — caller checks _stack_backup_results).
+#
+# Required (from caller scope):
+#   _backup_stack         — stack name (e.g. 'auth', 'vpn')
+#   stack_backup_paths    — dict mapping stack → list of appdata dirs
+#   backup_tmp_dir        — temp directory for archive creation
+#   ansible_date_time     — gathered fact
+#   _stack_backup_results — list to append results to (caller initializes to [])
+#   backup_base_dir       — controller-side backup root (for fetch dest)
+
+- name: Set archive filename for {{ _backup_stack }}
+  ansible.builtin.set_fact:
+    _stack_archive_name: "backup_{{ _backup_stack }}_{{ ansible_date_time.date }}.tar.gz"
+  tags: [always]
+
+- block:
+    - name: Stop {{ _backup_stack }} stack
+      include_tasks: tasks/docker_stop.yaml
+      vars:
+        _docker_selective_stacks: ["{{ _backup_stack }}"]
+
+    - name: Compute archive paths for {{ _backup_stack }}
+      ansible.builtin.set_fact:
+        _backup_archive_paths: >-
+          {{ (stack_backup_paths[_backup_stack] | default([]))
+             + ['/opt/stacks/' + _backup_stack] }}
+
+    - name: Filter to existing paths for {{ _backup_stack }}
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ _backup_archive_paths }}"
+      register: _backup_paths_stat
+
+    - name: Set validated paths for {{ _backup_stack }}
+      ansible.builtin.set_fact:
+        _validated_archive_paths: >-
+          {{ _backup_paths_stat.results
+             | selectattr('stat', 'defined')
+             | selectattr('stat.exists')
+             | map(attribute='item') | list }}
+
+    - name: Create compressed archive for {{ _backup_stack }}
+      become: true
+      community.general.archive:
+        path: "{{ _validated_archive_paths }}"
+        dest: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
+        format: gz
+        remove: false
+      timeout: 1800
+
+    - name: Verify archive integrity for {{ _backup_stack }}
+      become: true
+      ansible.builtin.shell: gunzip -t "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Get archive file size for {{ _backup_stack }}
+      ansible.builtin.stat:
+        path: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
+      register: _stack_file_size
+      changed_when: false
+
+    - name: Fetch {{ _backup_stack }} archive to controller
+      ansible.builtin.fetch:
+        src: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
+        dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _stack_archive_name }}"
+        flat: true
+
+    - name: Record success for {{ _backup_stack }}
+      ansible.builtin.set_fact:
+        _stack_backup_results: >-
+          {{ _stack_backup_results + [{'stack': _backup_stack,
+             'file': _stack_archive_name,
+             'file_size': _stack_file_size.stat.size | default(0),
+             'failed': false}] }}
+
+  rescue:
+    - name: Record failure for {{ _backup_stack }}
+      ansible.builtin.set_fact:
+        _stack_backup_results: >-
+          {{ _stack_backup_results + [{'stack': _backup_stack,
+             'file': _stack_archive_name,
+             'file_size': 0,
+             'failed': true}] }}
+
+  always:
+    - name: Start {{ _backup_stack }} stack
+      include_tasks: tasks/docker_start.yaml
+      vars:
+        _docker_selective_stacks: ["{{ _backup_stack }}"]
+        _docker_ignore_errors: true
+
+    - name: Delete temp archive for {{ _backup_stack }}
+      become: true
+      ansible.builtin.file:
+        path: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
+        state: absent

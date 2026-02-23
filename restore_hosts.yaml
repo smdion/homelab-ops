@@ -1,12 +1,15 @@
 ---
 # Restore config/appdata archives from backup.
-# Two modes: staging (inspect) and inplace (restore). Supports selective app restore
-# and coordinated DB+appdata restore with cross-host delegate_to.
+# Two modes: staging (inspect) and inplace (restore). Supports selective app restore,
+# per-stack restore, and coordinated DB+appdata restore with cross-host delegate_to.
 # Sends Discord notification and logs result to restores table.
 #
 # Usage:
 #   # Stage full backup for inspection (default, safe)
 #   ansible-playbook restore_hosts.yaml -e hosts_variable=proxmox
+#
+#   # Restore a specific stack's appdata (per-stack archives)
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <hostname> -e restore_stack=auth -e restore_mode=inplace -e confirm_restore=yes -e manage_docker=yes
 #
 #   # Stage just one app's appdata from the full archive
 #   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr
@@ -65,6 +68,17 @@
 
     - block:
         # ===== FIND AND VERIFY BACKUP ARCHIVE =====
+        - name: Find per-stack backup archive on controller
+          ansible.builtin.shell: >
+            ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_{{ restore_stack }}_{{ restore_date | default('') }}*.tar.gz 2>/dev/null | head -1
+          register: _archive_file
+          delegate_to: localhost
+          become: false
+          changed_when: false
+          check_mode: false
+          when: restore_stack | default('') | length > 0
+          tags: [always]
+
         - name: Find backup archive on controller
           ansible.builtin.shell: >
             ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_*{{ restore_date | default('') }}*.tar.gz 2>/dev/null | head -1
@@ -73,12 +87,16 @@
           become: false
           changed_when: false
           check_mode: false
+          when: restore_stack | default('') | length == 0
           tags: [always]
 
         - name: Assert backup archive exists
           ansible.builtin.assert:
             that: _archive_file.stdout | length > 0
-            fail_msg: "No backup archive found for {{ inventory_hostname }} on controller{{ ' for date ' + restore_date if restore_date | default('') | length > 0 else '' }}"
+            fail_msg: >-
+              No backup archive found for {{ inventory_hostname }} on controller
+              {{ '(stack: ' + restore_stack + ')' if restore_stack | default('') | length > 0 else '' }}
+              {{ ' for date ' + restore_date if restore_date | default('') | length > 0 else '' }}
           tags: [always]
 
         - name: Set source file fact
@@ -98,7 +116,9 @@
         - name: Compute extract path for selective app restore
           ansible.builtin.set_fact:
             _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
-          when: restore_app | default('') | length > 0
+          when:
+            - restore_app | default('') | length > 0
+            - restore_stack | default('') | length == 0
           tags: [always]
 
         - name: Verify app directory exists in archive
@@ -107,15 +127,27 @@
           become: false
           changed_when: false
           check_mode: false
-          when: restore_app | default('') | length > 0
+          when:
+            - restore_app | default('') | length > 0
+            - restore_stack | default('') | length == 0
           tags: [always]
 
-        # ===== STOP DOCKER CONTAINERS =====
+        # ===== STOP DOCKER =====
+        - include_tasks: tasks/docker_stop.yaml
+          vars:
+            _docker_selective_stacks: ["{{ restore_stack }}"]
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_stack | default('') | length > 0
+            - not ansible_check_mode
+          tags: [always]
+
         - include_tasks: tasks/docker_stop.yaml
           vars:
             _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
           when:
             - manage_docker | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
@@ -125,6 +157,7 @@
         - include_tasks: tasks/docker_stop.yaml
           when:
             - manage_docker | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length == 0
             - not ansible_check_mode
           tags: [docker]
@@ -136,6 +169,7 @@
             name: _db_vars
           when:
             - include_databases | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
@@ -152,6 +186,7 @@
           check_mode: false
           when:
             - include_databases | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
@@ -166,6 +201,7 @@
             index_var: idx
           when:
             - include_databases | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
@@ -182,6 +218,7 @@
           become: true
           when:
             - include_databases | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
@@ -189,20 +226,22 @@
           tags: [always]
 
         - name: Restore databases on DB host
-          ansible.builtin.shell: |
-            {% if _db_vars.is_postgres | default(false) | bool %}
-            gunzip -cf {{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql | docker exec -i {{ _db_vars.container_name }} psql -U {{ _db_vars.db_username }} {{ item }}
-            {% elif _db_vars.is_mariadb | default(false) | bool %}
-            gunzip -cf {{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ _db_vars.container_name }} mysql -u {{ _db_vars.db_username }} {{ item }}
-            {% endif %}
-          environment:
-            DB_PASSWORD: "{{ db_password }}"
+          include_tasks: tasks/db_restore.yaml
           loop: "{{ app_restore[restore_app].db_names }}"
+          vars:
+            _db_name: "{{ item }}"
+            _db_container: "{{ _db_vars.container_name }}"
+            _db_username: "{{ _db_vars.db_username }}"
+            _db_password: "{{ db_password }}"
+            _db_source_file: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql"
+            _db_is_postgres: "{{ _db_vars.is_postgres | default(false) }}"
+            _db_is_mariadb: "{{ _db_vars.is_mariadb | default(false) }}"
+            _db_is_influxdb: false
+            _db_tmp_dir: "{{ _db_vars.backup_tmp_dir }}"
           delegate_to: "{{ app_restore[restore_app].db_host }}"
-          become: true
-          no_log: true
           when:
             - include_databases | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
@@ -210,22 +249,20 @@
           tags: [always]
 
         - name: Validate restored databases on DB host
-          ansible.builtin.shell: |
-            {% if _db_vars.is_postgres | default(false) | bool %}
-            docker exec {{ _db_vars.container_name }} psql -U {{ _db_vars.db_username }} -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" {{ item }}
-            {% elif _db_vars.is_mariadb | default(false) | bool %}
-            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_vars.container_name }} mysql -u {{ _db_vars.db_username }} -sN -e "SELECT count(*) FROM information_schema.tables WHERE table_schema = '{{ item }}';"
-            {% endif %}
-          environment:
-            DB_PASSWORD: "{{ db_password }}"
+          include_tasks: tasks/db_count.yaml
           loop: "{{ app_restore[restore_app].db_names }}"
-          register: _db_table_counts
+          vars:
+            _db_name: "{{ item }}"
+            _db_container: "{{ _db_vars.container_name }}"
+            _db_username: "{{ _db_vars.db_username }}"
+            _db_password: "{{ db_password }}"
+            _db_is_postgres: "{{ _db_vars.is_postgres | default(false) }}"
+            _db_is_mariadb: "{{ _db_vars.is_mariadb | default(false) }}"
+            _db_is_influxdb: false
           delegate_to: "{{ app_restore[restore_app].db_host }}"
-          become: true
-          changed_when: false
-          no_log: true
           when:
             - include_databases | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
@@ -241,6 +278,7 @@
           become: true
           when:
             - include_databases | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
@@ -252,7 +290,7 @@
             _restore_archive_path: "{{ _archive_file.stdout }}"
             _restore_mode: "{{ restore_mode }}"
             _restore_extract_path: "{{ _extract_path | default('') }}"
-            _restore_app_name: "{{ restore_app | default('') }}"
+            _restore_app_name: "{{ restore_stack | default(restore_app | default('')) }}"
           tags: [always]
 
         - name: Append DB restore detail
@@ -263,18 +301,29 @@
           when:
             - restore_mode == 'inplace'
             - include_databases | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
             - not ansible_check_mode
           tags: [always]
 
-        # ===== START DOCKER CONTAINERS =====
+        # ===== START DOCKER =====
+        - include_tasks: tasks/docker_start.yaml
+          vars:
+            _docker_selective_stacks: ["{{ restore_stack }}"]
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_stack | default('') | length > 0
+            - not ansible_check_mode
+          tags: [always]
+
         - include_tasks: tasks/docker_start.yaml
           vars:
             _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
           when:
             - manage_docker | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
@@ -284,6 +333,7 @@
         - include_tasks: tasks/docker_start.yaml
           when:
             - manage_docker | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length == 0
             - not ansible_check_mode
           tags: [docker]
@@ -309,10 +359,20 @@
 
         - include_tasks: tasks/docker_start.yaml
           vars:
+            _docker_selective_stacks: ["{{ restore_stack }}"]
+            _docker_ignore_errors: true
+          when:
+            - manage_docker | default('') == 'yes'
+            - restore_stack | default('') | length > 0
+          tags: [always]
+
+        - include_tasks: tasks/docker_start.yaml
+          vars:
             _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
             _docker_ignore_errors: true
           when:
             - manage_docker | default('') == 'yes'
+            - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
@@ -325,7 +385,8 @@
             discord_title: "{{ backup_name }}"
             discord_description: >-
               {{ restore_mode | capitalize }} {{ 'Failed' if restore_failed else 'Successful' }}
-              {{ '— ' + restore_app if restore_app | default('') | length > 0 else '' }}
+              {{ '— stack: ' + restore_stack if restore_stack | default('') | length > 0 else '' }}
+              {{ '— ' + restore_app if restore_stack | default('') | length == 0 and restore_app | default('') | length > 0 else '' }}
             discord_color: "{{ discord_color_failure if restore_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
@@ -343,7 +404,7 @@
           include_tasks: tasks/log_restore.yaml
           vars:
             log_hostname: "{{ inventory_hostname }}"
-            restore_application: "{{ restore_app | default(backup_name) }}"
+            restore_application: "{{ restore_stack | default(restore_app | default(backup_name)) }}"
             restore_source_file: "{{ _restore_source_file }}"
             restore_type: "{{ backup_type }}"
             restore_subtype: "{{ backup_subtype }}"
