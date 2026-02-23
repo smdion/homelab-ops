@@ -41,6 +41,7 @@
         remove: false
         exclude_path:
           - "{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Versions"
+          - "{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Backups"
       timeout: "{{ amp_backup_timeout | default(1800) }}"
 
     - name: Verify archive integrity for {{ _amp_instance }}
