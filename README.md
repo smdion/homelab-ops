@@ -197,8 +197,8 @@ for platforms you don't have are automatically skipped.
 └── CONTRIBUTING.md              # Contribution guide
 ```
 
-Inventory is **not** stored here — it lives in Semaphore's UI/database. A local
-`inventory.yaml` copy exists for convenience but is not version-controlled. See
+Inventory lives in Semaphore's UI/database. `inventory.yaml` is also committed here,
+vault-encrypted via ansible-vault — it is **not** in `.gitignore`. See
 [`inventory.example.yaml`](inventory.example.yaml) for the expected group structure.
 
 ## Setup
@@ -227,10 +227,12 @@ API keys are optional — features degrade gracefully without them.
 ### 3. Inventory
 
 Inventory lives in **Semaphore's UI/database** — each inventory groups hosts by authentication
-method. A local `inventory.yaml` is kept for ease of viewing but is not the source of truth.
+method. `inventory.yaml` is also committed here, vault-encrypted; decrypt it to view or edit.
 
 ```bash
-cp inventory.example.yaml inventory.yaml  # local reference copy only
+ansible-vault view inventory.yaml        # view hosts/groups
+ansible-vault edit inventory.yaml        # edit in place
+cp inventory.example.yaml inventory.yaml # start fresh from example
 ```
 
 The key concept: **functional groups** (`[ubuntu]`, `[pve]`, `[docker_stacks]`, etc.) determine

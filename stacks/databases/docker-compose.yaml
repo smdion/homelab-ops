@@ -1,16 +1,16 @@
 x-base: &base
   mem_limit: ${MEM_LIMIT}
   restart: ${RESTART}
-x-smdionenv: &smdionenv
+x-env: &env
   TZ: ${TZ}
-x-smdionuid: &smdionuid
+x-uid: &uid
   PUID: ${PUID}
   PGID: ${PGID}
   UMASK: ${UMASK}
-x-smdionenvuid: &smdionenvuid
+x-envuid: &envuid
   <<:
-  - *smdionenv
-  - *smdionuid
+  - *env
+  - *uid
 services:
   mariadb:
     <<: *base
@@ -20,7 +20,7 @@ services:
     ports:
       - 3306:3306
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
       MYSQL_ROOT_PASSWORD: ${MARIA_PASSWORD}
     volumes:
       - ${APPSDIR}/mariadb:/config
@@ -38,7 +38,7 @@ services:
     ports:
       - 5432:5432
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_DB: ${POSTGRES_DEFAULT_DB}
@@ -58,7 +58,7 @@ services:
     ports:
       - 8087:8080
     environment:
-      <<: *smdionenv
+      <<: *env
       ADMINER_DESIGN: ${ADMINER_DESIGN}
     volumes:
       - ${APPSDIR}/adminer/hydra.css:/var/www/html/designs/hydra/adminer.css

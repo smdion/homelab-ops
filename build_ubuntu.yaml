@@ -33,6 +33,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/semaphore_check.yaml
   vars:
     maintenance_name: "Ubuntu"
     maintenance_type: "Servers"
@@ -227,6 +228,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/semaphore_check.yaml
   vars:
     maintenance_name: "Ubuntu"
     maintenance_type: "Servers"

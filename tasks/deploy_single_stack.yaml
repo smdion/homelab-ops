@@ -35,6 +35,24 @@
     group: root
     mode: "0644"
 
+- name: "Check for docker-compose.override.j2 — {{ _current_stack }}"
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/stacks/{{ _current_stack }}/docker-compose.override.j2"
+  delegate_to: localhost
+  become: false
+  register: _override_j2_stat
+  changed_when: false
+
+- name: "Template docker-compose.override.yaml — {{ _current_stack }}"
+  become: true
+  ansible.builtin.template:
+    src: "stacks/{{ _current_stack }}/docker-compose.override.j2"
+    dest: "/opt/stacks/{{ _current_stack }}/docker-compose.override.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: _override_j2_stat.stat.exists
+
 - name: "Validate compose config — {{ _current_stack }}"
   become: true
   ansible.builtin.command:
@@ -60,13 +78,13 @@
     - not ansible_check_mode
     - not (deploy_skip_up | default(false) | bool)
 
-- name: "Wait for database ports — {{ _current_stack }}"
+- name: "Wait for stack ports — {{ _current_stack }}"
   ansible.builtin.wait_for:
     host: 127.0.0.1
     port: "{{ item }}"
     timeout: 60
-  loop: [3306, 5432]
+  loop: "{{ (stack_wait_ports | default({}))[_current_stack] | default([]) }}"
   when:
-    - _current_stack == 'databases'
+    - (stack_wait_ports | default({}))[_current_stack] | default([]) | length > 0
     - not ansible_check_mode
     - not (deploy_skip_up | default(false) | bool)

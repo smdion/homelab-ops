@@ -1,16 +1,16 @@
 x-base: &base
   mem_limit: ${MEM_LIMIT}
   restart: ${RESTART}
-x-smdionenv: &smdionenv
+x-env: &env
   TZ: ${TZ}
-x-smdionuid: &smdionuid
+x-uid: &uid
   PUID: ${PUID}
   PGID: ${PGID}
   UMASK: ${UMASK}
-x-smdionenvuid: &smdionenvuid
+x-envuid: &envuid
   <<:
-  - *smdionenv
-  - *smdionuid
+  - *env
+  - *uid
 services:
   authentik:
     <<: *base
@@ -21,7 +21,7 @@ services:
       - 9001:9000
       - 9443:9443
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
       AUTHENTIK_POSTGRESQL__HOST: ${POSTGRES_HOST}
       AUTHENTIK_POSTGRESQL__USER: ${POSTGRES_USER}
       AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRES_DB}
@@ -54,7 +54,7 @@ services:
     image: ${AUTHENTIK_IMAGE}:${AUTHENTIK_TAG}
     network_mode: bridge
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
       AUTHENTIK_POSTGRESQL__HOST: ${POSTGRES_HOST}
       AUTHENTIK_POSTGRESQL__USER: ${POSTGRES_USER}
       AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRES_DB}
@@ -86,7 +86,7 @@ services:
       - 8081:8081
       - 81:81
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
       URL: ${SWAG_URL}
       VALIDATION: ${SWAG_VALIDATION}
       SUBDOMAINS: ${SWAG_SUBDOMAINS}
@@ -131,7 +131,7 @@ services:
       - 8080:8080
       - 6060:6060
     environment:
-      <<: *smdionenvuid
+      <<: *envuid
       COLLECTIONS: ${CROWDSEC_COLLECTIONS}
       CUSTOM_HOSTNAME: ${CROWDSEC_CUSTOM_HOSTNAME}
     volumes:

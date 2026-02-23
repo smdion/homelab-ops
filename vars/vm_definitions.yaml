@@ -5,12 +5,18 @@
 # Proxmox infrastructure defaults — shared across all VMs.
 # pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret, vm_password
 # are secrets — defined in vars/secrets.yaml.
+#
+# Network topology and node names are deployment-specific and must be set in vault:
+#   vault_vm_gateway        — default gateway IP for all VMs
+#   vault_vm_dns            — DNS server IP for all VMs
+#   vault_vm_search_domain  — DNS search domain (e.g. "homelab.local")
+#   vault_pve_template_node — PVE node where the cloud-init template config file lives
 pve_storage: "replicated"
 pve_bridge: "vmbr0"
 vm_user: "ansible"
-vm_gateway: "REDACTED_GW"
-vm_dns: "REDACTED_GW"
-vm_search_domain: "REDACTED_DOMAIN"
+vm_gateway: "{{ vault_vm_gateway }}"
+vm_dns: "{{ vault_vm_dns }}"
+vm_search_domain: "{{ vault_vm_search_domain }}"
 vm_cidr: 24
 
 # Cloud-init template — created automatically on first build.
@@ -18,50 +24,57 @@ vm_cidr: 24
 # pve_template_node must match the node pve_api_host resolves to — that's where the
 # template config file lives. Clones use Ceph shared storage to target any node.
 pve_template_vmid: 9000
-pve_template_node: "REDACTED_NODE"
+pve_template_node: "{{ vault_pve_template_node }}"
 pve_template_name: "ubuntu-cloud-template"
 pve_cloud_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+vm_template_memory: 2048
+vm_template_cores: 2
 
+# vm_definitions: keyed by short name (used as vm_name arg and in stack_assignments).
+# Per-VM sensitive values (hostname, IP, PVE target node) come from vault:
+#   vault_vm_<name>_hostname  — FQDN for cloud-init hostname and Ansible inventory
+#   vault_vm_<name>_ip        — static IP for cloud-init network config
+#   vault_vm_<name>_node      — PVE node to place this VM on
 vm_definitions:
   tantiveiv:
     vm_id: 100
     vm_name: tantive-iv
-    vm_hostname: tantiveiv.REDACTED_DOMAIN
-    vm_ip: REDACTED_IP
+    vm_hostname: "{{ vault_vm_tantiveiv_hostname }}"
+    vm_ip: "{{ vault_vm_tantiveiv_ip }}"
     vm_cores: 4
     vm_memory_mb: 12288
     vm_disk_gb: 200
-    pve_target_node: REDACTED_NODE
+    pve_target_node: "{{ vault_vm_tantiveiv_node }}"
 
   odyssey:
     vm_id: 101
     vm_name: odyssey
-    vm_hostname: odyssey.REDACTED_DOMAIN
-    vm_ip: REDACTED_IP
+    vm_hostname: "{{ vault_vm_odyssey_hostname }}"
+    vm_ip: "{{ vault_vm_odyssey_ip }}"
     vm_cores: 2
     vm_memory_mb: 4096
     vm_disk_gb: 100
-    pve_target_node: REDACTED_NODE
+    pve_target_node: "{{ vault_vm_odyssey_node }}"
 
   amp:
     vm_id: 102
     vm_name: amp
-    vm_hostname: amp.REDACTED_DOMAIN
-    vm_ip: REDACTED_IP
+    vm_hostname: "{{ vault_vm_amp_hostname }}"
+    vm_ip: "{{ vault_vm_amp_ip }}"
     vm_cores: 4
     vm_memory_mb: 8192
     vm_disk_gb: 100
-    pve_target_node: REDACTED_NODE
+    pve_target_node: "{{ vault_vm_amp_node }}"
 
   test-vm:
     vm_id: 199
     vm_name: test-vm
-    vm_hostname: test-vm.REDACTED_DOMAIN
-    vm_ip: REDACTED_IP
+    vm_hostname: "{{ vault_vm_testvm_hostname }}"
+    vm_ip: "{{ vault_vm_testvm_ip }}"
     vm_cores: 2
     vm_memory_mb: 2048
     vm_disk_gb: 20
-    pve_target_node: REDACTED_NODE
+    pve_target_node: "{{ vault_vm_testvm_node }}"
 
 # Optional per-VM fields (used by tasks/bootstrap_vm.yaml when defined):
 #

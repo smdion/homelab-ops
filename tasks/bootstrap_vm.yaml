@@ -62,7 +62,7 @@
 - name: Allow SSH through UFW
   community.general.ufw:
     rule: allow
-    port: "22"
+    port: "{{ ansible_port | default('22') }}"
     proto: tcp
 
 - name: Apply additional UFW rules

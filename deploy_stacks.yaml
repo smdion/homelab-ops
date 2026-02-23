@@ -19,6 +19,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/{{ config_file }}.yaml
+    - vars/semaphore_check.yaml
   vars:
     config_file: "{{ hosts_variable }}"
     maintenance_name: "Docker"

@@ -1,7 +1,7 @@
 x-base: &base
   mem_limit: ${MEM_LIMIT}
   restart: ${RESTART}
-x-smdionenv: &smdionenv
+x-env: &env
   TZ: ${TZ}
 services:
   nfs:
@@ -10,7 +10,7 @@ services:
     image: itsthenetwork/nfs-server-alpine:latest
     network_mode: host
     environment:
-      <<: *smdionenv
+      <<: *env
       SHARED_DIRECTORY: ${NFS_SHARED_DIRECTORY}
       SYNC: ${NFS_SYNC}
     volumes:

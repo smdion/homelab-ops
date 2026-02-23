@@ -1,28 +1,28 @@
 x-base: &base
   mem_limit: ${MEM_LIMIT}
   restart: ${RESTART}
-x-smdionenv: &smdionenv
+x-env: &env
   TZ: ${TZ}
-x-smdionuid: &smdionuid
+x-uid: &uid
   PUID: ${PUID}
   PGID: ${PGID}
   UMASK: ${UMASK}
-x-smdionenvuid: &smdionenvuid
+x-envuid: &envuid
   <<:
-  - *smdionenv
-  - *smdionuid
-x-smdionwireguard: &smdionwireguard
+  - *env
+  - *uid
+x-wireguard: &wireguard
   network_mode: ${NETWORK_MODE}
   depends_on:
     - ${DEPENDS_ON}
-x-smdionbaseenv: &smdionbaseenv
+x-baseenv: &baseenv
   <<: *base
   environment:
-    <<: *smdionenv
-x-smdionbaseuid: &smdionbaseuid
+    <<: *env
+x-baseuid: &baseuid
   <<: *base
   environment:
-    <<: *smdionenvuid
+    <<: *envuid
 services:
   wireguard:
     <<: *base
@@ -50,8 +50,8 @@ services:
       start_period: 30s
   npm:
     <<:
-    - *smdionbaseuid
-    - *smdionwireguard
+    - *baseuid
+    - *wireguard
     container_name: npm
     image: docker.io/jc21/nginx-proxy-manager:latest
     volumes:
@@ -67,7 +67,7 @@ services:
   dockerproxy:
     <<:
     - *base
-    - *smdionwireguard
+    - *wireguard
     container_name: dockerproxy
     image: lscr.io/linuxserver/socket-proxy:latest
     environment:
@@ -84,8 +84,8 @@ services:
     privileged: true
   dozzle-agent:
     <<:
-    - *smdionbaseenv
-    - *smdionwireguard
+    - *baseenv
+    - *wireguard
     container_name: dozzle-agent
     image: amir20/dozzle:latest
     volumes:
@@ -94,11 +94,11 @@ services:
   nfs:
     <<:
     - *base
-    - *smdionwireguard
+    - *wireguard
     container_name: nfs
     image: itsthenetwork/nfs-server-alpine:latest
     environment:
-      <<: *smdionenv
+      <<: *env
       SHARED_DIRECTORY: ${NFS_SHARED_DIRECTORY}
       SYNC: ${NFS_SYNC}
     volumes:
@@ -106,8 +106,8 @@ services:
     privileged: true
   beszel:
     <<:
-    - *smdionbaseenv
-    - *smdionwireguard
+    - *baseenv
+    - *wireguard
     container_name: beszel
     image: henrygd/beszel
     volumes:
@@ -116,13 +116,13 @@ services:
   beszel-agent:
     <<:
     - *base
-    - *smdionwireguard
+    - *wireguard
     container_name: beszel-agent
     image: henrygd/beszel-agent:latest
     volumes:
       - ${APPSDIR}/beszel_socket:/beszel_socket
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      <<: *smdionenv
+      <<: *env
       LISTEN: ${BESZEL_LISTEN}
       KEY: ${BESZEL_KEY}

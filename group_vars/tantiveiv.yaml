@@ -1,0 +1,4 @@
+---
+# Group-level overrides for the tantiveiv host group.
+# tantive-iv has 12GB RAM — increase the Docker container memory limit from the 3000m default.
+docker_mem_limit: "10g"

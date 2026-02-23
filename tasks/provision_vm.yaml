@@ -34,7 +34,7 @@
     wget -q "{{ pve_cloud_image_url }}" -O ubuntu-cloud.img
     qm create {{ pve_template_vmid }} \
       --name {{ pve_template_name }} \
-      --memory 2048 --cores 2 \
+      --memory {{ vm_template_memory }} --cores {{ vm_template_cores }} \
       --net0 virtio,bridge={{ pve_bridge }}
     qm importdisk {{ pve_template_vmid }} ubuntu-cloud.img {{ pve_storage }}
     qm set {{ pve_template_vmid }} \

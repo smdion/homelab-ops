@@ -111,11 +111,13 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 
 ```
 ├── ansible.cfg                     # Ansible settings: disable retry files, YAML stdout callback
-├── inventory.yaml                  # Local reference copy of Semaphore inventory — NOT version-controlled
+├── inventory.yaml                  # Semaphore inventory — committed, vault-encrypted (not in .gitignore)
 ├── inventory.example.yaml          # Template inventory with example hosts and group structure
 │
 ├── group_vars/
-│   └── all.yaml                    # Shared defaults: ansible_remote_tmp, ansible_python_interpreter, backup_base_dir/tmp_file/dest_path/url
+│   ├── all.yaml                    # Shared defaults: ansible_remote_tmp, ansible_python_interpreter, backup_base_dir/tmp_file/dest_path/url
+│   ├── pikvm.yaml                  # PiKVM override: ansible_remote_tmp → /tmp/.ansible/tmp (RO filesystem; /tmp is tmpfs)
+│   └── tantiveiv.yaml              # tantive-iv override: docker_mem_limit → "10g" (12GB RAM vs 4GB default)
 │
 ├── vars/
 │   ├── secrets.yaml                # AES256-encrypted vault — ALL secrets (incl. domain config, docker_* keys, pve_* keys)
@@ -123,11 +125,11 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 │   ├── example.yaml                # Template for creating new platform vars files
 │   ├── semaphore_check.yaml         # Health thresholds (26 checks), controller_fqdn, semaphore_db_name, semaphore_url/semaphore_ext_url, display_timezone, retention_days, appliance_check_hosts
 │   ├── proxmox.yaml                 # Proxmox PVE + PBS
-│   ├── pikvm.yaml                   # PiKVM KVM
-│   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), maintenance_url
+│   ├── pikvm.yaml                   # PiKVM KVM — backup/update config; see group_vars/pikvm.yaml for connection override
+│   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), unifi_backup_retention, maintenance_url
 │   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (protect_api_backup_path, protect_temp_file)
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
-│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, docker_* defaults, app_restore mapping
+│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, stack_wait_ports, docker_* defaults, app_restore mapping
 │   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists, app_restore mapping
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
 │   ├── unraid_os.yaml               # unRAID OS backup
@@ -751,6 +753,10 @@ LEFT JOIN project__view vw ON t.view_id = vw.id AND t.project_id = vw.project_id
 WHERE t.project_id = 1 AND t.name = '<Template Name>';
 ```
 
+> **Note:** All `project_id = 1` references, `inventory_id` values (3, 12, 30), and numeric IDs
+> in the SQL above are specific to one Semaphore instance. Replace them with actual IDs from your
+> deployment — use the verify query above to confirm IDs after insertion.
+
 ---
 
 ## Playbook Patterns
@@ -947,8 +953,9 @@ canonical identifier defined in the inventory — it is always the correct FQDN,
 and completely under the user's control. The DB and Discord output reflect exactly what is in
 the inventory, regardless of what any host reports about itself.
 
-**`controller_fqdn`** is defined in `vars/semaphore_check.yaml` as a static string
-(e.g., `controller.home.local`). Playbooks that run on `hosts: localhost`
+**`controller_fqdn`** is defined in `vars/semaphore_check.yaml` as a Jinja2 expression:
+`"{{ controller_hostname }}.{{ logging_domain_local }}"`. Both `controller_hostname` and
+`logging_domain_local` come from the vault. Playbooks that run on `hosts: localhost`
 (`maintain_semaphore.yaml`, `maintain_health.yaml` Plays 1/3) use it for both DB logging and
 the `discord_author` override because `inventory_hostname` resolves to `localhost` in that
 context.
@@ -1087,6 +1094,51 @@ misconfigured Semaphore variable groups before work starts. Used by `backup_host
 The `assert_disk_space` and `assert_db_connectivity` tasks have `check_mode: false` on their
 shell/query pre-steps so they validate during `--check`. `assert_config_file` uses
 `ansible.builtin.assert` which runs natively in check mode.
+
+### `no_log` policy
+
+Apply `no_log: true` to any task that would echo a password, token, or key — whether the value
+is in an environment variable, a shell command, or a structured argument:
+
+- Vault secrets passed via `cipassword`, `api_token_secret`, `login_password`: `no_log: true`
+- Tasks that render `.env` files via `ansible.builtin.template` (which contain all docker secrets):
+  `no_log: "{{ not (deploy_debug | default(false) | bool) }}"` — conditional to allow debugging
+  without exposing secrets in normal runs
+- Version queries, disk checks, or any task that reads but never outputs a secret: no annotation needed
+- DB `community.mysql.mysql_query` tasks used for logging (no credentials in query): no annotation needed;
+  tasks that pass `login_password` use `no_log: true`
+
+### `validate_certs` policy
+
+- **External endpoints** (Discord, Docker Hub, GitHub, cloud portals): always validate (`validate_certs: true`,
+  or omit — `true` is the default)
+- **Internal endpoints with valid TLS** (Grafana, Home Assistant, Uptime Kuma via reverse proxy): validate
+- **Internal endpoints with self-signed certs** (Proxmox API, Semaphore on LAN): `validate_certs: false`
+  is acceptable; note the reason in a comment (e.g., `# Proxmox self-signed cert`)
+- **Vendor API limitation** (UNVR): `validate_certs: false` — vendor API incompatibility prevents
+  cert management (see Blocked items in future/TODO.md)
+
+### `host_vars` vs `group_vars` rules
+
+- **`group_vars/all.yaml`** — defaults that apply everywhere: shared Ansible settings, backup path
+  patterns, Discord colors
+- **`group_vars/<group>.yaml`** — per-group overrides for a specific inventory group (e.g.,
+  `group_vars/tantiveiv.yaml` for `docker_mem_limit`; `group_vars/pikvm.yaml` for `ansible_remote_tmp`)
+- **`vars/*.yaml`** — per-platform configs loaded explicitly via `vars_files:` in playbooks; use for
+  operational variables (backup paths, task names, feature flags) that vary by platform
+- **`host_vars/<hostname>.yaml`** — reserved for truly host-specific overrides that don't fit a group
+  pattern; currently unused (prefer group_vars for host groups)
+
+### Image pinning convention
+
+Docker service images generally use `latest`. Exceptions:
+
+- **Images without a `latest` tag** (e.g., Authentik — always use versioned tags): must be pinned
+  via a variable in `vars/docker_stacks.yaml` (e.g., `docker_authentik_tag: "2025.12.4"`)
+- **DB images that need version stability** (e.g., MariaDB, PostgreSQL) may also be pinned
+
+Pinned versions are intentional. Update them manually by editing `vars/docker_stacks.yaml`.
+Do not auto-update pinned images — they require testing before a version bump.
 
 ### Triple alerting: Discord push + Grafana pull + Uptime Kuma dead man's switch
 
@@ -1547,8 +1599,11 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `maintain_unifi.yaml` | Unifi | Appliances | Restart |
 | `maintain_amp.yaml` | AMP | Servers | Maintenance |
 | `maintain_health.yaml` | Semaphore | Local | Health Check |
+| `maintain_logging_db.yaml` | Logging DB | Local | Cleanup |
 | `deploy_stacks.yaml` | Docker | Servers | Deploy |
+| `deploy_grafana.yaml` | Grafana | Local | Deploy |
 | `build_ubuntu.yaml` | Ubuntu | Servers | Build |
+| `test_restore.yaml` | Docker | Servers | Test Restore |
 
 **Restores** (type/subtype reuse the backup vars file values):
 
@@ -1898,3 +1953,71 @@ Key panel features:
   (matching PostgreSQL pattern; loops over `db_names`).
 - **InfluxDB backups** (`backup_databases.yaml`): `tar tzf` validates each tar.gz archive
   (InfluxDB portable backups are directory-based, tar+gzipped before transfer).
+
+## Disaster Recovery
+
+Manual bootstrap procedure for full host reconstruction from the CLI, without Semaphore UI.
+Use this when the primary controller host is completely lost (Semaphore + MariaDB + ansible_logging gone).
+
+For non-DR testing, use `test_restore.yaml` instead — it automates the full restore cycle on a
+disposable VM and reverts when done.
+
+### Controller Total Loss — CLI Sequence
+
+Run from any machine with Ansible installed, the repo cloned, and the vault password available.
+
+```bash
+# 1. Provision a new VM
+ansible-playbook build_ubuntu.yaml -e vm_name=<new-hostname> --ask-vault-pass
+
+# 2. Deploy database stack first (includes MariaDB + Postgres)
+ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> -e deploy_stack=databases --ask-vault-pass
+
+# 3. Restore MariaDB from backup (restores semaphore + ansible_logging databases)
+ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_mariadb -e confirm_restore=yes --ask-vault-pass
+
+# 4. Restore Postgres from backup
+ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm_restore=yes --ask-vault-pass
+
+# 5. Deploy remaining stacks (Semaphore is now functional via MariaDB)
+ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
+
+# 6. Restore appdata
+ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <controller-fqdn> -e restore_mode=inplace -e confirm_restore=yes --ask-vault-pass
+
+# 7. Re-render .env files (restore overwrites them with backup copies) and restart stacks
+ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
+
+# 8. Semaphore is back — use UI for remaining hosts
+```
+
+**Prerequisites:**
+- A working machine with Ansible installed and the repo cloned
+- The vault password (stored securely outside the infrastructure)
+- SSH access to Proxmox API host (for VM creation)
+- Network connectivity to the target subnet
+
+### Automation Coverage
+
+| Step | Automated? | Notes |
+|------|------------|-------|
+| VM creation + OS | Yes | `build_ubuntu.yaml` |
+| Docker + security hardening | Yes | `build_ubuntu.yaml` bootstrap |
+| NFS mounts + UFW rules | Yes | `vm_definitions.yaml` → `bootstrap_vm.yaml` |
+| Stack deployment | Yes | `deploy_stacks.yaml` |
+| Database restore | Yes | `restore_databases.yaml` |
+| Appdata restore | Yes | `restore_hosts.yaml` |
+| DNS records (internal) | No | DHCP reservation with hostname — network layer |
+| DNS records (external) | No | Static IP, managed by `cloudflareddns` container |
+| Reverse proxy config | Yes | SWAG/NPM config in appdata (restored from backup) |
+| SSL certificates | Yes | Let's Encrypt certs in appdata (restored from backup) |
+
+### Test Restore (automated)
+
+```bash
+# Test any host's full restore cycle (disposable VM, auto-reverts on completion)
+ansible-playbook test_restore.yaml -e vm_name=<test-vm> -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
+
+# DR mode — same playbook, keeps the VM running after restore (no revert)
+ansible-playbook test_restore.yaml -e vm_name=<dr-vm> -e source_host=<source-fqdn> -e dr_mode=true --vault-password-file ~/.vault_pass
+```

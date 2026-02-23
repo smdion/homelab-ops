@@ -1,5 +1,6 @@
 src_raw_files:
   - "/data/unifi/data/backup/autobackup/"
+unifi_backup_retention: "10d"
 backup_tmp_dir: "/backup"
 backup_name: "Unifi Network"
 backup_url: "https://unifi.ui.com/"
