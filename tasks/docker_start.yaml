@@ -1,0 +1,65 @@
+---
+# Start Docker containers/stacks. Tri-modal: selective, stack/legacy, unRAID.
+# Caller gates with `when:` for manage_docker, check_mode, etc.
+#
+# Optional:
+#   _docker_selective_containers — list; start only these containers (skips all other modes)
+#   _docker_ignore_errors        — bool (default false); set true for safety-net use
+#   _docker_wait_ssh             — bool (default false); wait for SSH after start
+# Requires (unRAID mode):
+#   _docker_containers — register from docker_stop.yaml
+
+- name: Start containers (selective)
+  become: true
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'start'] + _docker_selective_containers }}"
+  when: _docker_selective_containers is defined
+  ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
+
+- name: Start Docker stacks (stack mode)
+  become: true
+  community.docker.docker_compose_v2:
+    project_src: "/opt/stacks/{{ item }}"
+    state: present
+  loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+  when:
+    - _docker_selective_containers is not defined
+    - inventory_hostname in groups["docker_stacks"] | default([])
+    - inventory_hostname in (stack_assignments | default({}))
+  register: _docker_start_stacks
+  ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
+
+- name: Start Docker Compose (legacy mode)
+  become: true
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_project_path }}"
+    state: present
+  when:
+    - _docker_selective_containers is not defined
+    - inventory_hostname in groups["docker_stacks"] | default([])
+    - inventory_hostname not in (stack_assignments | default({}))
+  register: _docker_start_legacy
+  ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
+
+- name: Start Docker containers (unRAID)
+  become: true
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
+  when:
+    - _docker_selective_containers is not defined
+    - inventory_hostname in groups["docker_run"] | default([])
+    - _docker_containers is defined
+    - _docker_containers.stdout_lines | default([]) | length > 0
+  register: _docker_start_containers
+  ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
+
+- name: Wait for SSH after Docker restart
+  ansible.builtin.wait_for:
+    port: 22
+    host: '{{ (ansible_ssh_host|default(ansible_host))|default(inventory_hostname) }}'
+    search_regex: OpenSSH
+    delay: 10
+    timeout: 300
+  when:
+    - _docker_wait_ssh | default(false)
+    - inventory_hostname in groups["docker_stacks"] | default([])

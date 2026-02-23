@@ -98,47 +98,10 @@
       tags: [always]
 
     - block:
-        # ===== STOP DOCKER (COMPOSE) =====
-        - name: Stop Docker stacks (stack mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "/opt/stacks/{{ item }}"
-            state: stopped
-          loop: "{{ (stack_assignments[inventory_hostname] | default([])) | reverse | list }}"
-          when:
-            - inventory_hostname in groups["docker_stacks"]
-            - inventory_hostname in (stack_assignments | default({}))
-          tags: [docker]
-
-        - name: Stop Docker Compose (legacy mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "{{ compose_project_path }}"
-            state: stopped
-          when:
-            - inventory_hostname in groups["docker_stacks"]
-            - inventory_hostname not in (stack_assignments | default({}))
-          tags: [docker]
-
-        # ===== STOP DOCKER - unRAID (SHELL COMMANDS) =====
-        - name: Get running containers (unRAID)
-          become: true
-          ansible.builtin.shell: |
-            docker ps --format {% raw %}'{{.Names}}'{% endraw %} | grep -viE '({{ backup_exclude_containers | join("|") }})'
-          register: _docker_containers
-          when: inventory_hostname in groups["docker_run"]
-          failed_when: false
-          changed_when: false
-          check_mode: false
-          tags: [docker]
-
-        - name: Stop Docker containers except Semaphore/Ansible/MariaDB (unRAID)
-          become: true
-          ansible.builtin.command:
-            argv: "{{ ['docker', 'stop'] + _docker_containers.stdout_lines }}"
-          when:
-            - inventory_hostname in groups["docker_run"]
-            - _docker_containers.stdout_lines | length > 0
+        # ===== STOP DOCKER =====
+        - include_tasks: tasks/docker_stop.yaml
+          vars:
+            _docker_exclude_containers: "{{ backup_exclude_containers | default([]) }}"
           tags: [docker]
 
         # ===== UNVR PROTECT BACKUP VIA API =====
@@ -242,46 +205,10 @@
           check_mode: false
           tags: [always]
 
-        # ===== START DOCKER (COMPOSE) =====
-        - name: Start Docker stacks (stack mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "/opt/stacks/{{ item }}"
-            state: present
-          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
-          when:
-            - inventory_hostname in groups["docker_stacks"]
-            - inventory_hostname in (stack_assignments | default({}))
-          tags: [docker]
-
-        - name: Start Docker Compose (legacy mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "{{ compose_project_path }}"
-            state: present
-          when:
-            - inventory_hostname in groups["docker_stacks"]
-            - inventory_hostname not in (stack_assignments | default({}))
-          tags: [docker]
-
-        # ===== START DOCKER - unRAID (SHELL COMMANDS) =====
-        - name: Start Docker containers (unRAID)
-          become: true
-          ansible.builtin.command:
-            argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
-          when:
-            - inventory_hostname in groups["docker_run"]
-            - _docker_containers.stdout_lines | length > 0
-          tags: [docker]
-
-        - name: Wait for port 22 to become open and contain "OpenSSH"
-          ansible.builtin.wait_for:
-            port: 22
-            host: '{{ (ansible_ssh_host|default(ansible_host))|default(inventory_hostname) }}'
-            search_regex: OpenSSH
-            delay: 10
-            timeout: 300
-          when: inventory_hostname in groups["docker_stacks"]
+        # ===== START DOCKER =====
+        - include_tasks: tasks/docker_start.yaml
+          vars:
+            _docker_wait_ssh: true
           tags: [docker]
 
         # ===== FETCH AND CLEANUP =====
@@ -313,41 +240,9 @@
 
       always:
         # ===== SAFETY NET: ENSURE DOCKER IS RUNNING =====
-        - name: Ensure Docker stacks are running (safety net — stack mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "/opt/stacks/{{ item }}"
-            state: present
-          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
-          when:
-            - inventory_hostname in groups["docker_stacks"]
-            - inventory_hostname in (stack_assignments | default({}))
-          register: _rescue_stacks_result
-          ignore_errors: true
-          tags: [docker]
-
-        - name: Ensure Docker Compose is running (safety net — legacy mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "{{ compose_project_path }}"
-            state: present
-          when:
-            - inventory_hostname in groups["docker_stacks"]
-            - inventory_hostname not in (stack_assignments | default({}))
-          register: _rescue_legacy_result
-          ignore_errors: true
-          tags: [docker]
-
-        - name: Ensure Docker containers are running (safety net)
-          become: true
-          ansible.builtin.command:
-            argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
-          when:
-            - inventory_hostname in groups["docker_run"]
-            - _docker_containers is defined
-            - _docker_containers.stdout_lines | default([]) | length > 0
-          register: rescue_docker_result
-          ignore_errors: true
+        - include_tasks: tasks/docker_start.yaml
+          vars:
+            _docker_ignore_errors: true
           tags: [docker]
 
         # ===== WAIT FOR MARIADB AFTER DOCKER RESTART =====
@@ -399,9 +294,9 @@
           include_tasks: tasks/notify_discord.yaml
           when:
             - backup_failed
-            - (_rescue_stacks_result is defined and _rescue_stacks_result is failed) or
-              (_rescue_legacy_result is defined and _rescue_legacy_result is failed) or
-              (rescue_docker_result is defined and rescue_docker_result is failed)
+            - (_docker_start_stacks is defined and _docker_start_stacks is failed) or
+              (_docker_start_legacy is defined and _docker_start_legacy is failed) or
+              (_docker_start_containers is defined and _docker_start_containers is failed)
           vars:
             discord_title: "{{ backup_name }}"
             discord_description: "Docker recovery FAILED after backup failure"

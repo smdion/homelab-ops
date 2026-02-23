@@ -1,0 +1,57 @@
+---
+# Stop Docker containers/stacks. Tri-modal: selective, stack/legacy, unRAID.
+# Caller gates with `when:` for manage_docker, check_mode, etc.
+#
+# Optional:
+#   _docker_selective_containers — list; stop only these containers (skips all other modes)
+#   _docker_exclude_containers  — list; exclude from unRAID enumerate (e.g. backup_exclude_containers)
+# Registers:
+#   _docker_containers — unRAID container list (referenced by docker_start.yaml)
+
+- name: Stop containers (selective)
+  become: true
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'stop'] + _docker_selective_containers }}"
+  when: _docker_selective_containers is defined
+
+- name: Stop Docker stacks (stack mode)
+  become: true
+  community.docker.docker_compose_v2:
+    project_src: "/opt/stacks/{{ item }}"
+    state: stopped
+  loop: "{{ (stack_assignments[inventory_hostname] | default([])) | reverse | list }}"
+  when:
+    - _docker_selective_containers is not defined
+    - inventory_hostname in groups["docker_stacks"] | default([])
+    - inventory_hostname in (stack_assignments | default({}))
+
+- name: Stop Docker Compose (legacy mode)
+  become: true
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_project_path }}"
+    state: stopped
+  when:
+    - _docker_selective_containers is not defined
+    - inventory_hostname in groups["docker_stacks"] | default([])
+    - inventory_hostname not in (stack_assignments | default({}))
+
+- name: Get running containers (unRAID)
+  become: true
+  ansible.builtin.shell: |
+    docker ps --format {% raw %}'{{.Names}}'{% endraw %}{% if _docker_exclude_containers | default([]) | length > 0 %} | grep -viE '({{ _docker_exclude_containers | join("|") }})'{% endif %}
+  register: _docker_containers
+  when:
+    - _docker_selective_containers is not defined
+    - inventory_hostname in groups["docker_run"] | default([])
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: Stop Docker containers (unRAID)
+  become: true
+  ansible.builtin.command:
+    argv: "{{ ['docker', 'stop'] + _docker_containers.stdout_lines }}"
+  when:
+    - _docker_selective_containers is not defined
+    - inventory_hostname in groups["docker_run"] | default([])
+    - _docker_containers.stdout_lines | default([]) | length > 0

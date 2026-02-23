@@ -111,10 +111,9 @@
           tags: [always]
 
         # ===== STOP DOCKER CONTAINERS =====
-        - name: Stop app containers (selective)
-          ansible.builtin.command:
-            argv: "{{ ['docker', 'stop'] + app_restore[restore_app].containers }}"
-          become: true
+        - include_tasks: tasks/docker_stop.yaml
+          vars:
+            _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
           when:
             - manage_docker | default('') == 'yes'
             - restore_app | default('') | length > 0
@@ -123,56 +122,10 @@
             - not ansible_check_mode
           tags: [always]
 
-        - name: Stop Docker stacks (full restore — stack mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "/opt/stacks/{{ item }}"
-            state: stopped
-          loop: "{{ (stack_assignments[inventory_hostname] | default([])) | reverse | list }}"
+        - include_tasks: tasks/docker_stop.yaml
           when:
             - manage_docker | default('') == 'yes'
             - restore_app | default('') | length == 0
-            - inventory_hostname in groups["docker_stacks"] | default([])
-            - inventory_hostname in (stack_assignments | default({}))
-            - not ansible_check_mode
-          tags: [docker]
-
-        - name: Stop Docker Compose (full restore — legacy mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "{{ compose_project_path }}"
-            state: stopped
-          when:
-            - manage_docker | default('') == 'yes'
-            - restore_app | default('') | length == 0
-            - inventory_hostname in groups["docker_stacks"] | default([])
-            - inventory_hostname not in (stack_assignments | default({}))
-            - not ansible_check_mode
-          tags: [docker]
-
-        - name: Get running containers for full restore (unRAID)
-          become: true
-          ansible.builtin.shell: |
-            docker ps --format {% raw %}'{{.Names}}'{% endraw %}
-          register: _docker_containers
-          when:
-            - manage_docker | default('') == 'yes'
-            - restore_app | default('') | length == 0
-            - inventory_hostname in groups["docker_run"] | default([])
-            - not ansible_check_mode
-          failed_when: false
-          changed_when: false
-          tags: [docker]
-
-        - name: Stop all Docker containers for full restore (unRAID)
-          become: true
-          ansible.builtin.command:
-            argv: "{{ ['docker', 'stop'] + _docker_containers.stdout_lines }}"
-          when:
-            - manage_docker | default('') == 'yes'
-            - restore_app | default('') | length == 0
-            - inventory_hostname in groups["docker_run"] | default([])
-            - _docker_containers.stdout_lines | default([]) | length > 0
             - not ansible_check_mode
           tags: [docker]
 
@@ -293,128 +246,33 @@
             - app_restore[restore_app] is defined
           tags: [always]
 
-        # ===== STAGING MODE =====
-        - name: Copy archive to target for staging
-          ansible.builtin.copy:
-            src: "{{ _archive_file.stdout }}"
-            dest: "{{ backup_tmp_dir }}/restore_staging.tar.gz"
-          become: true
-          when:
-            - restore_mode == 'staging'
-            - not ansible_check_mode
+        # ===== RESTORE APPDATA =====
+        - include_tasks: tasks/restore_appdata.yaml
+          vars:
+            _restore_archive_path: "{{ _archive_file.stdout }}"
+            _restore_mode: "{{ restore_mode }}"
+            _restore_extract_path: "{{ _extract_path | default('') }}"
+            _restore_app_name: "{{ restore_app | default('') }}"
           tags: [always]
 
-        - name: Create staging directory
-          ansible.builtin.file:
-            state: directory
-            path: "{{ backup_tmp_dir }}/restore_staging"
-          become: true
-          when:
-            - restore_mode == 'staging'
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Extract to staging (selective)
-          ansible.builtin.shell: tar xzf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging "{{ _extract_path }}"
-          become: true
-          when:
-            - restore_mode == 'staging'
-            - restore_app | default('') | length > 0
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Extract to staging (full)
-          ansible.builtin.shell: tar xzf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging
-          become: true
-          when:
-            - restore_mode == 'staging'
-            - restore_app | default('') | length == 0
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: List staging contents
-          ansible.builtin.shell: find {{ backup_tmp_dir }}/restore_staging -type f | head -50
-          register: _staging_contents
-          become: true
-          changed_when: false
-          when:
-            - restore_mode == 'staging'
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Count staged files
-          ansible.builtin.shell: find {{ backup_tmp_dir }}/restore_staging -type f | wc -l
-          register: _staged_count
-          become: true
-          changed_when: false
-          when:
-            - restore_mode == 'staging'
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Display staging contents
-          ansible.builtin.debug:
-            msg: |
-              Staged {{ _staged_count.stdout }} files to {{ backup_tmp_dir }}/restore_staging/
-              First 50 files:
-              {{ _staging_contents.stdout }}
-          when:
-            - restore_mode == 'staging'
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Set staging detail
-          ansible.builtin.set_fact:
-            _restore_detail: "{{ _staged_count.stdout | default('0') }} files staged to {{ backup_tmp_dir }}/restore_staging/"
-          when:
-            - restore_mode == 'staging'
-            - not ansible_check_mode
-          tags: [always]
-
-        # ===== INPLACE MODE =====
-        - name: Copy archive to target for inplace restore
-          ansible.builtin.copy:
-            src: "{{ _archive_file.stdout }}"
-            dest: "{{ backup_tmp_dir }}/restore_inplace.tar.gz"
-          become: true
-          when:
-            - restore_mode == 'inplace'
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Extract inplace (selective)
-          ansible.builtin.shell: tar xzf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C / "{{ _extract_path }}"
-          become: true
-          when:
-            - restore_mode == 'inplace'
-            - restore_app | default('') | length > 0
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Extract inplace (full)
-          ansible.builtin.shell: tar xzf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C /
-          become: true
-          when:
-            - restore_mode == 'inplace'
-            - restore_app | default('') | length == 0
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Set inplace detail
+        - name: Append DB restore detail
           ansible.builtin.set_fact:
             _restore_detail: >-
-              {{ restore_app | default('full') }} restored inplace
-              {{ '+ ' + (app_restore[restore_app].db_names | join(', ')) + ' DB(s) restored' if include_databases | default('') == 'yes' and restore_app | default('') | length > 0 else '' }}
+              {{ _restore_detail }}
+              + {{ app_restore[restore_app].db_names | join(', ') }} DB(s) restored
           when:
             - restore_mode == 'inplace'
+            - include_databases | default('') == 'yes'
+            - restore_app | default('') | length > 0
+            - app_restore is defined
+            - app_restore[restore_app] is defined
             - not ansible_check_mode
           tags: [always]
 
         # ===== START DOCKER CONTAINERS =====
-        - name: Start app containers (selective)
-          ansible.builtin.command:
-            argv: "{{ ['docker', 'start'] + app_restore[restore_app].containers }}"
-          become: true
+        - include_tasks: tasks/docker_start.yaml
+          vars:
+            _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
           when:
             - manage_docker | default('') == 'yes'
             - restore_app | default('') | length > 0
@@ -423,42 +281,10 @@
             - not ansible_check_mode
           tags: [always]
 
-        - name: Start Docker stacks (full restore — stack mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "/opt/stacks/{{ item }}"
-            state: present
-          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+        - include_tasks: tasks/docker_start.yaml
           when:
             - manage_docker | default('') == 'yes'
             - restore_app | default('') | length == 0
-            - inventory_hostname in groups["docker_stacks"] | default([])
-            - inventory_hostname in (stack_assignments | default({}))
-            - not ansible_check_mode
-          tags: [docker]
-
-        - name: Start Docker Compose (full restore — legacy mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "{{ compose_project_path }}"
-            state: present
-          when:
-            - manage_docker | default('') == 'yes'
-            - restore_app | default('') | length == 0
-            - inventory_hostname in groups["docker_stacks"] | default([])
-            - inventory_hostname not in (stack_assignments | default({}))
-            - not ansible_check_mode
-          tags: [docker]
-
-        - name: Start all Docker containers (unRAID full restore)
-          become: true
-          ansible.builtin.command:
-            argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
-          when:
-            - manage_docker | default('') == 'yes'
-            - restore_app | default('') | length == 0
-            - inventory_hostname in groups["docker_run"] | default([])
-            - _docker_containers.stdout_lines | default([]) | length > 0
             - not ansible_check_mode
           tags: [docker]
 
@@ -475,50 +301,22 @@
           ansible.builtin.set_fact:
             restore_failed: true
 
-        - name: Ensure Docker stacks are running (safety net — stack mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "/opt/stacks/{{ item }}"
-            state: present
-          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
-          when:
-            - inventory_hostname in groups["docker_stacks"] | default([])
-            - inventory_hostname in (stack_assignments | default({}))
-          ignore_errors: true
+        - include_tasks: tasks/docker_start.yaml
+          vars:
+            _docker_ignore_errors: true
+          when: manage_docker | default('') == 'yes'
           tags: [docker]
 
-        - name: Ensure Docker Compose is running (safety net — legacy mode)
-          become: true
-          community.docker.docker_compose_v2:
-            project_src: "{{ compose_project_path }}"
-            state: present
+        - include_tasks: tasks/docker_start.yaml
+          vars:
+            _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
+            _docker_ignore_errors: true
           when:
-            - inventory_hostname in groups["docker_stacks"] | default([])
-            - inventory_hostname not in (stack_assignments | default({}))
-          ignore_errors: true
-          tags: [docker]
-
-        - name: Ensure app containers are running (safety net)
-          ansible.builtin.command:
-            argv: "{{ ['docker', 'start'] + app_restore[restore_app].containers }}"
-          become: true
-          when:
+            - manage_docker | default('') == 'yes'
             - restore_app | default('') | length > 0
             - app_restore is defined
             - app_restore[restore_app] is defined
-          ignore_errors: true
           tags: [always]
-
-        - name: Ensure Docker containers are running (unRAID safety net)
-          become: true
-          ansible.builtin.command:
-            argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
-          when:
-            - inventory_hostname in groups["docker_run"] | default([])
-            - _docker_containers is defined
-            - _docker_containers.stdout_lines | default([]) | length > 0
-          ignore_errors: true
-          tags: [docker]
 
       always:
         - name: Send Discord notification
