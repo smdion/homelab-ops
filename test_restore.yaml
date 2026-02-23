@@ -171,44 +171,6 @@
         - _vm_exists
         - _vm_status.json.data.status == 'stopped'
 
-    # ===== CREATE SNAPSHOT FOR CLEAN REVERT =====
-    - name: Get existing snapshots
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/snapshot"
-        method: GET
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        validate_certs: false
-      no_log: true
-      register: _vm_snapshots
-      when: not (dr_mode | default(false) | bool)
-
-    - name: Delete existing pre-test snapshot if present
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/snapshot/pre-test-restore"
-        method: DELETE
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        validate_certs: false
-      no_log: true
-      when:
-        - not (dr_mode | default(false) | bool)
-        - _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
-
-    - name: Create pre-test snapshot
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/snapshot"
-        method: POST
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        body_format: form-urlencoded
-        body:
-          snapname: pre-test-restore
-          vmstate: 0
-        validate_certs: false
-      no_log: true
-      when: not (dr_mode | default(false) | bool)
-
 # ═══════════════════════════════════════════════════════════════════
 # Play 2 — Bootstrap (only if VM was just built)
 # ═══════════════════════════════════════════════════════════════════
@@ -228,7 +190,55 @@
       when: hostvars[inventory_hostname]._needs_bootstrap | default(false)
 
 # ═══════════════════════════════════════════════════════════════════
-# Play 3 — Deploy, Restore, and Health Check
+# Play 3 — Snapshot clean post-bootstrap state for revert
+# ═══════════════════════════════════════════════════════════════════
+- name: Create pre-test snapshot
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+
+  tasks:
+    - name: Get existing snapshots
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ vm_definitions[vm_name].pve_target_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      no_log: true
+      register: _vm_snapshots
+      when: not (dr_mode | default(false) | bool)
+
+    - name: Delete existing pre-test snapshot if present
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ vm_definitions[vm_name].pve_target_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      no_log: true
+      when:
+        - not (dr_mode | default(false) | bool)
+        - _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
+
+    - name: Create pre-test snapshot (post-bootstrap clean state)
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ vm_definitions[vm_name].pve_target_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        body_format: form-urlencoded
+        body:
+          snapname: pre-test-restore
+          vmstate: 0
+        validate_certs: false
+      no_log: true
+      when: not (dr_mode | default(false) | bool)
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 4 — Deploy, Restore, and Health Check
 # ═══════════════════════════════════════════════════════════════════
 - name: Test restore on VM
   hosts: test_target
@@ -338,7 +348,7 @@
             log_status: "{{ 'failed' if _restore_test_failed else 'success' }}"
 
 # ═══════════════════════════════════════════════════════════════════
-# Play 4 — Revert to clean state (skipped in DR mode)
+# Play 5 — Revert to clean state (skipped in DR mode)
 # ═══════════════════════════════════════════════════════════════════
 - name: Revert test VM to clean state
   hosts: localhost
@@ -377,23 +387,9 @@
             validate_certs: false
           no_log: true
 
-        - name: Start VM after revert
-          community.general.proxmox_kvm:
-            api_host: "{{ pve_api_host }}"
-            api_user: "{{ pve_api_user }}"
-            api_token_id: "{{ pve_api_token_id }}"
-            api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ vm_definitions[vm_name].pve_target_node }}"
-            vmid: "{{ vm_definitions[vm_name].vm_id }}"
-            state: started
-          no_log: true
-
-        - name: Wait for SSH after revert
-          ansible.builtin.wait_for:
-            host: "{{ vm_definitions[vm_name].vm_ip }}"
-            port: 22
-            delay: 5
-            timeout: 120
+        - name: Wait for rollback to complete
+          ansible.builtin.pause:
+            seconds: 20
 
         - name: Delete pre-test snapshot
           ansible.builtin.uri:
