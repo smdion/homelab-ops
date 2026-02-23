@@ -207,6 +207,13 @@
 
     - block:
         # ===== EXTRACT APPDATA FROM BACKUP =====
+        - name: Ensure backup_tmp_dir exists on test VM
+          ansible.builtin.file:
+            path: "{{ backup_tmp_dir }}"
+            state: directory
+            mode: '0755'
+          become: true
+
         - name: Compute selective extract path
           ansible.builtin.set_fact:
             _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
