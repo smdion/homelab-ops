@@ -273,6 +273,53 @@
       loop_control:
         loop_var: _test_app
 
+    # ===== OOM RECOVERY =====
+    - name: Identify OOM-failed apps
+      ansible.builtin.set_fact:
+        _oom_apps: >-
+          {{ _app_restore_results
+             | selectattr('oom', 'default', false) | selectattr('oom', 'equalto', true)
+             | map(attribute='app') | list }}
+
+    - name: OOM recovery — increase VM memory and retry
+      when: _oom_apps | length > 0
+      block:
+        - name: Save non-OOM results and OOM app list to controller
+          ansible.builtin.set_fact:
+            _saved_app_restore_results: >-
+              {{ _app_restore_results | rejectattr('app', 'in', _oom_apps) | list }}
+            _oom_apps_to_retry: "{{ _oom_apps }}"
+          delegate_to: localhost
+
+        - name: Increase VM memory ({{ (hostvars['localhost']._vm.vm_memory_mb | int * 2) }} MB)
+          ansible.builtin.uri:
+            url: "https://{{ hostvars['localhost'].pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm.pve_target_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/config"
+            method: PUT
+            headers:
+              Authorization: "PVEAPIToken={{ hostvars['localhost'].pve_api_user }}!{{ hostvars['localhost'].pve_api_token_id }}={{ hostvars['localhost'].pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              memory: "{{ (hostvars['localhost']._vm.vm_memory_mb | int * 2) | int }}"
+            validate_certs: false
+          delegate_to: localhost
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Reboot VM to apply increased memory
+          ansible.builtin.reboot:
+            reboot_timeout: 300
+
+        - name: Restore archive maps and results after reboot
+          ansible.builtin.set_fact:
+            _stack_archive_map: "{{ hostvars['localhost']._stack_archive_map }}"
+            _db_archive_map: "{{ hostvars['localhost']._db_archive_map | default({}) }}"
+            _app_restore_results: "{{ hostvars['localhost']._saved_app_restore_results }}"
+
+        - name: Retry restore after OOM recovery — {{ _test_app }}
+          include_tasks: tasks/restore_app_step.yaml
+          loop: "{{ hostvars['localhost']._oom_apps_to_retry }}"
+          loop_control:
+            loop_var: _test_app
+
 # ═══════════════════════════════════════════════════════════════════
 # Play 5 — Report results and revert VM
 # ═══════════════════════════════════════════════════════════════════

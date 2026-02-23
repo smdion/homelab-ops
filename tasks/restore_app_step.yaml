@@ -96,10 +96,18 @@
              'detail': _restore_detail | default('healthy')}] }}
 
   rescue:
+    - name: Check for OOM kill events — {{ _test_app }}
+      ansible.builtin.shell: dmesg | grep -i "out of memory\|oom-kill\|Killed process" | tail -1
+      register: _oom_check
+      failed_when: false
+      changed_when: false
+      become: true
+
     - name: Record failure — {{ _test_app }}
       ansible.builtin.set_fact:
         _app_restore_results: >-
           {{ _app_restore_results + [{'app': _test_app, 'passed': false,
+             'oom': _oom_check.stdout | default('') | length > 0,
              'detail': ansible_failed_result.msg | default('check Semaphore logs')}] }}
 
     - name: Restart stack after failure (best effort) — {{ _test_app }}
