@@ -98,6 +98,7 @@
         file_size: {stat: {size: 0}}
         backup_failed: false
         _stack_backup_results: []
+        _amp_backup_results: []
       tags: [always]
 
     - block:
@@ -171,7 +172,151 @@
             - not ansible_check_mode
           tags: [always]
 
-        # ===== CREATE BACKUP (non-docker_stacks, non-UNVR hosts) =====
+        # ===== UNVR: camera inventory export =====
+        - name: Export Unifi Protect camera inventory
+          ansible.builtin.uri:
+            url: "https://{{ inventory_hostname }}/proxy/protect/api/cameras"
+            method: GET
+            validate_certs: false  # UNVR uses a self-signed cert
+            headers:
+              x-api-key: "{{ unvr_api_key }}"
+            status_code: 200
+          register: _protect_cameras
+          delegate_to: localhost
+          ignore_errors: true
+          when:
+            - inventory_hostname in groups["unifi_protect"]
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Save camera inventory to controller
+          ansible.builtin.copy:
+            content: "{{ _protect_cameras.json | to_nice_json }}"
+            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/protect_camera_inventory_{{ ansible_date_time.date }}.json"
+            mode: "0600"
+          delegate_to: localhost
+          become: false
+          when:
+            - inventory_hostname in groups["unifi_protect"]
+            - _protect_cameras is defined
+            - not (_protect_cameras.failed | default(false))
+            - not ansible_check_mode
+          tags: [always]
+
+        # ===== Unifi Network: device inventory export =====
+        - name: Export Unifi Network device inventory
+          ansible.builtin.uri:
+            url: "https://{{ inventory_hostname }}/proxy/network/api/s/default/stat/device"
+            method: GET
+            validate_certs: false  # UDM uses a self-signed cert
+            headers:
+              x-api-key: "{{ unifi_network_api_key }}"
+            status_code: 200
+          register: _unifi_devices
+          delegate_to: localhost
+          ignore_errors: true
+          when:
+            - inventory_hostname in groups["unifi_network"]
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Save Unifi Network device inventory to controller
+          ansible.builtin.copy:
+            content: "{{ _unifi_devices.json | to_nice_json }}"
+            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/unifi_device_inventory_{{ ansible_date_time.date }}.json"
+            mode: "0600"
+          delegate_to: localhost
+          become: false
+          when:
+            - inventory_hostname in groups["unifi_network"]
+            - _unifi_devices is defined
+            - not (_unifi_devices.failed | default(false))
+            - not ansible_check_mode
+          tags: [always]
+
+        # ===== AMP PER-INSTANCE BACKUP =====
+        # Step 1: back up root-level shared data (instances.json registry + .bak files)
+        - name: Archive AMP shared root data (instances.json registry)
+          become: true
+          community.general.archive:
+            path: "{{ amp_home }}/.ampdata"
+            dest: "{{ backup_tmp_dir }}/backup_amp_shared_{{ ansible_date_time.date }}.tar.gz"
+            format: gz
+            remove: false
+            exclude_path:
+              - "{{ amp_home }}/.ampdata/instances"
+              - "{{ amp_home }}/.ampdata/Versions"
+          timeout: 600
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not ansible_check_mode
+
+        - name: Fetch AMP shared archive to controller
+          ansible.builtin.fetch:
+            src: "{{ backup_tmp_dir }}/backup_amp_shared_{{ ansible_date_time.date }}.tar.gz"
+            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/backup_amp_shared_{{ ansible_date_time.date }}.tar.gz"
+            flat: true
+          become: false
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not ansible_check_mode
+
+        - name: Delete shared AMP temp archive
+          become: true
+          ansible.builtin.file:
+            path: "{{ backup_tmp_dir }}/backup_amp_shared_{{ ansible_date_time.date }}.tar.gz"
+            state: absent
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+
+        # Step 2: discover and back up each instance
+        - name: Discover AMP instances
+          become: true
+          ansible.builtin.find:
+            paths: "{{ amp_home }}/.ampdata/instances"
+            file_type: directory
+            recurse: false
+          register: _amp_instances_found
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not ansible_check_mode
+
+        - name: Set AMP instance list
+          ansible.builtin.set_fact:
+            _amp_instances: "{{ _amp_instances_found.files | map(attribute='path') | map('basename') | sort | list }}"
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not ansible_check_mode
+
+        - name: Save AMP instance inventory to controller
+          ansible.builtin.copy:
+            content: "{{ _amp_instances | default([]) | to_nice_json }}"
+            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/amp_instance_inventory_{{ ansible_date_time.date }}.json"
+            mode: "0600"
+          delegate_to: localhost
+          become: false
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - _amp_instances is defined
+            - not ansible_check_mode
+
+        - name: Back up AMP instances
+          include_tasks: tasks/backup_single_amp_instance.yaml
+          loop: "{{ _amp_instances | default([]) }}"
+          loop_control:
+            loop_var: _amp_instance
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Set failed flag from per-instance AMP results
+          ansible.builtin.set_fact:
+            backup_failed: "{{ _amp_backup_results | selectattr('failed') | list | length > 0 }}"
+          when: inventory_hostname in groups["amp"] | default([])
+          tags: [always]
+
+        # ===== CREATE BACKUP (non-docker_stacks, non-UNVR, non-AMP hosts) =====
         - name: Filter backup paths to only existing directories
           become: true
           ansible.builtin.stat:
@@ -181,6 +326,7 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["unifi_protect"]
+            - inventory_hostname not in groups["amp"] | default([])
           tags: [always]
 
         - name: Set validated backup paths
@@ -193,6 +339,7 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["unifi_protect"]
+            - inventory_hostname not in groups["amp"] | default([])
           tags: [always]
 
         # When exclude dirs are defined, convert directory paths to globs (e.g. /opt → /opt/*)
@@ -205,6 +352,7 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["unifi_protect"]
+            - inventory_hostname not in groups["amp"] | default([])
             - backup_exclude_dirs | default([]) | length > 0
           tags: [always]
 
@@ -246,6 +394,33 @@
             - run_tree_index | default(false) | bool
             - not ansible_check_mode
 
+        # === PBS: export job and datastore configs into /etc so they're included in the archive ===
+        - name: Create PBS DR export directory
+          become: true
+          ansible.builtin.file:
+            path: /etc/proxmox-backup/dr-export
+            state: directory
+            mode: "0700"
+          when:
+            - inventory_hostname in groups['pbs'] | default([])
+            - not ansible_check_mode
+
+        - name: Export PBS job and datastore configurations
+          become: true
+          ansible.builtin.shell: |
+            for job_type in sync-job backup-job prune-job verify-job; do
+              proxmox-backup-manager ${job_type} list --output-format json \
+                > /etc/proxmox-backup/dr-export/${job_type}-list.json 2>/dev/null || true
+            done
+            proxmox-backup-manager datastore list --output-format json \
+              > /etc/proxmox-backup/dr-export/datastore-list.json 2>/dev/null || true
+          args:
+            executable: /bin/bash
+          changed_when: true
+          when:
+            - inventory_hostname in groups['pbs'] | default([])
+            - not ansible_check_mode
+
         - name: Create compressed backup archive
           become: true
           community.general.archive:
@@ -258,6 +433,7 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["unifi_protect"]
+            - inventory_hostname not in groups["amp"] | default([])
           tags: [always]
 
         - name: Get backup file size
@@ -265,7 +441,9 @@
             path: "{{ backup_tmp_file }}"
           register: file_size
           changed_when: false
-          when: inventory_hostname not in groups["docker_stacks"] | default([])
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["amp"] | default([])
           tags: [always]
 
         - name: Verify backup archive integrity
@@ -274,6 +452,7 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["unifi_protect"]
+            - inventory_hostname not in groups["amp"] | default([])
           changed_when: false
           check_mode: false
           tags: [always]
@@ -294,7 +473,9 @@
             dest: "{{ backup_dest_path }}"
             flat: true
           become: false
-          when: inventory_hostname not in groups["docker_stacks"] | default([])
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["amp"] | default([])
           tags: [always]
 
         - name: Delete source backup
@@ -302,7 +483,9 @@
           ansible.builtin.file:
             path: "{{ backup_tmp_file }}"
             state: absent
-          when: inventory_hostname not in groups["docker_stacks"] | default([])
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["amp"] | default([])
           tags: [always]
 
         - name: Put PiKVM back in RO mode
@@ -379,6 +562,36 @@
           when: inventory_hostname in groups["docker_stacks"] | default([])
           tags: [always]
 
+        # ===== REPORTING (per-AMP-instance) =====
+        - name: Build per-instance AMP Discord fields
+          ansible.builtin.set_fact:
+            _amp_discord_fields: >-
+              [
+               {% for r in _amp_backup_results %}
+               {% if not loop.first %},{% endif %}
+               {"name": "{{ r.instance }}", "value": "{{ 'FAILED' if r.failed else ('Nothing to back up' if r.file_size == 0 else ((r.file_size / 1024 / 1024) | round(2) | string + 'MB')) }}"}
+               {% endfor %}]
+          when: inventory_hostname in groups["amp"] | default([])
+          tags: [always]
+
+        - name: Send per-instance AMP Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Backup"
+            discord_status: >-
+              {{ 'successful' if not (backup_failed | bool)
+                 else ('failed' if (_amp_backup_results | rejectattr('failed') | list | length == 0)
+                       else 'partial') }}
+            discord_color: >-
+              {{ discord_color_success if not (backup_failed | bool)
+                 else (discord_color_failure if (_amp_backup_results | rejectattr('failed') | list | length == 0)
+                       else discord_color_warning) }}
+            discord_url: "{{ backup_url }}"
+            discord_fields: "{{ _amp_discord_fields }}"
+          when: inventory_hostname in groups["amp"] | default([])
+          tags: [always]
+
         # ===== REPORTING (monolithic) =====
         - name: Send Discord notification
           include_tasks: tasks/notify_discord.yaml
@@ -395,7 +608,9 @@
                 value: "{{ backup_file }}"
               - name: "Backup Size"
                 value: "{{ (file_size.stat.size / 1024 / 1024) | round(2) }}MB"
-          when: inventory_hostname not in groups["docker_stacks"] | default([])
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["amp"] | default([])
           tags: [always]
 
         - name: Send Docker recovery failure alert
@@ -439,6 +654,21 @@
           when: inventory_hostname in groups["docker_stacks"] | default([])
           tags: [always]
 
+        # ===== MARIADB LOGGING (per-AMP-instance — one row per instance) =====
+        - name: Log per-instance AMP backups to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          loop: "{{ _amp_backup_results }}"
+          loop_control:
+            loop_var: _amp_result
+          vars:
+            log_table: backups
+            log_application: "{{ backup_name }} — {{ _amp_result.instance }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_file_name: "{{ ('FAILED_' if _amp_result.failed else '') + _amp_result.file }}"
+            log_file_size: "{{ (_amp_result.file_size / 1024 / 1024) | round(2) }}"
+          when: inventory_hostname in groups["amp"] | default([])
+          tags: [always]
+
         # ===== MARIADB LOGGING (monolithic — single row) =====
         - name: Log backup to MariaDB
           include_tasks: tasks/log_mariadb.yaml
@@ -448,5 +678,7 @@
             log_hostname: "{{ inventory_hostname }}"
             log_file_name: "{{ ('FAILED_' if backup_failed else '') + backup_file }}"
             log_file_size: "{{ (file_size.stat.size / 1024 / 1024) | round(2) }}"
-          when: inventory_hostname not in groups["docker_stacks"] | default([])
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["amp"] | default([])
           tags: [always]

@@ -1,0 +1,98 @@
+---
+# Back up a single AMP game server instance.
+# Called in a loop from backup_hosts.yaml with loop_var: _amp_instance.
+#
+# Stops the instance, archives its data dir (excluding re-downloadable Versions/),
+# verifies integrity, starts the instance, and records the result.
+# On failure the instance is restarted and the failure recorded
+# (not re-raised — caller checks _amp_backup_results).
+#
+# Required (from caller scope):
+#   _amp_instance         — instance name (e.g. 'ADS01', 'Minecraft01')
+#   amp_home              — AMP user home dir (e.g. /home/amp)
+#   amp_user              — AMP unix user (e.g. amp)
+#   backup_tmp_dir        — temp directory for archive creation
+#   ansible_date_time     — gathered fact
+#   _amp_backup_results   — list to append results to (caller initializes to [])
+#   backup_base_dir       — controller-side backup root (for fetch dest)
+
+- name: Set archive filename for {{ _amp_instance }}
+  ansible.builtin.set_fact:
+    _amp_archive_name: "backup_amp_{{ _amp_instance }}_{{ ansible_date_time.date }}.tar.gz"
+  tags: [always]
+
+- block:
+    - name: Stop AMP instance {{ _amp_instance }}
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.shell: ampinstmgr StopInstance {{ _amp_instance }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Create compressed archive for {{ _amp_instance }}
+      become: true
+      community.general.archive:
+        path: "{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}"
+        dest: "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
+        format: gz
+        remove: false
+        exclude_path:
+          - "{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Versions"
+      timeout: "{{ amp_backup_timeout | default(1800) }}"
+
+    - name: Verify archive integrity for {{ _amp_instance }}
+      become: true
+      ansible.builtin.shell: gunzip -t "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Get archive file size for {{ _amp_instance }}
+      ansible.builtin.stat:
+        path: "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
+      register: _amp_file_size
+      changed_when: false
+
+    - name: Fetch {{ _amp_instance }} archive to controller
+      ansible.builtin.fetch:
+        src: "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
+        dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _amp_archive_name }}"
+        flat: true
+      become: false
+
+    - name: Record success for {{ _amp_instance }}
+      ansible.builtin.set_fact:
+        _amp_backup_results: >-
+          {{ _amp_backup_results + [{'instance': _amp_instance,
+             'file': _amp_archive_name,
+             'file_size': _amp_file_size.stat.size | default(0),
+             'failed': false}] }}
+
+  rescue:
+    - name: Record failure for {{ _amp_instance }}
+      ansible.builtin.set_fact:
+        _amp_backup_results: >-
+          {{ _amp_backup_results + [{'instance': _amp_instance,
+             'file': _amp_archive_name,
+             'file_size': 0,
+             'failed': true}] }}
+
+  always:
+    - name: Start AMP instance {{ _amp_instance }}
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.shell: ampinstmgr StartInstance {{ _amp_instance }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+      ignore_errors: true
+
+    - name: Delete temp archive for {{ _amp_instance }}
+      become: true
+      ansible.builtin.file:
+        path: "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
+        state: absent
