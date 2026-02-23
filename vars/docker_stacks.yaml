@@ -1,7 +1,3 @@
-# Docker Compose project directory (used for stop/start and pull/up)
-# Legacy: kept during Phase D-pre migration, removed in D-post
-compose_project_path: "/opt"
-
 src_raw_files:
   - "/opt"
 
@@ -42,20 +38,12 @@ app_restore:
     db_host: "{{ db_host_primary }}"
     db_names: ["jellyseerr"]
 
-# --- Stack infrastructure (Phase 3) ---
-
 # Stack assignments: host → ordered list of stack names.
 # ORDER MATTERS: on tantive-iv, databases MUST precede auth (Authentik requires Postgres).
-# Empty initially — hosts added as they migrate through Phases A/B/C.
 stack_assignments:
   vps.REDACTED_DOMAIN: [vpn]
   odyssey.REDACTED_DOMAIN: [infra, media, apps, nfs]
   tantiveiv.REDACTED_DOMAIN: [infra, databases, auth, monitoring, dev]
-
-# After full migration, stack_assignments will contain:
-#   tantiveiv.REDACTED_DOMAIN: [infra, databases, auth, monitoring, dev]
-#   odyssey.REDACTED_DOMAIN: [infra, media, apps, nfs]
-#   vps.REDACTED_DOMAIN: [vpn]
 
 # Docker defaults — non-secret, shared across all stacks.
 # Per-host MEM_LIMIT: tantive-iv=10g (12GB RAM), others=3000m (4GB RAM).

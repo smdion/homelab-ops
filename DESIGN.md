@@ -1,8 +1,10 @@
 # Ansible Home Lab — Design & Architecture
 
-This document covers the philosophy, file layout, Semaphore setup, playbook patterns, database
-architecture, and vault configuration for this Ansible home lab automation project. Its purpose is
-to give a future maintainer (or future self) enough context to make changes confidently.
+This document describes the **current state** of the project — how it works today, not how it
+got here. It covers philosophy, file layout, Semaphore setup, playbook patterns, database
+architecture, and vault configuration. No historical changes or references to previous designs
+are included. Its purpose is to give a future maintainer (or future self) enough context to
+make changes confidently.
 
 ## Table of Contents
 
@@ -101,8 +103,7 @@ from the backups created in Phase 1. Phase 3 adds `deploy_stacks.yaml` (Docker s
 from Git with vault-templated `.env` files), `build_ubuntu.yaml` (Proxmox VM provisioning with
 cloud-init and Docker bootstrap), `deploy_grafana.yaml` (Grafana dashboard deployment via API),
 shared task extraction (composable building blocks in `tasks/`), and `test_restore.yaml`
-(automated restore testing on disposable VMs). Full design in `future/PHASE3_DESIGN.md`;
-task tracking in `future/TODO.md`.
+(automated restore testing on disposable VMs). All three phases are complete.
 
 ---
 
@@ -143,12 +144,19 @@ task tracking in `future/TODO.md`.
 │   ├── notify_discord.yaml          # Shared Discord notification task
 │   ├── log_mariadb.yaml             # Shared MariaDB logging task (backups, updates, maintenance tables)
 │   ├── log_restore.yaml             # Shared MariaDB logging task (restores table — restore operations only)
-│   ├── log_health_check.yaml        # Shared MariaDB logging task (health_checks table — single row)
+│   ├── log_health_check.yaml        # Shared MariaDB logging task (health_checks table — single row; currently unused)
 │   ├── log_health_checks_batch.yaml # Shared MariaDB logging task (health_checks table — multi-row batch INSERT)
 │   ├── assert_config_file.yaml      # Shared pre-task: assert config_file is set
 │   ├── assert_disk_space.yaml       # Shared pre-task: assert sufficient disk space
 │   ├── assert_db_connectivity.yaml  # Shared pre-task: assert MariaDB logging DB is reachable
-│   └── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, up)
+│   ├── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, up)
+│   ├── provision_vm.yaml            # Provision VM on Proxmox via cloud-init template clone + API config
+│   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS
+│   ├── ssh_hardening.yaml           # Passwordless sudo + SSH config hardening + service restart
+│   ├── docker_stop.yaml             # Stop Docker containers/stacks (selective, stack, or unRAID mode)
+│   ├── docker_start.yaml            # Start Docker containers/stacks (selective, stack, or unRAID mode)
+│   ├── restore_appdata.yaml         # Restore appdata archive (staging inspect or inplace mode)
+│   └── verify_docker_health.yaml    # Poll Docker container health until all healthy or timeout
 │
 ├── templates/
 │   └── metube.conf.j2              # Jinja2 template for yt-dlp config — rendered per profile from vars/download_<name>.yaml
@@ -171,6 +179,7 @@ task tracking in `future/TODO.md`.
 ├── add_ansible_user.yaml           # One-time utility: create ansible user on PVE/PBS/unRAID hosts (SSH key from vault, ansible_remote_tmp dir, validation assertions)
 ├── deploy_stacks.yaml             # Deploy Docker stacks from Git — templates .env from vault, copies compose, starts stacks
 ├── build_ubuntu.yaml              # Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH config
+├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
 ├── files/
@@ -382,10 +391,10 @@ below. Uses `tasks/log_restore.yaml` with `operation: rollback` (per-service). D
 notification uses yellow (16776960) to distinguish from green/red.
 
 **`update_systems.yaml` — rollback snapshot:** Before pulling new Docker Compose images, the
-update playbook captures a `.rollback_snapshot.json` file in `{{ compose_project_path }}` with
+update playbook captures a `.rollback_snapshot.json` per stack in `/opt/stacks/<stack>/` with
 the timestamp, image name, full image ID (`sha256:...`), and version label for every target
 service. Uses the same 3-tier label detection as the update comparison. Each update overwrites
-the previous snapshot — only the last pre-update state is kept. The snapshot file is included
+the previous snapshot — only the last pre-update state is kept. The snapshot files are included
 in regular `/opt` appdata backups automatically.
 
 **Docker appdata archive exclusions:** Docker hosts with dedicated database backup jobs
@@ -515,7 +524,7 @@ playbook to the correct functional group.
 | `pikvm` | PiKVM login_password (id=11) | pikvm |
 | `unifi_network` | root login_password (id=13) | udmp |
 | `unifi_protect` | unifi_protect login_password (id=29) | unvr |
-| `local` | — | localhost only (legacy — no templates use this inventory) |
+| `local` | — | localhost only (no templates currently use this inventory) |
 
 ### Variable Groups
 
@@ -753,11 +762,10 @@ notification should include at minimum the Description and Host fields.
 
 > **Shared task review:** When modifying playbooks, check whether any inline task blocks are
 > duplicated across multiple playbooks. If so, they are a candidate for extraction into `tasks/`.
-> The current shared files (`notify_discord.yaml`, `log_mariadb.yaml`, `log_restore.yaml`,
-> `log_health_check.yaml`, `log_health_checks_batch.yaml`, `assert_config_file.yaml`,
-> `assert_disk_space.yaml`, `assert_db_connectivity.yaml`) cover the most common operations,
-> but inline cleanup patterns or host-type detection logic may have accumulated in individual
-> playbooks and could be worth consolidating if the same pattern appears more than once.
+> The current 16 shared task files cover notifications, logging, assertions, provisioning,
+> bootstrapping, Docker management, appdata restore, and health checks. Inline cleanup patterns
+> or host-type detection logic may have accumulated in individual playbooks and could be worth
+> consolidating if the same pattern appears more than once.
 
 ### Roles vs. flat tasks/ structure
 
@@ -766,7 +774,7 @@ the right choice when a component needs its own defaults, handlers, templates, o
 
 **Current state — tasks are the right fit:**
 
-The project has eight shared task files and no handlers or templates. The `tasks/` files are thin
+The project has 16 shared task files and no handlers or templates. The `tasks/` files are thin
 glue code (send a Discord embed, run an INSERT, assert a precondition). At this scale, promoting
 them to roles would add directory structure without gaining any role-specific features.
 
@@ -781,7 +789,7 @@ them to roles would add directory structure without gaining any role-specific fe
 The decision should be pragmatic — use roles when they provide concrete benefits, stick with
 flat tasks when they don't.
 
-**How to migrate when the time comes:**
+**If roles are needed later:**
 
 1. Create `roles/<name>/tasks/main.yaml` for each shared task file
 2. Replace `include_tasks: tasks/<name>.yaml` with `include_role: name: <name>` in each playbook
@@ -1113,12 +1121,6 @@ all tables. The init script uses `CREATE TABLE IF NOT EXISTS` so re-running is s
 = `SYSTEM`), so `NOW()` returns CST — **not** UTC. `UTC_TIMESTAMP()` always returns UTC
 regardless of the server's timezone, making it the only safe choice. Do not change the server
 timezone to UTC — other databases on the same MariaDB instance depend on the current setting.
-
-**Historical data migration (Feb 2026):** All existing rows (written with `NOW()` in CST) were
-shifted to UTC via `UPDATE <table> SET timestamp = DATE_ADD(timestamp, INTERVAL 6 HOUR)` on
-the `backups`, `maintenance`, and `health_checks` tables. The `updates` table was not migrated
-because `INSERT IGNORE` on the unique index means rows are sparse and timestamps are less
-critical for display.
 
 **Display: viewer-local.** Each display system converts UTC to the viewer's timezone:
 

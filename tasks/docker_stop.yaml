@@ -1,5 +1,5 @@
 ---
-# Stop Docker containers/stacks. Tri-modal: selective, stack/legacy, unRAID.
+# Stop Docker containers/stacks. Tri-modal: selective, stack, unRAID.
 # Caller gates with `when:` for manage_docker, check_mode, etc.
 #
 # Optional:
@@ -24,16 +24,6 @@
     - _docker_selective_containers is not defined
     - inventory_hostname in groups["docker_stacks"] | default([])
     - inventory_hostname in (stack_assignments | default({}))
-
-- name: Stop Docker Compose (legacy mode)
-  become: true
-  community.docker.docker_compose_v2:
-    project_src: "{{ compose_project_path }}"
-    state: stopped
-  when:
-    - _docker_selective_containers is not defined
-    - inventory_hostname in groups["docker_stacks"] | default([])
-    - inventory_hostname not in (stack_assignments | default({}))
 
 - name: Get running containers (unRAID)
   become: true
