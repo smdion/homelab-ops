@@ -16,11 +16,12 @@
 #                                   used by provision_vm.yaml for SSH template creation
 #
 # After running:
-#   1. Verify the VIP is up: ping <vault_pve_vip>
-#   2. Update pve_api_host in secrets.yaml to vault_pve_vip
-#   3. Check status on each node: ip addr show vmbr0 | grep <vault_pve_vip>
-#   4. Test a VM build: ansible-playbook build_ubuntu.yaml -e vm_name=test-vm
+#   1. Update pve_api_host in secrets.yaml to vault_pve_vip
+#   2. Test a VM build: ansible-playbook build_ubuntu.yaml -e vm_name=test-vm
 
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Install and configure keepalived on all PVE nodes
+# ═══════════════════════════════════════════════════════════════════
 - name: Configure keepalived VRRP VIP on Proxmox nodes
   hosts: pve
   become: true
@@ -51,8 +52,50 @@
         state: started
         enabled: true
 
+    # ── Verification ──────────────────────────────────────────────
+    - name: Flush handlers (restart keepalived if config changed)
+      meta: flush_handlers
+
+    - name: Wait for VRRP election to complete
+      ansible.builtin.pause:
+        seconds: 3
+      run_once: true
+
+    - name: Check VIP presence on {{ pve_vrrp_interface }}
+      ansible.builtin.shell: "ip addr show {{ pve_vrrp_interface }} | grep -c '{{ vault_pve_vip }}' || true"
+      register: _vip_present
+      changed_when: false
+
+    - name: Report keepalived role on each node
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: {{ 'MASTER — VIP ' + vault_pve_vip + ' is present on ' + pve_vrrp_interface
+          if _vip_present.stdout | int > 0 else 'BACKUP — VIP not held (correct)' }}
+
   handlers:
     - name: Restart keepalived
       ansible.builtin.service:
         name: keepalived
         state: restarted
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Verify VIP is reachable from the controller
+# ═══════════════════════════════════════════════════════════════════
+- name: Verify VIP is reachable
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+
+  tasks:
+    - name: Wait for VIP to respond on port 22 (SSH via MASTER node)
+      ansible.builtin.wait_for:
+        host: "{{ vault_pve_vip }}"
+        port: 22
+        timeout: 15
+        msg: "VIP {{ vault_pve_vip }} is not reachable on port 22 — keepalived may not have converged"
+
+    - name: VIP is up
+      ansible.builtin.debug:
+        msg: "VIP {{ vault_pve_vip }} is reachable. keepalived is healthy."
