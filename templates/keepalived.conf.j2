@@ -5,7 +5,8 @@
 #
 # To check status: keepalived -t  (config test)  or  ip addr show vmbr0
 # To see current state: journalctl -u keepalived -f
-{% set my_priority = vault_pve_vrrp_priorities[inventory_hostname] | default(50) %}
+{% set _node = inventory_hostname.split('.')[0] %}
+{% set my_priority = vault_pve_vrrp_priorities[_node] | default(50) %}
 {% set max_priority = vault_pve_vrrp_priorities.values() | list | max %}
 
 vrrp_instance {{ pve_vrrp_instance }} {
