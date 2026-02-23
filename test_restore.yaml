@@ -73,16 +73,14 @@
              else stack_assignments[source_host] }}
 
     # ===== FIND BACKUP ARCHIVES =====
-    # The /backup/ bind mount has no read/execute access for the container
-    # process user. Delegate discovery and integrity check to source_host
-    # (which has /backup/ read access), then stage archives in controller
-    # /tmp so restore_appdata.yaml can copy them to the test VM.
+    # become: false is required — the /backup/ bind mount is accessible to the
+    # Ansible runner user but NOT to the become_user (default become: true in the
+    # Semaphore template escalates to a user that cannot read the mount).
     - name: Find per-stack backup archives for source host
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _stacks }}"
       register: _per_stack_archives
-      delegate_to: "{{ source_host }}"
       become: false
       changed_when: false
       check_mode: false
@@ -95,7 +93,6 @@
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ source_host }}/backup_*.tar.gz 2>/dev/null | head -1
       register: _monolithic_archive
-      delegate_to: "{{ source_host }}"
       become: false
       changed_when: false
       check_mode: false
@@ -116,29 +113,9 @@
     - name: Verify archive integrity
       ansible.builtin.shell: gunzip -t "{{ item }}"
       loop: "{{ _archive_files }}"
-      delegate_to: "{{ source_host }}"
       become: false
       changed_when: false
       check_mode: false
-
-    - name: Create controller staging dir for restore archives
-      ansible.builtin.file:
-        path: /tmp/test_restore
-        state: directory
-        mode: '0700'
-
-    - name: Stage archives in controller /tmp
-      ansible.builtin.fetch:
-        src: "{{ item }}"
-        dest: "/tmp/test_restore/{{ item | basename }}"
-        flat: true
-      loop: "{{ _archive_files }}"
-      delegate_to: "{{ source_host }}"
-      become: false
-
-    - name: Update archive paths to controller staging dir
-      ansible.builtin.set_fact:
-        _archive_files: "{{ _archive_files | map('basename') | map('regex_replace', '^', '/tmp/test_restore/') | list }}"
 
     # ===== CHECK IF VM EXISTS =====
     - name: Check if VM already exists
@@ -319,12 +296,6 @@
     - vars/vm_definitions.yaml
 
   tasks:
-    - name: Clean up controller staging dir
-      ansible.builtin.file:
-        path: /tmp/test_restore
-        state: absent
-      ignore_errors: true
-
     - name: Skip revert in DR mode
       ansible.builtin.debug:
         msg: "DR mode — keeping restored state on {{ vm_definitions[vm_name].vm_name }}"
