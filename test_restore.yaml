@@ -172,6 +172,17 @@
         - _vm_status.json.data.status == 'stopped'
 
     # ===== CREATE SNAPSHOT FOR CLEAN REVERT =====
+    - name: Get existing snapshots
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/snapshot"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      no_log: true
+      register: _vm_snapshots
+      when: not (dr_mode | default(false) | bool)
+
     - name: Delete existing pre-test snapshot if present
       ansible.builtin.uri:
         url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/snapshot/pre-test-restore"
@@ -179,9 +190,10 @@
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
         validate_certs: false
-        status_code: [200, 500]
       no_log: true
-      when: not (dr_mode | default(false) | bool)
+      when:
+        - not (dr_mode | default(false) | bool)
+        - _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
 
     - name: Create pre-test snapshot
       ansible.builtin.uri:
