@@ -251,6 +251,7 @@
             src: "{{ backup_tmp_file }}"
             dest: "{{ backup_dest_path }}"
             flat: true
+          become: false
           when: inventory_hostname not in groups["docker_stacks"] | default([])
           tags: [always]
 

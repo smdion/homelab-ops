@@ -48,6 +48,7 @@
         src: "{{ backup_tmp_dir }}/{{ _db_file }}"
         dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _db_file }}"
         flat: true
+      become: false
 
     - name: "Record success — {{ _current_db }}"
       ansible.builtin.set_fact:
