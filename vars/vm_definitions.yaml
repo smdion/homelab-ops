@@ -80,7 +80,7 @@ vm_definitions:
     vm_hostname: "test-vm{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
     vm_cores: 2
-    vm_memory_mb: 2048
+    vm_memory_mb: 4096
     vm_disk_gb: 20
     pve_target_node: "{{ vm_node | default(pve_template_node) }}"
 
