@@ -88,17 +88,21 @@ If the value describes the operation itself (not the environment), it can stay i
 
 The project is organized into three phases:
 
-| Phase | Scope | Status |
-|-------|-------|--------|
-| **Phase 1 — Backup / Maintain / Update** | Automated backups, maintenance, and updates for all homelab systems | Active |
-| **Phase 2 — Verify / Restore** | Backup verification and automated restore procedures | Active |
-| **Phase 3 — Deploy / Build** | Docker stack deployment from Git and VM provisioning on Proxmox | Active |
+| Phase | Scope |
+|-------|-------|
+| **Phase 1 — Backup / Maintain / Update** | Automated backups, maintenance, and updates for all homelab systems |
+| **Phase 2 — Verify / Restore** | Backup verification and automated restore procedures |
+| **Phase 3 — Deploy / Build / Test** | Docker stack deployment, VM provisioning, shared task extraction, automated restore testing |
 
-Phase 1 covers the current playbooks: `backup_*.yaml`, `maintain_*.yaml`, `update_systems.yaml`,
+Phase 1 covers: `backup_*.yaml`, `maintain_*.yaml`, `update_systems.yaml`,
 `download_videos.yaml`, and `add_ansible_user.yaml`. Phase 2 adds `verify_backups.yaml`,
-`restore_databases.yaml`, and `restore_hosts.yaml` — recovering systems from the backups created
-in Phase 1. Phase 3 adds `deploy_stacks.yaml` (Docker stack deployment from Git with vault-templated
-`.env` files) and `build_ubuntu.yaml` (Proxmox VM provisioning with cloud-init and Docker bootstrap).
+`restore_databases.yaml`, `restore_hosts.yaml`, and `rollback_docker.yaml` — recovering systems
+from the backups created in Phase 1. Phase 3 adds `deploy_stacks.yaml` (Docker stack deployment
+from Git with vault-templated `.env` files), `build_ubuntu.yaml` (Proxmox VM provisioning with
+cloud-init and Docker bootstrap), `deploy_grafana.yaml` (Grafana dashboard deployment via API),
+shared task extraction (composable building blocks in `tasks/`), and `test_restore.yaml`
+(automated restore testing on disposable VMs). Full design in `future/PHASE3_DESIGN.md`;
+task tracking in `future/TODO.md`.
 
 ---
 
