@@ -8,8 +8,8 @@
 #
 # Optional extra vars:
 #   deploy_stack=infra    — deploy a single stack instead of all assigned stacks
-#   deploy_skip_up=true   — render and validate only, skip docker compose up
-#   deploy_debug=true     — show template output in logs (NEVER in production)
+#   validate_only=yes     — render and validate only, skip docker compose up
+#   debug_no_log=yes      — show template output in logs (NEVER in production)
 
 - name: Deploy Docker stacks from Git
   hosts: "{{ hosts_variable }}"

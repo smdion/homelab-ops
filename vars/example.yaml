@@ -152,7 +152,7 @@ update_subtype: "OS"
 # db_container_deps: maps each database name to dependent containers ON THE SAME HOST
 # as the DB container. Used by restore_databases.yaml to stop/start only local containers.
 # Cross-host deps (app container on a different host) should be [] — use
-# restore_hosts.yaml -e include_databases=yes for coordinated cross-host restore.
+# restore_hosts.yaml -e with_databases=yes for coordinated cross-host restore.
 #
 # db_container_deps:
 #   myapp_db: ["myapp-container"]

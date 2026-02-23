@@ -76,7 +76,7 @@
     remove_orphans: true
   when:
     - not ansible_check_mode
-    - not (deploy_skip_up | default(false) | bool)
+    - not (validate_only | default('') == 'yes')
 
 - name: "Wait for stack ports — {{ _current_stack }}"
   ansible.builtin.wait_for:
@@ -87,4 +87,4 @@
   when:
     - (stack_wait_ports | default({}))[_current_stack] | default([]) | length > 0
     - not ansible_check_mode
-    - not (deploy_skip_up | default(false) | bool)
+    - not (validate_only | default('') == 'yes')

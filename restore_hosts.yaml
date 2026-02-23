@@ -9,16 +9,16 @@
 #   ansible-playbook restore_hosts.yaml -e hosts_variable=proxmox
 #
 #   # Restore a specific stack's appdata (per-stack archives)
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <hostname> -e restore_stack=auth -e restore_mode=inplace -e confirm=yes -e manage_docker=yes
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <hostname> -e restore_stack=auth -e restore_mode=inplace -e confirm=yes -e with_docker=yes
 #
 #   # Stage just one app's appdata from the full archive
 #   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr
 #
 #   # In-place restore of ONE specific app's appdata only
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e restore_mode=inplace -e confirm=yes -e manage_docker=yes
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e restore_mode=inplace -e confirm=yes -e with_docker=yes
 #
 #   # COORDINATED RESTORE — appdata + databases together (cross-host via delegate_to)
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e include_databases=yes -e restore_mode=inplace -e confirm=yes -e manage_docker=yes
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e with_databases=yes -e restore_mode=inplace -e confirm=yes -e with_docker=yes
 
 - name: Restore config/appdata from backup
   hosts: "{{ hosts_variable }}"
@@ -144,7 +144,7 @@
           vars:
             _docker_selective_stacks: ["{{ restore_stack }}"]
           when:
-            - manage_docker | default('') == 'yes'
+            - with_docker | default('') == 'yes'
             - restore_stack | default('') | length > 0
             - not ansible_check_mode
           tags: [always]
@@ -153,7 +153,7 @@
           vars:
             _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
           when:
-            - manage_docker | default('') == 'yes'
+            - with_docker | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
@@ -163,7 +163,7 @@
 
         - include_tasks: tasks/docker_stop.yaml
           when:
-            - manage_docker | default('') == 'yes'
+            - with_docker | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length == 0
             - not ansible_check_mode
@@ -175,7 +175,7 @@
             file: "vars/{{ app_restore[restore_app].db_config_file }}.yaml"
             name: _db_vars
           when:
-            - include_databases | default('') == 'yes'
+            - with_databases | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
@@ -192,7 +192,7 @@
           changed_when: false
           check_mode: false
           when:
-            - include_databases | default('') == 'yes'
+            - with_databases | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
@@ -207,7 +207,7 @@
           loop_control:
             index_var: idx
           when:
-            - include_databases | default('') == 'yes'
+            - with_databases | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
@@ -224,7 +224,7 @@
           delegate_to: "{{ app_restore[restore_app].db_host }}"
           become: true
           when:
-            - include_databases | default('') == 'yes'
+            - with_databases | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
@@ -247,7 +247,7 @@
             _db_tmp_dir: "{{ _db_vars.backup_tmp_dir }}"
           delegate_to: "{{ app_restore[restore_app].db_host }}"
           when:
-            - include_databases | default('') == 'yes'
+            - with_databases | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
@@ -268,7 +268,7 @@
             _db_is_influxdb: false
           delegate_to: "{{ app_restore[restore_app].db_host }}"
           when:
-            - include_databases | default('') == 'yes'
+            - with_databases | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
@@ -284,7 +284,7 @@
           delegate_to: "{{ app_restore[restore_app].db_host }}"
           become: true
           when:
-            - include_databases | default('') == 'yes'
+            - with_databases | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
@@ -307,7 +307,7 @@
               + {{ app_restore[restore_app].db_names | join(', ') }} DB(s) restored
           when:
             - restore_mode == 'inplace'
-            - include_databases | default('') == 'yes'
+            - with_databases | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
@@ -320,7 +320,7 @@
           vars:
             _docker_selective_stacks: ["{{ restore_stack }}"]
           when:
-            - manage_docker | default('') == 'yes'
+            - with_docker | default('') == 'yes'
             - restore_stack | default('') | length > 0
             - not ansible_check_mode
           tags: [always]
@@ -329,7 +329,7 @@
           vars:
             _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
           when:
-            - manage_docker | default('') == 'yes'
+            - with_docker | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined
@@ -339,7 +339,7 @@
 
         - include_tasks: tasks/docker_start.yaml
           when:
-            - manage_docker | default('') == 'yes'
+            - with_docker | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length == 0
             - not ansible_check_mode
@@ -361,7 +361,7 @@
         - include_tasks: tasks/docker_start.yaml
           vars:
             _docker_ignore_errors: true
-          when: manage_docker | default('') == 'yes'
+          when: with_docker | default('') == 'yes'
           tags: [docker]
 
         - include_tasks: tasks/docker_start.yaml
@@ -369,7 +369,7 @@
             _docker_selective_stacks: ["{{ restore_stack }}"]
             _docker_ignore_errors: true
           when:
-            - manage_docker | default('') == 'yes'
+            - with_docker | default('') == 'yes'
             - restore_stack | default('') | length > 0
           tags: [always]
 
@@ -378,7 +378,7 @@
             _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
             _docker_ignore_errors: true
           when:
-            - manage_docker | default('') == 'yes'
+            - with_docker | default('') == 'yes'
             - restore_stack | default('') | length == 0
             - restore_app | default('') | length > 0
             - app_restore is defined

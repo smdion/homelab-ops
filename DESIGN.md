@@ -338,14 +338,14 @@ database on a shared instance (e.g., just `nextcloud` on shared MariaDB without 
 or `ansible_logging`). Safety-gated with `confirm=yes` assertion. Creates pre-restore safety
 backup by default. Stops only **same-host** dependent containers via `db_container_deps` mapping
 (from `vars/db_*.yaml`) — cross-host app containers have empty deps and must be stopped manually or
-via `restore_hosts.yaml -e include_databases=yes`. Supports `restore_db` (single DB) and
+via `restore_hosts.yaml -e with_databases=yes`. Supports `restore_db` (single DB) and
 `restore_date` (specific backup date) parameters.
 
 **`restore_hosts.yaml`** — Config/appdata restore from backup archives. Two modes: `staging` (extract
 to `<backup_tmp_dir>/restore_staging/` for inspection) and `inplace` (extract to actual paths, requires
 `confirm=yes`). Supports selective app restore via `-e restore_app=sonarr` (convention-based:
 app name maps to subdirectory under `src_raw_files[0]`). Supports coordinated DB+appdata restore via
-`-e include_databases=yes` — loads DB vars into a `_db_vars` namespace (avoiding collision with
+`-e with_databases=yes` — loads DB vars into a `_db_vars` namespace (avoiding collision with
 play-level Docker vars) and uses `delegate_to: db_host` to restore databases on the correct host
 (handles cross-host scenarios like appdata on one host + DB on another). Multi-container
 apps handled via `app_restore[restore_app].containers` mapping in `vars/docker_*.yaml`. `serial: 1`
@@ -374,8 +374,8 @@ copies the compose file, validates with `docker compose config`, and starts with
 order — databases before auth, etc. — ensuring dependency readiness. The `databases` stack
 includes a port-wait step (3306, 5432) before proceeding. Pre-tasks assert the host has a
 `stack_assignments` entry, sufficient disk space, and DB connectivity. Supports single-stack
-deploy via `-e deploy_stack=<name>`, render-only mode via `-e deploy_skip_up=true`, and debug
-output via `-e deploy_debug=true`. Runs `serial: 1` to avoid parallel deploy issues.
+deploy via `-e deploy_stack=<name>`, render-only mode via `-e validate_only=yes`, and debug
+output via `-e debug_no_log=yes`. Runs `serial: 1` to avoid parallel deploy issues.
 
 **`build_ubuntu.yaml`** — Two-play playbook for Proxmox VM lifecycle management via cloud-init
 template cloning. Supports four `vm_state` values: `present` (default), `absent`, `snapshot`, and
@@ -1239,10 +1239,10 @@ This masks output by default and reveals it when explicitly requested (see [Debu
 
 ### Debug nolog toggle
 
-To reveal masked task output on a specific run, pass `debug_no_log=true` as an extra var:
+To reveal masked task output on a specific run, pass `debug_no_log=yes` as an extra var:
 
 ```
--e debug_no_log=true
+-e debug_no_log=yes
 ```
 
 Alternatively, pass `-vvv`; verbosity ≥ 3 automatically disables `no_log` across all tasks.
@@ -1928,7 +1928,7 @@ ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e
 ```bash
 # Coordinated restore — appdata on one host, DB on another (cross-host via delegate_to)
 ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> \
-  -e restore_app=sonarr -e include_databases=yes -e restore_mode=inplace -e confirm=yes -e manage_docker=yes
+  -e restore_app=sonarr -e with_databases=yes -e restore_mode=inplace -e confirm=yes -e with_docker=yes
 ```
 
 Always use `--limit <hostname>` with `-e restore_app` since `docker_stacks`/`docker_run` are
@@ -2087,7 +2087,7 @@ Key panel features:
   (see [no_log policy](#no_log-policy)) to prevent exposure in Ansible logs and verbose output.
   This covers `docker exec -e` commands with `MYSQL_PWD`, `ansible.builtin.uri` calls with
   Bearer/API-key headers, `community.mysql.mysql_query` tasks with `login_password`, and Discord
-  webhook notifications. Pass `-e debug_no_log=true` or `-vvv` to reveal output for a specific run.
+  webhook notifications. Pass `-e debug_no_log=yes` or `-vvv` to reveal output for a specific run.
 - **mysqldump password**: Uses `MYSQL_PWD` environment variable via `docker exec -e` instead of
   `--password=` on the command line. The env var approach avoids exposing the password in
   `/proc/<pid>/cmdline` (visible to `ps aux` on the host).
@@ -2216,7 +2216,7 @@ ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 ansible-playbook test_restore.yaml -e vm_name=<test-vm> -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
 
 # DR mode — same playbook, keeps the VM running after restore (no revert)
-ansible-playbook test_restore.yaml -e vm_name=<dr-vm> -e source_host=<source-fqdn> -e dr_mode=true --vault-password-file ~/.vault_pass
+ansible-playbook test_restore.yaml -e vm_name=<dr-vm> -e source_host=<source-fqdn> -e dr_mode=yes --vault-password-file ~/.vault_pass
 
 # Test all app_restore apps on a disposable VM (per-app DB + appdata restore, health check, revert)
 ansible-playbook test_app_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
