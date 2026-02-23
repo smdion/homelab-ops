@@ -872,6 +872,50 @@ they differ (download templates always override — `config_file` has no relatio
 for downloads). A pre-task assertion (`tasks/assert_config_file.yaml`) catches a missing or empty
 `config_file` immediately.
 
+### Extra vars conventions
+
+All user-facing `-e` extra vars follow these naming and value patterns:
+
+**Routing (always set via Semaphore variable group JSON, not on CLI):**
+| Var | Purpose |
+|-----|---------|
+| `hosts_variable` | Ansible inventory group to target (e.g., `docker_stacks`, `amp`) |
+| `config_file` | vars file to load — defaults to `hosts_variable`; override when they differ |
+
+**Safety gates (required for destructive operations, intentionally never pre-set):**
+| Var | Playbooks |
+|-----|-----------|
+| `confirm=yes` | All restore playbooks (`restore_databases`, `restore_hosts`, `restore_app`, `restore_amp`) and `rollback_docker` |
+
+**Opt-in behaviours (`=yes` to enable, omit to skip):**
+| Var | Purpose |
+|-----|---------|
+| `with_docker=yes` | Stop containers before restore, restart after (`restore_hosts`) |
+| `with_databases=yes` | Include coordinated DB restore alongside appdata restore (`restore_hosts`) |
+| `validate_only=yes` | Render and validate only, skip `docker compose up` (`deploy_stacks`) |
+| `dr_mode=yes` | DR recovery mode — skip snapshot/revert, keep state (`test_restore`) |
+| `debug_no_log=yes` | Reveal output normally hidden by `no_log` (any playbook; see [no_log pattern](#no_log-pattern)) |
+
+**Scope selectors (string values, omit for default/all):**
+| Var | Purpose |
+|-----|---------|
+| `restore_mode=inplace` | Inplace restore (default: `staging`) — requires `confirm=yes` |
+| `restore_app=<name>` | Restore a single app by key |
+| `restore_stack=<name>` | Restore a single stack by name |
+| `restore_db=<name>` | Restore a single database |
+| `restore_date=YYYY-MM-DD` | Restore from a specific date's backup |
+| `restore_target=<fqdn>` | Production host to restore on (`restore_app`, `restore_amp`) |
+| `deploy_stack=<name>` | Deploy a single stack instead of all |
+| `rollback_stack=<name>` | Rollback a single stack |
+| `rollback_service=<name>` | Rollback a single service |
+| `amp_instance_filter=<name>` | Target a single AMP instance |
+| `vm_name=<key>` | VM definition key from `vars/vm_definitions.yaml` |
+
+**Value rules:**
+- Boolean triggers always use `=yes` — never `=true`, `=false`, or `=no` on the CLI
+- YAML booleans inside playbook code use `true`/`false` (see [Coding conventions](#coding-conventions))
+- `pre_backup=no` skips the pre-restore safety backup in `restore_databases.yaml` (default: on)
+
 ### Error handling
 
 All production playbooks use `block`/`rescue`/`always`:
