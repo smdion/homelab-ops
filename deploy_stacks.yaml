@@ -75,6 +75,8 @@
               echo "$conflicts"
               exit 1
             fi
+          args:
+            executable: /bin/bash
           become: true
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
