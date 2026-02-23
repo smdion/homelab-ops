@@ -97,7 +97,7 @@ The project is organized into three phases:
 | **Phase 3 — Deploy / Build / Test** | Docker stack deployment, VM provisioning, shared task extraction, automated restore testing |
 
 Phase 1 covers: `backup_*.yaml`, `maintain_*.yaml`, `update_systems.yaml`,
-`download_videos.yaml`, and `add_ansible_user.yaml`. Phase 2 adds `verify_backups.yaml`,
+`download_videos.yaml`, and `setup_ansible_user.yaml`. Phase 2 adds `verify_backups.yaml`,
 `restore_databases.yaml`, `restore_hosts.yaml`, and `rollback_docker.yaml` — recovering systems
 from the backups created in Phase 1. Phase 3 adds `deploy_stacks.yaml` (Docker stack deployment
 from Git with vault-templated `.env` files), `build_ubuntu.yaml` (Proxmox VM provisioning with
@@ -184,8 +184,10 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 ├── maintain_cache.yaml             # Drop Linux page cache on Ubuntu and unRAID hosts
 ├── maintain_unifi.yaml             # Restart Unifi Network service
 ├── maintain_health.yaml            # Scheduled health monitoring — 26 checks across all SSH hosts + DB/API; Uptime Kuma dead man's switch
+├── maintain_pve.yaml               # Idempotent Proxmox node config (keepalived VIP, ansible user, SSH hardening) — safe to re-run after reinstall; Discord + MariaDB logging
 ├── download_videos.yaml            # MeTube yt-dlp downloads — per-video Discord notifications + temp file cleanup; parameterized on config_file; hosts via hosts_variable
-├── add_ansible_user.yaml           # One-time utility: create ansible user on PVE/PBS/unRAID hosts (SSH key from vault, ansible_remote_tmp dir, validation assertions)
+├── setup_ansible_user.yaml         # One-time utility: create ansible user on PVE/PBS/unRAID hosts (SSH key from vault, ansible_remote_tmp dir, validation assertions)
+├── setup_pve_vip.yaml              # One-time VIP setup: install and configure keepalived on PVE nodes; verifies VIP reachable on port 22
 ├── deploy_stacks.yaml             # Deploy Docker stacks from Git — templates .env from vault, copies compose, starts stacks
 ├── build_ubuntu.yaml              # Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH config
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert
@@ -384,7 +386,7 @@ memory, disk, target node) come from `vars/vm_definitions.yaml`, selected by `-e
 to in-memory `build_target` group — only runs on create) bootstraps Ubuntu: waits for cloud-init
 to finish and apt locks to release, runs dist-upgrade, installs Docker and base packages, enables
 Docker service, adds user to docker/sudo groups, configures passwordless sudo, hardens SSH
-(matching `add_ansible_user.yaml` — prohibit root password, disable password auth, allow ssh-rsa
+(matching `setup_ansible_user.yaml` — prohibit root password, disable password auth, allow ssh-rsa
 for Guacamole), and configures UFW (default deny + allow SSH). Deploy stacks separately via
 `deploy_stacks.yaml` after provisioning.
 
@@ -488,7 +490,7 @@ and `assert_disk_min_gb`. Uses `df --output=avail` + `ansible.builtin.assert`. H
 database is reachable. Runs `SELECT 1` via `community.mysql.mysql_query`. Inherits `logging_db_*`
 vars from playbook scope. Has `check_mode: false` so it validates connectivity during `--check`.
 Used by all 18 operational playbooks that log to MariaDB (every playbook except `download_videos.yaml`
-and `add_ansible_user.yaml`).
+and `setup_ansible_user.yaml`).
 
 **`maintain_health.yaml` — check notes:**
 - **Host groups:** Play 2 and Play 3 target hosts defined by `health_check_groups` in
@@ -651,7 +653,7 @@ Semaphore template (task) names follow `Verb — Target [Subtype]`:
 
 | Pattern | Example |
 |---|---|
-| `Add — {Target} [{Subtype}]` | `Add — Ansible User [SSH]` |
+| `Setup — {Target} [{Subtype}]` | `Setup — Ansible User [SSH]` |
 | `Backup — {Target} [{Subtype}]` | `Backup — Proxmox [Config]`, `Backup — unRAID [Offline]` |
 | `Backup — Database [{Role} {Engine}]` | `Backup — Database [Primary PostgreSQL]`, `Backup — Database [Secondary PostgreSQL]` |
 | `Build — {Target} [{Subtype}]` | `Build — Ubuntu [VM]` |
@@ -677,12 +679,12 @@ Templates are organized into views (tabs in the Semaphore UI) by verb:
 |------|-----------|-------------|
 | Backups | 13 | `Backup —` |
 | Updates | 6 | `Update —` |
-| Maintenance | 6 | `Maintain —` |
+| Maintenance | 7 | `Maintain —` |
 | Downloads | 2 | `Download —` |
 | Verify | 8 | `Verify —` |
 | Restore | 9 | `Restore —`, `Rollback —` |
 | Deploy | 3 | `Deploy —`, `Build —` |
-| Setup | 1 | `Add —` |
+| Setup | 1 | `Setup —` |
 
 When adding a new template, assign it to the matching view. Views are stored in the
 `project__view` table; templates reference views via the `view_id` column in
@@ -1083,7 +1085,7 @@ any work starts. Two shared assertion task files are available:
 **`tasks/assert_db_connectivity.yaml`** — Verifies the MariaDB logging database is reachable
 via `SELECT 1`. Used by all 18 operational playbooks that call `tasks/log_mariadb.yaml` or
 `tasks/log_restore.yaml` in their `always:` block (every playbook except `download_videos.yaml`
-and `add_ansible_user.yaml`). Catches MariaDB outages early — before any backup, update, or
+and `setup_ansible_user.yaml`). Catches MariaDB outages early — before any backup, update, or
 maintenance work starts — rather than failing silently in the `always:` logging step.
 
 **`tasks/assert_config_file.yaml`** — Asserts `config_file` is defined and non-empty, catching
@@ -1600,6 +1602,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `maintain_amp.yaml` | AMP | Servers | Maintenance |
 | `maintain_health.yaml` | Semaphore | Local | Health Check |
 | `maintain_logging_db.yaml` | Logging DB | Local | Cleanup |
+| `maintain_pve.yaml` | Proxmox | Appliances | Maintenance |
 | `deploy_stacks.yaml` | Docker | Servers | Deploy |
 | `deploy_grafana.yaml` | Grafana | Local | Deploy |
 | `build_ubuntu.yaml` | Ubuntu | Servers | Build |
@@ -1665,7 +1668,7 @@ db_host_secondary: "..."            # inventory_hostname of secondary DB host (r
 metube_webhook_id: "..."            # MeTube Discord channel — per-video download notifications (download_videos.yaml)
 metube_webhook_token: "..."         # MeTube Discord channel — per-video download notifications (download_videos.yaml)
 unvr_api_key: "..."                 # Unifi Protect UNVR API key (backup_hosts.yaml)
-ansible_user_ssh_pubkey: "..."      # SSH public key for ansible user (add_ansible_user.yaml)
+ansible_user_ssh_pubkey: "..."      # SSH public key for ansible user (setup_ansible_user.yaml, maintain_pve.yaml)
 synology_ip: "..."                  # Synology NAS IP address (backup_offline.yaml via vars/synology.yaml)
 synology_mac: "..."                 # Synology NAS MAC for WOL (backup_offline.yaml via vars/synology.yaml)
 synology_name: "..."                # Synology NAS mount name (backup_offline.yaml via vars/synology.yaml)
@@ -1674,7 +1677,7 @@ grafana_url: "..."                  # Grafana base URL, e.g. "http://grafana-hos
 grafana_service_account_token: "..." # Grafana service account token with Editor role (deploy_grafana.yaml)
 vps_fqdn: "..."                    # VPS hostname for WireGuard config extraction (backup_hosts.yaml via vars/unifi_network.yaml)
 
-# --- PVE cluster (setup_pve_vip.yaml, provision_vm.yaml, build_ubuntu.yaml) ---
+# --- PVE cluster (setup_pve_vip.yaml, maintain_pve.yaml, provision_vm.yaml, build_ubuntu.yaml) ---
 pve_api_host: "..."              # Floating VIP — updated to vault_pve_vip after setup_pve_vip.yaml runs
 pve_api_user: "..."
 pve_api_token_id: "..."
@@ -1948,7 +1951,7 @@ Key panel features:
 - **mysqldump password**: Uses `MYSQL_PWD` environment variable via `docker exec -e` instead of
   `--password=` on the command line. The env var approach avoids exposing the password in
   `/proc/<pid>/cmdline` (visible to `ps aux` on the host).
-- **SSH public key** (`add_ansible_user.yaml`): The key is stored in a vault variable
+- **SSH public key** (`setup_ansible_user.yaml`): The key is stored in a vault variable
   (`ansible_user_ssh_pubkey`), not hardcoded in the playbook. The Ubuntu play uses `ansible.builtin.authorized_key`
   module which automatically manages `.ssh` directory permissions (0700) and `authorized_keys` file
   permissions (0600). The unRAID play uses `copy: content:` to write the key to boot config, since
@@ -2012,8 +2015,11 @@ disposable VM and reverts when done.
 Run from any machine with Ansible installed, the repo cloned, and the vault password available.
 
 ```bash
-# 0. Restore PVE cluster VIP (skip if ping <vault_pve_vip> already succeeds)
-ansible-playbook setup_pve_vip.yaml --ask-vault-pass
+# 0. Restore PVE node config: keepalived VIP + ansible user + SSH hardening (skip if ping <vault_pve_vip> succeeds)
+# maintain_pve.yaml is the preferred option — idempotent, covers ansible user + VIP in one shot, logs to MariaDB
+ansible-playbook maintain_pve.yaml --ask-vault-pass
+# Alternatively, setup_pve_vip.yaml restores only the VIP with no logging (useful before MariaDB is restored):
+# ansible-playbook setup_pve_vip.yaml --ask-vault-pass
 
 # 1. Provision a new VM
 ansible-playbook build_ubuntu.yaml -e vm_name=<new-hostname> --ask-vault-pass
@@ -2055,7 +2061,8 @@ ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 | Stack deployment | Yes | `deploy_stacks.yaml` |
 | Database restore | Yes | `restore_databases.yaml` |
 | Appdata restore | Yes | `restore_hosts.yaml` |
-| PVE cluster VIP (keepalived) | Yes | `setup_pve_vip.yaml` — run if VIP missing before step 1 |
+| PVE node OS config (keepalived, ansible user, SSH) | Yes | `maintain_pve.yaml` — idempotent; also restores ansible user + SSH hardening |
+| PVE cluster VIP only (no logging) | Yes | `setup_pve_vip.yaml` — lightweight alternative when MariaDB not yet available |
 | DNS records (internal) | No | DHCP reservation with hostname — network layer |
 | DNS records (external) | No | Static IP, managed by `cloudflareddns` container |
 | Reverse proxy config | Yes | SWAG/NPM config in appdata (restored from backup) |
