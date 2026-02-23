@@ -1967,6 +1967,9 @@ disposable VM and reverts when done.
 Run from any machine with Ansible installed, the repo cloned, and the vault password available.
 
 ```bash
+# 0. Restore PVE cluster VIP (skip if ping <vault_pve_vip> already succeeds)
+ansible-playbook setup_pve_vip.yaml --ask-vault-pass
+
 # 1. Provision a new VM
 ansible-playbook build_ubuntu.yaml -e vm_name=<new-hostname> --ask-vault-pass
 
@@ -2007,6 +2010,7 @@ ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 | Stack deployment | Yes | `deploy_stacks.yaml` |
 | Database restore | Yes | `restore_databases.yaml` |
 | Appdata restore | Yes | `restore_hosts.yaml` |
+| PVE cluster VIP (keepalived) | Yes | `setup_pve_vip.yaml` — run if VIP missing before step 1 |
 | DNS records (internal) | No | DHCP reservation with hostname — network layer |
 | DNS records (external) | No | Static IP, managed by `cloudflareddns` container |
 | Reverse proxy config | Yes | SWAG/NPM config in appdata (restored from backup) |
