@@ -6,6 +6,7 @@
 # verifies integrity, starts the instance, and records the result.
 # On failure the instance is restarted and the failure recorded
 # (not re-raised — caller checks _amp_backup_results).
+# Instances that were offline before backup are not started afterward.
 #
 # Required (from caller scope):
 #   _amp_instance         — instance name (e.g. 'ADS01', 'Minecraft01')
@@ -20,6 +21,25 @@
   ansible.builtin.set_fact:
     _amp_archive_name: "backup_amp_{{ _amp_instance }}_{{ ansible_date_time.date }}.tar.gz"
   tags: [always]
+
+- name: Check if AMP instance {{ _amp_instance }} is running before backup
+  become: true
+  become_user: "{{ amp_user }}"
+  become_method: su
+  become_exe: sudo su -l
+  ansible.builtin.shell: |
+    ampinstmgr list 2>/dev/null \
+      | awk '/{{ _amp_instance }}/{found=1} found && /Running/{print; exit}' \
+      | grep -q "Yes"
+  args:
+    executable: /bin/bash
+  register: _amp_was_running_check
+  changed_when: false
+  failed_when: false
+
+- name: Record pre-backup running state for {{ _amp_instance }}
+  ansible.builtin.set_fact:
+    _amp_was_running: "{{ _amp_was_running_check.rc == 0 }}"
 
 - block:
     - name: Stop AMP instance {{ _amp_instance }}
@@ -112,6 +132,26 @@
         executable: /bin/bash
       changed_when: true
       ignore_errors: true
+      when: _amp_was_running | default(false)
+
+    - name: Wait for AMP instance {{ _amp_instance }} to be running
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.shell: |
+        ampinstmgr list 2>/dev/null \
+          | awk '/{{ _amp_instance }}/{found=1} found && /Running/{print; exit}' \
+          | grep -q "Yes"
+      args:
+        executable: /bin/bash
+      register: _amp_start_status
+      until: _amp_start_status.rc == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+      ignore_errors: true
+      when: _amp_was_running | default(false)
 
     - name: Delete temp archive for {{ _amp_instance }}
       become: true
