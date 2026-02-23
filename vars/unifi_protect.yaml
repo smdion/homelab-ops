@@ -1,5 +1,6 @@
 # unvr_api_key is in vars/secrets.yaml (vault)
 backup_tmp_dir: "/tmp/backup"
+assert_disk_min_gb: 0  # backup is API-based (delegate_to: localhost) — no remote disk needed
 backup_name: "Unifi Protect"
 backup_description: "Automatic Unifi Protect Config Backup"
 backup_type: "Appliances"
