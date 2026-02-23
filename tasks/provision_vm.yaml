@@ -1,0 +1,133 @@
+---
+# Provision a VM on Proxmox via cloud-init template clone.
+# Extracted from build_ubuntu.yaml Play 1 CREATE path.
+#
+# Expects:
+#   _vm                      — dict from vm_definitions (vm_id, vm_name, vm_hostname, vm_ip, etc.)
+#   pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret — PVE API credentials
+#   pve_template_vmid, pve_template_node, pve_template_name — cloud-init template config
+#   pve_cloud_image_url, pve_storage, pve_bridge — infrastructure defaults
+#   vm_user, vm_password, ansible_user_ssh_pubkey — VM user credentials
+#   vm_cidr, vm_gateway, vm_dns, vm_search_domain — network config
+# Optional:
+#   _provision_target_group  — inventory group name for the new VM (default: 'build_target')
+# Sets:
+#   _vm_ip fact, adds host to _provision_target_group with _needs_bootstrap: true
+
+# --- Ensure cloud-init template exists (one-time per cluster) ---
+- name: Add PVE host to in-memory inventory
+  ansible.builtin.add_host:
+    name: pve_builder
+    ansible_host: "{{ pve_api_host }}"
+    ansible_user: ansible
+
+- name: Ensure cloud-init template exists on Ceph storage
+  delegate_to: pve_builder
+  become: true
+  ansible.builtin.shell: |
+    if [ -f /etc/pve/qemu-server/{{ pve_template_vmid }}.conf ]; then
+      echo "Template already exists"
+      exit 0
+    fi
+    set -e
+    cd /tmp
+    wget -q "{{ pve_cloud_image_url }}" -O ubuntu-cloud.img
+    qm create {{ pve_template_vmid }} \
+      --name {{ pve_template_name }} \
+      --memory 2048 --cores 2 \
+      --net0 virtio,bridge={{ pve_bridge }}
+    qm importdisk {{ pve_template_vmid }} ubuntu-cloud.img {{ pve_storage }}
+    qm set {{ pve_template_vmid }} \
+      --scsi0 {{ pve_storage }}:vm-{{ pve_template_vmid }}-disk-0 \
+      --scsihw virtio-scsi-single
+    qm set {{ pve_template_vmid }} \
+      --ide2 {{ pve_storage }}:cloudinit \
+      --boot order=scsi0
+    qm template {{ pve_template_vmid }}
+    rm -f ubuntu-cloud.img
+    echo "Template created"
+  register: _template_result
+  changed_when: "'Template created' in _template_result.stdout"
+
+# --- Clone template to new VM ---
+- name: Clone VM from cloud-init template
+  community.general.proxmox_kvm:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_token_id: "{{ pve_api_token_id }}"
+    api_token_secret: "{{ pve_api_token_secret }}"
+    node: "{{ pve_template_node }}"
+    clone: "{{ pve_template_name }}"
+    newid: "{{ _vm.vm_id }}"
+    name: "{{ _vm.vm_name }}"
+    full: true
+    storage: "{{ pve_storage }}"
+    target: "{{ _vm.pve_target_node }}"
+    timeout: 300
+  no_log: true
+
+# --- Configure hardware and cloud-init ---
+- name: Configure VM hardware and cloud-init
+  community.general.proxmox_kvm:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_token_id: "{{ pve_api_token_id }}"
+    api_token_secret: "{{ pve_api_token_secret }}"
+    node: "{{ _vm.pve_target_node }}"
+    vmid: "{{ _vm.vm_id }}"
+    cores: "{{ _vm.vm_cores }}"
+    memory: "{{ _vm.vm_memory_mb }}"
+    ciuser: "{{ vm_user }}"
+    cipassword: "{{ vm_password }}"
+    sshkeys: "{{ ansible_user_ssh_pubkey }}"
+    ipconfig:
+      ipconfig0: "ip={{ _vm.vm_ip }}/{{ vm_cidr }},gw={{ vm_gateway }}"
+    nameservers: "{{ vm_dns }}"
+    searchdomains: "{{ vm_search_domain }}"
+    update: true
+  no_log: true
+
+# --- Resize disk from cloud image (~3.5G) to target size ---
+- name: Resize VM disk
+  ansible.builtin.uri:
+    url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/resize"
+    method: PUT
+    headers:
+      Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    body_format: form-urlencoded
+    body:
+      disk: scsi0
+      size: "{{ _vm.vm_disk_gb }}G"
+    validate_certs: false
+  no_log: true
+
+# --- Start and wait ---
+- name: Start VM
+  community.general.proxmox_kvm:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_token_id: "{{ pve_api_token_id }}"
+    api_token_secret: "{{ pve_api_token_secret }}"
+    node: "{{ _vm.pve_target_node }}"
+    vmid: "{{ _vm.vm_id }}"
+    state: started
+  no_log: true
+
+- name: Wait for SSH
+  ansible.builtin.wait_for:
+    host: "{{ _vm.vm_ip }}"
+    port: 22
+    delay: 10
+    timeout: 300
+
+- name: Set VM IP fact
+  ansible.builtin.set_fact:
+    _vm_ip: "{{ _vm.vm_ip }}"
+
+- name: Add new VM to in-memory inventory
+  ansible.builtin.add_host:
+    name: "{{ _vm.vm_hostname }}"
+    ansible_host: "{{ _vm.vm_ip }}"
+    ansible_user: "{{ vm_user }}"
+    groups: "{{ _provision_target_group | default('build_target') }}"
+    _needs_bootstrap: true

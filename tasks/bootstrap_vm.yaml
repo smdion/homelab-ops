@@ -1,0 +1,90 @@
+---
+# Bootstrap an Ubuntu VM with Docker, security hardening, and base packages.
+# Extracted from build_ubuntu.yaml Play 2. Caller must set become: true.
+#
+# Expects:
+#   vm_user   — user account for Docker/sudo group membership
+# Optional:
+#   _vm       — dict from vm_definitions; enables NFS mounts and UFW rules
+#               when _vm.nfs_mounts or _vm.ufw_rules are defined
+
+- name: Wait for cloud-init to finish
+  ansible.builtin.command: cloud-init status --wait
+  register: _cloud_init
+  changed_when: false
+  failed_when: "'status: done' not in _cloud_init.stdout"
+
+- name: Wait for apt lock to be released
+  ansible.builtin.shell: while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 5; done
+  changed_when: false
+
+- name: Update and upgrade apt packages
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+      - python3-pip
+      - python3-docker
+      - nfs-common
+      - curl
+      - htop
+      - unattended-upgrades
+    state: present
+
+- name: Enable Docker service
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Add user to docker and sudo groups
+  ansible.builtin.user:
+    name: "{{ vm_user }}"
+    groups: docker,sudo
+    append: true
+
+- name: Harden SSH and configure passwordless sudo
+  include_tasks: tasks/ssh_hardening.yaml
+  vars:
+    _ssh_user: "{{ vm_user }}"
+
+- name: Enable UFW with default deny incoming
+  community.general.ufw:
+    state: enabled
+    default: deny
+    direction: incoming
+
+- name: Allow SSH through UFW
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+
+- name: Apply additional UFW rules
+  community.general.ufw:
+    rule: "{{ item.rule | default('allow') }}"
+    port: "{{ item.port }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    src: "{{ item.src | default(omit) }}"
+    comment: "{{ item.comment | default(omit) }}"
+  loop: "{{ _vm.ufw_rules }}"
+  loop_control:
+    label: "{{ item.port }}/{{ item.proto | default('tcp') }}"
+  when: _vm.ufw_rules is defined
+
+- name: Configure NFS mounts
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    src: "{{ item.src }}"
+    fstype: nfs
+    opts: "{{ item.opts | default('defaults,_netdev') }}"
+    state: mounted
+  loop: "{{ _vm.nfs_mounts }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: _vm.nfs_mounts is defined

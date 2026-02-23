@@ -1,0 +1,42 @@
+---
+# Harden SSH and configure passwordless sudo for a given user.
+# Shared by build_ubuntu.yaml (bootstrap) and add_ansible_user.yaml.
+#
+# Expects:
+#   _ssh_user           — user to grant passwordless sudo
+# Optional:
+#   _ssh_service_name   — SSH service name (default: 'ssh' for Ubuntu Noble;
+#                         pass 'sshd' for PVE/PBS/Debian)
+
+- name: "Grant passwordless sudo to {{ _ssh_user }}"
+  ansible.builtin.copy:
+    content: |
+      # Passwordless sudo for Ansible automation — required for playbooks to
+      # execute privileged tasks (apt, docker, systemctl, etc.) without prompts.
+      {{ _ssh_user }} ALL=(ALL) NOPASSWD: ALL
+    dest: "/etc/sudoers.d/{{ _ssh_user }}"
+    mode: "0440"
+    owner: root
+    group: root
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Harden SSH configuration
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin prohibit-password' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+    # Required for Apache Guacamole — guacd uses libssh2 which only supports
+    # ssh-rsa host key algorithm (GUACAMOLE-1497). Applied to all managed hosts
+    # since Guacamole connects to all of them. Remove when guacd adds rsa-sha2 support.
+    - { regexp: '^#?PubkeyAcceptedAlgorithms', line: 'PubkeyAcceptedAlgorithms +ssh-rsa' }
+  register: _ssh_config
+
+- name: "Restart {{ _ssh_service_name | default('ssh') }}"
+  ansible.builtin.systemd:
+    name: "{{ _ssh_service_name | default('ssh') }}"
+    state: restarted
+  when: _ssh_config is changed
