@@ -327,13 +327,15 @@ the entire parse.
 
 **`verify_backups.yaml`** — On-demand backup verification. Tests DB backups by restoring to a temp
 database on the same container (create `_restore_test_<dbname>` → restore → count tables → drop).
-Tests config archives by verifying gzip integrity and extracting to a staging directory. Reuses
-existing `vars/db_*.yaml` and `vars/*.yaml` via standard `hosts_variable`/`config_file` routing.
-Logs results to `restores` table with `operation: verify`.
+Tests config archives by verifying gzip integrity and extracting to a staging directory. For
+`docker_stacks` hosts, verifies per-stack archives. For `amp` hosts, verifies per-instance
+archives (integrity check + extract + file count). Reuses existing `vars/db_*.yaml` and
+`vars/*.yaml` via standard `hosts_variable`/`config_file` routing. Logs results to `restores`
+table with `operation: verify`. Semaphore templates: `Verify — AMP [Backup]` (id=77).
 
 **`restore_databases.yaml`** — Database restore from backup dumps. Supports restoring a specific
 database on a shared instance (e.g., just `nextcloud` on shared MariaDB without touching `semaphore`
-or `ansible_logging`). Safety-gated with `confirm_restore=yes` assertion. Creates pre-restore safety
+or `ansible_logging`). Safety-gated with `confirm=yes` assertion. Creates pre-restore safety
 backup by default. Stops only **same-host** dependent containers via `db_container_deps` mapping
 (from `vars/db_*.yaml`) — cross-host app containers have empty deps and must be stopped manually or
 via `restore_hosts.yaml -e include_databases=yes`. Supports `restore_db` (single DB) and
@@ -341,7 +343,7 @@ via `restore_hosts.yaml -e include_databases=yes`. Supports `restore_db` (single
 
 **`restore_hosts.yaml`** — Config/appdata restore from backup archives. Two modes: `staging` (extract
 to `<backup_tmp_dir>/restore_staging/` for inspection) and `inplace` (extract to actual paths, requires
-`confirm_restore=yes`). Supports selective app restore via `-e restore_app=sonarr` (convention-based:
+`confirm=yes`). Supports selective app restore via `-e restore_app=sonarr` (convention-based:
 app name maps to subdirectory under `src_raw_files[0]`). Supports coordinated DB+appdata restore via
 `-e include_databases=yes` — loads DB vars into a `_db_vars` namespace (avoiding collision with
 play-level Docker vars) and uses `delegate_to: db_host` to restore databases on the correct host
@@ -404,6 +406,7 @@ controller, and restarts instances that were running before. Supports restoring 
 Play 1 (localhost) discovers and validates backup archives; Play 2 (the AMP host) performs the
 restore. Per-instance results logged to the `restores` table; partial success supported (some
 instances succeed, others fail). Uses `tasks/restore_single_amp_instance.yaml` (loop var: `_amp_instance`).
+Semaphore template: `Restore — AMP [Instance]` (id=76). Required extra vars: `-e restore_target=<host> -e confirm=yes`.
 
 **`restore_app.yaml`** — Production single-app restore. Safety-gated with `confirm=yes`. Stops
 the target stack, restores DB(s) + appdata inplace, restarts the stack, runs HTTP health checks,
@@ -423,7 +426,7 @@ Logs to the `maintenance` table (type: `Servers`, subtype: `Test App Restore`).
 the snapshot saved by `update_systems.yaml`. Two rollback paths: **fast** (old image still on
 disk — `docker tag` re-tag, no network needed) and **slow** (image pruned by
 `maintain_docker.yaml` — pulls old version tag from registry). Safety-gated with
-`confirm_rollback=yes`. Without it, shows snapshot info and exits (dry-run). Supports three
+`confirm=yes`. Without it, shows snapshot info and exits (dry-run). Supports three
 scopes: all containers (default), per-stack via `-e rollback_stack=<name>`, or per-service via
 `-e rollback_service=<name>`. Docker Compose
 hosts (`docker_stacks`) only — for unRAID `docker_run` hosts, see manual rollback guidance
@@ -789,6 +792,13 @@ WHERE t.project_id = 1 AND t.name = '<Template Name>';
 > **Note:** All `project_id = 1` references, `inventory_id` values (3, 12, 30), and numeric IDs
 > in the SQL above are specific to one Semaphore instance. Replace them with actual IDs from your
 > deployment — use the verify query above to confirm IDs after insertion.
+
+> **Warning — duplicate environment names:** If two environments share the same `name`, any
+> subquery using `WHERE name = '...'` will return multiple rows and the `INSERT` will fail silently
+> (0 rows affected, no error in Adminer). Before inserting a template, run:
+> `SELECT id, name, json FROM project__environment WHERE project_id = 1 AND name = '<env_name>';`
+> If duplicates exist, use the correct `id` directly as a literal in the template INSERT instead
+> of the subquery. Clean up the orphan with `DELETE FROM project__environment WHERE id = <orphan_id>;`.
 
 ### Managing schedules via SQL (Adminer)
 
@@ -1907,10 +1917,10 @@ Existing rows are not affected — update them manually if needed.
 
 ```bash
 # Restore a single DB (latest backup) — e.g., nextcloud on shared MariaDB
-ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_mariadb -e confirm_restore=yes -e restore_db=nextcloud
+ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_mariadb -e confirm=yes -e restore_db=nextcloud
 
 # Restore from a specific date
-ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm_restore=yes -e restore_db=authentik -e restore_date=2026-02-20
+ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm=yes -e restore_db=authentik -e restore_date=2026-02-20
 ```
 
 ### Restore an app's appdata + database together
@@ -1918,7 +1928,7 @@ ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e
 ```bash
 # Coordinated restore — appdata on one host, DB on another (cross-host via delegate_to)
 ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> \
-  -e restore_app=sonarr -e include_databases=yes -e restore_mode=inplace -e confirm_restore=yes -e manage_docker=yes
+  -e restore_app=sonarr -e include_databases=yes -e restore_mode=inplace -e confirm=yes -e manage_docker=yes
 ```
 
 Always use `--limit <hostname>` with `-e restore_app` since `docker_stacks`/`docker_run` are
@@ -1933,15 +1943,15 @@ ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <h
 
 # Rollback a single stack
 ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> \
-  -e rollback_stack=vpn -e confirm_rollback=yes
+  -e rollback_stack=vpn -e confirm=yes
 
 # Rollback a single service
 ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> \
-  -e rollback_service=jellyseerr -e confirm_rollback=yes
+  -e rollback_service=jellyseerr -e confirm=yes
 
 # Rollback all containers in the snapshot
 ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> \
-  -e confirm_rollback=yes
+  -e confirm=yes
 ```
 
 The rollback snapshot (`.rollback_snapshot.json`) is saved automatically before each Docker
@@ -2113,9 +2123,10 @@ Key panel features:
 
 ### Restore safety guards
 
-- **`confirm_restore=yes` gate** (`restore_databases.yaml`, `restore_hosts.yaml`): Destructive
-  restore operations require explicit `-e confirm_restore=yes` on the command line. Without it,
-  the pre-task assertion fails with a guidance message. Prevents accidental data overwrites.
+- **`confirm=yes` gate** (all restore + rollback playbooks): Destructive operations require explicit
+  `-e confirm=yes` on the command line. Without it, the pre-task assertion fails with a guidance
+  message. Prevents accidental data overwrites. Applies to: `restore_databases.yaml`,
+  `restore_hosts.yaml`, `restore_app.yaml`, `restore_amp.yaml`, `rollback_docker.yaml`.
 - **Pre-restore safety backup** (`restore_databases.yaml`): Before restoring a database, the current
   state is dumped to `<backup_tmp_dir>/pre_restore_<db>_<date>.sql` as a safety net. Controlled by
   `pre_backup` (defaults to `yes`).
@@ -2158,16 +2169,16 @@ ansible-playbook build_ubuntu.yaml -e vm_name=<new-hostname> --ask-vault-pass
 ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> -e deploy_stack=databases --ask-vault-pass
 
 # 3. Restore MariaDB from backup (restores semaphore + ansible_logging databases)
-ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_mariadb -e confirm_restore=yes --ask-vault-pass
+ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_mariadb -e confirm=yes --ask-vault-pass
 
 # 4. Restore Postgres from backup
-ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm_restore=yes --ask-vault-pass
+ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm=yes --ask-vault-pass
 
 # 5. Deploy remaining stacks (Semaphore is now functional via MariaDB)
 ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 
 # 6. Restore appdata
-ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <controller-fqdn> -e restore_mode=inplace -e confirm_restore=yes --ask-vault-pass
+ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <controller-fqdn> -e restore_mode=inplace -e confirm=yes --ask-vault-pass
 
 # 7. Re-render .env files (restore overwrites them with backup copies) and restart stacks
 ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass

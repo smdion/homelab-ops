@@ -6,7 +6,7 @@
 # Docker Compose hosts (docker_stacks group) only.
 # For unRAID docker_run hosts, see DESIGN.md manual rollback guidance.
 #
-# Safety-gated: requires -e confirm_rollback=yes to proceed.
+# Safety-gated: requires -e confirm=yes to proceed.
 # Without it, shows snapshot info and exits (dry-run).
 #
 # Required variables (vars/secrets.yaml):
@@ -16,15 +16,15 @@
 # Usage:
 #   # Rollback all containers
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
-#     --limit <hostname> -e confirm_rollback=yes
+#     --limit <hostname> -e confirm=yes
 #
 #   # Rollback one stack
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
-#     --limit <hostname> -e rollback_stack=vpn -e confirm_rollback=yes
+#     --limit <hostname> -e rollback_stack=vpn -e confirm=yes
 #
 #   # Rollback one service
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
-#     --limit <hostname> -e rollback_service=jellyseerr -e confirm_rollback=yes
+#     --limit <hostname> -e rollback_service=jellyseerr -e confirm=yes
 #
 #   # Dry run — show snapshot info without rolling back
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
@@ -114,11 +114,11 @@
         fail_msg: "Service '{{ item }}' not found in snapshot. Available: {{ rollback_snapshot.containers.keys() | join(', ') }}"
       loop: "{{ _rollback_targets }}"
 
-    - name: Assert confirm_rollback for destructive operation
+    - name: Assert confirm for destructive operation
       ansible.builtin.assert:
-        that: confirm_rollback | default('') == 'yes'
+        that: confirm | default('') == 'yes'
         fail_msg: >
-          Safety gate: pass -e confirm_rollback=yes to proceed.
+          Safety gate: pass -e confirm=yes to proceed.
           Omit it to dry-run (shows snapshot contents without rolling back).
       when: not ansible_check_mode
 

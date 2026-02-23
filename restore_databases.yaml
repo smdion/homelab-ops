@@ -1,24 +1,24 @@
 ---
 # Restore database dumps from backup.
-# Safety-gated with confirm_restore=yes. Supports restoring a single DB
+# Safety-gated with confirm=yes. Supports restoring a single DB
 # on a shared instance, or all DBs. Creates pre-restore safety backup by default.
 # Sends Discord notification and logs result to restores table.
 #
 # Usage:
-#   # Dry run (omit confirm_restore)
+#   # Dry run (omit confirm)
 #   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres
 #
 #   # Restore all postgres DBs (latest backup)
-#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm_restore=yes
+#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm=yes
 #
 #   # Restore ONE specific DB on the shared MariaDB instance
-#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_mariadb -e confirm_restore=yes -e restore_db=nextcloud
+#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_mariadb -e confirm=yes -e restore_db=nextcloud
 #
 #   # Restore specific DB from specific date
-#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm_restore=yes -e restore_db=authentik -e restore_date=2026-02-20
+#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm=yes -e restore_db=authentik -e restore_date=2026-02-20
 #
 #   # Restore InfluxDB
-#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_influxdb -e confirm_restore=yes
+#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_influxdb -e confirm=yes
 
 - name: Restore databases from backup
   hosts: "{{ hosts_variable }}"
@@ -35,11 +35,11 @@
     - name: Assert config_file is defined and non-empty
       include_tasks: tasks/assert_config_file.yaml
 
-    - name: Assert confirm_restore is set
+    - name: Assert confirm is set
       ansible.builtin.assert:
-        that: confirm_restore | default('') == 'yes'
+        that: confirm | default('no') == 'yes'
         fail_msg: >-
-          Restore operations require -e confirm_restore=yes.
+          Restore operations require -e confirm=yes.
           Run without it first for a dry-run that shows which files would be restored.
 
     - name: Assert sufficient disk space on target

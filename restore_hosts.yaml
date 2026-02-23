@@ -9,16 +9,16 @@
 #   ansible-playbook restore_hosts.yaml -e hosts_variable=proxmox
 #
 #   # Restore a specific stack's appdata (per-stack archives)
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <hostname> -e restore_stack=auth -e restore_mode=inplace -e confirm_restore=yes -e manage_docker=yes
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <hostname> -e restore_stack=auth -e restore_mode=inplace -e confirm=yes -e manage_docker=yes
 #
 #   # Stage just one app's appdata from the full archive
 #   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr
 #
 #   # In-place restore of ONE specific app's appdata only
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e restore_mode=inplace -e confirm_restore=yes -e manage_docker=yes
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e restore_mode=inplace -e confirm=yes -e manage_docker=yes
 #
 #   # COORDINATED RESTORE — appdata + databases together (cross-host via delegate_to)
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e include_databases=yes -e restore_mode=inplace -e confirm_restore=yes -e manage_docker=yes
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e include_databases=yes -e restore_mode=inplace -e confirm=yes -e manage_docker=yes
 
 - name: Restore config/appdata from backup
   hosts: "{{ hosts_variable }}"
@@ -41,11 +41,11 @@
         that: inventory_hostname not in groups["unifi_protect"] | default([])
         fail_msg: "UNVR .unf backups require manual restore via the Protect UI"
 
-    - name: Assert confirm_restore for inplace mode
+    - name: Assert confirm for inplace mode
       ansible.builtin.assert:
-        that: confirm_restore | default('') == 'yes'
+        that: confirm | default('no') == 'yes'
         fail_msg: >-
-          In-place restore requires -e confirm_restore=yes.
+          In-place restore requires -e confirm=yes.
           Run without restore_mode=inplace for safe staging mode.
       when: restore_mode == 'inplace'
 
