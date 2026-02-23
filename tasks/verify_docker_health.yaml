@@ -15,20 +15,20 @@
       timeout={{ _health_timeout | default(120) }}
       delay={{ _health_delay | default(10) }}
       elapsed=0
-    while [ $elapsed -lt $timeout ]; do
-      unhealthy=$(docker ps --filter health=unhealthy --format '{% raw %}{{.Names}}{% endraw %}' 2>/dev/null)
-      starting=$(docker ps --filter health=starting --format '{% raw %}{{.Names}}{% endraw %}' 2>/dev/null)
-      if [ -z "$unhealthy" ] && [ -z "$starting" ]; then
-        echo "ALL_HEALTHY"
-        exit 0
-      fi
-      sleep $delay
-      elapsed=$((elapsed + delay))
-    done
-    # Timed out — report what's still unhealthy
-    echo "UNHEALTHY: $unhealthy"
-    echo "STARTING: $starting"
-    exit 1
+      while [ $elapsed -lt $timeout ]; do
+        unhealthy=$(docker ps --filter health=unhealthy --format '{% raw %}{{.Names}}{% endraw %}' 2>/dev/null)
+        starting=$(docker ps --filter health=starting --format '{% raw %}{{.Names}}{% endraw %}' 2>/dev/null)
+        if [ -z "$unhealthy" ] && [ -z "$starting" ]; then
+          echo "ALL_HEALTHY"
+          exit 0
+        fi
+        sleep $delay
+        elapsed=$((elapsed + delay))
+      done
+      # Timed out — report what's still unhealthy
+      echo "UNHEALTHY: $unhealthy"
+      echo "STARTING: $starting"
+      exit 1
   register: _health_poll
   changed_when: false
   when: not ansible_check_mode
