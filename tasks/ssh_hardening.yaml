@@ -1,6 +1,6 @@
 ---
 # Harden SSH and configure passwordless sudo for a given user.
-# Shared by build_ubuntu.yaml (bootstrap) and add_ansible_user.yaml.
+# Shared by build_ubuntu.yaml (bootstrap) and setup_ansible_user.yaml.
 #
 # Expects:
 #   _ssh_user           — user to grant passwordless sudo

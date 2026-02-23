@@ -112,7 +112,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `maintain_cache.yaml` | Ubuntu / unRAID | Drop Linux page cache |
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | WOL, rsync, shutdown verification |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
-| `add_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
+| `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
 | `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=true`) keeps restored state |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
@@ -189,7 +189,7 @@ for platforms you don't have are automatically skipped.
 ├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
 ├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks)
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
-├── add_ansible_user.yaml        # One-time user setup utility
+├── setup_ansible_user.yaml      # One-time user setup utility
 ├── requirements.txt             # Python pip dependencies (PyMySQL, proxmoxer)
 ├── requirements.yaml            # Ansible Galaxy collection dependencies
 ├── inventory.example.yaml       # Example inventory with expected group structure
