@@ -90,9 +90,11 @@
           when: not ansible_check_mode
           no_log: true
 
-        - name: Wait for DSM service to start
+        - name: Wait for NFS service on Synology
           ansible.builtin.wait_for:
-            timeout: 15
+            host: "{{ dest_ip }}"
+            port: 2049
+            timeout: 300
           delegate_to: localhost
           when: not ansible_check_mode
 
@@ -102,14 +104,6 @@
           ignore_errors: true
           changed_when: true
           ansible.builtin.shell: |
-            n=30
-            until nc -z -w 2 {{ dest_ip }} 2049 2>/dev/null; do
-              if [ "$n" -eq 0 ]; then
-                exit 4
-              fi
-              let "n--"
-              sleep 2
-            done
             if /usr/local/sbin/rc.unassigned mount {{ server_mountname }}:{{ server_mount }}; then
               sleep 5
             else
