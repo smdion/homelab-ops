@@ -171,6 +171,7 @@
 
         # ===== CREATE BACKUP (non-docker_stacks, non-UNVR hosts) =====
         - name: Filter backup paths to only existing directories
+          become: true
           ansible.builtin.stat:
             path: "{{ item }}"
           loop: "{{ src_raw_files }}"
