@@ -1,0 +1,328 @@
+---
+# Automated restore testing on a disposable VM.
+# Builds VM if needed, restores source host's appdata, deploys stacks,
+# verifies container health, and reverts to clean state.
+# Also serves as a DR recovery tool via -e dr_mode=true.
+#
+# Usage:
+#   # Test tantive-iv's full stack
+#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=tantiveiv.REDACTED_DOMAIN
+#
+#   # Test single app restore
+#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=tantiveiv.REDACTED_DOMAIN -e restore_app=authentik
+#
+#   # Test single stack deploy
+#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=odyssey.REDACTED_DOMAIN -e deploy_stack=media
+#
+#   # DR recovery (keeps restored state, no revert)
+#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=tantiveiv.REDACTED_DOMAIN -e dr_mode=true
+#
+# Required extra vars:
+#   vm_name      — key in vm_definitions (e.g., test-vm)
+#   source_host  — inventory_hostname of source host in stack_assignments
+#
+# Optional extra vars:
+#   restore_app   — single app to restore (uses app_restore mapping)
+#   deploy_stack  — single stack to deploy
+#   dr_mode=true  — DR recovery mode (skip snapshot/revert, keep state)
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Prepare: Validate, find backup, build VM if needed, snapshot
+# ═══════════════════════════════════════════════════════════════════
+- name: Prepare test restore
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/docker_stacks.yaml
+    - vars/vm_definitions.yaml
+  vars:
+    maintenance_name: "Docker"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Test Restore"
+
+  pre_tasks:
+    - name: Assert vm_name exists in vm_definitions
+      ansible.builtin.assert:
+        that:
+          - vm_name is defined
+          - vm_name in vm_definitions
+        fail_msg: >-
+          vm_name '{{ vm_name | default('undefined') }}' not found in vm_definitions.
+          Valid names: {{ vm_definitions.keys() | list | join(', ') }}
+
+    - name: Assert source_host exists in stack_assignments
+      ansible.builtin.assert:
+        that:
+          - source_host is defined
+          - source_host in stack_assignments
+        fail_msg: >-
+          source_host '{{ source_host | default('undefined') }}' not found in stack_assignments.
+          Valid hosts: {{ stack_assignments.keys() | list | join(', ') }}
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Resolve VM and stack configuration
+      ansible.builtin.set_fact:
+        _vm: "{{ vm_definitions[vm_name] }}"
+        _stacks: >-
+          {{ [deploy_stack] if deploy_stack | default('') | length > 0
+             else stack_assignments[source_host] }}
+
+    # ===== FIND BACKUP ARCHIVE =====
+    - name: Find latest backup archive for source host
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_*.tar.gz 2>/dev/null | head -1
+      register: _archive_file
+      changed_when: false
+      check_mode: false
+
+    - name: Assert backup archive exists
+      ansible.builtin.assert:
+        that: _archive_file.stdout | length > 0
+        fail_msg: "No backup archive found for {{ source_host }}"
+
+    - name: Verify archive integrity
+      ansible.builtin.shell: gunzip -t "{{ _archive_file.stdout }}"
+      changed_when: false
+      check_mode: false
+
+    # ===== CHECK IF VM EXISTS =====
+    - name: Check if VM already exists
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+        status_code: [200, 500]
+      register: _vm_status
+      no_log: true
+
+    - name: Set VM existence fact
+      ansible.builtin.set_fact:
+        _vm_exists: "{{ _vm_status.status == 200 }}"
+
+    # ===== BUILD VM IF NEEDED =====
+    - name: Provision VM on Proxmox
+      include_tasks: tasks/provision_vm.yaml
+      vars:
+        _provision_target_group: test_target
+      when: not _vm_exists
+
+    - name: Add existing VM to inventory
+      ansible.builtin.add_host:
+        name: "{{ _vm.vm_hostname }}"
+        ansible_host: "{{ _vm.vm_ip }}"
+        ansible_user: "{{ vm_user }}"
+        groups: test_target
+        _needs_bootstrap: false
+      when: _vm_exists
+
+    # ===== CREATE SNAPSHOT FOR CLEAN REVERT =====
+    - name: Create pre-test snapshot
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/snapshot"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        body_format: form-urlencoded
+        body:
+          snapname: pre-test-restore
+          vmstate: 0
+        validate_certs: false
+      no_log: true
+      when: not (dr_mode | default(false) | bool)
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Bootstrap (only if VM was just built)
+# ═══════════════════════════════════════════════════════════════════
+- name: Bootstrap test VM
+  hosts: test_target
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+
+  tasks:
+    - name: Bootstrap Ubuntu with Docker and security hardening
+      include_tasks: tasks/bootstrap_vm.yaml
+      vars:
+        _vm: "{{ hostvars['localhost']._vm }}"
+      when: hostvars[inventory_hostname]._needs_bootstrap | default(false)
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 3 — Deploy, Restore, and Health Check
+# ═══════════════════════════════════════════════════════════════════
+- name: Test restore on VM
+  hosts: test_target
+  become: true
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/docker_stacks.yaml
+    - vars/vm_definitions.yaml
+  vars:
+    maintenance_name: "Docker"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Test Restore"
+    backup_tmp_dir: "/tmp"
+
+  tasks:
+    - name: Initialize restore state
+      ansible.builtin.set_fact:
+        _restore_test_failed: false
+        _restore_test_detail: ""
+
+    - block:
+        # ===== EXTRACT APPDATA FROM BACKUP =====
+        - name: Compute selective extract path
+          ansible.builtin.set_fact:
+            _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
+          when: restore_app | default('') | length > 0
+
+        - include_tasks: tasks/restore_appdata.yaml
+          vars:
+            _restore_archive_path: "{{ hostvars['localhost']._archive_file.stdout }}"
+            _restore_mode: inplace
+            _restore_extract_path: "{{ _extract_path | default('') }}"
+            _restore_app_name: "{{ restore_app | default('') }}"
+
+        # ===== DEPLOY STACKS =====
+        - name: "Deploy stack — {{ _current_stack }}"
+          include_tasks: tasks/deploy_single_stack.yaml
+          loop: "{{ hostvars['localhost']._stacks }}"
+          loop_control:
+            loop_var: _current_stack
+
+        # ===== HEALTH CHECK =====
+        - name: Verify container health
+          include_tasks: tasks/verify_docker_health.yaml
+
+        - name: Record success detail
+          ansible.builtin.set_fact:
+            _restore_test_detail: >-
+              {{ restore_app | default('full') }} restore verified
+              — {{ hostvars['localhost']._stacks | join(', ') }} stack(s)
+
+      rescue:
+        - name: Set restore test failed flag
+          ansible.builtin.set_fact:
+            _restore_test_failed: true
+            _restore_test_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Clean up temp archive
+          ansible.builtin.file:
+            path: "/tmp/restore_inplace.tar.gz"
+            state: absent
+
+        - name: Send Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_title: "{{ maintenance_name }}"
+            discord_description: >-
+              Test Restore {{ 'Failed' if _restore_test_failed else 'Successful' }}
+              — {{ source_host }}{{ ' (' + restore_app + ')' if restore_app | default('') | length > 0 else '' }}
+            discord_color: "{{ 16711680 if _restore_test_failed else 32768 }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Description"
+                value: "Automated restore test"
+              - name: "Source Host"
+                value: "{{ source_host }}"
+              - name: "Test VM"
+                value: "{{ hostvars['localhost']._vm.vm_name }}"
+              - name: "Stacks"
+                value: "{{ hostvars['localhost']._stacks | join(', ') }}"
+              - name: "Detail"
+                value: "{{ _restore_test_detail }}"
+
+        - name: Log test restore to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ controller_fqdn }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if _restore_test_failed else 'success' }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 4 — Revert to clean state (skipped in DR mode)
+# ═══════════════════════════════════════════════════════════════════
+- name: Revert test VM to clean state
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+
+  tasks:
+    - name: Skip revert in DR mode
+      ansible.builtin.debug:
+        msg: "DR mode — keeping restored state on {{ vm_definitions[vm_name].vm_name }}"
+      when: dr_mode | default(false) | bool
+
+    - name: Revert VM to pre-test snapshot
+      block:
+        - name: Stop VM
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ vm_definitions[vm_name].pve_target_node }}"
+            vmid: "{{ vm_definitions[vm_name].vm_id }}"
+            state: stopped
+            force: true
+          no_log: true
+          ignore_errors: true
+
+        - name: Revert to pre-test snapshot
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ vm_definitions[vm_name].pve_target_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore/rollback"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          no_log: true
+
+        - name: Start VM after revert
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ vm_definitions[vm_name].pve_target_node }}"
+            vmid: "{{ vm_definitions[vm_name].vm_id }}"
+            state: started
+          no_log: true
+
+        - name: Wait for SSH after revert
+          ansible.builtin.wait_for:
+            host: "{{ vm_definitions[vm_name].vm_ip }}"
+            port: 22
+            delay: 5
+            timeout: 120
+
+        - name: Delete pre-test snapshot
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ vm_definitions[vm_name].pve_target_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore"
+            method: DELETE
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          no_log: true
+      when: not (dr_mode | default(false) | bool)
+
+    - name: Fail if test restore failed
+      ansible.builtin.fail:
+        msg: "Test restore failed: {{ hostvars[vm_definitions[vm_name].vm_hostname]._restore_test_detail | default('check Semaphore logs') }}"
+      when: hostvars[vm_definitions[vm_name].vm_hostname]._restore_test_failed | default(false)
