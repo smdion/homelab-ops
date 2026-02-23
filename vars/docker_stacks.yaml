@@ -48,6 +48,20 @@ stack_backup_paths:
     - /opt/npm-le
     - /opt/beszel
 
+# Per-stack health check timeouts (seconds) used by test_restore.yaml and test_app_restore.yaml.
+# When testing multiple stacks at once the maximum timeout across all tested stacks is used.
+# Default fallback is 120s when a stack is not listed here.
+stack_health_timeouts:
+  nfs: 60           # Minimal containers, no DB
+  infra: 90         # No DB; fast startup
+  vpn: 90           # No DB
+  dev: 90           # Light containers
+  media: 120        # Some DB queries on startup
+  monitoring: 150   # Grafana startup time
+  apps: 150         # Mixed; includes Home Assistant
+  databases: 180    # DB containers init
+  auth: 420         # Authentik is slow (worker + server)
+
 # Update vars
 update_name: "Docker"
 update_description: "Automatic Docker Container Update"

@@ -305,6 +305,11 @@
         # ===== HEALTH CHECK =====
         - name: Verify container health
           include_tasks: tasks/verify_docker_health.yaml
+          vars:
+            _health_timeout: >-
+              {{ ([120] + (hostvars['localhost']._stacks
+                  | map('extract', stack_health_timeouts | default({}))
+                  | select('defined') | list)) | max }}
 
         - name: Record success detail
           ansible.builtin.set_fact:
