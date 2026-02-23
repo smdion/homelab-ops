@@ -73,14 +73,17 @@
              else stack_assignments[source_host] }}
 
     # ===== FIND BACKUP ARCHIVES =====
-    # become: false is required — the /backup/ bind mount is accessible to the
-    # Ansible runner user but NOT to the become_user (default become: true in the
-    # Semaphore template escalates to a user that cannot read the mount).
+    # The /backup/ bind mount allows traverse (execute) but NOT directory
+    # listing (read) for the container process user.  Glob expansion in ls
+    # silently fails on localhost, so we delegate discovery to source_host
+    # which has full read access.  The returned paths are valid on the
+    # controller too (same underlying storage), so no staging is needed.
     - name: Find per-stack backup archives for source host
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _stacks }}"
       register: _per_stack_archives
+      delegate_to: "{{ source_host }}"
       become: false
       changed_when: false
       check_mode: false
@@ -93,6 +96,7 @@
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ source_host }}/backup_*.tar.gz 2>/dev/null | head -1
       register: _monolithic_archive
+      delegate_to: "{{ source_host }}"
       become: false
       changed_when: false
       check_mode: false
