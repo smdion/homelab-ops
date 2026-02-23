@@ -1,0 +1,152 @@
+---
+# Idempotent Proxmox node configuration — run after bare-metal reinstall or new node join.
+# Ensures OS-level settings not managed by PVE cluster replication are in expected state:
+# keepalived VIP (PVE nodes), ansible user SSH key, SSH hardening (PVE and PBS).
+#
+# Firewall rules and storage config are stored in /etc/pve/ (cluster-replicated via Corosync)
+# and are restored automatically when a node re-joins the cluster — no Ansible action needed.
+#
+# Usage (safe to re-run — idempotent):
+#   ansible-playbook maintain_pve.yaml
+#
+# Required vault vars: vault_pve_vip, vault_pve_vrrp_password, vault_pve_vrrp_priorities,
+#                       vault_pve_template_node_ip, ansible_user_ssh_pubkey
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Maintain Proxmox node OS-level configuration
+# ═══════════════════════════════════════════════════════════════════
+- name: Maintain Proxmox node configuration
+  hosts: "pve:pbs"
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+  vars:
+    maintenance_name: "Proxmox"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Maintenance"
+    maintenance_url: ""
+    maintenance_description: "Ensure Proxmox nodes are in expected configuration state"
+
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+
+    - block:
+        # === Keepalived VIP (PVE nodes only — not needed on PBS) ===
+        - name: Install keepalived
+          ansible.builtin.apt:
+            name: keepalived
+            state: present
+            update_cache: true
+          when: inventory_hostname in groups["pve"]
+
+        - name: Template keepalived config
+          ansible.builtin.template:
+            src: templates/keepalived.conf.j2
+            dest: /etc/keepalived/keepalived.conf
+            owner: root
+            group: root
+            mode: "0640"
+          notify: Restart keepalived
+          when: inventory_hostname in groups["pve"]
+
+        - name: Enable and start keepalived
+          ansible.builtin.service:
+            name: keepalived
+            state: started
+            enabled: true
+          when: inventory_hostname in groups["pve"]
+
+        # === Ansible user SSH key (PVE and PBS) ===
+        - name: Install sudo
+          ansible.builtin.apt:
+            name: sudo
+            state: present
+
+        - name: Add ansible user
+          ansible.builtin.user:
+            name: ansible
+            comment: ansible
+
+        - name: Add ansible user to sudo group
+          ansible.builtin.user:
+            name: ansible
+            groups: sudo
+            append: true
+
+        - name: Deploy SSH public key for ansible user
+          ansible.builtin.authorized_key:
+            user: ansible
+            key: "{{ ansible_user_ssh_pubkey }}"
+            state: present
+
+        - name: Harden SSH and configure passwordless sudo
+          include_tasks: tasks/ssh_hardening.yaml
+          vars:
+            _ssh_user: ansible
+            _ssh_service_name: sshd
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Flush handlers (restart keepalived if config changed)
+          meta: flush_handlers
+
+        - name: Send Discord alert on failure
+          include_tasks: tasks/notify_discord.yaml
+          when: maintenance_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Maintenance"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: "maintenance"
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+  handlers:
+    - name: Restart keepalived
+      ansible.builtin.service:
+        name: keepalived
+        state: restarted
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Verify VIP is reachable from the controller
+# ═══════════════════════════════════════════════════════════════════
+- name: Verify VIP is reachable
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+
+  tasks:
+    - name: Wait for VIP to respond on port 22 (SSH via MASTER node)
+      ansible.builtin.wait_for:
+        host: "{{ vault_pve_vip }}"
+        port: 22
+        timeout: 15
+        msg: "VIP {{ vault_pve_vip }} is not reachable on port 22 — keepalived may not have converged"
+
+    - name: VIP is up
+      ansible.builtin.debug:
+        msg: "VIP {{ vault_pve_vip }} is reachable. keepalived is healthy."
