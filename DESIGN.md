@@ -408,6 +408,8 @@ restore. Per-instance results logged to the `restores` table; partial success su
 instances succeed, others fail). Uses `tasks/restore_single_amp_instance.yaml` (loop var: `_amp_instance`).
 Semaphore template: `Restore — AMP [Instance]` (id=76). Required extra vars: `-e restore_target=<host> -e confirm=yes`.
 
+**`maintain_amp.yaml`** — AMP game server maintenance. Runs on `amp` hosts. Cleans up old AMP version binaries (keeps `amp_versions_keep` newest under `Versions/Mainline/`), rotates `instances.json` `.bak` files (same keep count), removes crash core dump files (`core*`) from all instance directories, purges instance log files older than 30 days, prunes unused Docker images (non-dangling), and vacuums journal logs older than `journal_max_age`. Stale `.tar.gz` files in `/tmp/backup` older than 1 day are also removed. Uses `block`/`rescue`/`always` — sends Discord alert on failure; logs to `maintenance` table (`type: Servers`, `subtype: Maintenance`) regardless. Supports `--tags versions` to run only the version-prune step; `-e amp_versions_keep=<n>` overrides the keep count. Semaphore template: `Maintain — AMP [Cleanup]` (id=38). Scheduled weekly.
+
 **`restore_app.yaml`** — Production single-app restore. Safety-gated with `confirm=yes`. Stops
 the target stack, restores DB(s) + appdata inplace, restarts the stack, runs HTTP health checks,
 and logs to the `restores` table (`restore_subtype: Appdata`). Accepts `-e restore_app=<app>` and
@@ -447,6 +449,12 @@ directories belong to each stack; `/opt/stacks/{name}/` (compose + .env) is alwa
 automatically. Database data directories are excluded because they have dedicated SQL dump jobs.
 Non-docker_stacks hosts (proxmox, pikvm, unraid, unifi) still use monolithic archives with
 `backup_exclude_dirs | default([])` for hosts that define exclusions.
+
+**Per-instance AMP backup architecture:** AMP hosts use per-instance backup archives, mirroring the per-stack pattern used for Docker hosts. `backup_hosts.yaml` discovers instance names from `{{ amp_home }}/.ampdata/instances/` (one subdirectory per instance), saves the `instances.json` registry and an instance inventory JSON to the controller, then loops over instances via `tasks/backup_single_amp_instance.yaml`. Supports single-instance targeting with `-e amp_instance_filter=<instance>`. The `Backups/` and `Versions/` subdirectories are excluded from each instance archive to keep archive sizes manageable (these directories hold AMP's own internal backups, not the game world data). Results are accumulated in `_amp_backup_results`; a non-empty failed list sets `backup_failed: true` for Discord/DB reporting.
+
+**`tasks/backup_single_amp_instance.yaml`** — Per-instance AMP backup loop body called by `backup_hosts.yaml` (loop var: `_amp_instance`). Stops the instance via the AMP management script, creates a `.tar.gz` of the instance data directory (excluding `Backups/` and `Versions/`), verifies integrity with `gunzip -t`, fetches the archive to the controller, then restarts the instance. The `always:` block restarts the instance regardless of outcome — instances are always brought back up even on backup failure. Results appended to `_amp_backup_results`.
+
+**`tasks/restore_single_amp_instance.yaml`** — Per-instance AMP restore loop body called by `restore_amp.yaml` (loop var: `_amp_instance`). Stops the instance, removes the existing data directory, extracts the latest archive from the controller, and restarts the instance if it was running before the restore. Logs per-instance result to the `restores` table. Mirrors the backup task's structure — stop, act, restart in `always:`.
 
 **`tasks/backup_single_stack.yaml`** — Per-stack backup loop body called by `backup_hosts.yaml`
 (loop var: `_backup_stack`). Stops the named stack via `docker_stop.yaml`, computes the full
@@ -908,7 +916,7 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 | `deploy_stack=<name>` | Deploy a single stack instead of all |
 | `rollback_stack=<name>` | Rollback a single stack |
 | `rollback_service=<name>` | Rollback a single service |
-| `amp_instance_filter=<name>` | Target a single AMP instance |
+| `amp_instance_filter=<name>` | Target a single AMP instance by name (`backup_hosts`, `restore_amp`) |
 | `vm_name=<key>` | VM definition key from `vars/vm_definitions.yaml` |
 
 **Value rules:**
