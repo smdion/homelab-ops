@@ -41,7 +41,7 @@ vm_template_cores: 2
 # Pass vm_index=0..9 (default 0) to select a slot:
 #   vault_test_vm_ip_prefix   — first 3 octets with trailing dot (e.g. "10.10.10.")
 #   vault_test_vm_ip_offset   — last octet of the first slot (e.g. 90)
-# Resulting IPs: <prefix><offset+vm_index>  (e.g. 10.10.10.90 .. REDACTED_IP)
+# Resulting IPs: <prefix><offset+vm_index>  (e.g. 192.0.2.90 .. 192.0.2.99)
 # VMIDs: 199+vm_index (199..208). VM names: test-vm0..test-vm9.
 vm_definitions:
   tantiveiv:

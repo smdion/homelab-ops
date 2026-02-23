@@ -1,0 +1,163 @@
+---
+# Restore AMP game server instance(s) from backup.
+# Stops instance(s), removes existing data, extracts archive, restarts.
+#
+# Required extra vars:
+#   restore_target      — inventory_hostname of the AMP host
+#   confirm=yes         — required safety gate (prevents accidental production runs)
+#
+# Optional extra vars:
+#   amp_instance_filter — specific instance to restore (default: all instances)
+#
+# Usage:
+#   ansible-playbook restore_amp.yaml -e restore_target=<host> -e confirm=yes
+#   ansible-playbook restore_amp.yaml -e restore_target=<host> -e confirm=yes -e amp_instance_filter=Minecraft01
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Validate and locate backup archives
+# ═══════════════════════════════════════════════════════════════════
+- name: Validate and locate AMP backups
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/amp.yaml
+    - vars/semaphore_check.yaml
+
+  pre_tasks:
+    - name: Assert required vars and safety gate
+      ansible.builtin.assert:
+        that:
+          - restore_target is defined
+          - confirm | default('no') == 'yes'
+        fail_msg: >-
+          Missing required vars or safety gate not set.
+          Usage: -e restore_target=<host> -e confirm=yes [-e amp_instance_filter=<instance>]
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Discover instances with backups on controller
+      ansible.builtin.shell: |
+        ls {{ backup_base_dir }}/{{ restore_target }}/backup_amp_*_*.tar.gz 2>/dev/null \
+          | sed 's|.*backup_amp_\(.*\)_[0-9-]*\.tar\.gz|\1|' | sort -u
+      args:
+        executable: /bin/bash
+      register: _amp_controller_instances
+      become: false
+      changed_when: false
+      check_mode: false
+
+    - name: Set instance list to restore
+      ansible.builtin.set_fact:
+        _restore_instances: >-
+          {{ [amp_instance_filter] if amp_instance_filter is defined
+             else (_amp_controller_instances.stdout_lines | default([])) }}
+
+    - name: Assert at least one instance to restore
+      ansible.builtin.assert:
+        that: _restore_instances | length > 0
+        fail_msg: "No AMP backup archives found for {{ restore_target }} on controller"
+
+    - name: Find latest archive for each instance
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ restore_target }}/backup_amp_{{ item }}_*.tar.gz
+        2>/dev/null | head -1
+      loop: "{{ _restore_instances }}"
+      register: _amp_archive_results
+      become: false
+      changed_when: false
+      check_mode: false
+
+    - name: Assert archive found for each instance
+      ansible.builtin.assert:
+        that: item.stdout | length > 0
+        fail_msg: "No archive found for AMP instance '{{ item.item }}' on {{ restore_target }}"
+      loop: "{{ _amp_archive_results.results }}"
+
+    - name: Set restore archive map
+      ansible.builtin.set_fact:
+        _restore_archive_map: >-
+          {{ dict(_restore_instances
+                  | zip(_amp_archive_results.results | map(attribute='stdout') | list)) }}
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Restore instances on target host
+# ═══════════════════════════════════════════════════════════════════
+- name: Restore AMP instances on target host
+  hosts: "{{ restore_target }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/amp.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    _restore_instances: "{{ hostvars['localhost']._restore_instances }}"
+    _restore_archive_map: "{{ hostvars['localhost']._restore_archive_map }}"
+
+  tasks:
+    - name: Initialize restore state
+      ansible.builtin.set_fact:
+        _amp_restore_results: []
+        _restore_failed: false
+
+    - name: Restore AMP instance {{ item }}
+      include_tasks: tasks/restore_single_amp_instance.yaml
+      loop: "{{ _restore_instances }}"
+      loop_control:
+        loop_var: _amp_instance
+
+    - name: Set failed flag from restore results
+      ansible.builtin.set_fact:
+        _restore_failed: "{{ _amp_restore_results | selectattr('failed') | list | length > 0 }}"
+
+    - name: Build per-instance Discord fields
+      ansible.builtin.set_fact:
+        _amp_restore_discord_fields: >-
+          [
+           {% for r in _amp_restore_results %}
+           {% if not loop.first %},{% endif %}
+           {"name": "{{ r.instance }}", "value": "{{ 'FAILED' if r.failed else r.archive }}"}
+           {% endfor %}]
+
+    - name: Send Discord notification
+      include_tasks: tasks/notify_discord.yaml
+      vars:
+        discord_name: "{{ backup_name }}"
+        discord_operation: "Restore"
+        discord_status: >-
+          {{ 'successful' if not (_restore_failed | bool)
+             else ('failed' if (_amp_restore_results | rejectattr('failed') | list | length == 0)
+                   else 'partial') }}
+        discord_color: >-
+          {{ discord_color_success if not (_restore_failed | bool)
+             else (discord_color_failure if (_amp_restore_results | rejectattr('failed') | list | length == 0)
+                   else discord_color_warning) }}
+        discord_url: "{{ backup_url }}"
+        discord_fields: "{{ _amp_restore_discord_fields }}"
+
+    - name: Log per-instance restore to MariaDB
+      include_tasks: tasks/log_restore.yaml
+      loop: "{{ _amp_restore_results }}"
+      loop_control:
+        loop_var: _amp_result
+      vars:
+        log_hostname: "{{ restore_target }}"
+        restore_application: "{{ backup_name }} — {{ _amp_result.instance }}"
+        restore_source_file: "{{ _amp_result.archive }}"
+        restore_type: "{{ backup_type }}"
+        restore_subtype: "{{ backup_subtype }}"
+        restore_operation: "restore"
+        restore_status: "{{ 'failed' if _amp_result.failed else 'success' }}"
+        restore_detail: >-
+          {{ 'restore failed — check Semaphore logs' if _amp_result.failed
+             else 'AMP instance ' + _amp_result.instance + ' restored' }}
+
+    - name: Fail if any instance restore failed
+      ansible.builtin.fail:
+        msg: >-
+          AMP restore failed for:
+          {{ _amp_restore_results | selectattr('failed') | map(attribute='instance') | join(', ') }}
+      when: _restore_failed | bool

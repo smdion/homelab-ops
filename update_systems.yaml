@@ -235,9 +235,13 @@
           become_user: amp
           become_method: su
           become_exe: sudo su -l
-          ansible.builtin.shell: ampinstmgr upgradeall
+          ansible.builtin.shell: >-
+            {{ 'ampinstmgr UpgradeInstance ' + amp_instance_filter
+               if amp_instance_filter is defined
+               else 'ampinstmgr upgradeall' }}
           when: inventory_hostname in groups["amp"]
           tags: [software]
+          timeout: "{{ amp_upgrade_timeout | default(3600) }}"
 
         # --- Docker Stacks (compose) update ---
         # Stack mode: enumerate per-stack and build service map

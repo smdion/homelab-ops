@@ -154,14 +154,14 @@
           include_tasks: tasks/notify_discord.yaml
           when: download_failed
           vars:
-            discord_title: "Download — Videos"
-            discord_description: "yt-dlp failed — check Semaphore logs for details"
+            discord_name: "Videos"
+            discord_operation: "Download"
+            discord_status: "failed"
             discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Config"
                 value: "{{ config_name }}"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
 
         # -- Clean up manifest -----------------------------------------------
         - name: Clean up download manifest
