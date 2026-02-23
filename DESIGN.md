@@ -177,6 +177,7 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 ├── update_systems.yaml             # OS, application, and Docker container updates (Proxmox, PiKVM, AMP, Ubuntu, Docker); PVE cluster quorum pre-check; rollback snapshot; unRAID update_container script
 ├── maintain_amp.yaml               # AMP game server maintenance (versions, dumps, prune, journal)
 ├── maintain_semaphore.yaml         # Delete stopped/error + old download tasks from Semaphore DB + prune ansible_logging retention (runs on localhost)
+├── maintain_logging_db.yaml        # Purge failed/warning records from ansible_logging (failed updates, maintenance, zero-size backups, warning/critical health checks) — runs on localhost
 ├── maintain_docker.yaml            # Prune unused Docker images across all Docker hosts
 ├── maintain_cache.yaml             # Drop Linux page cache on Ubuntu and unRAID hosts
 ├── maintain_unifi.yaml             # Restart Unifi Network service
