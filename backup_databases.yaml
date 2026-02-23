@@ -87,8 +87,8 @@
             discord_color: "{{ discord_color_success if db_result.backup_rc == 0 else discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Backup Name"
-                value: "backup_{{ db_result.db_name }}_{{ ansible_date_time.date }}.{{ backup_ext | default('sql') }}"
+              - name: "Date"
+                value: "{{ ansible_date_time.date }}"
               - name: "Backup Size"
                 value: "{{ (db_result.file_size / 1024 / 1024) | round(2) }}MB"
           tags: [always]

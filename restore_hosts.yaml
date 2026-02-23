@@ -401,7 +401,7 @@
               - name: "Mode"
                 value: "{{ restore_mode | capitalize }}"
               - name: "Source File"
-                value: "{{ _restore_source_file }}"
+                value: "{{ _restore_source_file | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1') }}"
               - name: "Detail"
                 value: "{{ _restore_detail | default('check Semaphore logs') }}"
           tags: [always]

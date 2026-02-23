@@ -217,13 +217,8 @@
             discord_status: "{{ 'failed' if _restore_failed else 'successful' }}"
             discord_detail: "{{ restore_app }}"
             discord_color: "{{ discord_color_failure if _restore_failed else discord_color_success }}"
-            discord_url: "{{ semaphore_ext_url }}"
-            discord_author: "{{ controller_fqdn }}"
+            discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "App"
-                value: "{{ restore_app }}"
-              - name: "Target Host"
-                value: "{{ restore_target }}"
               - name: "Detail"
                 value: "{{ _restore_detail }}"
 

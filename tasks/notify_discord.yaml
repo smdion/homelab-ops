@@ -10,7 +10,8 @@
 #                          Auto-builds description; combine with discord_detail for "Status — detail"
 #   discord_detail       — optional detail appended to description: "Successful — radarr-log"
 #   discord_color        — embed color (use discord_color_success/failure/warning/rollback from group_vars/all.yaml)
-#   discord_fields       — list of {name: ..., value: ...} dicts (omit or [] for minimal alerts)
+#   discord_fields       — list of {name: ..., value: ..., inline: bool} dicts; inline: true renders
+#                          3 fields per row (omit or [] for minimal alerts)
 #
 # Legacy/override vars (for special callers: maintain_health hardcoded alerts, download_videos):
 #   discord_title        — explicit embed title (used when discord_name/discord_operation not set)
