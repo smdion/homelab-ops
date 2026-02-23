@@ -1,0 +1,117 @@
+---
+# Restore a single app on the test VM and record the result.
+# Called in a loop from test_app_restore.yaml Play 4.
+#
+# Expects (from caller loop/scope):
+#   _test_app         — app name (loop_var from test_app_restore.yaml)
+#   _stack_archive_map — dict: app → stack archive path (set in Play 1)
+#   _db_archive_map   — dict: db_name → db archive path (set in Play 1)
+#   _app_restore_results — list to append {app, passed, detail} entries
+# Inherits from play scope:
+#   app_restore, stack_health_timeouts, backup_base_dir, db_password,
+#   semaphore_check vars (controller_fqdn, etc.)
+
+- name: Set app config for {{ _test_app }}
+  ansible.builtin.set_fact:
+    _cur_app_cfg: "{{ app_restore[_test_app] }}"
+
+- name: Load DB engine config for {{ _test_app }}
+  ansible.builtin.include_vars:
+    file: "vars/{{ _cur_app_cfg.db_config_file }}.yaml"
+  when: _cur_app_cfg.db_names | default([]) | length > 0
+
+- block:
+    - name: Ensure staging dir for {{ _test_app }}
+      ansible.builtin.file:
+        path: "/tmp/restore_{{ _test_app }}"
+        state: directory
+        mode: "0755"
+      become: true
+      when: not ansible_check_mode
+
+    - name: Deploy stack — {{ _cur_app_cfg.stack }}
+      include_tasks: tasks/deploy_single_stack.yaml
+      vars:
+        _current_stack: "{{ _cur_app_cfg.stack }}"
+
+    - name: Stop stack — {{ _cur_app_cfg.stack }}
+      include_tasks: tasks/docker_stop.yaml
+      vars:
+        _docker_selective_stacks: ["{{ _cur_app_cfg.stack }}"]
+
+    - name: Copy DB backup to staging — {{ _db_name_item }}
+      ansible.builtin.copy:
+        src: "{{ _db_archive_map[_db_name_item] }}"
+        dest: "/tmp/restore_{{ _test_app }}/{{ _db_name_item }}.sql.gz"
+      become: true
+      loop: "{{ _cur_app_cfg.db_names | default([]) }}"
+      loop_control:
+        loop_var: _db_name_item
+      when:
+        - _cur_app_cfg.db_names | default([]) | length > 0
+        - not ansible_check_mode
+
+    - name: Restore DB — {{ _db_name_item }}
+      include_tasks: tasks/db_restore.yaml
+      loop: "{{ _cur_app_cfg.db_names | default([]) }}"
+      loop_control:
+        loop_var: _db_name_item
+      vars:
+        _db_name: "{{ _db_name_item }}"
+        _db_container: "{{ container_name }}"
+        _db_username: "{{ db_username }}"
+        _db_password: "{{ db_password | default('') }}"
+        _db_source_file: "/tmp/restore_{{ _test_app }}/{{ _db_name_item }}.sql.gz"
+        _db_is_postgres: "{{ is_postgres | default(false) }}"
+        _db_is_mariadb: "{{ is_mariadb | default(false) }}"
+        _db_is_influxdb: "{{ is_influxdb | default(false) }}"
+        _db_tmp_dir: "/tmp/restore_{{ _test_app }}"
+      when:
+        - _cur_app_cfg.db_names | default([]) | length > 0
+        - not ansible_check_mode
+
+    - name: Restore appdata inplace — {{ _test_app }}
+      include_tasks: tasks/restore_appdata.yaml
+      vars:
+        backup_tmp_dir: "/tmp/restore_{{ _test_app }}"
+        _restore_archive_path: "{{ _stack_archive_map[_test_app] }}"
+        _restore_mode: inplace
+        _restore_app_name: "{{ _test_app }}"
+
+    - name: Start stack — {{ _cur_app_cfg.stack }}
+      include_tasks: tasks/docker_start.yaml
+      vars:
+        _docker_selective_stacks: ["{{ _cur_app_cfg.stack }}"]
+
+    - name: Verify container health — {{ _test_app }}
+      include_tasks: tasks/verify_docker_health.yaml
+      vars:
+        _health_timeout: >-
+          {{ stack_health_timeouts[_cur_app_cfg.stack] | default(120) }}
+
+    - name: Record success — {{ _test_app }}
+      ansible.builtin.set_fact:
+        _app_restore_results: >-
+          {{ _app_restore_results + [{'app': _test_app, 'passed': true,
+             'detail': _restore_detail | default('healthy')}] }}
+
+  rescue:
+    - name: Record failure — {{ _test_app }}
+      ansible.builtin.set_fact:
+        _app_restore_results: >-
+          {{ _app_restore_results + [{'app': _test_app, 'passed': false,
+             'detail': ansible_failed_result.msg | default('check Semaphore logs')}] }}
+
+    - name: Restart stack after failure (best effort) — {{ _test_app }}
+      include_tasks: tasks/docker_start.yaml
+      vars:
+        _docker_selective_stacks: ["{{ _cur_app_cfg.stack }}"]
+        _docker_ignore_errors: true
+
+  always:
+    - name: Cleanup staging dir — {{ _test_app }}
+      ansible.builtin.file:
+        path: "/tmp/restore_{{ _test_app }}"
+        state: absent
+      become: true
+      when: not ansible_check_mode

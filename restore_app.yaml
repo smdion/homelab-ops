@@ -1,0 +1,237 @@
+---
+# Restore a single app (stack appdata + databases) to a production host.
+# Stops the stack, restores each DB, restores appdata inplace, restarts, verifies health.
+#
+# Required extra vars:
+#   restore_app    — key in app_restore dict (e.g., 'authentik', 'jellyseerr')
+#   restore_target — inventory_hostname of the production host to restore on
+#   confirm=yes    — required safety gate (intentional: prevents accidental production runs)
+#
+# Optional extra vars:
+#   restore_source_host — host whose backups to use (default: restore_target)
+#
+# Semaphore templates:
+#   Restore — App [Production]  (Maintenance view) — pass restore_app, restore_target, confirm=yes
+#   Test — App Restore [VM]     (Testing view)     — see test_app_restore.yaml
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Validate and find backup files
+# ═══════════════════════════════════════════════════════════════════
+- name: Validate and locate app backups
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/docker_stacks.yaml
+    - vars/semaphore_check.yaml
+
+  pre_tasks:
+    - name: Assert required vars and safety gate
+      ansible.builtin.assert:
+        that:
+          - restore_app is defined
+          - restore_target is defined
+          - confirm | default('no') == 'yes'
+        fail_msg: >-
+          Missing required vars or safety gate not set.
+          Usage: -e restore_app=<app> -e restore_target=<host> -e confirm=yes
+
+    - name: Assert restore_app exists in app_restore config
+      ansible.builtin.assert:
+        that: restore_app in app_restore
+        fail_msg: >-
+          '{{ restore_app }}' not found in app_restore.
+          Valid apps: {{ app_restore.keys() | list | join(', ') }}
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Set app config and source host
+      ansible.builtin.set_fact:
+        _app_cfg: "{{ app_restore[restore_app] }}"
+        _source_host: "{{ restore_source_host | default(restore_target) }}"
+
+    - name: Find latest stack archive
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ _source_host }}/backup_{{ _app_cfg.stack }}_*.tar.gz 2>/dev/null | head -1
+      register: _stack_archive
+      become: false
+      changed_when: false
+      check_mode: false
+
+    - name: Assert stack archive found
+      ansible.builtin.assert:
+        that: _stack_archive.stdout | length > 0
+        fail_msg: >-
+          No stack archive found for stack '{{ _app_cfg.stack }}' on {{ _source_host }}.
+          Expected: {{ backup_base_dir }}/{{ _source_host }}/backup_{{ _app_cfg.stack }}_*.tar.gz
+
+    - name: Find latest DB backup — {{ item }}
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ _source_host }}/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
+      loop: "{{ _app_cfg.db_names | default([]) }}"
+      register: _db_archive_results
+      become: false
+      changed_when: false
+      check_mode: false
+      when: _app_cfg.db_names | default([]) | length > 0
+
+    - name: Assert DB backup found — {{ item.item }}
+      ansible.builtin.assert:
+        that: item.stdout | length > 0
+        fail_msg: "No DB backup found for '{{ item.item }}' on {{ _source_host }}"
+      loop: "{{ _db_archive_results.results | default([]) }}"
+      when: _app_cfg.db_names | default([]) | length > 0
+
+    - name: Set backup path facts
+      ansible.builtin.set_fact:
+        _stack_archive_path: "{{ _stack_archive.stdout }}"
+        _db_archive_map: >-
+          {{ dict(_app_cfg.db_names | default([]) | zip(
+               _db_archive_results.results | default([]) | map(attribute='stdout') | list)) }}
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Restore app on target host
+# ═══════════════════════════════════════════════════════════════════
+- name: Restore app on target host
+  hosts: "{{ restore_target }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/docker_stacks.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "Docker"
+    maintenance_type: "Servers"
+    maintenance_subtype: "App Restore"
+    _app_restore_tmp: "/tmp/restore_{{ restore_app }}"
+
+  tasks:
+    - name: Load DB engine config — {{ hostvars['localhost']._app_cfg.db_config_file }}
+      ansible.builtin.include_vars:
+        file: "vars/{{ hostvars['localhost']._app_cfg.db_config_file }}.yaml"
+      when: hostvars['localhost']._app_cfg.db_names | default([]) | length > 0
+
+    - name: Initialize restore state
+      ansible.builtin.set_fact:
+        _restore_failed: false
+        _restore_detail: ""
+
+    - block:
+        - name: Ensure staging dir exists
+          ansible.builtin.file:
+            path: "{{ _app_restore_tmp }}"
+            state: directory
+            mode: "0755"
+          when: not ansible_check_mode
+
+        - name: Copy DB backup to staging — {{ item }}
+          ansible.builtin.copy:
+            src: "{{ hostvars['localhost']._db_archive_map[item] }}"
+            dest: "{{ _app_restore_tmp }}/{{ item }}.sql.gz"
+          loop: "{{ hostvars['localhost']._app_cfg.db_names | default([]) }}"
+          when:
+            - hostvars['localhost']._app_cfg.db_names | default([]) | length > 0
+            - not ansible_check_mode
+
+        - name: Stop stack — {{ hostvars['localhost']._app_cfg.stack }}
+          include_tasks: tasks/docker_stop.yaml
+          vars:
+            _docker_selective_stacks: ["{{ hostvars['localhost']._app_cfg.stack }}"]
+
+        - name: Restore DB — {{ item }}
+          include_tasks: tasks/db_restore.yaml
+          loop: "{{ hostvars['localhost']._app_cfg.db_names | default([]) }}"
+          loop_control:
+            loop_var: item
+          vars:
+            _db_name: "{{ item }}"
+            _db_container: "{{ container_name }}"
+            _db_username: "{{ db_username }}"
+            _db_password: "{{ db_password | default('') }}"
+            _db_source_file: "{{ _app_restore_tmp }}/{{ item }}.sql.gz"
+            _db_is_postgres: "{{ is_postgres | default(false) }}"
+            _db_is_mariadb: "{{ is_mariadb | default(false) }}"
+            _db_is_influxdb: "{{ is_influxdb | default(false) }}"
+            _db_tmp_dir: "{{ _app_restore_tmp }}"
+          when:
+            - hostvars['localhost']._app_cfg.db_names | default([]) | length > 0
+            - not ansible_check_mode
+
+        - name: Restore appdata inplace
+          include_tasks: tasks/restore_appdata.yaml
+          vars:
+            backup_tmp_dir: "{{ _app_restore_tmp }}"
+            _restore_archive_path: "{{ hostvars['localhost']._stack_archive_path }}"
+            _restore_mode: inplace
+            _restore_app_name: "{{ restore_app }}"
+
+        - name: Start stack — {{ hostvars['localhost']._app_cfg.stack }}
+          include_tasks: tasks/docker_start.yaml
+          vars:
+            _docker_selective_stacks: ["{{ hostvars['localhost']._app_cfg.stack }}"]
+
+        - name: Verify container health
+          include_tasks: tasks/verify_docker_health.yaml
+          vars:
+            _health_timeout: >-
+              {{ stack_health_timeouts[hostvars['localhost']._app_cfg.stack] | default(120) }}
+
+        - name: Set success detail
+          ansible.builtin.set_fact:
+            _restore_detail: >-
+              {{ restore_app }} restored — {{ hostvars['localhost']._app_cfg.stack }} stack healthy
+
+      rescue:
+        - name: Set failure state
+          ansible.builtin.set_fact:
+            _restore_failed: true
+            _restore_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+        - name: Restart stack after failure (best effort)
+          include_tasks: tasks/docker_start.yaml
+          vars:
+            _docker_selective_stacks: ["{{ hostvars['localhost']._app_cfg.stack }}"]
+            _docker_ignore_errors: true
+
+      always:
+        - name: Cleanup staging dir
+          ansible.builtin.file:
+            path: "{{ _app_restore_tmp }}"
+            state: absent
+          when: not ansible_check_mode
+
+        - name: Send Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "App Restore"
+            discord_status: "{{ 'failed' if _restore_failed else 'successful' }}"
+            discord_detail: "{{ restore_app }}"
+            discord_color: "{{ discord_color_failure if _restore_failed else discord_color_success }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "App"
+                value: "{{ restore_app }}"
+              - name: "Target Host"
+                value: "{{ restore_target }}"
+              - name: "Detail"
+                value: "{{ _restore_detail }}"
+
+        - name: Log restore to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ restore_target }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if _restore_failed else 'success' }}"
+
+    - name: Fail if restore failed
+      ansible.builtin.fail:
+        msg: "App restore failed for {{ restore_app }}: {{ _restore_detail }}"
+      when: _restore_failed
