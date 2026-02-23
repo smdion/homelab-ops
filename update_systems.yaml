@@ -20,7 +20,7 @@
       pikvm:  "pacman -Q | grep 'kvmd ' | cut -c 6-"
       ubuntu: "uname -r | sed 's/-generic//'"
       pve:    "pveversion | awk -F'/' '{print $2}'"
-      pbs:    "proxmox-backup-manager version | grep 'proxmox-backup-server' | awk '{print $2}'"
+      pbs:    "dpkg-query -W -f='${Version}' proxmox-backup-server"
     _sw_version_commands:
       amp:    "ampinstmgr -version | sed -n 's/.*\\(v[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+\\).*/\\1/p'"
   hosts: "{{ hosts_variable }}"
