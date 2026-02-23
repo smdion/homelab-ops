@@ -4,6 +4,26 @@
 # This file is loaded by playbooks via:  vars_files: vars/{{ config_file }}.yaml
 #
 # Not all variables are needed by every playbook. See the sections below.
+#
+# =============================================================================
+# WHAT BELONGS IN vars/secrets.yaml (vault) vs HERE
+# =============================================================================
+# This repo is public. Only vault things that are genuinely sensitive:
+#   - Passwords, API keys, auth tokens
+#   - Private IPs, internal hostnames/FQDNs, internal subnets
+#   - Private domain names (if you want to keep them off GitHub)
+#
+# Things that do NOT need to be in vault:
+#   - Display names, descriptions, labels
+#   - Non-sensitive paths and file names
+#   - Feature flags (enable_feature: true)
+#   - Count/threshold values (versions_to_keep: 2)
+#   - Cron expressions, delays, timeouts
+#   - Public-domain URLs (vendor portals, public UI like unifi.ui.com)
+#   - Docker image names and tags
+#
+# The stricter the vault, the harder secrets rotation audits become.
+# Keep vault focused on secrets; put everything else in the platform vars file.
 
 # =============================================================================
 # BACKUP SETTINGS — used by backup_hosts.yaml
