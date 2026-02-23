@@ -34,14 +34,16 @@
 
     - name: Create compressed archive for {{ _amp_instance }}
       become: true
-      community.general.archive:
-        path: "{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}"
-        dest: "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
-        format: gz
-        remove: false
-        exclude_path:
-          - "{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Versions"
-          - "{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Backups"
+      ansible.builtin.shell: |
+        tar --ignore-failed-read \
+            --exclude="{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Versions" \
+            --exclude="{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Backups" \
+            -czf "{{ backup_tmp_dir }}/{{ _amp_archive_name }}" \
+            -C "{{ amp_home }}/.ampdata/instances" \
+            "{{ _amp_instance }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
       timeout: "{{ amp_backup_timeout | default(1800) }}"
 
     - name: Verify archive integrity for {{ _amp_instance }}
