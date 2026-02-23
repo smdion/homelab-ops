@@ -73,46 +73,72 @@
              else stack_assignments[source_host] }}
 
     # ===== FIND BACKUP ARCHIVES =====
-    # Use stat with exact paths rather than ls glob — the /backup/ bind mount
-    # allows execute (traverse) but not read (list) for the Ansible process user,
-    # so glob expansion silently fails. Date is a gathered fact so path is known.
+    # The /backup/ bind mount has no read/execute access for the container
+    # process user. Delegate discovery and integrity check to source_host
+    # (which has /backup/ read access), then stage archives in controller
+    # /tmp so restore_appdata.yaml can copy them to the test VM.
     - name: Find per-stack backup archives for source host
-      ansible.builtin.stat:
-        path: "{{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_{{ ansible_date_time.date }}.tar.gz"
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _stacks }}"
-      register: _per_stack_stats
+      register: _per_stack_archives
+      delegate_to: "{{ source_host }}"
+      become: false
       changed_when: false
       check_mode: false
 
     - name: Set per-stack archive list
       ansible.builtin.set_fact:
-        _archive_files: "{{ _per_stack_stats.results | selectattr('stat.exists', 'equalto', true) | map(attribute='stat.path') | list }}"
+        _archive_files: "{{ _per_stack_archives.results | selectattr('stdout', 'ne', '') | map(attribute='stdout') | list }}"
 
     - name: Fall back to monolithic archive
-      ansible.builtin.stat:
-        path: "{{ backup_base_dir }}/{{ source_host }}/backup_{{ source_host }}_{{ ansible_date_time.date }}.tar.gz"
-      register: _monolithic_stat
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_*.tar.gz 2>/dev/null | head -1
+      register: _monolithic_archive
+      delegate_to: "{{ source_host }}"
+      become: false
       changed_when: false
       check_mode: false
       when: _archive_files | length == 0
 
     - name: Use monolithic archive as fallback
       ansible.builtin.set_fact:
-        _archive_files: "{{ [_monolithic_stat.stat.path] }}"
+        _archive_files: "{{ [_monolithic_archive.stdout] }}"
       when:
         - _archive_files | length == 0
-        - _monolithic_stat.stat.exists | default(false)
+        - _monolithic_archive.stdout | default('') | length > 0
 
     - name: Assert backup archives exist
       ansible.builtin.assert:
         that: _archive_files | length > 0
-        fail_msg: "No backup archives found for {{ source_host }} dated {{ ansible_date_time.date }}"
+        fail_msg: "No backup archives found for {{ source_host }}"
 
     - name: Verify archive integrity
       ansible.builtin.shell: gunzip -t "{{ item }}"
       loop: "{{ _archive_files }}"
+      delegate_to: "{{ source_host }}"
+      become: false
       changed_when: false
       check_mode: false
+
+    - name: Create controller staging dir for restore archives
+      ansible.builtin.file:
+        path: /tmp/test_restore
+        state: directory
+        mode: '0700'
+
+    - name: Stage archives in controller /tmp
+      ansible.builtin.fetch:
+        src: "{{ item }}"
+        dest: "/tmp/test_restore/{{ item | basename }}"
+        flat: true
+      loop: "{{ _archive_files }}"
+      delegate_to: "{{ source_host }}"
+      become: false
+
+    - name: Update archive paths to controller staging dir
+      ansible.builtin.set_fact:
+        _archive_files: "{{ _archive_files | map('basename') | map('regex_replace', '^', '/tmp/test_restore/') | list }}"
 
     # ===== CHECK IF VM EXISTS =====
     - name: Check if VM already exists
@@ -293,6 +319,12 @@
     - vars/vm_definitions.yaml
 
   tasks:
+    - name: Clean up controller staging dir
+      ansible.builtin.file:
+        path: /tmp/test_restore
+        state: absent
+      ignore_errors: true
+
     - name: Skip revert in DR mode
       ansible.builtin.debug:
         msg: "DR mode — keeping restored state on {{ vm_definitions[vm_name].vm_name }}"
