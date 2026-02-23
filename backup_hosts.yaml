@@ -239,39 +239,17 @@
           tags: [always]
 
         # ===== AMP PER-INSTANCE BACKUP =====
-        # Step 1: back up root-level shared data (instances.json registry + .bak files)
-        - name: Archive AMP shared root data (instances.json registry)
-          become: true
-          community.general.archive:
-            path: "{{ amp_home }}/.ampdata"
-            dest: "{{ backup_tmp_dir }}/backup_amp_shared_{{ ansible_date_time.date }}.tar.gz"
-            format: gz
-            remove: false
-            exclude_path:
-              - "{{ amp_home }}/.ampdata/instances"
-              - "{{ amp_home }}/.ampdata/Versions"
-          timeout: 600
-          when:
-            - inventory_hostname in groups["amp"] | default([])
-            - not ansible_check_mode
-
-        - name: Fetch AMP shared archive to controller
+        # Step 1: fetch instances.json registry directly (no archive needed — file is ~28KB)
+        - name: Fetch instances.json registry to controller
           ansible.builtin.fetch:
-            src: "{{ backup_tmp_dir }}/backup_amp_shared_{{ ansible_date_time.date }}.tar.gz"
-            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/backup_amp_shared_{{ ansible_date_time.date }}.tar.gz"
+            src: "{{ amp_home }}/.ampdata/instances.json"
+            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/amp_instances_{{ ansible_date_time.date }}.json"
             flat: true
           become: false
+          ignore_errors: true  # non-fatal — per-instance backups must still run
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not ansible_check_mode
-
-        - name: Delete shared AMP temp archive
-          become: true
-          ansible.builtin.file:
-            path: "{{ backup_tmp_dir }}/backup_amp_shared_{{ ansible_date_time.date }}.tar.gz"
-            state: absent
-          when:
-            - inventory_hostname in groups["amp"] | default([])
 
         # Step 2: discover and back up each instance
         - name: Discover AMP instances
