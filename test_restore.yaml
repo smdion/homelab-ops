@@ -148,6 +148,29 @@
         _needs_bootstrap: false
       when: _vm_exists
 
+    - name: Start existing VM if stopped
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/status/start"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+        status_code: [200, 500]
+      no_log: true
+      when:
+        - _vm_exists
+        - _vm_status.json.data.status == 'stopped'
+
+    - name: Wait for SSH on existing VM
+      ansible.builtin.wait_for:
+        host: "{{ _vm.vm_ip }}"
+        port: 22
+        delay: 10
+        timeout: 300
+      when:
+        - _vm_exists
+        - _vm_status.json.data.status == 'stopped'
+
     # ===== CREATE SNAPSHOT FOR CLEAN REVERT =====
     - name: Create pre-test snapshot
       ansible.builtin.uri:
