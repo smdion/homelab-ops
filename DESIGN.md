@@ -807,21 +807,47 @@ task history is cleaned up by `maintain_semaphore.yaml` after `download_task_ret
 
 #### Discord notification field patterns
 
-Every `always:` block passes a standard set of vars to `tasks/notify_discord.yaml`. The fields
-vary by playbook category but follow consistent patterns within each category:
+Every `always:` block passes a standard set of vars to `tasks/notify_discord.yaml` using the
+standard operational interface. Embed layout is built automatically from three vars:
+
+- **`discord_name`** — system name from `vars/*.yaml` (e.g. `backup_name`, `maintenance_name`,
+  `update_name`). Values: `"Database"`, `"Docker"`, `"unRAID"`, `"Ubuntu"`, etc.
+- **`discord_operation`** — operation name set inline in the playbook. Values: `"Backup"`,
+  `"Sync"`, `"Verification"`, `"Restore"`, `"Deploy"`, `"Build"`, `"Bootstrap"`,
+  `"Restore Test"`, `"Update"`, `"Rollback"`, `"Maintenance"`, `"Health"`.
+- **`discord_status`** — `"successful"`, `"failed"`, or `"partial"`.
+- **`discord_detail`** *(optional)* — appended to description: `"Successful — radarr-log"`.
+
+The task auto-builds: **title** = `"{name} {operation}"` and **description** =
+`"{Status}[ — {detail}]"`. Do not add `discord_title` or `discord_description` for standard
+operational notifications — those are reserved for the hardcoded `maintain_health` alert titles
+and `download_videos` per-video embeds.
+
+**Do not include "Description" or "Host" fields.** The operation is in the title; the host is
+already the embed author (Line 1). Both fields were removed in the standardization pass.
 
 | Category | `discord_url` source | Fields | Fires on |
 |----------|---------------------|--------|----------|
-| **Backup** (`backup_hosts`, `backup_databases`, `backup_offline`) | `backup_url` (from `vars/*.yaml`) | Description, Host, Backup Name, Backup Size | Always (success + failure) |
-| **Update — OS** (`update_systems` non-Docker) | `backup_url` (same host URL) | Description, Host, Version | Change or failure only |
-| **Update — Docker** (`update_systems` Docker) | `backup_url` (same host URL) | Description, Host, Updated | Change or failure only |
-| **Maintenance** (`maintain_*` playbooks) | `maintenance_url` (play-level var) | Description, Host | Failure only |
-| **Health** (`maintain_health`) | `maintenance_url` / per-check | Custom per alert type | Per-check logic |
-| **Download** (`download_videos`) | `video.url` (per-video) | Custom per video | Always (success + failure) |
-| **Verify** (`verify_backups`) | `backup_url` (from `vars/*.yaml`) | Description, Host, Source File, Detail | Always |
-| **Restore** (`restore_databases`, `restore_hosts`) | `backup_url` (from `vars/*.yaml`) | Description, Host, Source File, Detail/Tables | Always |
-| **Rollback** (`rollback_docker`) | `backup_url` (from `group_vars/all.yaml`) | Description, Host, Services, Snapshot Date, Detail | Always |
-| **Deploy** (`deploy_grafana`) | `semaphore_ext_url` | Description, Host, Detail | Always |
+| **Backup** (`backup_hosts`, `backup_databases`) | `backup_url` | Backup Name, Backup Size | Always |
+| **Sync** (`backup_offline`) | `backup_url` | Share, Size Transferred | Always |
+| **Verify** (`verify_backups`) | `backup_url` | Source File, Detail | Always |
+| **Restore — DB** (`restore_databases`) | `backup_url` | Source File, Tables/Measurements | Always |
+| **Restore — Host** (`restore_hosts`) | `backup_url` | Mode, Source File, Detail | Always |
+| **Update — OS** (`update_systems` non-Docker) | `backup_url` | Version | Change or failure only |
+| **Update — Docker** (`update_systems` Docker) | `backup_url` | Updated | Change or failure only |
+| **Rollback** (`rollback_docker`) | `backup_url` | Services, Snapshot Date, Detail | Always |
+| **Deploy** (`deploy_stacks`, `deploy_grafana`) | `semaphore_ext_url` | Stacks/Detail | Always |
+| **Build** (`build_ubuntu` Play 1) | `semaphore_ext_url` | VM Name, Host IP, Proxmox Node, Detail | Always |
+| **Bootstrap** (`build_ubuntu` Play 2) | `semaphore_ext_url` | Detail | Always |
+| **Restore Test** (`test_restore`) | `semaphore_ext_url` | Source Host, Test VM, Stacks, Detail | Always |
+| **Maintenance** (`maintain_*`) | `maintenance_url` | *(none)* | Failure only |
+| **Health** (`maintain_health` failure) | `maintenance_url` | *(none)* | Failure only |
+| **Health alerts** (`maintain_health` checks) | `maintenance_url` / per-check | Custom per alert type | Per-check logic |
+| **Download** (`download_videos`) | `video.url` (per-video) | Custom per video | Always |
+
+**`backup_offline` uses `discord_operation: "Sync"`** (not `"Backup"`) to distinguish offline
+NAS syncs from regular appdata backups. Both use `backup_name: "unRAID"`, producing
+`"unRAID Backup"` vs `"unRAID Sync"` as the embed title.
 
 **URL variable conventions:**
 
@@ -831,8 +857,10 @@ vary by playbook category but follow consistent patterns within each category:
   host's web UI URL or `""` if none. `maintain_semaphore` and `maintain_health` use
   `semaphore_ext_url` instead (localhost plays linking to Semaphore UI).
 
-When adding a new playbook, follow the matching pattern above. Every backup/update/maintenance
-notification should include at minimum the Description and Host fields.
+When adding a new playbook, follow the operational interface above. Set `discord_name`,
+`discord_operation`, `discord_status`, and `discord_color`. Add `discord_detail` when there
+is a meaningful per-item identifier (DB name, stack name, source host). Do not add Description
+or Host fields.
 
 > **Shared task review:** When modifying playbooks, check whether any inline task blocks are
 > duplicated across multiple playbooks. If so, they are a candidate for extraction into `tasks/`.
@@ -908,8 +936,9 @@ the playbook does), mechanism (how it works), and optionally usage examples and 
 | Remote host plays | `"{{ inventory_hostname }}"` | `myhost.home.local` |
 | Localhost plays | `"{{ controller_fqdn }}"` | `controller.home.local` |
 
-Discord "Host" fields use the same sources directly — `{{ inventory_hostname }}` for remote
-hosts, `{{ controller_fqdn }}` for localhost plays. No intermediate variables are needed.
+Discord embed author (Line 1) uses the same sources — `inventory_hostname` for remote hosts,
+`discord_author: "{{ controller_fqdn }}"` for localhost plays. The embed author replaced the
+old explicit "Host" field; do not re-add a Host field.
 
 **Why `inventory_hostname` instead of `ansible_fqdn`:** `ansible_fqdn` is what the remote host
 reports about itself, which varies by OS and configuration. unRAID may return `myhost.local`;
@@ -921,7 +950,8 @@ the inventory, regardless of what any host reports about itself.
 **`controller_fqdn`** is defined in `vars/semaphore_check.yaml` as a static string
 (e.g., `controller.home.local`). Playbooks that run on `hosts: localhost`
 (`maintain_semaphore.yaml`, `maintain_health.yaml` Plays 1/3) use it for both DB logging and
-Discord fields because `inventory_hostname` resolves to `localhost` in that context.
+the `discord_author` override because `inventory_hostname` resolves to `localhost` in that
+context.
 
 ### URL construction
 

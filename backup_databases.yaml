@@ -80,15 +80,13 @@
           loop_control:
             loop_var: db_result
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: "{{ 'Backup Successful' if db_result.backup_rc == 0 else 'Backup Failed' }} - {{ db_result.db_name }}"
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Backup"
+            discord_status: "{{ 'failed' if db_result.backup_rc != 0 else 'successful' }}"
+            discord_detail: "{{ db_result.db_name }}"
             discord_color: "{{ discord_color_success if db_result.backup_rc == 0 else discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Description"
-                value: "{{ backup_description }}"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
               - name: "Backup Name"
                 value: "backup_{{ db_result.db_name }}_{{ ansible_date_time.date }}.{{ backup_ext | default('sql') }}"
               - name: "Backup Size"
@@ -99,15 +97,12 @@
           include_tasks: tasks/notify_discord.yaml
           when: backup_db_failed
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: "Backup Failed — check Semaphore logs for details"
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Backup"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
             discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
-            discord_fields:
-              - name: "Description"
-                value: "{{ backup_description }}"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
           tags: [always]
 
         - name: Log DB backup results to MariaDB

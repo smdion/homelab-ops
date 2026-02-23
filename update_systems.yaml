@@ -495,15 +495,12 @@
           include_tasks: tasks/notify_discord.yaml
           when: (not _is_docker_update | bool) and (update_failed or current_version != previous_version)
           vars:
-            discord_title: "{{ update_name }}"
-            discord_description: "{{ 'Update Failed' if update_failed else 'Updated' }}"
+            discord_name: "{{ update_name }}"
+            discord_operation: "Update"
+            discord_status: "{{ 'failed' if update_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if update_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Description"
-                value: "{{ update_description }}"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
               - name: "Version"
                 value: "{{ previous_version + ' → ' + current_version }}"
           tags: [always]
@@ -535,15 +532,13 @@
               or (docker_update_results | selectattr('pull_failed', 'defined') | selectattr('pull_failed') | list | length > 0)
           vars:
             _pull_failed: "{{ docker_update_results | selectattr('pull_failed', 'defined') | selectattr('pull_failed') | list | length > 0 }}"
-            discord_title: "{{ update_name }}"
-            discord_description: "{{ 'Update Failed' if update_failed else 'Pull Failed — images may be stale' if _pull_failed | bool else 'Containers Updated' }}"
+            discord_name: "{{ update_name }}"
+            discord_operation: "Update"
+            discord_status: "{{ 'failed' if update_failed else 'partial' if _pull_failed | bool else 'successful' }}"
+            discord_detail: "{{ 'images may be stale' if _pull_failed | bool and not update_failed else '' }}"
             discord_color: "{{ discord_color_failure if update_failed or (_pull_failed | bool) else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Description"
-                value: "{{ update_description }}"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
               - name: "Updated"
                 value: "{{ docker_update_results | selectattr('updated') | map(attribute='name') | join(', ') | default('None', true) }}"
           tags: [always]

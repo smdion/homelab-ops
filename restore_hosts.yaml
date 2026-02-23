@@ -382,18 +382,17 @@
         - name: Send Discord notification
           include_tasks: tasks/notify_discord.yaml
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: >-
-              {{ restore_mode | capitalize }} {{ 'Failed' if restore_failed else 'Successful' }}
-              {{ '— stack: ' + restore_stack if restore_stack | default('') | length > 0 else '' }}
-              {{ '— ' + restore_app if restore_stack | default('') | length == 0 and restore_app | default('') | length > 0 else '' }}
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Restore"
+            discord_status: "{{ 'failed' if restore_failed else 'successful' }}"
+            discord_detail: >-
+              {{ ('stack: ' + restore_stack) if restore_stack | default('') | length > 0
+                 else (restore_app if restore_app | default('') | length > 0 else '') }}
             discord_color: "{{ discord_color_failure if restore_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Description"
-                value: "{{ restore_mode | capitalize }} Restore"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
+              - name: "Mode"
+                value: "{{ restore_mode | capitalize }}"
               - name: "Source File"
                 value: "{{ _restore_source_file }}"
               - name: "Detail"

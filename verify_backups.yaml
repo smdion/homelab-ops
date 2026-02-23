@@ -419,15 +419,13 @@
           loop_control:
             loop_var: verify_result
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: "Verification {{ 'Successful' if not verify_failed else 'Failed' }} — {{ verify_result.db_name }}"
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Verification"
+            discord_status: "{{ 'failed' if verify_failed else 'successful' }}"
+            discord_detail: "{{ verify_result.db_name }}"
             discord_color: "{{ discord_color_success if not verify_failed else discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Description"
-                value: "Backup Verification"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
               - name: "Source File"
                 value: "{{ verify_result.source_file }}"
               - name: "Detail"
@@ -438,15 +436,12 @@
           include_tasks: tasks/notify_discord.yaml
           when: verify_failed and combined_results | length == 0
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: "Verification Failed — check Semaphore logs for details"
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Verification"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
             discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
-            discord_fields:
-              - name: "Description"
-                value: "Backup Verification"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
           tags: [always]
 
         - name: Log verification results to MariaDB

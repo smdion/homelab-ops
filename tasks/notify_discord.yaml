@@ -2,13 +2,21 @@
 # Parameterized Discord notification task.
 # Pass all variables via vars: on the include_tasks call.
 #
-# Required vars (used by ALL callers):
-#   discord_title        — embed title
+# Standard operational vars (preferred for all playbooks):
+#   discord_name         — system name (Database, Docker, unRAID, etc.)
+#   discord_operation    — operation name (Backup, Verification, Restore, Deploy, etc.)
+#                          Combined with discord_name to auto-build title: "{name} {operation}"
+#   discord_status       — "successful", "failed", or "partial"
+#                          Auto-builds description; combine with discord_detail for "Status — detail"
+#   discord_detail       — optional detail appended to description: "Successful — radarr-log"
 #   discord_color        — embed color (use discord_color_success/failure/warning/rollback from group_vars/all.yaml)
-#   discord_fields       — list of {name: ..., value: ...} dicts
+#   discord_fields       — list of {name: ..., value: ...} dicts (omit or [] for minimal alerts)
+#
+# Legacy/override vars (for special callers: maintain_health hardcoded alerts, download_videos):
+#   discord_title        — explicit embed title (used when discord_name/discord_operation not set)
+#   discord_description  — explicit embed body text (used when discord_status not set)
 #
 # Optional vars — embed content:
-#   discord_description  — embed body text (all playbooks on failure; download_videos per-video)
 #   discord_url          — clickable link on title (backup/update/maintenance playbooks)
 #   discord_footer       — dict with 'text' and optional 'icon_url' keys (download_videos per-video)
 #   discord_timestamp    — ISO timestamp (defaults to ansible_date_time.iso8601)
@@ -46,9 +54,9 @@
       - >-
         {{
           {
-            'title': discord_title,
+            'title': (discord_name ~ ' ' ~ discord_operation) if (discord_name is defined and discord_operation is defined) else discord_title,
             'color': discord_color,
-            'fields': discord_fields,
+            'fields': discord_fields | default([]),
             'timestamp': discord_timestamp | default(ansible_date_time.iso8601),
             'author':
               {'name': discord_author | default(inventory_hostname),
@@ -58,7 +66,11 @@
               'url': discord_thumbnail | default('https://craftassets.unraid.net/uploads/discord/notify-normal.png')
             }
           }
-          | combine({'description': discord_description} if discord_description | default('') | length > 0 else {})
+          | combine(
+              {'description': (discord_status | capitalize) ~ ((' — ' ~ discord_detail) if discord_detail | default('') | length > 0 else '')}
+              if discord_status is defined
+              else ({'description': discord_description} if discord_description | default('') | length > 0 else {})
+            )
           | combine({'url': discord_url} if discord_url | default('') | length > 0 else {})
           | combine({'footer': discord_footer} if discord_footer is defined else {})
           | combine({'image': {'url': discord_image}} if discord_image | default('') | length > 0 else {})

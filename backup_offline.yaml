@@ -171,18 +171,15 @@
             loop_var: sync_result
           when: not ansible_check_mode
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: "{{ 'Backup Successful' if sync_result.rc == 0 else 'Backup Failed' }}"
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Sync"
+            discord_status: "{{ 'failed' if sync_result.rc != 0 else 'successful' }}"
             discord_color: "{{ discord_color_success if sync_result.rc == 0 else discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Description"
-                value: "{{ backup_description }}"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
-              - name: "Backup Name"
-                value: "Offline Sync - {{ sync_result.item }} Share"
-              - name: "Backup Size"
+              - name: "Share"
+                value: "{{ sync_result.item }}"
+              - name: "Size Transferred"
                 value: >-
                   {{ ((sync_result.stdout | default('') |
                        regex_search('Total transferred file size: ([\d,]+)', '\1') |
@@ -193,15 +190,12 @@
           include_tasks: tasks/notify_discord.yaml
           when: sync_failed
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: "Backup Failed — check Semaphore logs for details"
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Sync"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
             discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
-            discord_fields:
-              - name: "Description"
-                value: "{{ backup_description }}"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
 
         - name: Log sync results to MariaDB
           include_tasks: tasks/log_mariadb.yaml

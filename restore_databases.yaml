@@ -212,15 +212,13 @@
           loop_control:
             loop_var: restore_result
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: "Restore {{ 'Successful' if not restore_failed else 'Failed' }} — {{ restore_result.db_name }}"
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Restore"
+            discord_status: "{{ 'failed' if restore_failed else 'successful' }}"
+            discord_detail: "{{ restore_result.db_name }}"
             discord_color: "{{ discord_color_success if not restore_failed else discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Description"
-                value: "Database Restore"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
               - name: "Source File"
                 value: "{{ restore_result.source_file }}"
               - name: "{{ 'Measurements' if is_influxdb | default(false) | bool else 'Tables' }}"
@@ -231,15 +229,12 @@
           include_tasks: tasks/notify_discord.yaml
           when: restore_failed and combined_results | length == 0
           vars:
-            discord_title: "{{ backup_name }}"
-            discord_description: "Restore Failed — check Semaphore logs for details"
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Restore"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
             discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
-            discord_fields:
-              - name: "Description"
-                value: "Database Restore"
-              - name: "Host"
-                value: "{{ inventory_hostname }}"
           tags: [always]
 
         - name: Log restore results to MariaDB
