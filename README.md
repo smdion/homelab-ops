@@ -98,6 +98,7 @@ and go.
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB, count tables/measurements) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm_restore=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
 | `restore_hosts.yaml` | Restore config/appdata — staging or inplace; safety-gated with `confirm_restore=yes` for inplace; selective app + coordinated cross-host DB | `vars/<platform>.yaml` with `app_restore` mapping |
+| `restore_amp.yaml` | Restore AMP game server instance(s) from backup; safety-gated with `confirm=yes`; pass `restore_target`; optionally `amp_instance_filter` for a single instance | `vars/amp.yaml` |
 | `restore_app.yaml` | Restore a single app (appdata + all DBs) to a production host; safety-gated with `confirm=yes`; pass `restore_app`, `restore_target`, optionally `restore_source_host` | `vars/docker_stacks.yaml` `app_restore` dict |
 | `rollback_docker.yaml` | Revert Docker containers to previous images; supports all, per-stack (`rollback_stack`), or per-service (`rollback_service`); safety-gated with `confirm_rollback=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
 | `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy | `vars/docker_stacks.yaml` with `stack_assignments` |
@@ -183,6 +184,7 @@ for platforms you don't have are automatically skipped.
 ├── verify_backups.yaml          # On-demand backup verification (DB + config)
 ├── restore_databases.yaml       # Database restore from backups (safety-gated)
 ├── restore_hosts.yaml           # Config/appdata restore — staging or inplace (safety-gated for inplace)
+├── restore_amp.yaml             # AMP game server instance restore — per-instance or all (safety-gated)
 ├── rollback_docker.yaml         # Docker container rollback — revert to previous versions (safety-gated)
 ├── update_*.yaml                # Update playbook (saves rollback snapshot before Docker updates)
 ├── maintain_*.yaml              # Maintenance + health playbooks
@@ -334,6 +336,32 @@ ansible-playbook update_systems.yaml \
   -e config_file=ubuntu_os \
   --vault-password-file ~/.vault_pass
 
+# Backup AMP instances (all)
+ansible-playbook backup_hosts.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=amp \
+  --vault-password-file ~/.vault_pass
+
+# Backup a single AMP instance only
+ansible-playbook backup_hosts.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=amp \
+  -e amp_instance_filter=Minecraft01 \
+  --vault-password-file ~/.vault_pass
+
+# Update AMP (all instances)
+ansible-playbook update_systems.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=amp \
+  --vault-password-file ~/.vault_pass
+
+# Update a single AMP instance only
+ansible-playbook update_systems.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=amp \
+  -e amp_instance_filter=Minecraft01 \
+  --vault-password-file ~/.vault_pass
+
 # Run health checks
 ansible-playbook maintain_health.yaml \
   -i inventory.yaml \
@@ -356,6 +384,19 @@ ansible-playbook verify_backups.yaml \
 ansible-playbook verify_backups.yaml \
   -i inventory.yaml \
   -e hosts_variable=docker_stacks \
+  --vault-password-file ~/.vault_pass
+
+# Verify AMP instance backup archives (all instances)
+ansible-playbook verify_backups.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=amp \
+  --vault-password-file ~/.vault_pass
+
+# Verify a single AMP instance only
+ansible-playbook verify_backups.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=amp \
+  -e amp_instance_filter=Minecraft01 \
   --vault-password-file ~/.vault_pass
 ```
 </details>
@@ -427,6 +468,27 @@ ansible-playbook rollback_docker.yaml \
   -e rollback_service=jellyseerr \
   -e confirm_rollback=yes \
   --limit myhost \
+  --vault-password-file ~/.vault_pass
+```
+</details>
+
+<details>
+<summary>AMP Restore</summary>
+
+```bash
+# Restore all AMP instances from latest backups (safety-gated)
+ansible-playbook restore_amp.yaml \
+  -i inventory.yaml \
+  -e restore_target=amp.home.local \
+  -e confirm=yes \
+  --vault-password-file ~/.vault_pass
+
+# Restore a single instance only
+ansible-playbook restore_amp.yaml \
+  -i inventory.yaml \
+  -e restore_target=amp.home.local \
+  -e confirm=yes \
+  -e amp_instance_filter=Minecraft01 \
   --vault-password-file ~/.vault_pass
 ```
 </details>
