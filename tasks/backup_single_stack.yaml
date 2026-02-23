@@ -71,6 +71,7 @@
         src: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
         dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _stack_archive_name }}"
         flat: true
+      become: false
 
     - name: Record success for {{ _backup_stack }}
       ansible.builtin.set_fact:
