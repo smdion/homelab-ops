@@ -1,5 +1,7 @@
 ---
 # Health check logging task — inserts one row into health_checks table.
+# NOTE: Currently unused. maintain_health.yaml uses inline batch inserts instead.
+# Kept for future single-check logging needs.
 # Pass all variables via vars: on the include_tasks call.
 #
 # Required vars:

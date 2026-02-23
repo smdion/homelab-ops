@@ -212,3 +212,13 @@
                    regex_search('Total transferred file size: ([\d,]+)', '\1') |
                    default(['0'], true) | first | replace(',', '')) | float
                    / 1024 / 1024) | round(2) }}
+
+        - name: Log pre-sync failure to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          when: sync_failed and backup_status.results | length == 0
+          vars:
+            log_table: backups
+            log_application: "{{ backup_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_file_name: "FAILED_sync_{{ ansible_date_time.date }}"
+            log_file_size: "0"

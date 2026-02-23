@@ -114,6 +114,9 @@
           when: not ansible_check_mode
           tags: [always]
 
+        # NOTE: Multi-DB restores are not atomic. If restore fails mid-list,
+        # earlier DBs are already restored. Pre-restore backups exist for manual recovery.
+
         - name: Stop dependent containers
           ansible.builtin.command:
             argv: "{{ ['docker', 'stop'] + db_container_deps[item] }}"

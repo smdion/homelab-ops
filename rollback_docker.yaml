@@ -35,14 +35,17 @@
   serial: 1
   gather_facts: true
   vars_files:
-    - "vars/{{ config_file }}.yaml"
     - vars/secrets.yaml
+    - "vars/{{ config_file }}.yaml"
   vars:
     config_file: "{{ hosts_variable }}"
 
   pre_tasks:
     - name: Assert config_file is defined
       include_tasks: tasks/assert_config_file.yaml
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
 
     - name: Assert Docker Compose host
       ansible.builtin.assert:
@@ -180,7 +183,7 @@
           ansible.builtin.set_fact:
             _registry_pull: >-
               {{ _registry_pull | default({}) | combine({
-                item: rollback_snapshot.containers[item].image | regex_replace(':.*$', '') + ':' + rollback_snapshot.containers[item].version
+                item: rollback_snapshot.containers[item].image
               }) }}
           loop: "{{ _rollback_targets | reject('in', _image_local | dict2items | selectattr('value') | map(attribute='key')) | list }}"
 
