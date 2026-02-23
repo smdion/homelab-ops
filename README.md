@@ -98,6 +98,7 @@ and go.
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB, count tables/measurements) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm_restore=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
 | `restore_hosts.yaml` | Restore config/appdata — staging or inplace; safety-gated with `confirm_restore=yes` for inplace; selective app + coordinated cross-host DB | `vars/<platform>.yaml` with `app_restore` mapping |
+| `restore_app.yaml` | Restore a single app (appdata + all DBs) to a production host; safety-gated with `confirm=yes`; pass `restore_app`, `restore_target`, optionally `restore_source_host` | `vars/docker_stacks.yaml` `app_restore` dict |
 | `rollback_docker.yaml` | Revert Docker containers to previous images; supports all, per-stack (`rollback_stack`), or per-service (`rollback_service`); safety-gated with `confirm_rollback=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
 | `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy | `vars/docker_stacks.yaml` with `stack_assignments` |
 
@@ -115,6 +116,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
 | `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=true`) keeps restored state |
+| `test_app_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_restore` apps on a disposable VM — per-app restore (DB + appdata), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
 ### Health checks by platform
@@ -425,6 +427,42 @@ ansible-playbook rollback_docker.yaml \
   -e rollback_service=jellyseerr \
   -e confirm_rollback=yes \
   --limit myhost \
+  --vault-password-file ~/.vault_pass
+```
+</details>
+
+<details>
+<summary>App Restore</summary>
+
+```bash
+# Restore a single app to production (stops stack, restores DB + appdata, restarts, verifies health)
+ansible-playbook restore_app.yaml \
+  -i inventory.yaml \
+  -e restore_app=authentik \
+  -e restore_target=myhost.home.local \
+  -e confirm=yes \
+  --vault-password-file ~/.vault_pass
+
+# Restore from a different source host's backups (e.g., restore from a secondary copy)
+ansible-playbook restore_app.yaml \
+  -i inventory.yaml \
+  -e restore_app=authentik \
+  -e restore_target=myhost.home.local \
+  -e restore_source_host=other.home.local \
+  -e confirm=yes \
+  --vault-password-file ~/.vault_pass
+
+# Test all apps on a disposable VM — full restore cycle, Discord summary, auto-revert
+ansible-playbook test_app_restore.yaml \
+  -i inventory.yaml \
+  -e source_host=myhost.home.local \
+  --vault-password-file ~/.vault_pass
+
+# Test a subset of apps only
+ansible-playbook test_app_restore.yaml \
+  -i inventory.yaml \
+  -e source_host=myhost.home.local \
+  -e test_apps=authentik,jellyseerr \
   --vault-password-file ~/.vault_pass
 ```
 </details>
