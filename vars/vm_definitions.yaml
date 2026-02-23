@@ -87,7 +87,7 @@ vm_definitions:
 # Optional per-VM fields (used by tasks/bootstrap_vm.yaml when defined):
 #
 #   nfs_mounts:                          # List of NFS mounts for /etc/fstab
-#     - src: "10.10.10.10:/mnt/share"
+#     - src: "192.0.2.10:/mnt/share"
 #       path: "/mnt/nfs/share"
 #       opts: "defaults,_netdev"         # optional, defaults to 'defaults,_netdev'
 #
@@ -95,5 +95,5 @@ vm_definitions:
 #     - port: "8080"
 #       proto: "tcp"                     # optional, defaults to 'tcp'
 #       rule: "allow"                    # optional, defaults to 'allow'
-#       src: "10.10.10.0/24"            # optional, restrict to source CIDR
+#       src: "192.0.2.0/24"             # optional, restrict to source CIDR
 #       comment: "Web UI"               # optional
