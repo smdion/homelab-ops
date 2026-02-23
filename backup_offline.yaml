@@ -88,7 +88,7 @@
               entity_id: "{{ ha_dsm_automation }}"
           delegate_to: localhost
           when: not ansible_check_mode
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Wait for NFS service on Synology
           ansible.builtin.wait_for:
@@ -144,7 +144,7 @@
               entity_id: "{{ ha_shutdown_button }}"
           delegate_to: localhost
           when: not ansible_check_mode
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Verify Synology has shut down
           ansible.builtin.shell: "ping -c 1 -W 2 {{ dest_ip }}"

@@ -77,7 +77,7 @@
             login_db: "{{ logging_db_name }}"
             query: "SELECT DATE_FORMAT(last_check, '%%Y-%%m-%%dT%%H:%%i:%%sZ') AS last_check FROM health_check_state WHERE id = 1"
           register: _state_result
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
@@ -107,7 +107,7 @@
           retries: 3
           delay: 5
           until: tasks_response is succeeded
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Parse API response
           ansible.builtin.set_fact:
@@ -209,7 +209,7 @@
               - "{{ display_timezone }}"
               - "{{ health_backup_stale_days * 24 }}"
           register: stale_backup_result
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
@@ -281,7 +281,7 @@
               - "{{ health_backup_size_min_pct }}"
           register: _size_anomaly_result
           check_mode: false
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Record backup size anomaly results
           ansible.builtin.set_fact:
@@ -322,7 +322,7 @@
             positional_args:
               - "{{ last_check }}"
           register: failed_maintenance_result
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
@@ -386,7 +386,7 @@
               - "{{ display_timezone }}"
               - "{{ health_maintenance_stale_days }}"
           register: stale_maintenance_result
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
@@ -426,7 +426,7 @@
             login_db: "{{ logging_db_name }}"
             query: "SELECT @@max_connections AS max_conn, (SELECT COUNT(*) FROM information_schema.PROCESSLIST) AS current_conn"
           register: mariadb_conn_result
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
@@ -452,7 +452,7 @@
             positional_args:
               - "{{ logging_db_name }}"
           register: crashed_tables_result
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
@@ -1536,7 +1536,7 @@
         login_db: "{{ logging_db_name }}"
         query: "INSERT INTO health_check_state (id, last_check) VALUES (1, UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE last_check = UTC_TIMESTAMP()"
       when: not ansible_check_mode
-      no_log: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Send Discord alert on maintenance failure
       include_tasks: tasks/notify_discord.yaml

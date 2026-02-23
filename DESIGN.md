@@ -1099,16 +1099,32 @@ shell/query pre-steps so they validate during `--check`. `assert_config_file` us
 
 ### `no_log` policy
 
-Apply `no_log: true` to any task that would echo a password, token, or key — whether the value
-is in an environment variable, a shell command, or a structured argument:
+Apply the debug-aware expression to any task that would echo a password, token, or key:
 
-- Vault secrets passed via `cipassword`, `api_token_secret`, `login_password`: `no_log: true`
-- Tasks that render `.env` files via `ansible.builtin.template` (which contain all docker secrets):
-  `no_log: "{{ not (deploy_debug | default(false) | bool) }}"` — conditional to allow debugging
-  without exposing secrets in normal runs
+```yaml
+no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+```
+
+This masks output by default and reveals it when explicitly requested (see [Debug nolog toggle](#debug-nolog-toggle) below).
+
+- Vault secrets via `cipassword`, `api_token_secret`, `login_password`: use the expression above
+- Tasks rendering `.env` files via `ansible.builtin.template`: use the expression above
+- DB/influxdb dump+restore tasks have an extended conditional that also accounts for the influxdb
+  branch: `not (_db_is_influxdb | default(false) | bool) and not (debug_no_log...) and (verbosity...)`
 - Version queries, disk checks, or any task that reads but never outputs a secret: no annotation needed
 - DB `community.mysql.mysql_query` tasks used for logging (no credentials in query): no annotation needed;
-  tasks that pass `login_password` use `no_log: true`
+  tasks that pass `login_password` use the expression above
+
+### Debug nolog toggle
+
+To reveal masked task output on a specific run, pass `debug_no_log=true` as an extra var:
+
+```
+-e debug_no_log=true
+```
+
+Alternatively, pass `-vvv`; verbosity ≥ 3 automatically disables `no_log` across all tasks.
+Both mechanisms are OR-combined — either alone is sufficient to reveal output.
 
 ### `validate_certs` policy
 
@@ -1942,12 +1958,12 @@ Key panel features:
 
 ### Credential protection
 
-- **`no_log: true` policy**: Every task that handles credentials — database passwords, API tokens,
-  SSH keys, HTTP Bearer tokens, or webhook secrets — uses `no_log: true` to prevent exposure in
-  Ansible logs and verbose output. This covers `docker exec -e` commands with `MYSQL_PWD`,
-  `ansible.builtin.uri` calls with Bearer/API-key headers, `community.mysql.mysql_query` tasks
-  with `login_password`, and Discord webhook notifications. Registered variables from these tasks
-  (e.g., full HTTP responses containing `Authorization` headers) are also suppressed.
+- **`no_log` policy**: Every task that handles credentials — database passwords, API tokens,
+  SSH keys, HTTP Bearer tokens, or webhook secrets — uses the debug-aware `no_log` expression
+  (see [no_log policy](#no_log-policy)) to prevent exposure in Ansible logs and verbose output.
+  This covers `docker exec -e` commands with `MYSQL_PWD`, `ansible.builtin.uri` calls with
+  Bearer/API-key headers, `community.mysql.mysql_query` tasks with `login_password`, and Discord
+  webhook notifications. Pass `-e debug_no_log=true` or `-vvv` to reveal output for a specific run.
 - **mysqldump password**: Uses `MYSQL_PWD` environment variable via `docker exec -e` instead of
   `--password=` on the command line. The env var approach avoids exposing the password in
   `/proc/<pid>/cmdline` (visible to `ps aux` on the host).

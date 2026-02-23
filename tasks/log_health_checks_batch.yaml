@@ -27,5 +27,5 @@
       VALUES {% for _ in _all_results %}(%s, %s, %s, %s, %s, UTC_TIMESTAMP()){% if not loop.last %}, {% endif %}{% endfor %}
     positional_args: "{{ _all_results | json_query('[].[ hostname, check_name, status, value, detail ]') | flatten }}"
   when: not ansible_check_mode
-  no_log: true
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   tags: [always]

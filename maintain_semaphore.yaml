@@ -40,7 +40,7 @@
             login_password: "{{ logging_db_password }}"
             login_db: "{{ semaphore_db_name }}"
             query: "DELETE FROM task WHERE status IN ('stopped', 'error')"
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Delete old successful download tasks from Semaphore DB
           vars:
@@ -62,7 +62,7 @@
             positional_args:
               - "{{ semaphore_project_id }}"
               - "{{ download_task_retention_days }}"
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Prune ansible_logging rows older than {{ retention_days }} days
           vars:
@@ -85,7 +85,7 @@
             - "DELETE FROM restores WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
           loop_control:
             label: "{{ item.split('FROM ')[1].split(' WHERE')[0] }}"
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
       rescue:
         - name: Set maintenance failed

@@ -84,5 +84,5 @@
     - not ansible_check_mode
     - discord_webhook_id is defined
     - discord_webhook_token is defined
-  no_log: true
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   tags: [always]
