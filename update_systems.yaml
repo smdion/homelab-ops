@@ -115,7 +115,7 @@
               - "{{ update_name }}"
               - "{{ inventory_hostname }}"
           register: previous_version_result
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
           tags: [always]

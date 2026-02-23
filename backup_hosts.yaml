@@ -301,7 +301,7 @@
           until: _mariadb_post_restart is succeeded
           when: inventory_hostname in groups["docker_stacks"] or inventory_hostname in groups["docker_run"]
           changed_when: false
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           check_mode: false
           ignore_errors: true
           tags: [always]

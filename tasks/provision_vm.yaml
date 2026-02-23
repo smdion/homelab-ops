@@ -64,7 +64,7 @@
     storage: "{{ pve_storage }}"
     target: "{{ _vm.pve_target_node }}"
     timeout: 300
-  no_log: true
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
 # --- Configure hardware and cloud-init ---
 - name: Configure VM hardware and cloud-init
@@ -85,7 +85,7 @@
     nameservers: "{{ vm_dns }}"
     searchdomains: "{{ vm_search_domain }}"
     update: true
-  no_log: true
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
 # --- Resize disk from cloud image (~3.5G) to target size ---
 - name: Resize VM disk
@@ -99,7 +99,7 @@
       disk: scsi0
       size: "{{ _vm.vm_disk_gb }}G"
     validate_certs: false
-  no_log: true
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
 # --- Start and wait ---
 - name: Start VM
@@ -111,7 +111,7 @@
     node: "{{ _vm.pve_target_node }}"
     vmid: "{{ _vm.vm_id }}"
     state: started
-  no_log: true
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
 - name: Wait for SSH
   ansible.builtin.wait_for:

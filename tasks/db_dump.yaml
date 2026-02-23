@@ -26,5 +26,5 @@
     DB_PASSWORD: "{{ _db_password | default('') }}"
   register: _db_dump_result
   become: true
-  no_log: "{{ not (_db_is_influxdb | default(false) | bool) }}"
+  no_log: "{{ not (_db_is_influxdb | default(false) | bool) and not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   changed_when: true

@@ -47,7 +47,7 @@
             - "DELETE FROM health_checks WHERE check_status IN ('warning', 'critical') AND timestamp < UTC_TIMESTAMP()"
           loop_control:
             label: "{{ item.split('FROM ')[1].split(' WHERE')[0] }}"
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
       rescue:
         - name: Set maintenance failed

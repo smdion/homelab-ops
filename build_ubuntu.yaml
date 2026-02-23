@@ -92,7 +92,7 @@
             vmid: "{{ _vm.vm_id }}"
             state: stopped
             force: true
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           when: _vm_state == 'absent'
 
         - name: Remove VM
@@ -104,7 +104,7 @@
             node: "{{ _vm.pve_target_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: absent
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           when: _vm_state == 'absent'
 
         # ═════════════════════════════════════════════════════════
@@ -121,7 +121,7 @@
               snapname: "{{ snapshot_name }}"
               vmstate: 0
             validate_certs: false
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           when: _vm_state == 'snapshot'
 
         # ═════════════════════════════════════════════════════════
@@ -137,7 +137,7 @@
             vmid: "{{ _vm.vm_id }}"
             state: stopped
             force: true
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           ignore_errors: true
           when: _vm_state == 'revert'
 
@@ -148,7 +148,7 @@
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
             validate_certs: false
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           when: _vm_state == 'revert'
 
         - name: Start VM after revert
@@ -160,7 +160,7 @@
             node: "{{ _vm.pve_target_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: started
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           when: _vm_state == 'revert'
 
         - name: Wait for SSH after revert

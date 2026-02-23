@@ -52,7 +52,7 @@
             status_code: [200, 404]
           register: _ds_check
           when: not ansible_check_mode
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Create Ansible-Logging datasource
           ansible.builtin.uri:
@@ -76,7 +76,7 @@
           when:
             - not ansible_check_mode
             - _ds_check.status == 404
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Record datasource status
           ansible.builtin.set_fact:
@@ -124,7 +124,7 @@
               message: "Deployed via Ansible"
             status_code: 200
           when: not ansible_check_mode
-          no_log: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Record deploy detail
           ansible.builtin.set_fact:
