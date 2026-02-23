@@ -166,7 +166,7 @@
           vars:
             discord_title: "{{ backup_name }}"
             discord_description: "{{ 'Backup Successful' if sync_result.rc == 0 else 'Backup Failed' }}"
-            discord_color: "{{ 32768 if sync_result.rc == 0 else 16711680 }}"
+            discord_color: "{{ discord_color_success if sync_result.rc == 0 else discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Description"
@@ -188,7 +188,7 @@
           vars:
             discord_title: "{{ backup_name }}"
             discord_description: "Backup Failed — check Semaphore logs for details"
-            discord_color: 16711680
+            discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Description"

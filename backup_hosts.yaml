@@ -275,7 +275,7 @@
           vars:
             discord_title: "{{ backup_name }}"
             discord_description: "{{ 'Backup Failed' if backup_failed else 'Backup Successful' }}"
-            discord_color: "{{ 16711680 if backup_failed else 32768 }}"
+            discord_color: "{{ discord_color_failure if backup_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Description"
@@ -299,7 +299,7 @@
           vars:
             discord_title: "{{ backup_name }}"
             discord_description: "Docker recovery FAILED after backup failure"
-            discord_color: 16711680
+            discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Host"

@@ -138,7 +138,7 @@
             discord_avatar: "{{ metube_avatar }}"
             discord_title: "{{ video.title }}"
             discord_description: "{{ video.description | default('') | truncate(4096, True, '...') }}"
-            discord_color: 32768
+            discord_color: "{{ discord_color_success }}"
             discord_url: "{{ video.url }}"
             discord_author: "Channel: {{ video.uploader }}"
             discord_author_url: "{{ video.channel_url if video.channel_url | default('') | length > 0 else omit }}"
@@ -160,7 +160,7 @@
           vars:
             discord_title: "Download — Videos"
             discord_description: "yt-dlp failed — check Semaphore logs for details"
-            discord_color: 16711680
+            discord_color: "{{ discord_color_failure }}"
             discord_fields:
               - name: "Config"
                 value: "{{ config_name }}"
