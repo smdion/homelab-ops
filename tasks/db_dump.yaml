@@ -1,0 +1,30 @@
+---
+# Dump a single database from a Docker container.
+# PostgreSQL/MariaDB: SQL dump piped through gzip.
+# InfluxDB: portable backup -> tar.gz.
+#
+# Expects:
+#   _db_name, _db_container, _db_username, _db_password (default ''),
+#   _db_dest_file, _db_is_postgres, _db_is_mariadb, _db_is_influxdb,
+#   _db_tmp_dir (InfluxDB only)
+# Registers: _db_dump_result
+
+- name: "Dump database — {{ _db_name }}"
+  ansible.builtin.shell: |
+    {% if _db_is_postgres | default(false) | bool %}
+    docker exec {{ _db_container }} pg_dump {{ _db_name }} --clean --if-exists --username={{ _db_username }} | gzip > {{ _db_dest_file }}
+    {% elif _db_is_mariadb | default(false) | bool %}
+    docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysqldump --user {{ _db_username }} {{ _db_name }} | gzip > {{ _db_dest_file }}
+    {% elif _db_is_influxdb | default(false) | bool %}
+    docker exec {{ _db_container }} influxd backup -portable -database {{ _db_name }} /tmp/backup_{{ _db_name }}
+    docker cp {{ _db_container }}:/tmp/backup_{{ _db_name }} {{ _db_tmp_dir }}/backup_{{ _db_name }}
+    tar czf {{ _db_dest_file }} -C {{ _db_tmp_dir }} backup_{{ _db_name }}
+    rm -rf {{ _db_tmp_dir }}/backup_{{ _db_name }}
+    docker exec {{ _db_container }} rm -rf /tmp/backup_{{ _db_name }}
+    {% endif %}
+  environment:
+    DB_PASSWORD: "{{ _db_password | default('') }}"
+  register: _db_dump_result
+  become: true
+  no_log: "{{ not (_db_is_influxdb | default(false) | bool) }}"
+  changed_when: true

@@ -397,13 +397,13 @@ service. Uses the same 3-tier label detection as the update comparison. Each upd
 the previous snapshot — only the last pre-update state is kept. The snapshot files are included
 in regular `/opt` appdata backups automatically.
 
-**Docker appdata archive exclusions:** Docker hosts with dedicated database backup jobs
-(SQL dumps or InfluxDB portable backups) define `backup_exclude_dirs` in `vars/docker_stacks.yaml`
-to exclude database data directories (e.g. `/opt/mariadb`, `/opt/postgres`, `/opt/influxdb`) from
-the appdata tar.gz archive. The `community.general.archive` module's `exclude_path` parameter
-only matches against expanded path entries, so the playbook converts directory paths to globs
-(e.g. `/opt` → `/opt/*`) when exclusions are defined. Hosts without `backup_exclude_dirs` are
-unaffected (`default([])`).
+**Per-stack backup architecture:** Docker stacks hosts use per-stack backup archives instead of
+a monolithic `/opt` tar.gz. Each stack is stopped individually, archived, and restarted — minimizing
+downtime. The `stack_backup_paths` mapping in `vars/docker_stacks.yaml` defines which `/opt/`
+directories belong to each stack; `/opt/stacks/{name}/` (compose + .env) is always included
+automatically. Database data directories are excluded because they have dedicated SQL dump jobs.
+Non-docker_stacks hosts (proxmox, pikvm, unraid, unifi) still use monolithic archives with
+`backup_exclude_dirs | default([])` for hosts that define exclusions.
 
 **`tasks/log_restore.yaml`** — Shared MariaDB logging for the `restores` table. Uses
 `community.mysql.mysql_query` with parameterized queries. Separate from `log_mariadb.yaml` because
@@ -762,10 +762,11 @@ notification should include at minimum the Description and Host fields.
 
 > **Shared task review:** When modifying playbooks, check whether any inline task blocks are
 > duplicated across multiple playbooks. If so, they are a candidate for extraction into `tasks/`.
-> The current 16 shared task files cover notifications, logging, assertions, provisioning,
-> bootstrapping, Docker management, appdata restore, and health checks. Inline cleanup patterns
-> or host-type detection logic may have accumulated in individual playbooks and could be worth
-> consolidating if the same pattern appears more than once.
+> The current 22 shared task files cover notifications, logging, assertions, provisioning,
+> bootstrapping, Docker management, appdata restore, health checks, per-stack/per-DB backup
+> orchestration, and DB engine abstraction. Inline cleanup patterns or host-type detection logic
+> may have accumulated in individual playbooks and could be worth consolidating if the same
+> pattern appears more than once.
 
 ### Roles vs. flat tasks/ structure
 
@@ -774,9 +775,10 @@ the right choice when a component needs its own defaults, handlers, templates, o
 
 **Current state — tasks are the right fit:**
 
-The project has 16 shared task files and no handlers or templates. The `tasks/` files are thin
-glue code (send a Discord embed, run an INSERT, assert a precondition). At this scale, promoting
-them to roles would add directory structure without gaining any role-specific features.
+The project has 22 shared task files and no handlers or templates. The `tasks/` files are thin
+glue code (send a Discord embed, run an INSERT, assert a precondition, dump/restore a database).
+At this scale, promoting them to roles would add directory structure without gaining any
+role-specific features.
 
 **When to add roles:**
 
@@ -1405,7 +1407,7 @@ No SQL changes needed.
 | `vars/unifi_network.yaml` | Unifi Network | Appliances | Config |
 | `vars/unifi_protect.yaml` | Unifi Protect | Appliances | Config |
 | `vars/amp.yaml` | AMP | Servers | Config |
-| `vars/docker_stacks.yaml` | Docker | Servers | Appdata |
+| `vars/docker_stacks.yaml` | (stack name) | Servers | Appdata |
 | `vars/docker_run.yaml` | Docker | Servers | Appdata |
 | `vars/unraid_os.yaml` | unRAID | Servers | Config |
 | `vars/synology.yaml` | unRAID | Servers | Offline |
@@ -1450,7 +1452,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 |---|---|---|---|---|
 | `vars/db_*.yaml` | (db name)-db | Servers | Database | restore |
 | `vars/proxmox.yaml` | PVE or PBS | Appliances | Config | restore |
-| `vars/docker_stacks.yaml` | Docker or (app name) | Servers | Appdata | restore |
+| `vars/docker_stacks.yaml` | (stack name) or (app name) | Servers | Appdata | restore |
 | `vars/docker_run.yaml` | Docker or (app name) | Servers | Appdata | restore |
 | `vars/unraid_os.yaml` | unRAID | Servers | Config | restore |
 | `vars/pikvm.yaml` | PiKVM | Appliances | Config | restore |

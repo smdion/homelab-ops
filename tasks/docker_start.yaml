@@ -1,9 +1,10 @@
 ---
-# Start Docker containers/stacks. Tri-modal: selective, stack, unRAID.
+# Start Docker containers/stacks. Quad-modal: selective containers, selective stacks, all stacks, unRAID.
 # Caller gates with `when:` for manage_docker, check_mode, etc.
 #
 # Optional:
 #   _docker_selective_containers — list; start only these containers (skips all other modes)
+#   _docker_selective_stacks     — list; start only these stacks (skips all-stacks and unRAID modes)
 #   _docker_ignore_errors        — bool (default false); set true for safety-net use
 #   _docker_wait_ssh             — bool (default false); wait for SSH after start
 # Requires (unRAID mode):
@@ -16,7 +17,19 @@
   when: _docker_selective_containers is defined
   ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
 
-- name: Start Docker stacks (stack mode)
+- name: Start Docker stacks (selective)
+  become: true
+  community.docker.docker_compose_v2:
+    project_src: "/opt/stacks/{{ item }}"
+    state: present
+  loop: "{{ _docker_selective_stacks }}"
+  when:
+    - _docker_selective_containers is not defined
+    - _docker_selective_stacks is defined
+    - inventory_hostname in groups["docker_stacks"] | default([])
+  ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
+
+- name: Start Docker stacks (all)
   become: true
   community.docker.docker_compose_v2:
     project_src: "/opt/stacks/{{ item }}"
@@ -24,6 +37,7 @@
   loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
   when:
     - _docker_selective_containers is not defined
+    - _docker_selective_stacks is not defined
     - inventory_hostname in groups["docker_stacks"] | default([])
     - inventory_hostname in (stack_assignments | default({}))
   register: _docker_start_stacks
@@ -35,6 +49,7 @@
     argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
   when:
     - _docker_selective_containers is not defined
+    - _docker_selective_stacks is not defined
     - inventory_hostname in groups["docker_run"] | default([])
     - _docker_containers is defined
     - _docker_containers.stdout_lines | default([]) | length > 0

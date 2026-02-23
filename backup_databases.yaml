@@ -60,90 +60,12 @@
       tags: [always]
 
     - block:
-        - name: Dump databases
+        - name: Back up each database
+          include_tasks: tasks/backup_single_db.yaml
           loop: "{{ db_names }}"
-          register: backup_status
-          become: true
-          ansible.builtin.shell: |
-            {% if is_postgres | default(false) | bool %}
-            docker exec {{ container_name }} pg_dump {{ item }} --clean --if-exists --username={{ db_username }} | gzip > {{ backup_tmp_file }}
-            {% elif is_mariadb | default(false) | bool %}
-            docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ container_name }} mysqldump --user {{ db_username }} {{ item }} | gzip > {{ backup_tmp_file }}
-            {% elif is_influxdb | default(false) | bool %}
-            docker exec {{ container_name }} influxd backup -portable -database {{ item }} /tmp/backup_{{ item }}
-            docker cp {{ container_name }}:/tmp/backup_{{ item }} {{ backup_tmp_dir }}/backup_{{ item }}
-            tar czf {{ backup_tmp_file }} -C {{ backup_tmp_dir }} backup_{{ item }}
-            rm -rf {{ backup_tmp_dir }}/backup_{{ item }}
-            docker exec {{ container_name }} rm -rf /tmp/backup_{{ item }}
-            {% endif %}
-          environment:
-            DB_PASSWORD: "{{ db_password | default('') }}"
-          no_log: "{{ not (is_influxdb | default(false) | bool) }}"
-          changed_when: true
-          ignore_errors: true
-          tags: [always]
-
-        - name: Get backup file size
-          loop: "{{ db_names }}"
-          ansible.builtin.stat:
-            path: "{{ backup_tmp_file }}"
-          register: file_size
-          changed_when: false
-          tags: [always]
-
-        - name: Verify gzipped backup integrity (PostgreSQL)
-          become: true
-          ansible.builtin.shell: gzip -t "{{ backup_tmp_file }}"
-          loop: "{{ db_names }}"
-          when: is_postgres | default(false) | bool
-          changed_when: false
-          check_mode: false
-          ignore_errors: true
-          tags: [always]
-
-        - name: Verify gzipped backup integrity (MariaDB)
-          become: true
-          ansible.builtin.shell: gzip -t "{{ backup_tmp_file }}"
-          loop: "{{ db_names }}"
-          when: is_mariadb | default(false) | bool
-          changed_when: false
-          check_mode: false
-          ignore_errors: true
-          tags: [always]
-
-        - name: Verify backup integrity (InfluxDB)
-          become: true
-          ansible.builtin.shell: tar tzf "{{ backup_tmp_file }}" > /dev/null
-          loop: "{{ db_names }}"
-          when: is_influxdb | default(false) | bool
-          changed_when: false
-          check_mode: false
-          ignore_errors: true
-          tags: [always]
-
-        - name: Combine backup status and file size
-          ansible.builtin.set_fact:
-            combined_results: >-
-              {{
-                combined_results | default([]) + [{
-                  'db_name': db_names[idx],
-                  'backup_rc': backup_status.results[idx].rc if file_size.results[idx].stat.exists else 1,
-                  'file_size': file_size.results[idx].stat.size | default(0)
-                }]
-              }}
-          loop: "{{ range(0, db_names | length) | list }}"
           loop_control:
-            loop_var: idx
+            loop_var: _current_db
           when: not ansible_check_mode
-          tags: [always]
-
-        - name: Fetch the dumped DB from remote to local
-          loop: "{{ db_names }}"
-          ansible.builtin.fetch:
-            src: "{{ backup_tmp_file }}"
-            dest: "{{ backup_dest_path }}"
-            flat: true
-          ignore_errors: true
           tags: [always]
 
       rescue:

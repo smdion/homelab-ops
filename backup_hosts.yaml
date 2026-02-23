@@ -1,10 +1,12 @@
 ---
 # Back up host configurations and appdata.
-# Stops Docker (if applicable), archives specified paths, copies to controller,
-# verifies integrity, restarts Docker. Sends Discord + logs to MariaDB.
+# Docker stacks: per-stack archives (stop one stack at a time, minimize downtime).
+# Other hosts: monolithic archive (stop Docker, archive all paths, restart).
+# Sends Discord notification + logs each backup to MariaDB.
 #
 # Usage:
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=proxmox
+#   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks
 
 - name: Back up host configurations and appdata
   gather_facts: true
@@ -95,13 +97,33 @@
       ansible.builtin.set_fact:
         file_size: {stat: {size: 0}}
         backup_failed: false
+        _stack_backup_results: []
       tags: [always]
 
     - block:
+        # ===== PER-STACK BACKUP (docker_stacks hosts) =====
+        - name: Back up per-stack archives
+          include_tasks: tasks/backup_single_stack.yaml
+          loop: "{{ stack_assignments[inventory_hostname] | default([]) | reverse | list }}"
+          loop_control:
+            loop_var: _backup_stack
+          when:
+            - inventory_hostname in groups["docker_stacks"] | default([])
+            - not ansible_check_mode
+          tags: [always]
+
+        - name: Set failed flag from per-stack results
+          ansible.builtin.set_fact:
+            backup_failed: "{{ _stack_backup_results | selectattr('failed') | list | length > 0 }}"
+          when: inventory_hostname in groups["docker_stacks"] | default([])
+          tags: [always]
+
+        # ===== MONOLITHIC BACKUP (non-docker_stacks hosts) =====
         # ===== STOP DOCKER =====
         - include_tasks: tasks/docker_stop.yaml
           vars:
             _docker_exclude_containers: "{{ backup_exclude_containers | default([]) }}"
+          when: inventory_hostname not in groups["docker_stacks"] | default([])
           tags: [docker]
 
         # ===== UNVR PROTECT BACKUP VIA API =====
@@ -147,13 +169,15 @@
             - not ansible_check_mode
           tags: [always]
 
-        # ===== CREATE BACKUP (non-UNVR hosts) =====
+        # ===== CREATE BACKUP (non-docker_stacks, non-UNVR hosts) =====
         - name: Filter backup paths to only existing directories
           ansible.builtin.stat:
             path: "{{ item }}"
           loop: "{{ src_raw_files }}"
           register: _backup_paths_stat
-          when: inventory_hostname not in groups["unifi_protect"]
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["unifi_protect"]
           tags: [always]
 
         - name: Set validated backup paths
@@ -163,7 +187,9 @@
                  | selectattr('stat', 'defined')
                  | selectattr('stat.exists')
                  | map(attribute='item') | list }}
-          when: inventory_hostname not in groups["unifi_protect"]
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["unifi_protect"]
           tags: [always]
 
         # When exclude dirs are defined, convert directory paths to globs (e.g. /opt → /opt/*)
@@ -174,6 +200,7 @@
               {{ (_validated_backup_paths | default(src_raw_files))
                  | map('regex_replace', '/?$', '/*') | list }}
           when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["unifi_protect"]
             - backup_exclude_dirs | default([]) | length > 0
           tags: [always]
@@ -187,7 +214,9 @@
             remove: false
             exclude_path: "{{ backup_exclude_dirs | default([]) }}"
           timeout: 3600
-          when: inventory_hostname not in groups["unifi_protect"]
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["unifi_protect"]
           tags: [always]
 
         - name: Get backup file size
@@ -195,12 +224,15 @@
             path: "{{ backup_tmp_file }}"
           register: file_size
           changed_when: false
+          when: inventory_hostname not in groups["docker_stacks"] | default([])
           tags: [always]
 
         - name: Verify backup archive integrity
           become: true
           ansible.builtin.shell: gunzip -t "{{ backup_tmp_file }}"
-          when: inventory_hostname not in groups["unifi_protect"]
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["unifi_protect"]
           changed_when: false
           check_mode: false
           tags: [always]
@@ -209,6 +241,7 @@
         - include_tasks: tasks/docker_start.yaml
           vars:
             _docker_wait_ssh: true
+          when: inventory_hostname not in groups["docker_stacks"] | default([])
           tags: [docker]
 
         # ===== FETCH AND CLEANUP =====
@@ -217,6 +250,7 @@
             src: "{{ backup_tmp_file }}"
             dest: "{{ backup_dest_path }}"
             flat: true
+          when: inventory_hostname not in groups["docker_stacks"] | default([])
           tags: [always]
 
         - name: Delete source backup
@@ -224,6 +258,7 @@
           ansible.builtin.file:
             path: "{{ backup_tmp_file }}"
             state: absent
+          when: inventory_hostname not in groups["docker_stacks"] | default([])
           tags: [always]
 
         - name: Put PiKVM back in RO mode
@@ -269,7 +304,36 @@
           ignore_errors: true
           tags: [always]
 
-        # ===== REPORTING =====
+        # ===== REPORTING (per-stack) =====
+        - name: Build per-stack Discord fields
+          ansible.builtin.set_fact:
+            _stack_discord_fields: >-
+              [{"name": "Host", "value": "{{ inventory_hostname }}"},
+               {"name": "Description", "value": "{{ backup_description }}"}
+               {% for r in _stack_backup_results %}
+              ,{"name": "{{ r.stack }}", "value": "{{ 'FAILED' if r.failed else ((r.file_size / 1024 / 1024) | round(2) | string + 'MB') }}"}
+               {% endfor %}]
+          when: inventory_hostname in groups["docker_stacks"] | default([])
+          tags: [always]
+
+        - name: Send per-stack Discord notification
+          include_tasks: tasks/notify_discord.yaml
+          vars:
+            discord_title: "{{ backup_name }}"
+            discord_description: >-
+              {{ 'Backup Successful' if not (backup_failed | bool)
+                 else ('Backup Failed' if (_stack_backup_results | rejectattr('failed') | list | length == 0)
+                       else 'Backup Partial') }}
+            discord_color: >-
+              {{ discord_color_success if not (backup_failed | bool)
+                 else (discord_color_failure if (_stack_backup_results | rejectattr('failed') | list | length == 0)
+                       else discord_color_warning) }}
+            discord_url: "{{ backup_url }}"
+            discord_fields: "{{ _stack_discord_fields }}"
+          when: inventory_hostname in groups["docker_stacks"] | default([])
+          tags: [always]
+
+        # ===== REPORTING (monolithic) =====
         - name: Send Discord notification
           include_tasks: tasks/notify_discord.yaml
           vars:
@@ -288,12 +352,13 @@
                 value: "{{ backup_file }}"
               - name: "Backup Size"
                 value: "{{ (file_size.stat.size / 1024 / 1024) | round(2) }}MB"
+          when: inventory_hostname not in groups["docker_stacks"] | default([])
           tags: [always]
 
         - name: Send Docker recovery failure alert
           include_tasks: tasks/notify_discord.yaml
           when:
-            - backup_failed
+            - backup_failed | bool
             - (_docker_start_stacks is defined and _docker_start_stacks is failed) or
               (_docker_start_containers is defined and _docker_start_containers is failed)
           vars:
@@ -316,6 +381,22 @@
           when: inventory_hostname in groups["unifi_protect"]
           tags: [always]
 
+        # ===== MARIADB LOGGING (per-stack — one row per stack) =====
+        - name: Log per-stack backups to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          loop: "{{ _stack_backup_results }}"
+          loop_control:
+            loop_var: _stack_result
+          vars:
+            log_table: backups
+            log_application: "{{ _stack_result.stack }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_file_name: "{{ ('FAILED_' if _stack_result.failed else '') + _stack_result.file }}"
+            log_file_size: "{{ (_stack_result.file_size / 1024 / 1024) | round(2) }}"
+          when: inventory_hostname in groups["docker_stacks"] | default([])
+          tags: [always]
+
+        # ===== MARIADB LOGGING (monolithic — single row) =====
         - name: Log backup to MariaDB
           include_tasks: tasks/log_mariadb.yaml
           vars:
@@ -324,4 +405,5 @@
             log_hostname: "{{ inventory_hostname }}"
             log_file_name: "{{ ('FAILED_' if backup_failed else '') + backup_file }}"
             log_file_size: "{{ (file_size.stat.size / 1024 / 1024) | round(2) }}"
+          when: inventory_hostname not in groups["docker_stacks"] | default([])
           tags: [always]
