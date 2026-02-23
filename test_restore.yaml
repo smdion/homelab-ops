@@ -73,44 +73,44 @@
              else stack_assignments[source_host] }}
 
     # ===== FIND BACKUP ARCHIVES =====
+    # Use stat with exact paths rather than ls glob — the /backup/ NFS mount
+    # allows execute (traverse) but not read (list) for the Ansible process user,
+    # so glob expansion silently fails. Date is a gathered fact so path is known.
     - name: Find per-stack backup archives for source host
-      ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
+      ansible.builtin.stat:
+        path: "{{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_{{ ansible_date_time.date }}.tar.gz"
       loop: "{{ _stacks }}"
-      register: _per_stack_archives
-      become: true
+      register: _per_stack_stats
       changed_when: false
       check_mode: false
 
     - name: Set per-stack archive list
       ansible.builtin.set_fact:
-        _archive_files: "{{ _per_stack_archives.results | selectattr('stdout', 'ne', '') | map(attribute='stdout') | list }}"
+        _archive_files: "{{ _per_stack_stats.results | selectattr('stat.exists', 'equalto', true) | map(attribute='stat.path') | list }}"
 
     - name: Fall back to monolithic archive
-      ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_*.tar.gz 2>/dev/null | head -1
-      register: _monolithic_archive
-      become: true
+      ansible.builtin.stat:
+        path: "{{ backup_base_dir }}/{{ source_host }}/backup_{{ source_host }}_{{ ansible_date_time.date }}.tar.gz"
+      register: _monolithic_stat
       changed_when: false
       check_mode: false
       when: _archive_files | length == 0
 
     - name: Use monolithic archive as fallback
       ansible.builtin.set_fact:
-        _archive_files: "{{ [_monolithic_archive.stdout] }}"
+        _archive_files: "{{ [_monolithic_stat.stat.path] }}"
       when:
         - _archive_files | length == 0
-        - _monolithic_archive.stdout | default('') | length > 0
+        - _monolithic_stat.stat.exists | default(false)
 
     - name: Assert backup archives exist
       ansible.builtin.assert:
         that: _archive_files | length > 0
-        fail_msg: "No backup archives found for {{ source_host }}"
+        fail_msg: "No backup archives found for {{ source_host }} dated {{ ansible_date_time.date }}"
 
     - name: Verify archive integrity
       ansible.builtin.shell: gunzip -t "{{ item }}"
       loop: "{{ _archive_files }}"
-      become: true
       changed_when: false
       check_mode: false
 
