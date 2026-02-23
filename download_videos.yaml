@@ -88,11 +88,7 @@
 
         - name: Parse downloaded video metadata
           ansible.builtin.set_fact:
-            downloaded_videos: >-
-              {{ manifest_raw.stdout_lines | default([])
-                 | select('match', '^\{.*\}$')
-                 | map('from_json')
-                 | list }}
+            downloaded_videos: "{{ manifest_raw.stdout_lines | default([]) | select('match', '^\\{.*\\}$') | map('from_json') | list }}"
           when: manifest_raw.stdout | default('') | length > 0
 
         # -- Clean temp downloads --------------------------------------------
