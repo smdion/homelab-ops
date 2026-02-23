@@ -164,6 +164,10 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 │   ├── docker_stop.yaml             # Stop Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── docker_start.yaml            # Start Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── restore_appdata.yaml         # Restore appdata archive (staging inspect or inplace mode)
+│   ├── restore_app_step.yaml        # Per-app restore loop body (stop stack, restore DB+appdata, restart, health check; OOM detection)
+│   ├── verify_app_http.yaml         # Per-app HTTP endpoint verification (used by restore_app.yaml and test_app_restore.yaml)
+│   ├── backup_single_amp_instance.yaml  # Per-AMP-instance backup loop body (stop→archive→verify→fetch→start)
+│   ├── restore_single_amp_instance.yaml # Per-AMP-instance restore loop body (stop→remove→extract→start); mirrors backup_single_amp_instance
 │   └── verify_docker_health.yaml    # Poll Docker container health until all healthy or timeout
 │
 ├── templates/
@@ -190,6 +194,7 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 ├── setup_pve_vip.yaml              # One-time VIP setup: install and configure keepalived on PVE nodes; verifies VIP reachable on port 22
 ├── deploy_stacks.yaml             # Deploy Docker stacks from Git — templates .env from vault, copies compose, starts stacks
 ├── build_ubuntu.yaml              # Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH config
+├── restore_amp.yaml               # AMP instance restore — stop instance(s), replace data dir from archive, restart; per-instance or all; requires confirm=yes
 ├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert
 ├── test_app_restore.yaml          # Test all app_restore apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
@@ -391,6 +396,28 @@ Docker service, adds user to docker/sudo groups, configures passwordless sudo, h
 (matching `setup_ansible_user.yaml` — prohibit root password, disable password auth, allow ssh-rsa
 for Guacamole), and configures UFW (default deny + allow SSH). Deploy stacks separately via
 `deploy_stacks.yaml` after provisioning.
+
+**`restore_amp.yaml`** — AMP game server instance restore. Safety-gated with `confirm=yes`. Stops
+each instance, removes the existing data directory, extracts the latest archive from the
+controller, and restarts instances that were running before. Supports restoring all instances
+(default) or a single one via `-e amp_instance_filter=<instance>`. Accepts `-e restore_target=<host>`.
+Play 1 (localhost) discovers and validates backup archives; Play 2 (the AMP host) performs the
+restore. Per-instance results logged to the `restores` table; partial success supported (some
+instances succeed, others fail). Uses `tasks/restore_single_amp_instance.yaml` (loop var: `_amp_instance`).
+
+**`restore_app.yaml`** — Production single-app restore. Safety-gated with `confirm=yes`. Stops
+the target stack, restores DB(s) + appdata inplace, restarts the stack, runs HTTP health checks,
+and logs to the `restores` table (`restore_subtype: Appdata`). Accepts `-e restore_app=<app>` and
+`-e restore_target=<host>`. Uses `tasks/restore_app_step.yaml` for per-app logic. Sends Discord
+notification on success or failure.
+
+**`test_app_restore.yaml`** — Automated all-app restore test on a disposable VM. Provisions a
+test VM (or reuses one with `-e provision=false`), deploys all stacks, restores each `app_restore`
+app in sequence (DB + appdata inplace), runs HTTP health checks, and summarizes results via
+Discord. Includes OOM auto-recovery: if a restore OOM-kills the VM, saves partial results to
+localhost, doubles RAM via PVE API, reboots, and retries the OOM-failed apps. Reverts the VM to
+a pre-restore snapshot when done. Uses `tasks/restore_app_step.yaml` (loop var: `_test_app`).
+Logs to the `maintenance` table (type: `Servers`, subtype: `Test App Restore`).
 
 **`rollback_docker.yaml`** — Reverts Docker containers to their previous image versions using
 the snapshot saved by `update_systems.yaml`. Two rollback paths: **fast** (old image still on
@@ -925,7 +952,7 @@ or Host fields.
 
 > **Shared task review:** When modifying playbooks, check whether any inline task blocks are
 > duplicated across multiple playbooks. If so, they are a candidate for extraction into `tasks/`.
-> The current 22 shared task files cover notifications, logging, assertions, provisioning,
+> The current 26 shared task files cover notifications, logging, assertions, provisioning,
 > bootstrapping, Docker management, appdata restore, health checks, per-stack/per-DB backup
 > orchestration, and DB engine abstraction. Inline cleanup patterns or host-type detection logic
 > may have accumulated in individual playbooks and could be worth consolidating if the same
@@ -938,7 +965,7 @@ the right choice when a component needs its own defaults, handlers, templates, o
 
 **Current state — tasks are the right fit:**
 
-The project has 22 shared task files and no handlers or templates. The `tasks/` files are thin
+The project has 26 shared task files and no handlers or templates. The `tasks/` files are thin
 glue code (send a Discord embed, run an INSERT, assert a precondition, dump/restore a database).
 At this scale, promoting them to roles would add directory structure without gaining any
 role-specific features.
@@ -1470,7 +1497,7 @@ CREATE TABLE maintenance (
   application VARCHAR(100) NOT NULL,   -- System maintained (e.g., 'AMP', 'Docker', 'Semaphore')
   hostname    VARCHAR(255) NOT NULL,   -- FQDN of host that ran the task
   type        VARCHAR(50)  NOT NULL,   -- 'Servers', 'Appliances', or 'Local'
-  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy'
+  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy', 'Build', 'Test Restore', 'Test App Restore'
   status      VARCHAR(20)  NOT NULL DEFAULT 'success',  -- 'success', 'failed', or 'partial'
   timestamp   DATETIME,            -- UTC_TIMESTAMP() — always UTC regardless of server timezone
   INDEX idx_application (application),
@@ -1603,7 +1630,7 @@ Narrows the category. Current values:
 
 - Backups: `Config`, `Appdata`, `Database`, `Offline`
 - Updates: `PVE`, `PBS`, `OS`, `Game Server`, `KVM`, `Container`
-- Maintenance: `Cleanup`, `Prune`, `Cache`, `Restart`, `Maintenance`, `Health Check`
+- Maintenance: `Cleanup`, `Prune`, `Cache`, `Restart`, `Maintenance`, `Health Check`, `Verify`, `Deploy`, `Build`, `Test Restore`, `Test App Restore`
 
   (`Health Check` is reserved for `maintain_health.yaml` — its subtype value regardless of how many
   checks are added to that playbook)
@@ -1708,6 +1735,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `deploy_grafana.yaml` | Grafana | Local | Deploy |
 | `build_ubuntu.yaml` | Ubuntu | Servers | Build |
 | `test_restore.yaml` | Docker | Servers | Test Restore |
+| `test_app_restore.yaml` | Docker | Servers | Test App Restore |
 
 **Restores** (type/subtype reuse the backup vars file values):
 
@@ -1720,6 +1748,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `vars/unraid_os.yaml` | unRAID | Servers | Config | restore |
 | `vars/pikvm.yaml` | PiKVM | Appliances | Config | restore |
 | `vars/docker_stacks.yaml` | (service name) | Servers | Container | rollback |
+| `vars/docker_stacks.yaml` | (app name) | Servers | Appdata | restore (`restore_app.yaml`) |
 
 **Verification** logs to the `maintenance` table (subtype `Verify`) using the same
 `backup_type` / `backup_name` values from the vars file. See [Maintenance](#maintenance).
