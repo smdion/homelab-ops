@@ -62,6 +62,23 @@
           loop: "{{ amp_versions_to_remove }}"
           tags: [versions]
 
+        # ── instances.json .bak rotation ─────────────────────────────────
+        - name: Find old instances.json .bak files
+          ansible.builtin.find:
+            paths: "{{ amp_home }}/.ampdata"
+            patterns: "instances.json-*.bak"
+            file_type: file
+          register: _amp_bak_files
+          tags: [cleanup]
+
+        - name: Remove old instances.json .bak files (keep {{ amp_versions_keep }} newest)
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ (_amp_bak_files.files | sort(attribute='mtime') | reverse | list)[amp_versions_keep:] }}"
+          when: _amp_bak_files.matched > amp_versions_keep
+          tags: [cleanup]
+
         # ── Crash Core Dumps ──────────────────────────────────────────────
         - name: Find core dump files in AMP instances
           ansible.builtin.find:
