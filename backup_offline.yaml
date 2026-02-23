@@ -51,7 +51,7 @@
             path: "{{ src_backup_path }}"
             owner: nobody
             group: users
-            mode: '0750'
+            mode: '0770'
             state: directory
             recurse: true
 
