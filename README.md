@@ -96,11 +96,11 @@ and go.
 | `maintain_logging_db.yaml` | Purge failed/warning records from `ansible_logging` — failed updates, failed maintenance, zero-size backups, warning/critical health checks | Runs on localhost |
 | `maintain_health.yaml` | 26 health checks across all SSH hosts + DB/API | `vars/semaphore_check.yaml` for thresholds |
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB, count tables/measurements) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
-| `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm_restore=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
-| `restore_hosts.yaml` | Restore config/appdata — staging or inplace; safety-gated with `confirm_restore=yes` for inplace; selective app + coordinated cross-host DB | `vars/<platform>.yaml` with `app_restore` mapping |
+| `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
+| `restore_hosts.yaml` | Restore config/appdata — staging or inplace; safety-gated with `confirm=yes` for inplace; selective app + coordinated cross-host DB (`with_databases=yes`) | `vars/<platform>.yaml` with `app_restore` mapping |
 | `restore_amp.yaml` | Restore AMP game server instance(s) from backup; safety-gated with `confirm=yes`; pass `restore_target`; optionally `amp_instance_filter` for a single instance | `vars/amp.yaml` |
 | `restore_app.yaml` | Restore a single app (appdata + all DBs) to a production host; safety-gated with `confirm=yes`; pass `restore_app`, `restore_target`, optionally `restore_source_host` | `vars/docker_stacks.yaml` `app_restore` dict |
-| `rollback_docker.yaml` | Revert Docker containers to previous images; supports all, per-stack (`rollback_stack`), or per-service (`rollback_service`); safety-gated with `confirm_rollback=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
+| `rollback_docker.yaml` | Revert Docker containers to previous images; supports all, per-stack (`rollback_stack`), or per-service (`rollback_service`); safety-gated with `confirm=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
 | `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy | `vars/docker_stacks.yaml` with `stack_assignments` |
 
 ### Platform-specific playbooks
@@ -116,7 +116,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
-| `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=true`) keeps restored state |
+| `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=yes`) keeps restored state |
 | `test_app_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_restore` apps on a disposable VM — per-app restore (DB + appdata), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
@@ -311,6 +311,20 @@ Every playbook can be run directly with `ansible-playbook`. Pass `hosts_variable
 When `config_file` matches `hosts_variable` (e.g., both are `docker_stacks`), you can omit
 `config_file` — it defaults to `hosts_variable`.
 
+### Extra vars conventions
+
+All user-facing `-e` vars follow a consistent naming and value pattern:
+
+| Category | Pattern | Examples |
+|---|---|---|
+| **Routing** | `hosts_variable=<group>` | `hosts_variable=docker_stacks`, `hosts_variable=amp` |
+| **Safety gate** | `confirm=yes` | Required for all destructive operations (restore, rollback) — never pre-set |
+| **Opt-ins** | `with_*=yes` | `with_docker=yes` (stop/start containers), `with_databases=yes` (coordinated DB restore) |
+| **Modes** | `*_mode=<value>` | `restore_mode=inplace` (default: `staging`), `validate_only=yes`, `dr_mode=yes` |
+| **Scope selectors** | `restore_*=`, `rollback_*=` | `restore_app=sonarr`, `restore_db=nextcloud`, `rollback_stack=vpn` |
+
+**Value rule:** All boolean triggers use `=yes` — never `=true`. YAML booleans inside playbook code use `true`/`false` (different context). See [DESIGN.md](DESIGN.md#extra-vars-conventions) for the full reference.
+
 <details>
 <summary>Backup &amp; Updates</summary>
 
@@ -405,12 +419,12 @@ ansible-playbook verify_backups.yaml \
 <summary>Restore &amp; Rollback</summary>
 
 ```bash
-# Restore a single database (requires confirm_restore=yes safety gate)
+# Restore a single database (requires confirm=yes safety gate)
 ansible-playbook restore_databases.yaml \
   -i inventory.yaml \
   -e hosts_variable=db_primary_mariadb \
   -e config_file=db_primary_mariadb \
-  -e confirm_restore=yes \
+  -e confirm=yes \
   -e restore_db=nextcloud \
   --vault-password-file ~/.vault_pass
 
@@ -427,8 +441,8 @@ ansible-playbook restore_hosts.yaml \
   -e hosts_variable=docker_stacks \
   -e restore_app=sonarr \
   -e restore_mode=inplace \
-  -e confirm_restore=yes \
-  -e manage_docker=yes \
+  -e confirm=yes \
+  -e with_docker=yes \
   --limit myhost \
   --vault-password-file ~/.vault_pass
 
@@ -437,18 +451,18 @@ ansible-playbook restore_hosts.yaml \
   -i inventory.yaml \
   -e hosts_variable=docker_stacks \
   -e restore_app=sonarr \
-  -e include_databases=yes \
+  -e with_databases=yes \
   -e restore_mode=inplace \
-  -e confirm_restore=yes \
-  -e manage_docker=yes \
+  -e confirm=yes \
+  -e with_docker=yes \
   --limit myhost \
   --vault-password-file ~/.vault_pass
 
-# Rollback all Docker containers to pre-update snapshot (requires confirm_rollback=yes)
+# Rollback all Docker containers to pre-update snapshot (requires confirm=yes)
 ansible-playbook rollback_docker.yaml \
   -i inventory.yaml \
   -e hosts_variable=docker_stacks \
-  -e confirm_rollback=yes \
+  -e confirm=yes \
   --limit myhost \
   --vault-password-file ~/.vault_pass
 
@@ -457,7 +471,7 @@ ansible-playbook rollback_docker.yaml \
   -i inventory.yaml \
   -e hosts_variable=docker_stacks \
   -e rollback_stack=vpn \
-  -e confirm_rollback=yes \
+  -e confirm=yes \
   --limit myhost \
   --vault-password-file ~/.vault_pass
 
@@ -466,7 +480,7 @@ ansible-playbook rollback_docker.yaml \
   -i inventory.yaml \
   -e hosts_variable=docker_stacks \
   -e rollback_service=jellyseerr \
-  -e confirm_rollback=yes \
+  -e confirm=yes \
   --limit myhost \
   --vault-password-file ~/.vault_pass
 ```
@@ -561,7 +575,7 @@ ansible-playbook test_restore.yaml \
   -i inventory.yaml \
   -e vm_name=test-vm \
   -e source_host=myhost.home.local \
-  -e dr_mode=true \
+  -e dr_mode=yes \
   --vault-password-file ~/.vault_pass
 
 # Restore from a specific date's backups (default: today)
@@ -597,7 +611,7 @@ ansible-playbook deploy_stacks.yaml \
 ansible-playbook deploy_stacks.yaml \
   -i inventory.yaml \
   -e hosts_variable=docker_stacks \
-  -e deploy_skip_up=true \
+  -e validate_only=yes \
   --limit myhost \
   --vault-password-file ~/.vault_pass
 
