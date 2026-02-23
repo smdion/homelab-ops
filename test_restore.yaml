@@ -2,7 +2,7 @@
 # Automated restore testing on a disposable VM.
 # Builds VM if needed, restores source host's appdata, deploys stacks,
 # verifies container health, and reverts to clean state.
-# Also serves as a DR recovery tool via -e dr_mode=true.
+# Also serves as a DR recovery tool via -e dr_mode=yes.
 #
 # Usage:
 #   # Test controller's full stack
@@ -15,7 +15,7 @@
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqdn> -e deploy_stack=media
 #
 #   # DR recovery (keeps restored state, no revert)
-#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e dr_mode=true
+#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e dr_mode=yes
 #
 # Required extra vars:
 #   vm_name      — key in vm_definitions (e.g., test-vm)
@@ -24,7 +24,7 @@
 # Optional extra vars:
 #   restore_app   — single app to restore (uses app_restore mapping)
 #   deploy_stack  — single stack to deploy
-#   dr_mode=true  — DR recovery mode (skip snapshot/revert, keep state)
+#   dr_mode=yes  — DR recovery mode (skip snapshot/revert, keep state)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Prepare: Validate, find backup, build VM if needed, snapshot
@@ -217,7 +217,7 @@
         validate_certs: false
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       register: _vm_snapshots
-      when: not (dr_mode | default(false) | bool)
+      when: not (dr_mode | default('') == 'yes')
 
     - name: Delete existing pre-test snapshot if present
       ansible.builtin.uri:
@@ -228,7 +228,7 @@
         validate_certs: false
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when:
-        - not (dr_mode | default(false) | bool)
+        - not (dr_mode | default('') == 'yes')
         - _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
 
     - name: Create pre-test snapshot (post-bootstrap clean state)
@@ -243,7 +243,7 @@
           vmstate: 0
         validate_certs: false
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: not (dr_mode | default(false) | bool)
+      when: not (dr_mode | default('') == 'yes')
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 4 — Deploy, Restore, and Health Check
@@ -374,7 +374,7 @@
     - name: Skip revert in DR mode
       ansible.builtin.debug:
         msg: "DR mode — keeping restored state on {{ vm_definitions[vm_name].vm_name }}"
-      when: dr_mode | default(false) | bool
+      when: dr_mode | default('') == 'yes'
 
     - name: Revert VM to pre-test snapshot
       block:
@@ -412,7 +412,7 @@
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
             validate_certs: false
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: not (dr_mode | default(false) | bool)
+      when: not (dr_mode | default('') == 'yes')
 
     - name: Fail if test restore failed
       ansible.builtin.fail:
