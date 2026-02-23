@@ -58,6 +58,13 @@
     - name: Assert MariaDB logging database is reachable
       include_tasks: tasks/assert_db_connectivity.yaml
 
+    - name: Put PiKVM in RW mode
+      raw: rw
+      when:
+        - inventory_hostname in groups["pikvm"]
+        - not ansible_check_mode
+      tags: [always]
+
   tasks:
     - name: Initialize restore state
       ansible.builtin.set_fact:
@@ -410,4 +417,11 @@
             restore_operation: "restore"
             restore_status: "{{ 'failed' if restore_failed else 'success' }}"
             restore_detail: "{{ _restore_detail | default('check Semaphore logs') }}"
+          tags: [always]
+
+        - name: Put PiKVM back in RO mode
+          raw: ro
+          when:
+            - inventory_hostname in groups["pikvm"]
+            - not ansible_check_mode
           tags: [always]

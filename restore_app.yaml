@@ -104,8 +104,6 @@
     - vars/semaphore_check.yaml
   vars:
     maintenance_name: "Docker"
-    maintenance_type: "Servers"
-    maintenance_subtype: "App Restore"
     _app_restore_tmp: "/tmp/restore_{{ restore_app }}"
 
   tasks:
@@ -230,14 +228,16 @@
                 value: "{{ _restore_detail }}"
 
         - name: Log restore to MariaDB
-          include_tasks: tasks/log_mariadb.yaml
+          include_tasks: tasks/log_restore.yaml
           vars:
-            log_table: maintenance
-            log_application: "{{ maintenance_name }}"
             log_hostname: "{{ restore_target }}"
-            log_type: "{{ maintenance_type }}"
-            log_subtype: "{{ maintenance_subtype }}"
-            log_status: "{{ 'failed' if _restore_failed else 'success' }}"
+            restore_application: "{{ restore_app }}"
+            restore_source_file: "{{ hostvars['localhost']._stack_archive_path | basename }}"
+            restore_type: "{{ backup_type }}"
+            restore_subtype: "App Restore"
+            restore_operation: "restore"
+            restore_status: "{{ 'failed' if _restore_failed else 'success' }}"
+            restore_detail: "{{ _restore_detail | default('check Semaphore logs') }}"
 
     - name: Fail if restore failed
       ansible.builtin.fail:
