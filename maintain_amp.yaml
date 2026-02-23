@@ -83,7 +83,7 @@
         - name: Find core dump files in AMP instances
           ansible.builtin.find:
             paths: "{{ amp_home }}/.ampdata/instances"
-            patterns: "core"
+            patterns: "core*"
             file_type: file
             recurse: true
           register: _core_dumps
@@ -97,12 +97,32 @@
           when: _core_dumps.matched > 0
           tags: [coredumps]
 
+        # ── Instance Log Rotation ─────────────────────────────────────────
+        - name: Find old AMP instance log files (older than 30 days)
+          ansible.builtin.find:
+            paths: "{{ amp_home }}/.ampdata/instances"
+            patterns: "*.log,*.log.*"
+            file_type: file
+            recurse: true
+            age: 30d
+          register: _amp_logs
+          tags: [cleanup]
+
+        - name: Remove old AMP instance log files
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          loop: "{{ _amp_logs.files }}"
+          when: _amp_logs.matched > 0
+          tags: [cleanup]
+
         # ── Docker Cleanup ────────────────────────────────────────────────
         - name: Prune unused Docker images
           community.docker.docker_prune:
             images: true
             images_filters:
               dangling: "false"
+          ignore_errors: true
           tags: [prune]
 
         # ── Journal Logs ──────────────────────────────────────────────────
