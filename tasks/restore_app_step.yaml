@@ -89,6 +89,14 @@
         _health_timeout: >-
           {{ stack_health_timeouts[_cur_app_cfg.stack] | default(120) }}
 
+    - name: Verify HTTP health — {{ _test_app }}
+      include_tasks: tasks/verify_app_http.yaml
+      vars:
+        _health_check_urls: "{{ _cur_app_cfg.health_check_urls }}"
+        _http_check_timeout: >-
+          {{ stack_health_timeouts[_cur_app_cfg.stack] | default(60) }}
+      when: _cur_app_cfg.health_check_urls | default([]) | length > 0
+
     - name: Record success — {{ _test_app }}
       ansible.builtin.set_fact:
         _app_restore_results: >-

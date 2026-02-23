@@ -80,12 +80,20 @@ app_restore:
     db_config_file: db_primary_postgres
     db_host: "{{ db_host_primary }}"
     db_names: ["authentik"]
+    health_check_urls:
+      - name: "Authentik readiness"
+        url: "http://localhost:9001/-/health/ready/"
+        status_code: 204
   jellyseerr:
     stack: "media"
     containers: ["jellyseerr"]
     db_config_file: db_primary_postgres
     db_host: "{{ db_host_primary }}"
     db_names: ["jellyseerr"]
+    health_check_urls:
+      - name: "Jellyseerr UI"
+        url: "http://localhost:5055/"
+        status_code: 200
 
 # Stack assignments: host → ordered list of stack names.
 # ORDER MATTERS: on tantive-iv, databases MUST precede auth (Authentik requires Postgres).
