@@ -78,6 +78,7 @@
         ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _stacks }}"
       register: _per_stack_archives
+      become: true
       changed_when: false
       check_mode: false
 
@@ -89,6 +90,7 @@
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ source_host }}/backup_*.tar.gz 2>/dev/null | head -1
       register: _monolithic_archive
+      become: true
       changed_when: false
       check_mode: false
       when: _archive_files | length == 0
@@ -108,6 +110,7 @@
     - name: Verify archive integrity
       ansible.builtin.shell: gunzip -t "{{ item }}"
       loop: "{{ _archive_files }}"
+      become: true
       changed_when: false
       check_mode: false
 
