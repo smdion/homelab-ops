@@ -14,13 +14,15 @@
 #   ansible-playbook setup_test_network.yaml --vault-password-file ~/.vault_pass
 #
 # Required vault vars:
-#   vault_test_vlan_id           — VLAN ID (e.g. 88)
-#   vault_test_vlan_gateway      — gateway IP on test VLAN (e.g. 192.168.88.1)
-#   vault_test_vlan_subnet       — network CIDR (e.g. 192.168.88.0/24)
-#   vault_semaphore_ip           — Semaphore container static IP (SSH allow rule)
-#   vault_prod_lan_subnet        — production LAN CIDR to block (e.g. 192.168.1.0/24)
+#   vault_test_vlan_id           — VLAN ID (e.g. 3)
+#   vault_test_vlan_gateway      — gateway IP on test VLAN (e.g. 192.168.3.1)
+#   vault_test_vlan_subnet       — network CIDR (e.g. 192.168.3.0/24)
 #   vault_pve_port_profile_name  — Unifi switch port profile used by Proxmox uplinks
 #   unifi_network_api_key        — Unifi Network API key (already in vault)
+#
+# Derived (no additional vault vars needed):
+#   Semaphore IP   — extracted from semaphore_host_url (already in vault)
+#   Prod LAN CIDR  — derived from vault_vm_gateway + vm_cidr (already in vault)
 
 - name: Setup test VM network isolation on Unifi
   hosts: unifi_network
@@ -31,6 +33,8 @@
     - vars/semaphore_check.yaml
   vars:
     _unifi_api: "https://{{ inventory_hostname }}/proxy/network/api/s/default"
+    _semaphore_ip: "{{ semaphore_host_url | urlsplit('hostname') }}"
+    _prod_lan_subnet: "{{ vault_vm_gateway | regex_replace('(\\d+\\.\\d+\\.\\d+)\\.\\d+', '\\1.0') }}/{{ vm_cidr }}"
 
   tasks:
     # ═══════════════════════════════════════════════════════════
@@ -164,7 +168,7 @@
           action: "accept"
           protocol: "tcp"
           enabled: true
-          src_address: "{{ vault_semaphore_ip }}/32"
+          src_address: "{{ _semaphore_ip }}/32"
           dst_address: "{{ vault_test_vlan_subnet }}"
           dst_port: "22"
         validate_certs: false
@@ -187,7 +191,7 @@
           action: "drop"
           enabled: true
           src_address: "{{ vault_test_vlan_subnet }}"
-          dst_address: "{{ vault_prod_lan_subnet }}"
+          dst_address: "{{ _prod_lan_subnet }}"
         validate_certs: false
         status_code: [200, 201]
       when: "'Block test-isolation to LAN' not in _existing_rule_names"
