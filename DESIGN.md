@@ -2358,8 +2358,7 @@ ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 > same compose network) are safe — those stay local to the test VM.
 >
 > **Planned fix:** Dedicated isolation VLAN (via Unifi API + Proxmox VLAN tag on net0).
-> Until implemented, run test restores only during low-traffic windows or with production
-> services stopped, and monitor for unexpected external calls.
+> Until implemented, run test restores only with production services stopped.
 
 ### Test Restore (automated)
 
