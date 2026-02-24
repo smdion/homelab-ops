@@ -56,7 +56,6 @@ ansible-playbook backup_hosts.yaml -i inventory.yaml \
    `host_health_issues`
 3. Add any new thresholds to `vars/semaphore_check.yaml`
 4. Update the CHECK comment numbering (sequential across all 3 plays)
-5. Update the check list comment in `tasks/log_health_check.yaml`
 
 ## Restore / Verify Playbooks
 
@@ -64,8 +63,8 @@ Restore and verify playbooks follow the same `block`/`rescue`/`always` error han
 notification, and MariaDB logging patterns as backup playbooks. Additional conventions:
 
 - **Safety gate:** Destructive restore playbooks (`restore_databases.yaml`, `restore_hosts.yaml`
-  inplace mode) require `-e confirm_restore=yes`. A pre-task assertion fails with guidance if
-  omitted. Never remove this gate.
+  inplace mode) require `-e confirm=yes`. A pre-task assertion fails with guidance if omitted.
+  Never remove this gate.
 - **Shared environments:** Verify and restore templates share the same Semaphore environment as
   backup templates for the same target — do not create separate environments.
 - **`gunzip -cf`:** Always use `-cf` (not `-c`) when piping backup files to restore commands. The
