@@ -49,9 +49,9 @@
           vm_name '{{ vm_name | default('undefined') }}' not found in vm_definitions.
           Valid names: {{ vm_definitions.keys() | list | join(', ') }}
 
-    - name: Auto-select test-vm slot (test-vm/cephfs-test use the 199–208 VMID pool; skipped for absent/snapshot/revert)
+    - name: Auto-select test-vm slot (test-vm uses the 199–208 VMID pool; skipped for absent/snapshot/revert)
       include_tasks: tasks/resolve_test_vm_index.yaml
-      when: vm_name in ['test-vm', 'cephfs-test'] and (vm_state | default('present')) == 'present'
+      when: vm_name == 'test-vm' and (vm_state | default('present')) == 'present'
 
     - name: Resolve VM definition
       ansible.builtin.set_fact:

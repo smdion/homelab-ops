@@ -44,7 +44,7 @@ pve_cloud_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server
 vm_template_memory: 2048
 vm_template_cores: 2
 
-# Test VM slot pool — shared by test-vm and cephfs-test (and any future slot-based VMs).
+# Test VM slot pool — used by test-vm (and any future slot-based VMs).
 # VMIDs: vm_test_slot_base .. vm_test_slot_base + vm_test_slot_count - 1
 # IPs:   vault_test_vm_ip_prefix + (vault_test_vm_ip_offset + vm_index)
 # To extend the pool or shift the VMID range, change these two values only.
@@ -57,7 +57,7 @@ vm_test_slot_count: 10
 #   vault_vm_<name>_ip        — static IP for cloud-init network config
 #   vault_vm_<name>_node      — PVE node to place this VM on
 #
-# test-vm / cephfs-test use a dedicated IP range to avoid updating secrets per build.
+# test-vm uses a dedicated IP range to avoid updating secrets per build.
 # Pass vm_index=0..vm_test_slot_count-1 (default 0) to select a slot:
 #   vault_test_vm_ip_prefix   — first 3 octets with trailing dot (e.g. "10.10.10.")
 #   vault_test_vm_ip_offset   — last octet of the first slot (e.g. 90)
@@ -84,23 +84,6 @@ vm_definitions:
     vm_disk_gb: 100
     pve_target_node: "{{ vault_vm_odyssey_node }}"
     cephfs_host_dir: "odyssey"       # mounts /odyssey from CephFS root at /opt
-
-  cephfs-test:
-    vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
-    vm_name: "cephfs-test{{ vm_index | default(0) | int }}"
-    vm_hostname: "cephfs-test{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
-    vm_cores: 2
-    vm_memory_mb: 4096
-    vm_disk_gb: 20
-    pve_target_node: "{{ vault_pve_template_node }}"
-    vm_gateway: "{{ vault_test_vlan_gateway }}"
-    vm_dns: "8.8.8.8,8.8.4.4"
-    vm_vlan_tag: "{{ vault_test_vlan_id }}"
-    # cephfs_host_dir intentionally absent — VM boots with local /opt.
-    # After provisioning, add: cephfs_host_dir: "cephfs-test"
-    # then run migrate_appdata_to_cephfs.yaml to test the migrate path.
-    # Remove this entry entirely before merging to main.
 
   amp:
     vm_id: 102
