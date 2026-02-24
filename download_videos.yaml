@@ -25,6 +25,17 @@
 
   pre_tasks:
     - include_tasks: tasks/assert_config_file.yaml
+
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+    - name: Log playbook run context to MariaDB
+      include_tasks: tasks/log_run_context.yaml
+      vars:
+        log_playbook: "download_videos.yaml"
+        log_hostname: "{{ inventory_hostname }}"
+        log_run_vars: "{}"
+
   vars:
     metube_config_path: "/configs/{{ config_name }}/{{ config_name }}.conf"
     metube_manifest: "/tmp/downloads_{{ config_name }}.jsonl"

@@ -222,7 +222,7 @@ vault-encrypted via ansible-vault — it is **not** in `.gitignore`. See
 mysql -u root -p < sql/init.sql
 ```
 
-This creates the `ansible_logging` database with all six tables. See
+This creates the `ansible_logging` database with all seven tables. See
 [DESIGN.md](DESIGN.md#database-ansible_logging) for schema details.
 
 ### 2. Vault (secrets)

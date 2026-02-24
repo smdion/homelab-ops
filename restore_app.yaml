@@ -46,6 +46,13 @@
     - name: Assert MariaDB logging database is reachable
       include_tasks: tasks/assert_db_connectivity.yaml
 
+    - name: Log playbook run context to MariaDB
+      include_tasks: tasks/log_run_context.yaml
+      vars:
+        log_playbook: "restore_app.yaml"
+        log_hostname: "{{ controller_fqdn }}"
+        log_run_vars: "{{ {'restore_app': restore_app, 'restore_target': restore_target} | to_json }}"
+
   tasks:
     - name: Set app config and source host
       ansible.builtin.set_fact:
