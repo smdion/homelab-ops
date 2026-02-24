@@ -2348,6 +2348,19 @@ ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 | Reverse proxy config | Yes | SWAG/NPM config in appdata (restored from backup) |
 | SSL certificates | Yes | Let's Encrypt certs in appdata (restored from backup) |
 
+> **⚠️ Network Isolation — Not Yet Implemented**
+> Test VMs are currently provisioned on the **production network** (`vmbr0`, untagged).
+> When `test_app_restore.yaml` starts restored Docker stacks, containers can reach live
+> production services (external APIs, SMTP relays, sync endpoints, etc.).
+>
+> Database connections are isolated (they use Docker service names within the test VM),
+> but any app that phones home or calls an external service will do so using restored
+> credentials on the real network.
+>
+> **Planned fix:** Dedicated isolation VLAN (via Unifi API + Proxmox VLAN tag on net0).
+> Until implemented, run test restores only during low-traffic windows or with production
+> services stopped, and monitor for unexpected external calls.
+
 ### Test Restore (automated)
 
 `test_restore.yaml` uses **ephemeral** VM slots defined in `vars/vm_definitions.yaml`.
