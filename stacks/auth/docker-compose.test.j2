@@ -1,0 +1,14 @@
+# Test-mode compose override — redirects production host IPs to local services.
+# Applied automatically by deploy_single_stack.yaml when _test_mode is true.
+# authentik/worker: connect to postgres on THIS host instead of the production IP.
+# swag: connect to crowdsec LAPI on THIS host instead of the production IP.
+services:
+  authentik:
+    environment:
+      POSTGRES_HOST: "{{ ansible_default_ipv4.address }}"
+  authentik_worker:
+    environment:
+      POSTGRES_HOST: "{{ ansible_default_ipv4.address }}"
+  swag:
+    environment:
+      CROWDSEC_LAPI_URL: "http://{{ ansible_default_ipv4.address }}:8080"

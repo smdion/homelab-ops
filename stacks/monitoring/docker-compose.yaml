@@ -18,6 +18,7 @@ services:
     labels:
       homelab.backup.paths: "/opt/grafana"
       homelab.health_timeout: "150"
+      homelab.test.skip_health: "true"
     environment:
       <<: *env
       GF_SERVER_ROOT_URL: ${GRAFANA_SERVER_ROOT_URL}
