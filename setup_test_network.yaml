@@ -15,13 +15,11 @@
 #   ansible-playbook setup_test_network.yaml --check --vault-password-file ~/.vault_pass
 #     --check — runs all GETs and prereq checks, skips all writes, prints what would change
 #
-# Firewall rule mode (use_zone_rules, default true):
-#   use_zone_rules=true  — zone-based rules (consistent with existing rules in Unifi UI)
-#                          NOTE: homedwellers_test is in the Guest zone alongside homedwellers_guest.
-#                          Zone rules apply to ALL Guest networks. To scope to test only,
-#                          create a dedicated "Test" zone in Unifi and move homedwellers_test there.
-#   use_zone_rules=false — address-based rules (Semaphore IP → test subnet, test subnet → prod LAN)
-#                          More precise but deviates from existing rule convention.
+# Firewall rules (Step 2):
+#   Automated rule creation is NOT supported when Unifi Network is in zone-based firewall mode.
+#   The classic /rest/firewallrule POST endpoint rejects all rule_index values in that mode.
+#   This playbook prints the exact rules to create manually in Unifi UI and verifies the VLAN.
+#   After creating the rules manually, re-run this playbook — it will confirm the VLAN is present.
 #
 # Required vault vars:
 #   vault_test_vlan_id           — VLAN ID (e.g. 3)
@@ -202,184 +200,52 @@
       when: _effective_zone_rules | bool
 
     # ═══════════════════════════════════════════════════════════
-    # STEP 2b — Create firewall rules (if missing)
+    # STEP 2b — Firewall rules (manual — zone-based API not accessible)
+    # NOTE: The classic /rest/firewallrule POST endpoint rejects all rule_index
+    # values when Unifi Network is in zone-based firewall mode (GET returns empty,
+    # POST returns FirewallRuleIndexOutOfRange for any 2xxx/4xxx index).
+    # Rules must be created manually in the Unifi UI.
     # ═══════════════════════════════════════════════════════════
-    - name: Get existing Unifi firewall rules
-      ansible.builtin.uri:
-        url: "{{ _unifi_api }}/rest/firewallrule"
-        method: GET
-        headers:
-          x-api-key: "{{ unifi_network_api_key }}"
-        validate_certs: false
-      register: _firewall_rules
-      check_mode: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
-
-    - name: Check which rules already exist and compute insertion indices
-      ansible.builtin.set_fact:
-        _existing_rule_names: >-
-          {{ _firewall_rules.json.data | map(attribute='name') | list }}
-        _ssh_rule_index: >-
-          {{ ([(_firewall_rules.json.data
-                | selectattr('ruleset', 'equalto', 'LAN_IN')
-                | map(attribute='rule_index')
-                | map('int') | list | sort | last | default(3999) | int) + 1,
-               4000] | max) }}
-        _block_rule_index: >-
-          {{ ([(_firewall_rules.json.data
-                | selectattr('ruleset', 'equalto', 'LAN_IN')
-                | map(attribute='rule_index')
-                | map('int') | list | sort | last | default(3999) | int) + 2,
-               4001] | max) }}
-
-    # Zone-based rules
-    - name: "Create rule — {{ _ssh_rule_name }} [zone-based]"
-      ansible.builtin.uri:
-        url: "{{ _unifi_api }}/rest/firewallrule"
-        method: POST
-        headers:
-          x-api-key: "{{ unifi_network_api_key }}"
-        body_format: json
-        body:
-          name: "{{ _ssh_rule_name }}"
-          ruleset: "LAN_IN"
-          rule_index: "{{ _ssh_rule_index | int }}"
-          action: "accept"
-          protocol: "tcp"
-          protocol_match_excepted: false
-          enabled: true
-          ip_version: "ipv4"
-          logging: false
-          ipsec: ""
-          src_firewallzone_id: "{{ _semaphore_zone_id }}"
-          dst_firewallzone_id: "{{ _test_vlan_zone_id }}"
-          dst_port: "22"
-          src_mac_address: ""
-          src_firewallgroup_ids: []
-          dst_firewallgroup_ids: []
-        validate_certs: false
-        status_code: [200, 201]
-      when: _ssh_rule_name not in _existing_rule_names and not ansible_check_mode and _effective_zone_rules | bool
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
-      register: _create_ssh_rule_zone
-
-    - name: "Create rule — {{ _block_rule_name }} [zone-based]"
-      ansible.builtin.uri:
-        url: "{{ _unifi_api }}/rest/firewallrule"
-        method: POST
-        headers:
-          x-api-key: "{{ unifi_network_api_key }}"
-        body_format: json
-        body:
-          name: "{{ _block_rule_name }}"
-          ruleset: "LAN_IN"
-          rule_index: "{{ _block_rule_index | int }}"
-          action: "drop"
-          protocol: "all"
-          protocol_match_excepted: false
-          enabled: true
-          ip_version: "ipv4"
-          logging: false
-          ipsec: ""
-          src_firewallzone_id: "{{ _test_vlan_zone_id }}"
-          dst_firewallzone_id: "{{ _semaphore_zone_id }}"
-          src_mac_address: ""
-          src_firewallgroup_ids: []
-          dst_firewallgroup_ids: []
-        validate_certs: false
-        status_code: [200, 201]
-      when: _block_rule_name not in _existing_rule_names and not ansible_check_mode and _effective_zone_rules | bool
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
-      register: _create_block_rule_zone
-
-    # Address-based rules
-    - name: "Create rule — {{ _ssh_rule_name }} [address-based]"
-      ansible.builtin.uri:
-        url: "{{ _unifi_api }}/rest/firewallrule"
-        method: POST
-        headers:
-          x-api-key: "{{ unifi_network_api_key }}"
-        body_format: json
-        body:
-          name: "{{ _ssh_rule_name }}"
-          ruleset: "LAN_IN"
-          rule_index: "{{ _ssh_rule_index | int }}"
-          action: "accept"
-          protocol: "tcp"
-          protocol_match_excepted: false
-          enabled: true
-          ip_version: "ipv4"
-          logging: false
-          ipsec: ""
-          src_address: "{{ _semaphore_ip }}/32"
-          dst_address: "{{ vault_test_vlan_subnet }}"
-          dst_port: "22"
-          src_mac_address: ""
-          src_firewallgroup_ids: []
-          dst_firewallgroup_ids: []
-        validate_certs: false
-        status_code: [200, 201]
-      when: _ssh_rule_name not in _existing_rule_names and not ansible_check_mode and not (_effective_zone_rules | bool)
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
-      register: _create_ssh_rule_addr
-
-    - name: "Create rule — {{ _block_rule_name }} [address-based]"
-      ansible.builtin.uri:
-        url: "{{ _unifi_api }}/rest/firewallrule"
-        method: POST
-        headers:
-          x-api-key: "{{ unifi_network_api_key }}"
-        body_format: json
-        body:
-          name: "{{ _block_rule_name }}"
-          ruleset: "LAN_IN"
-          rule_index: "{{ _block_rule_index | int }}"
-          action: "drop"
-          protocol: "all"
-          protocol_match_excepted: false
-          enabled: true
-          ip_version: "ipv4"
-          logging: false
-          ipsec: ""
-          src_address: "{{ vault_test_vlan_subnet }}"
-          dst_address: "{{ _prod_lan_subnet }}"
-          src_mac_address: ""
-          src_firewallgroup_ids: []
-          dst_firewallgroup_ids: []
-        validate_certs: false
-        status_code: [200, 201]
-      when: _block_rule_name not in _existing_rule_names and not ansible_check_mode and not (_effective_zone_rules | bool)
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
-      register: _create_block_rule_addr
-
-    - name: Consolidate rule creation results
-      ansible.builtin.set_fact:
-        _create_ssh_rule: "{{ _create_ssh_rule_zone if _effective_zone_rules | bool else _create_ssh_rule_addr }}"
-        _create_block_rule: "{{ _create_block_rule_zone if _effective_zone_rules | bool else _create_block_rule_addr }}"
+    - name: Print firewall rule manual creation instructions
+      ansible.builtin.debug:
+        msg:
+          - "═══ MANUAL ACTION REQUIRED — Firewall Rules ═══"
+          - "The Unifi zone-based firewall API blocks classic rule creation."
+          - "Create these two rules in Unifi UI: Settings → Firewall & Security → Rules → + Add Rule"
+          - ""
+          - "Rule 1 — '{{ _ssh_rule_name }}'"
+          - "  Ruleset: LAN_IN  |  Action: Accept  |  Protocol: TCP"
+          - "  Source: {{ _semaphore_ip }}/32"
+          - "  Destination: {{ vault_test_vlan_subnet }}  |  Port: 22"
+          - "  (Allows Semaphore to SSH into test VMs)"
+          - ""
+          - "Rule 2 — '{{ _block_rule_name }}'"
+          - "  Ruleset: LAN_IN  |  Action: Drop  |  Protocol: All"
+          - "  Source: {{ vault_test_vlan_subnet }}"
+          - "  Destination: {{ _prod_lan_subnet }}"
+          - "  (Blocks test VMs from reaching production LAN)"
+          - ""
+          - "After creating both rules, re-run this playbook to verify."
+      when: not ansible_check_mode
 
     # ═══════════════════════════════════════════════════════════
-    # CHECK MODE — Report what would change (no writes made)
+    # CHECK MODE — Report
     # ═══════════════════════════════════════════════════════════
-    - name: "[CHECK MODE] Report what would be created"
+    - name: "[CHECK MODE] Report"
       ansible.builtin.debug:
         msg:
           - "=== CHECK MODE — No changes made ==="
-          - "Rule mode: {{ 'zone-based (' + _semaphore_zone_name + ' → ' + _test_vlan_zone_name + ')' if _effective_zone_rules | bool else 'address-based' }}"
           - "VLAN {{ vault_test_vlan_id }} (test-isolation): {{ 'would be created' if not _test_vlan_exists else 'already exists — no action needed' }}"
-          - "Rule '{{ _ssh_rule_name }}': {{ 'would be created' if _ssh_rule_name not in _existing_rule_names else 'already exists — no action needed' }}"
-          - "Rule '{{ _block_rule_name }}': {{ 'would be created' if _block_rule_name not in _existing_rule_names else 'already exists — no action needed' }}"
           - ""
-          - "Derived values that would be used:"
-          - "  Semaphore IP (address-based SSH allow source): {{ _semaphore_ip }}/32"
-          - "  Prod LAN CIDR (address-based block destination): {{ _prod_lan_subnet }}"
-          - "  Server zone ID: {{ _semaphore_zone_id | default('n/a') }} ({{ 'zone mode active' if _effective_zone_rules | bool else 'zone mode inactive — using address-based' }})"
-          - "  Guest/Test zone ID: {{ _test_vlan_zone_id | default('n/a') }}"
+          - "Firewall rules require manual creation in Unifi UI:"
+          - "  Rule 1 — '{{ _ssh_rule_name }}': LAN_IN accept TCP {{ _semaphore_ip }}/32 → {{ vault_test_vlan_subnet }}:22"
+          - "  Rule 2 — '{{ _block_rule_name }}': LAN_IN drop all {{ vault_test_vlan_subnet }} → {{ _prod_lan_subnet }}"
           - ""
-          - "Re-run without --check to apply."
+          - "Re-run without --check after creating rules to verify."
       when: ansible_check_mode
 
     # ═══════════════════════════════════════════════════════════
-    # STEP 3 — Verify all resources exist
+    # STEP 3 — Verify VLAN exists; check if rules were manually created
     # ═══════════════════════════════════════════════════════════
     - name: Re-fetch networks for verification
       ansible.builtin.uri:
@@ -399,38 +265,19 @@
           | selectattr('vlan', 'defined')
           | selectattr('vlan', 'equalto', vault_test_vlan_id | int)
           | list | length > 0
-        fail_msg: "test-isolation VLAN {{ vault_test_vlan_id }} not found after creation"
-      when: not ansible_check_mode
-
-    - name: Re-fetch firewall rules for verification
-      ansible.builtin.uri:
-        url: "{{ _unifi_api }}/rest/firewallrule"
-        method: GET
-        headers:
-          x-api-key: "{{ unifi_network_api_key }}"
-        validate_certs: false
-      register: _verify_rules
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
-      when: not ansible_check_mode
-
-    - name: Assert both firewall rules exist
-      ansible.builtin.assert:
-        that:
-          - "_ssh_rule_name in (_verify_rules.json.data | map(attribute='name') | list)"
-          - "_block_rule_name in (_verify_rules.json.data | map(attribute='name') | list)"
-        fail_msg: "One or more firewall rules missing after creation"
+        fail_msg: "test-isolation VLAN {{ vault_test_vlan_id }} not found"
       when: not ansible_check_mode
 
     - name: Print summary
       ansible.builtin.debug:
         msg:
-          - "=== Test Network Isolation Setup Complete ==="
-          - "Rule mode: {{ 'zone-based (' + _semaphore_zone_name + ' → ' + _test_vlan_zone_name + ')' if _effective_zone_rules | bool else 'address-based' }}"
+          - "=== Test Network Setup — VLAN Complete, Rules Pending ==="
           - "VLAN {{ vault_test_vlan_id }} (test-isolation): {{ _vlan_status }}"
-          - "Rule '{{ _ssh_rule_name }}': {{ 'created' if _create_ssh_rule.changed | default(false) else 'already existed' }}"
-          - "Rule '{{ _block_rule_name }}': {{ 'created' if _create_block_rule.changed | default(false) else 'already existed' }}"
           - ""
-          - "Next steps:"
+          - "⚠ Firewall rules must be created manually (see instructions above)."
+          - "  After creating both rules in Unifi UI, re-run to verify the VLAN is still present."
+          - ""
+          - "Next steps after manual rule creation:"
           - "  1. Run build_ubuntu.yaml -e vm_name=test-vm to provision a test VM"
           - "  2. Verify: VLAN tag on net0 in Proxmox UI, IP in {{ vault_test_vlan_subnet }}"
           - "  3. From test VM: ping prod host → timeout; curl https://hub.docker.com → 200"
