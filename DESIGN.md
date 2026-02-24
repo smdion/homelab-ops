@@ -2503,6 +2503,17 @@ considered in use. Pass `vm_index=N` explicitly to force a specific slot (e.g. f
 runs). `vm_index` drives VMID, IP, hostname, and name consistently (index 2 → VMID 201,
 IP offset+2, name `test-vm2`).
 
+**Convention — all ephemeral/test VMs must derive VMID and IP from the offset vars**, never
+hardcode numeric IDs. This ensures the pool can be shifted without hunting for magic numbers:
+
+| VM | VMID expression | IP expression |
+|---|---|---|
+| `test-vm` (slots 0–9) | `vm_test_slot_base + vm_index` | `vault_test_vm_ip_prefix` + `vault_test_vm_ip_offset + vm_index` |
+| `cephfs-migrate-test` | `vm_test_slot_base - 1` | `vault_test_vm_ip_prefix` + `vault_test_vm_ip_offset - 1` |
+
+Adding any future ephemeral VM: place it at `vm_test_slot_base - N` (VMID) and
+`vault_test_vm_ip_offset - N` (IP last octet), not at a hardcoded number.
+
 The playbook:
 1. Provisions the VM if it doesn't exist (idempotent — resumes if VMID already exists from a prior partial run)
 2. Snapshots it (`pre-test-restore`), runs the restore, then reverts — leaving the VM ready for the next test

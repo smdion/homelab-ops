@@ -100,7 +100,7 @@ vm_definitions:
   # it can reach CephFS monitors. IP is one slot below the test pool start.
   # Prerequisites: create /cephfs-migrate-test dir on CephFS root before running.
   cephfs-migrate-test:
-    vm_id: 198
+    vm_id: "{{ vm_test_slot_base | int - 1 }}"
     vm_name: cephfs-migrate-test
     vm_hostname: "cephfs-migrate-test.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int - 1 }}"
