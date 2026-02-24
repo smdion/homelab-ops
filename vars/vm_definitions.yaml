@@ -82,12 +82,15 @@ vm_definitions:
   cephfs-test:
     vm_id: 110
     vm_name: cephfs-test
-    vm_hostname: "{{ vault_vm_cephfstest_hostname }}"
-    vm_ip: "{{ vault_vm_cephfstest_ip }}"
+    vm_hostname: "cephfs-test.{{ vault_vm_search_domain }}"
+    vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + 10 }}"
     vm_cores: 2
     vm_memory_mb: 4096
     vm_disk_gb: 20
-    pve_target_node: "{{ vault_vm_cephfstest_node }}"
+    pve_target_node: "{{ vault_pve_template_node }}"
+    vm_gateway: "{{ vault_test_vlan_gateway }}"
+    vm_dns: "8.8.8.8,8.8.4.4"
+    vm_vlan_tag: "{{ vault_test_vlan_id }}"
     cephfs_host_dir: "cephfs-test"   # throwaway PoC — remove before merging to main
 
   amp:
