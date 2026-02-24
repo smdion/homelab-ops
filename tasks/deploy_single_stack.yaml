@@ -108,10 +108,12 @@
 - name: "Discover wait ports from labels — {{ _current_stack }}"
   become: true
   ansible.builtin.shell: |
-    docker ps \
+    ids=$(docker ps -q \
       --filter "label=com.docker.compose.project={{ _current_stack }}" \
-      --filter "label=homelab.wait_port" \
-      --format '{% raw %}{{index .Labels "homelab.wait_port"}}{% endraw %}'
+      --filter "label=homelab.wait_port")
+    [ -z "$ids" ] && exit 0
+    echo "$ids" | xargs docker inspect \
+      --format '{% raw %}{{index .Config.Labels "homelab.wait_port"}}{% endraw %}'
   register: _label_wait_ports
   changed_when: false
   when: not ansible_check_mode

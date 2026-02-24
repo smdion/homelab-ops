@@ -17,7 +17,7 @@
       timeout={{ _health_timeout | default(0) }}
       if [ "$timeout" -eq 0 ]; then
         timeout=120
-        for t in $(docker ps --format '{% raw %}{{index .Labels "homelab.health_timeout"}}{% endraw %}' | grep -E '^[0-9]+$'); do
+        for t in $(docker ps -q | xargs -r docker inspect --format '{% raw %}{{index .Config.Labels "homelab.health_timeout"}}{% endraw %}' 2>/dev/null | grep -E '^[0-9]+$'); do
           [ "$t" -gt "$timeout" ] && timeout=$t
         done
       fi

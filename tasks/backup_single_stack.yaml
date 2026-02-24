@@ -27,10 +27,12 @@
     - name: Discover backup paths from container labels for {{ _backup_stack }}
       become: true
       ansible.builtin.shell: |
-        docker ps -a \
+        ids=$(docker ps -a -q \
           --filter "label=com.docker.compose.project={{ _backup_stack }}" \
-          --filter "label=homelab.backup.paths" \
-          --format '{% raw %}{{index .Labels "homelab.backup.paths"}}{% endraw %}' \
+          --filter "label=homelab.backup.paths")
+        [ -z "$ids" ] && exit 0
+        echo "$ids" | xargs docker inspect \
+          --format '{% raw %}{{index .Config.Labels "homelab.backup.paths"}}{% endraw %}' \
           | tr ',' '\n' | sed '/^$/d' | sort -u
       register: _label_backup_paths
       changed_when: false
