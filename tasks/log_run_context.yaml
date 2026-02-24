@@ -24,7 +24,7 @@
     positional_args:
       - "{{ log_playbook }}"
       - "{{ log_hostname }}"
-      - "{{ log_run_vars | to_json if log_run_vars is not string else log_run_vars }}"
+      - "{{ log_run_vars | to_json | to_json }}"
   register: _log_run_result
   when: not ansible_check_mode
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
