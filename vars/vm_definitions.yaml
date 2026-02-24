@@ -107,7 +107,7 @@ vm_definitions:
     vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
     vm_cores: 2
     vm_memory_mb: 4096
-    vm_disk_gb: 20
+    vm_disk_gb: 50
     pve_target_node: "{{ vm_node | default(pve_template_node) }}"
     vm_gateway: "{{ vault_test_vlan_gateway }}"   # isolated VLAN gateway (overrides global vm_gateway)
     vm_dns: "8.8.8.8,8.8.4.4"                    # public DNS (prod DNS unreachable from isolated VLAN)
