@@ -248,6 +248,23 @@
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if build_failed else 'success' }}"
 
+        - name: Stop test VM on build failure (free the slot)
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm_actual_node | default(_vm.pve_target_node) }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: stopped
+            force: true
+          when: >-
+            build_failed | bool and _vm_state == 'present' and
+            (_vm.vm_id | int) >= (vm_test_slot_base | int) and
+            (_vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
+          ignore_errors: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
         - name: Fail play if build failed
           ansible.builtin.fail:
             msg: "Build failed: {{ _build_detail }}"
@@ -313,6 +330,24 @@
             log_type: "{{ maintenance_type }}"
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if bootstrap_failed else 'success' }}"
+
+        - name: Stop test VM on bootstrap failure (free the slot)
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm.pve_target_node) }}"
+            vmid: "{{ hostvars['localhost']._vm.vm_id }}"
+            state: stopped
+            force: true
+          delegate_to: localhost
+          when: >-
+            bootstrap_failed | bool and
+            (hostvars['localhost']._vm.vm_id | int) >= (vm_test_slot_base | int) and
+            (hostvars['localhost']._vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
+          ignore_errors: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Fail play if bootstrap failed
           ansible.builtin.fail:
