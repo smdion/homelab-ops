@@ -566,6 +566,13 @@ and `setup_ansible_user.yaml`).
 - `ssl_cert`: scans `/etc/letsencrypt/live/*/cert.pem`. Hosts with no certs log `no certs` / ok.
 - `stale_maintenance`: mirrors the stale_backup query pattern — alerts if any host has no
   successful maintenance run within `health_maintenance_stale_days` (default: 3 days).
+- `backup_size_anomaly`: flags the latest backup for any `application + hostname` pair whose
+  file size is below `health_backup_size_min_pct`% (default: 50%) of its own 30-day rolling
+  average (minimum 3 prior entries). Use `health_backup_size_exclude` (list in
+  `vars/semaphore_check.yaml`) to suppress specific application names — e.g. after an
+  architectural change that intentionally reduces individual backup file sizes (splitting a
+  monolithic archive into per-stack archives, moving DB dumps out of a Docker archive, etc.).
+  Add the app names, run one health check, then remove them once the 30-day baseline resets.
 - `mariadb_health`: checks connection count vs `max_connections` and scans `information_schema`
   for crashed tables. Warning at `health_db_connections_warn_pct`% (default: 80).
 - `wan_connectivity`: simple HTTP GET to `health_wan_url` (default: Cloudflare CDN trace).

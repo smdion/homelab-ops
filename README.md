@@ -151,7 +151,7 @@ for platforms you don't have are automatically skipped.
 | `pbs_datastore` | `[pbs]` only | PBS datastore accessibility |
 | `semaphore_tasks` | localhost | Failed Semaphore tasks since last check |
 | `stale_backup` | localhost | Hosts with no backup in 9+ days |
-| `backup_size_anomaly` | localhost | Backups significantly smaller than 30-day average |
+| `backup_size_anomaly` | localhost | Backups significantly smaller than 30-day average; exclude apps via `health_backup_size_exclude` in `vars/semaphore_check.yaml` |
 | `failed_maintenance` | localhost | Failed maintenance runs since last check |
 | `stale_maintenance` | localhost | Hosts with no maintenance in 3+ days |
 | `mariadb_health` | localhost | Connection count + crashed tables |

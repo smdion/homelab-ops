@@ -32,6 +32,11 @@ health_wan_url: "https://cloudflare.com/cdn-cgi/trace"  # WAN connectivity check
 health_ntp_max_offset_ms: 500         # max acceptable NTP offset in milliseconds
 health_dns_hostname: "google.com"     # DNS resolution test target
 health_backup_size_min_pct: 50        # alert if latest backup < this % of 30-day average
+health_backup_size_exclude:            # application names to skip in size anomaly check (e.g. recently migrated apps)
+  - "Docker"                           # host-level archive shrank after DB data dirs excluded from stacks
+  - "ansible-logging-db"               # DB dump now tracked separately (previously inside Docker archive)
+  - "nextcloud-db"                     # DB dump now tracked separately (previously inside Docker archive)
+  - "semaphore-db"                     # DB dump now tracked separately (previously inside Docker archive)
 health_update_stale_days: 14          # Grafana panel: flag updates older than N days as stale
 
 # Appliance reachability check — tested via TCP connect (port 443)

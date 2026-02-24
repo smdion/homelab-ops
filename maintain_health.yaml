@@ -256,6 +256,10 @@
         - name: Query for anomalously small backups
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
+            _size_exclude_clause: >-
+              {% if health_backup_size_exclude | default([]) | length > 0 -%}
+              AND b.application NOT IN ('{{ health_backup_size_exclude | join("','") }}')
+              {%- endif %}
           community.mysql.mysql_query:
             login_host: "{{ logging_db_host }}"
             login_port: "{{ logging_db_port }}"
@@ -277,6 +281,7 @@
                 SELECT MAX(id) FROM backups GROUP BY application, hostname
               )
               AND b.file_size < avg_tbl.avg_size * %s / 100
+              {{ _size_exclude_clause }}
             positional_args:
               - "{{ health_backup_size_min_pct }}"
           register: _size_anomaly_result
