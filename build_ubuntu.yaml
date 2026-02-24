@@ -71,6 +71,27 @@
         build_failed: false
         _build_detail: ""
 
+    # For absent/snapshot/revert: resolve actual node via cluster API (VIP-safe).
+    # For present: provision_vm.yaml sets _vm_actual_node after cloning.
+    - name: Query cluster resources for actual VM node
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _cluster_vms
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _vm_state != 'present'
+
+    - name: Set actual VM node fact
+      ansible.builtin.set_fact:
+        _vm_actual_node: >-
+          {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
+             if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
+             else _vm.pve_target_node }}
+      when: _vm_state != 'present'
+
     - block:
         # ═════════════════════════════════════════════════════════
         # CREATE PATH — vm_state == 'present' (default)
@@ -88,7 +109,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm.pve_target_node }}"
+            node: "{{ _vm_actual_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
             force: true
@@ -101,7 +122,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm.pve_target_node }}"
+            node: "{{ _vm_actual_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: absent
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -112,7 +133,7 @@
         # ═════════════════════════════════════════════════════════
         - name: Create VM snapshot
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/snapshot"
+            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot"
             method: POST
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -133,7 +154,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm.pve_target_node }}"
+            node: "{{ _vm_actual_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
             force: true
@@ -143,7 +164,7 @@
 
         - name: Revert VM to snapshot
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/snapshot/{{ snapshot_name }}/rollback"
+            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot/{{ snapshot_name }}/rollback"
             method: POST
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -157,7 +178,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm.pve_target_node }}"
+            node: "{{ _vm_actual_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: started
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -175,7 +196,7 @@
           ansible.builtin.set_fact:
             _build_detail: >-
               {% if _vm_state == 'absent' %}VM destroyed{% elif _vm_state == 'snapshot' %}Snapshot '{{ snapshot_name }}' created{% elif _vm_state == 'revert' %}Reverted to '{{ snapshot_name }}'{% else %}VM provisioned{% endif %}:
-              {{ _vm.vm_name }} ({{ _vm.vm_ip }}) on {{ _vm.pve_target_node }}
+              {{ _vm.vm_name }} ({{ _vm.vm_ip }}) on {{ _vm_actual_node | default(_vm.pve_target_node) }}
 
       rescue:
         - name: Set build failed flag
@@ -201,7 +222,7 @@
                 value: "{{ _vm.vm_ip }}"
                 inline: true
               - name: "Proxmox Node"
-                value: "{{ _vm.pve_target_node }}"
+                value: "{{ _vm_actual_node | default(_vm.pve_target_node) }}"
                 inline: true
               - name: "Detail"
                 value: "{{ _build_detail }}"
