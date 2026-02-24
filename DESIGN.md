@@ -1272,6 +1272,7 @@ and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
 | `backup_databases.yaml` | Disk space and DB connectivity pre-checks run. Dump simulated (shell skipped). |
 | `backup_offline.yaml` | Ping check runs. WoL, Synology shutdown and verification skipped. Rsync simulated. |
 | `maintain_amp.yaml` | AMP version list gathered. File deletions simulated. |
+| `setup_test_network.yaml` | All GETs and prereq assertions run. POSTs skipped. Prints what would be created and the derived Semaphore IP + prod LAN CIDR. |
 | `maintain_cache.yaml` | Cache drop simulated. |
 | `maintain_docker.yaml` | Docker prune simulated. |
 | `maintain_semaphore.yaml` | DB cleanup and retention pruning simulated. |

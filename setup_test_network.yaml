@@ -12,6 +12,8 @@
 #
 # Usage:
 #   ansible-playbook setup_test_network.yaml --vault-password-file ~/.vault_pass
+#   ansible-playbook setup_test_network.yaml --check --vault-password-file ~/.vault_pass
+#     --check — runs all GETs and prereq checks, skips all writes, prints what would change
 #
 # Required vault vars:
 #   vault_test_vlan_id           — VLAN ID (e.g. 3)
@@ -48,6 +50,7 @@
           x-api-key: "{{ unifi_network_api_key }}"
         validate_certs: false
       register: _portconf
+      check_mode: false
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
 
     - name: Find Proxmox uplink port profile
@@ -72,6 +75,7 @@
           x-api-key: "{{ unifi_network_api_key }}"
         validate_certs: false
       register: _all_networks
+      check_mode: false
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
 
     - name: Build map of network id → VLAN id
@@ -128,7 +132,7 @@
           ipv6_interface_type: "none"
         validate_certs: false
         status_code: [200, 201]
-      when: not _test_vlan_exists
+      when: not _test_vlan_exists and not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
       register: _create_vlan
 
@@ -147,6 +151,7 @@
           x-api-key: "{{ unifi_network_api_key }}"
         validate_certs: false
       register: _firewall_rules
+      check_mode: false
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
 
     - name: Check which rules already exist
@@ -173,7 +178,7 @@
           dst_port: "22"
         validate_certs: false
         status_code: [200, 201]
-      when: "'Allow Semaphore SSH to test-isolation' not in _existing_rule_names"
+      when: "'Allow Semaphore SSH to test-isolation' not in _existing_rule_names and not ansible_check_mode"
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
       register: _create_ssh_rule
 
@@ -194,9 +199,27 @@
           dst_address: "{{ _prod_lan_subnet }}"
         validate_certs: false
         status_code: [200, 201]
-      when: "'Block test-isolation to LAN' not in _existing_rule_names"
+      when: "'Block test-isolation to LAN' not in _existing_rule_names and not ansible_check_mode"
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
       register: _create_block_rule
+
+    # ═══════════════════════════════════════════════════════════
+    # CHECK MODE — Report what would change (no writes made)
+    # ═══════════════════════════════════════════════════════════
+    - name: "[CHECK MODE] Report what would be created"
+      ansible.builtin.debug:
+        msg:
+          - "=== CHECK MODE — No changes made ==="
+          - "VLAN {{ vault_test_vlan_id }} (test-isolation): {{ 'would be created' if not _test_vlan_exists else 'already exists — no action needed' }}"
+          - "Rule 'Allow Semaphore SSH to test-isolation': {{ 'would be created' if 'Allow Semaphore SSH to test-isolation' not in _existing_rule_names else 'already exists — no action needed' }}"
+          - "Rule 'Block test-isolation to LAN': {{ 'would be created' if 'Block test-isolation to LAN' not in _existing_rule_names else 'already exists — no action needed' }}"
+          - ""
+          - "Derived values that would be used:"
+          - "  Semaphore IP (SSH allow source): {{ _semaphore_ip }}/32"
+          - "  Prod LAN CIDR (block destination): {{ _prod_lan_subnet }}"
+          - ""
+          - "Re-run without --check to apply."
+      when: ansible_check_mode
 
     # ═══════════════════════════════════════════════════════════
     # STEP 3 — Verify all resources exist
@@ -210,6 +233,7 @@
         validate_certs: false
       register: _verify_networks
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      when: not ansible_check_mode
 
     - name: Assert test-isolation VLAN exists
       ansible.builtin.assert:
@@ -219,6 +243,7 @@
           | selectattr('vlan', 'equalto', vault_test_vlan_id | int)
           | list | length > 0
         fail_msg: "test-isolation VLAN {{ vault_test_vlan_id }} not found after creation"
+      when: not ansible_check_mode
 
     - name: Re-fetch firewall rules for verification
       ansible.builtin.uri:
@@ -229,6 +254,7 @@
         validate_certs: false
       register: _verify_rules
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      when: not ansible_check_mode
 
     - name: Assert both firewall rules exist
       ansible.builtin.assert:
@@ -236,6 +262,7 @@
           - "'Allow Semaphore SSH to test-isolation' in (_verify_rules.json.data | map(attribute='name') | list)"
           - "'Block test-isolation to LAN' in (_verify_rules.json.data | map(attribute='name') | list)"
         fail_msg: "One or more firewall rules missing after creation"
+      when: not ansible_check_mode
 
     - name: Print summary
       ansible.builtin.debug:
@@ -249,3 +276,4 @@
           - "  1. Run build_ubuntu.yaml -e vm_name=test-vm to provision a test VM"
           - "  2. Verify: VLAN tag on net0 in Proxmox UI, IP in {{ vault_test_vlan_subnet }}"
           - "  3. From test VM: ping prod host → timeout; curl https://hub.docker.com → 200"
+      when: not ansible_check_mode
