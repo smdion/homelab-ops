@@ -404,7 +404,12 @@ lightweight on Ceph). **Revert** stops the VM, rolls back to a named snapshot, r
 for SSH — ideal for iterative testing (e.g., snapshot after bootstrap, test restores, revert,
 repeat). Snapshot and revert require `-e snapshot_name=<name>`. VM definitions (VMID, IP, cores,
 memory, disk, target node) come from `vars/vm_definitions.yaml`, selected by `-e vm_name=<key>`.
-`pve_template_node` must match the node `pve_api_host` resolves to. **Play 2** (the new VM, added
+`pve_api_host` should be the cluster VIP (set by `setup_pve_vip.yaml`) — provisioning uses the
+cluster resources API to resolve which node the VM actually landed on, so node assignment is
+VIP-safe regardless of which PVE node is currently MASTER. `tasks/provision_vm.yaml` (shared with
+`test_restore.yaml`) is idempotent: it checks the cluster for an existing VMID before cloning, so
+re-running after a partial failure resumes from where it left off rather than failing on a duplicate
+VMID. **Play 2** (the new VM, added
 to in-memory `build_target` group — only runs on create) bootstraps Ubuntu: waits for cloud-init
 to finish and apt locks to release, runs dist-upgrade, installs Docker and base packages, enables
 Docker service, adds user to docker/sudo groups, configures passwordless sudo, hardens SSH
@@ -1338,6 +1343,23 @@ To reveal masked task output on a specific run, pass `debug_no_log=yes` as an ex
 Alternatively, pass `-vvv`; verbosity ≥ 3 automatically disables `no_log` across all tasks.
 Both mechanisms are OR-combined — either alone is sufficient to reveal output.
 
+When a `no_log` task fails in Semaphore, the output is censored and shows only:
+`the output has been hidden due to the fact that 'no_log: true' was specified`. To get useful
+context without re-running, wrap the sensitive task in a `block/rescue` that re-fails with a hint:
+
+```yaml
+- block:
+    - name: Sensitive task
+      some_module: ...
+      no_log: "{{ not (debug_no_log | default(false) | bool) ... }}"
+  rescue:
+    - ansible.builtin.fail:
+        msg: "Sensitive task failed. Re-run with -e debug_no_log=yes for details."
+```
+
+This pattern is applied to all tasks files and key playbook sections. The hint appears even when
+output is masked, directing the operator to the correct debugging step.
+
 ### `validate_certs` policy
 
 - **External endpoints** (Discord, Docker Hub, GitHub, cloud portals): always validate (`validate_certs: true`,
@@ -1949,7 +1971,6 @@ pve_cloud_image_url: "..."
 vault_pve_vip: "..."             # Floating management VIP (10.x.x.x, unused host in /24)
 vault_pve_vrrp_password: "..."
 vault_pve_vrrp_priorities: {}    # Dict: short node name → integer priority (highest = MASTER)
-vault_pve_template_node_ip: "..." # Direct IP of template node — SSH bypasses VIP
 vault_test_vm_ip_prefix: "..."   # e.g. "10.10.10." — prefix for test-vm pool
 vault_test_vm_ip_offset: "..."   # e.g. 90 — first slot; slots 0–9 = offset .. offset+9
 vm_user: "..."
@@ -2329,12 +2350,22 @@ ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 
 ### Test Restore (automated)
 
+`test_restore.yaml` uses **ephemeral** VM slots defined in `vars/vm_definitions.yaml`.
+The `test-vm` key is the standard ephemeral slot (VMIDs 199–208, IPs from `vault_test_vm_ip_prefix`).
+Pass `vm_index=0..9` to select a slot (default 0). The playbook:
+1. Provisions the VM if it doesn't exist (idempotent — resumes if VMID already exists from a prior partial run)
+2. Snapshots it (`pre-test-restore`), runs the restore, then reverts — leaving the VM ready for the next test
+3. In `dr_mode=yes` mode, keeps the restored state (no revert) for real DR recovery
+
+**Do not use permanent VM keys** (`tantiveiv`, `odyssey`, `amp`) with `test_restore.yaml` — those
+are production VMs. Only `test-vm` (or a custom ephemeral key) is appropriate.
+
 ```bash
 # Test any host's full restore cycle (disposable VM, auto-reverts on completion)
-ansible-playbook test_restore.yaml -e vm_name=<test-vm> -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
+ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
 
 # DR mode — same playbook, keeps the VM running after restore (no revert)
-ansible-playbook test_restore.yaml -e vm_name=<dr-vm> -e source_host=<source-fqdn> -e dr_mode=yes --vault-password-file ~/.vault_pass
+ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqdn> -e dr_mode=yes --vault-password-file ~/.vault_pass
 
 # Test all app_restore apps on a disposable VM (per-app DB + appdata restore, health check, revert)
 ansible-playbook test_app_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
