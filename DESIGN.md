@@ -2126,6 +2126,27 @@ was pruned by `maintain_docker.yaml`, the old version is pulled from the registr
 the container alone may leave the DB in an incompatible state. For those cases, combine with
 `restore_databases.yaml`.
 
+### Manage PVE resource pools
+
+Pool membership is derived at runtime from each VM's live `net0` VLAN tag — no VMID lists to maintain.
+
+| Pool | Signal | Purpose |
+|------|--------|---------|
+| `production` | `net0` defined, no `tag=` | Target of PBS backup jobs |
+| `hosted` | `net0` with `tag=1682` | Friend VMs — excluded from PBS |
+| `test` | `net0` with `tag=<vault_test_vlan_id>` | Ephemeral test VMs — excluded from PBS |
+
+**Sync pools:** Run `maintain_pve.yaml` (Play 5 "Manage PVE resource pools"). On each run it:
+1. Creates any missing pools (idempotent)
+2. Adds VMs to their pool based on VLAN tag (additive — never removes)
+3. Logs to MariaDB; Discord alert on failure
+
+**To add a hosted friend VM:** Set `net0` VLAN tag to 1682 in PVE, then run `maintain_pve.yaml`. Done.
+
+**One-time PBS setup (after first pool run):** Datacenter → Backup → edit each backup job → set **Pool** = `production`. Backup jobs then only target production VMs.
+
+**Test VMs in pool at creation:** `tasks/provision_vm.yaml` adds test VMs to the `test` pool immediately after provisioning (guarded by `when: pve_pool_test is defined` — no-op when `vars/proxmox.yaml` is not loaded).
+
 ### Useful DB queries
 
 ```sql
