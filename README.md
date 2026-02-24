@@ -557,8 +557,8 @@ ansible-playbook test_app_restore.yaml \
 > **⚠️ Network isolation not yet implemented.** Test VMs run on the production network. Because
 > service `.env` files contain hardcoded production IPs, restored containers will connect to live
 > databases and services using real credentials. Inter-container references using Docker service
-> names are safe (local to the test VM). Run during low-traffic windows or with production services
-> stopped until VLAN isolation is in place. See `DESIGN.md` for details and the planned fix.
+> names are safe (local to the test VM). Run with production services stopped until VLAN isolation
+> is in place. See `DESIGN.md` for details and the planned fix.
 
 ```bash
 # Full restore test — provisions or reuses a disposable VM, restores all stacks, verifies health
