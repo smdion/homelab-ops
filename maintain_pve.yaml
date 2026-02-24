@@ -255,3 +255,84 @@
         log_type: "{{ maintenance_type }}"
         log_subtype: "{{ maintenance_subtype }}"
         log_status: "{{ 'warning' if _stale_snapshots | length > 0 else 'success' }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 4 — PBS backup task health check
+# Checks that recent backup/gc/prune/sync tasks completed without errors.
+# Runs on PBS hosts via SSH (proxmox-backup-manager — no REST API needed).
+# ═══════════════════════════════════════════════════════════════════
+- name: Check PBS backup task health
+  hosts: pbs
+  become: true
+  gather_facts: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    task_check_days: 2
+    maintenance_name: "PBS"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Task Check"
+
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    # ===== FETCH TASK HISTORY =====
+    - name: Get recent PBS task history
+      ansible.builtin.shell: |
+        proxmox-backup-manager task list --output-format json --limit 500 2>/dev/null || echo "[]"
+      register: _pbs_tasks_raw
+      changed_when: false
+      check_mode: false
+
+    # ===== IDENTIFY FAILED TASKS =====
+    - name: Set task check cutoff timestamp
+      ansible.builtin.set_fact:
+        _task_cutoff: "{{ (ansible_date_time.epoch | int) - (task_check_days | int * 86400) }}"
+
+    - name: Filter tasks with errors within check window
+      ansible.builtin.set_fact:
+        _pbs_task_errors: >-
+          {{ (_pbs_tasks_raw.stdout | from_json)
+             | selectattr('endtime', 'defined')
+             | selectattr('endtime', 'gt', 0)
+             | rejectattr('status', 'equalto', 'OK')
+             | rejectattr('status', 'equalto', '')
+             | selectattr('starttime', 'gt', _task_cutoff | int)
+             | list }}
+
+    # ===== REPORT =====
+    - name: Format task error list for Discord
+      ansible.builtin.set_fact:
+        _pbs_error_msg: |
+          {% for t in _pbs_task_errors[:10] -%}
+          {{ t.type }}{% if t.id is defined %} ({{ t.id }}){% endif %}: {{ t.status[:80] }}
+          {% endfor %}{% if _pbs_task_errors | length > 10 %}...and {{ _pbs_task_errors | length - 10 }} more{% endif %}
+      when: _pbs_task_errors | length > 0
+
+    - name: Send Discord alert for PBS task errors
+      include_tasks: tasks/notify.yaml
+      when: _pbs_task_errors | length > 0
+      vars:
+        discord_name: "{{ maintenance_name }}"
+        discord_operation: "Task Check"
+        discord_status: "warning"
+        discord_detail: "{{ _pbs_task_errors | length }} task(s) with errors in last {{ task_check_days }} days"
+        discord_color: "{{ discord_color_warning }}"
+        discord_url: "{{ semaphore_ext_url }}"
+        discord_author: "{{ inventory_hostname }}"
+        discord_fields:
+          - name: "Failed Tasks (last {{ task_check_days }}d)"
+            value: "{{ _pbs_error_msg | trim }}"
+
+    - name: Log PBS task check to MariaDB
+      include_tasks: tasks/log_mariadb.yaml
+      vars:
+        log_table: maintenance
+        log_application: "{{ maintenance_name }}"
+        log_hostname: "{{ inventory_hostname }}"
+        log_type: "{{ maintenance_type }}"
+        log_subtype: "{{ maintenance_subtype }}"
+        log_status: "{{ 'warning' if _pbs_task_errors | length > 0 else 'success' }}"

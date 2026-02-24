@@ -167,7 +167,7 @@ If the value describes the operation itself (not the environment), it can stay i
 ├── maintain_cache.yaml             # Drop Linux page cache on Ubuntu and unRAID hosts
 ├── maintain_unifi.yaml             # Restart Unifi Network service
 ├── maintain_health.yaml            # Scheduled health monitoring — 26 checks across all SSH hosts + DB/API; Uptime Kuma dead man's switch
-├── maintain_pve.yaml               # Idempotent Proxmox node config (keepalived VIP, ansible user, SSH hardening); stale snapshot check (>14d alert via Discord); safe to re-run after reinstall; Discord + MariaDB logging
+├── maintain_pve.yaml               # Idempotent Proxmox node config (keepalived VIP, ansible user, SSH hardening); stale snapshot check (>14d alert); PBS task error check (last 2d via proxmox-backup-manager); Discord + MariaDB logging
 ├── download_videos.yaml            # MeTube yt-dlp downloads — per-video Discord notifications + temp file cleanup; parameterized on config_file; hosts via hosts_variable
 ├── setup_ansible_user.yaml         # One-time utility: create ansible user on PVE/PBS/unRAID hosts (SSH key from vault, ansible_remote_tmp dir, validation assertions)
 ├── setup_pve_vip.yaml              # One-time VIP setup: install and configure keepalived on PVE nodes; verifies VIP reachable on port 22
@@ -1263,7 +1263,7 @@ and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
 | `restore_app.yaml` | Backup file search runs. Safety gate skipped. No stack stop/start. No DB or appdata restore. Discord/DB suppressed. |
 | `restore_amp.yaml` | AMP archive discovery runs. Safety gate skipped. No instance stop/start or data replacement. Discord/DB suppressed. |
 | `rollback_docker.yaml` | Snapshot read and parsed. Safety gate skipped. No image re-tag/pull or container recreation. Discord/DB suppressed. |
-| `maintain_pve.yaml` | keepalived + ansible user + SSH config tasks simulated. VIP reachability check skipped. Snapshot API queries run (read-only GET). Discord/DB suppressed. |
+| `maintain_pve.yaml` | keepalived + ansible user + SSH config tasks simulated. VIP reachability check skipped. Snapshot API queries run (read-only GET). PBS task list query runs (read-only shell, `check_mode: false`). Discord/DB suppressed. |
 | `maintain_logging_db.yaml` | DB purge queries simulated. Discord/DB suppressed. |
 | `deploy_grafana.yaml` | Dashboard JSON read and parsed. All API calls skipped (datasource check, create, dashboard import). Discord/DB suppressed. |
 | `test_backup_restore.yaml` | VM provisioned. Stacks deployed. No app restores performed (restore and health check steps skipped). Discord/DB suppressed. |
@@ -1862,6 +1862,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `maintain_logging_db.yaml` | Logging DB | Local | Cleanup |
 | `maintain_pve.yaml` (Play 1) | Proxmox | Appliances | Maintenance |
 | `maintain_pve.yaml` (Play 3) | Proxmox | Appliances | Snapshot Check |
+| `maintain_pve.yaml` (Play 4) | PBS | Appliances | Task Check |
 | `deploy_stacks.yaml` | Docker | Servers | Deploy |
 | `deploy_grafana.yaml` | Grafana | Local | Deploy |
 | `build_ubuntu.yaml` | Ubuntu | Servers | Build |
