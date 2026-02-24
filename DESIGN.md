@@ -191,10 +191,10 @@ history, restore results, playbook runs) belongs in the database.
 ├── build_ubuntu.yaml              # Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH config
 ├── restore_amp.yaml               # AMP instance restore — stop instance(s), replace data dir from archive, restart; per-instance or all; requires confirm=yes
 ├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
-├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert
+├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert; vm_name=cephfs-migrate-test tests CephFS-backed /opt
 ├── test_backup_restore.yaml          # Test all app_info apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
 ├── migrate_appdata_to_cephfs.yaml # One-shot migration of /opt from local RBD disk to CephFS shared storage; requires -e vm_name=<key> -e confirm=yes
-├── test_migrate_cephfs.yaml      # Test CephFS migration on a disposable VM loaded with real backup data; requires -e source_host=<fqdn>
+├── verify_cephfs.yaml             # Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires -e vm_name=<key>
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
 ├── files/
@@ -718,10 +718,12 @@ Semaphore template (task) names follow `Verb — Target [Subtype]`:
 | `Deploy — {Target} [{Subtype}]` | `Deploy — Docker Stacks`, `Deploy — Grafana [Dashboard]` |
 | `Download — {Target} [{Subtype}]` | `Download — Videos [Channels]`, `Download — Videos [On Demand]` |
 | `Maintain — {Target} [{Subtype}]` | `Maintain — AMP [Cleanup]`, `Maintain — Cache [Flush]`, `Maintain — Docker [Cleanup]`, `Maintain — Health [Check]` |
+| `Migrate — {Target} [{Subtype}]` | `Migrate — Appdata [CephFS]` |
 | `Restore — {Target} [{Subtype}]` | `Restore — Database [Primary PostgreSQL]`, `Restore — Docker Run [Appdata]` |
 | `Rollback — {Target} [{Subtype}]` | `Rollback — Docker [Containers]` |
+| `Test — {Target} [{Subtype}]` | `Test — Restore [VM]`, `Test — Backup Restore [VM]`, `Test — Restore [CephFS VM]` |
 | `Update — {Target} [{Subtype}]` | `Update — Proxmox [Appliance]`, `Update — Ubuntu [OS]`, `Update — Docker Stacks [Containers]` |
-| `Verify — {Target} [{Subtype}]` | `Verify — Database [Primary PostgreSQL]`, `Verify — Proxmox [Config]` |
+| `Verify — {Target} [{Subtype}]` | `Verify — Database [Primary PostgreSQL]`, `Verify — Proxmox [Config]`, `Verify — CephFS [Mount]` |
 
 The `[Subtype]` suffix makes templates instantly distinguishable when a target has more than one
 variant (e.g., `Backup — unRAID [Config]` vs `Backup — unRAID [Offline]`, or `Download — Videos [Channels]`
@@ -737,10 +739,10 @@ Templates are organized into views (tabs in the Semaphore UI) by verb:
 |------|-----------|-------------|
 | Backups | 13 | `Backup —` |
 | Updates | 6 | `Update —` |
-| Maintenance | 8 | `Maintain —` |
+| Maintenance | 8 | `Maintain —`, `Migrate —` |
 | Downloads | 2 | `Download —` |
 | Verify | 9 | `Verify —` |
-| Restore | 9 | `Restore —`, `Rollback —` |
+| Restore | 9 | `Restore —`, `Rollback —`, `Test —` |
 | Deploy | 3 | `Deploy —`, `Build —` |
 | Setup | 2 | `Setup —` |
 
@@ -1614,7 +1616,7 @@ CREATE TABLE maintenance (
   application VARCHAR(100) NOT NULL,   -- System maintained (e.g., 'AMP', 'Docker', 'Semaphore')
   hostname    VARCHAR(255) NOT NULL,   -- FQDN of host that ran the task
   type        VARCHAR(50)  NOT NULL,   -- 'Servers', 'Appliances', or 'Local'
-  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy', 'Build', 'Test Restore', 'Test Backup Restore', 'CephFS Migration', 'CephFS Verify', 'CephFS Migration Test'
+  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy', 'Build', 'Test Restore', 'Test Backup Restore', 'CephFS Migration', 'CephFS Verify'
   status      VARCHAR(20)  NOT NULL DEFAULT 'success',  -- 'success', 'failed', or 'partial'
   timestamp   DATETIME,            -- UTC_TIMESTAMP() — always UTC regardless of server timezone
   INDEX idx_application (application),
@@ -1790,7 +1792,7 @@ Narrows the category. Current values:
 
 - Backups: `Config`, `Appdata`, `Database`, `Offline`
 - Updates: `PVE`, `PBS`, `OS`, `Game Server`, `KVM`, `Container`
-- Maintenance: `Cleanup`, `Prune`, `Cache`, `Restart`, `Maintenance`, `Health Check`, `Verify`, `Deploy`, `Build`, `Test Restore`, `Test Backup Restore`, `CephFS Migration`, `CephFS Verify`, `CephFS Migration Test`
+- Maintenance: `Cleanup`, `Prune`, `Cache`, `Restart`, `Maintenance`, `Health Check`, `Verify`, `Deploy`, `Build`, `Test Restore`, `Test Backup Restore`, `CephFS Migration`, `CephFS Verify`
 
   (`Health Check` is reserved for `maintain_health.yaml` — its subtype value regardless of how many
   checks are added to that playbook)
@@ -1904,7 +1906,6 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `test_backup_restore.yaml` | Docker | Servers | Test Backup Restore |
 | `migrate_appdata_to_cephfs.yaml` | (vm_name) | Servers | CephFS Migration |
 | `verify_cephfs.yaml` | (vm_name) | Servers | CephFS Verify |
-| `test_migrate_cephfs.yaml` | (source_host) | Servers | CephFS Migration Test |
 
 **Restores** (type/subtype reuse the backup vars file values):
 
@@ -2493,7 +2494,7 @@ After setup:
 
 ### Test Restore (automated)
 
-`test_restore.yaml`, `test_backup_restore.yaml`, and `test_migrate_cephfs.yaml` all use **ephemeral**
+`test_restore.yaml` and `test_backup_restore.yaml` use **ephemeral**
 VM slots drawn from the same shared pool defined in `vars/vm_definitions.yaml`. Pool size and base
 values are controlled entirely by two vars:
 
@@ -2591,22 +2592,23 @@ See `vars/secrets.yaml.example` for the full entry and setup reference.
 - **tantiveiv** — `cephfs_host_dir: "tantive-iv"`
 - **odyssey** — `cephfs_host_dir: "odyssey"`
 - **cephfs-migrate-test** — `cephfs_host_dir: "cephfs-migrate-test"` — ephemeral test VM used by
-  `test_migrate_cephfs.yaml`. Draws a slot from the same `vm_test_slot_base` pool as `test-vm` via
-  `resolve_test_vm_index.yaml`. Same test VLAN isolation as `test-vm` (backup data stays off prod
-  network); CephFS monitor access allowed via "Allow Test to Ceph" zone policy. Bootstrap strips
-  `cephfs_host_dir` so `/opt` starts local; migration runs and mounts it.
-  Play 1 auto-creates `/cephfs-migrate-test` on CephFS root if missing.
+  `test_restore.yaml -e vm_name=cephfs-migrate-test`. Draws a slot from the same `vm_test_slot_base`
+  pool as `test-vm` via `resolve_test_vm_index.yaml`. Same test VLAN isolation as `test-vm` (backup
+  data stays off prod network); CephFS monitor access allowed via "Allow Test to Ceph" zone policy.
+  Bootstrap mounts CephFS at `/opt`; restore archives land directly on CephFS. `test_restore.yaml`
+  auto-creates the CephFS dir if missing.
 - **amp** — excluded: game server I/O sensitivity; AMP instance data stays on local disk
-- **test-vm** — excluded: Proxmox snapshots only revert the RBD disk. If a test VM mounted CephFS
-  at `/opt`, a snapshot revert would leave stale CephFS data visible on the next restore test,
-  corrupting the test result. Test VMs always use local disk.
+- **test-vm** — excluded: snapshots only revert the RBD disk, not CephFS. `test-vm` uses local `/opt`
+  so snapshot revert produces a clean state for each test run.
 
 ### Bootstrap (new VMs)
 
 `tasks/bootstrap_vm.yaml` handles CephFS automatically when `_vm.cephfs_host_dir` is defined:
 1. Installs `ceph-common`
-2. Writes the client keyring to `{{ cephfs_keyring_path }}`
-3. Mounts CephFS at `/opt` via `ansible.posix.mount state: mounted` (adds fstab + mounts)
+2. Writes the client keyring (INI format for CLI tools) to `{{ cephfs_keyring_path }}`
+3. Writes the raw mount secret (for kernel `secretfile=` option) to `.secret` alongside the keyring
+4. Writes a minimal `ceph.conf` with `mon_host` (suppresses DNS SRV fallback warning)
+5. Mounts CephFS at `/opt` via `ansible.posix.mount state: mounted` (adds fstab + mounts)
 
 A new VM's `/opt` is an empty CephFS subvolume — stacks deploy and immediately see any existing data.
 
@@ -2628,20 +2630,31 @@ staging, restart stacks from local disk. Local data is always intact (rsync was 
 
 Run order: odyssey first (one stack: vpn — lowest risk), then tantive-iv.
 
-### Migration Test (pre-production validation)
+### CephFS Restore Test (pre-production validation)
 
-`test_migrate_cephfs.yaml` validates the migration flow on a disposable VM before running on production:
+`test_restore.yaml -e vm_name=cephfs-migrate-test` validates backup/restore on CephFS-backed `/opt`.
+Uses the same `test_restore.yaml` flow as regular restore testing — the only differences are:
 
-1. Auto-detect free slot via `resolve_test_vm_index.yaml`; provision `cephfs-migrate-test` VM from same pool as `test-vm`, production VLAN
-2. Bootstrap Docker — without CephFS mount (`cephfs_host_dir` stripped from `_vm` during bootstrap)
-3. Restore backup archives from `source_host` (e.g. odyssey) to local `/opt` (inplace extract)
-4. Run the full migration inline: install `ceph-common`, write keyring + `.secret`, mount staging,
-   rsync, spot-check, unmount staging, mount CephFS at `/opt`
-5. Verify: `findmnt`, write/read marker file, check `/opt/stacks` present
-6. Log to MariaDB (subtype `CephFS Migration Test`) + Discord notification
-7. Stop test VM (skip with `-e keep_vm=yes` for post-test inspection)
+- `cephfs-migrate-test` VM definition has `cephfs_host_dir`, so `bootstrap_vm.yaml` mounts CephFS
+  at `/opt` automatically. Archives restore directly onto CephFS.
+- `test_restore.yaml` auto-creates the CephFS directory on the root filesystem (via PVE delegation)
+  when `_vm.cephfs_host_dir` is defined — no manual prerequisite.
+- Snapshot revert restores the RBD disk (OS, Docker, fstab); CephFS data persists but gets
+  overwritten by the next archive restore.
 
-Extra vars: `-e source_host=<fqdn>` (required — FQDN in `stack_assignments`)
+### Verification
+
+`verify_cephfs.yaml` checks that CephFS is correctly mounted and functional on a target VM:
+
+1. Assert `vm_name` has `cephfs_host_dir` defined
+2. Check `/opt` is mounted as CephFS (`findmnt -t ceph /opt`)
+3. Verify mount source contains the expected host directory name
+4. Write a marker file to `/opt/.cephfs-verify`, read it back
+5. Report whether `/opt/stacks` exists (informational)
+6. Log to MariaDB (`maintenance` table, subtype `CephFS Verify`) + Discord notification
+
+Usage: `-e vm_name=<key>` (must have `cephfs_host_dir` defined). Run after migration or bootstrap
+to confirm CephFS is working, or on a schedule as a health check.
 
 ### Backup / DR
 

@@ -95,11 +95,11 @@ vm_definitions:
     vm_disk_gb: 100
     pve_target_node: "{{ vault_vm_amp_node }}"
 
-  # VM for testing the CephFS migration flow (test_migrate_cephfs.yaml).
+  # VM for testing restore on CephFS-backed /opt (test_restore.yaml -e vm_name=cephfs-migrate-test).
   # Draws a slot from the same test-vm pool via resolve_test_vm_index.yaml (no fixed VMID).
   # Same test VLAN isolation as test-vm — CephFS monitor access via "Allow Test to Ceph" zone policy
-  # (setup_test_network.yaml, ports 3300/6789/6800-7300). No ip_aliases needed (no Docker stacks run).
-  # Prerequisites: none — Play 1 of test_migrate_cephfs.yaml auto-creates /cephfs-migrate-test on CephFS root.
+  # (setup_test_network.yaml, ports 3300/6789/6800-7300). No ip_aliases (no prod-IP routing needed).
+  # Prerequisites: none — test_restore.yaml auto-creates /cephfs-migrate-test on CephFS root.
   cephfs-migrate-test:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
     vm_name: "cephfs-migrate-test{{ vm_index | default(0) | int }}"
@@ -112,7 +112,7 @@ vm_definitions:
     vm_gateway: "{{ vault_test_vlan_gateway }}"   # isolated VLAN gateway (overrides global vm_gateway)
     vm_dns: "8.8.8.8,8.8.4.4"                    # public DNS (prod DNS unreachable from isolated VLAN)
     vm_vlan_tag: "{{ vault_test_vlan_id }}"       # same test isolation as test-vm
-    cephfs_host_dir: "cephfs-migrate-test"  # auto-created by test_migrate_cephfs.yaml Play 1 if missing
+    cephfs_host_dir: "cephfs-migrate-test"  # auto-created by test_restore.yaml if missing
 
   test-vm:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
