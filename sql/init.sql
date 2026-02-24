@@ -113,3 +113,15 @@ CREATE TABLE IF NOT EXISTS docker_sizes (
   INDEX idx_hostname  (hostname),
   INDEX idx_timestamp (timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Playbook run audit log — one row per invocation (per target host for distributed playbooks)
+CREATE TABLE IF NOT EXISTS playbook_runs (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  playbook    VARCHAR(255) NOT NULL,
+  hostname    VARCHAR(255) NOT NULL,
+  run_vars    TEXT,
+  timestamp   DATETIME     NOT NULL,
+  INDEX idx_playbook  (playbook),
+  INDEX idx_hostname  (hostname),
+  INDEX idx_timestamp (timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

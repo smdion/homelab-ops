@@ -1,0 +1,34 @@
+---
+# Log a single playbook invocation row to ansible_logging.playbook_runs.
+# Call in pre_tasks, after assert_db_connectivity (and after confirm gate for gated playbooks).
+#
+# Required vars (pass via include_tasks vars:):
+#   log_playbook  — playbook filename (e.g. 'backup_hosts.yaml')
+#   log_hostname  — inventory_hostname (remote plays) or controller_fqdn (localhost plays)
+#   log_run_vars  — JSON string of non-sensitive extra vars; use '{}' for routine playbooks
+
+- name: Log playbook run context to MariaDB
+  become: false
+  connection: local
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  community.mysql.mysql_query:
+    login_host: "{{ logging_db_host }}"
+    login_port: "{{ logging_db_port }}"
+    login_user: "{{ logging_db_user }}"
+    login_password: "{{ logging_db_password }}"
+    login_db: "{{ logging_db_name }}"
+    query: >-
+      INSERT INTO playbook_runs (playbook, hostname, run_vars, timestamp)
+      VALUES (%s, %s, %s, UTC_TIMESTAMP())
+    positional_args:
+      - "{{ log_playbook }}"
+      - "{{ log_hostname }}"
+      - "{{ log_run_vars }}"
+  register: _log_run_result
+  retries: 40
+  delay: 10
+  until: _log_run_result is succeeded
+  when: not ansible_check_mode
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  tags: [always]

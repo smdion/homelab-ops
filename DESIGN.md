@@ -70,6 +70,8 @@ playbooks, shared tasks, SQL schema, and Grafana dashboard work unchanged.
 | **`group_vars/all.yaml`** | Shared defaults that apply to all hosts | `ansible_remote_tmp`, `backup_base_dir`, `backup_url` template |
 | **Inventory** | Host definitions, group membership, SSH/connection settings | `[ubuntu]`, `[pve]`, `[docker_stacks]`, host FQDNs |
 | **Semaphore variable groups** | Routing-only — `hosts_variable` and `config_file` | `{"hosts_variable": "pve:pbs"}` |
+| **Docker container labels** (`homelab.*`) | Static per-container config metadata discovered at runtime by tasks | `homelab.backup.paths`, `homelab.health_timeout`, `homelab.test.skip_health` |
+| **MariaDB (`ansible_logging`)** | Dynamic operational data — time-series records that accumulate per run | Backup records, update history, health checks, restore results, playbook runs |
 | **Play-level `vars:`** | Only derived/computed values and operation metadata | `config_file: "{{ hosts_variable }}"`, `maintenance_name: "Docker"`, `maintenance_type: "Servers"` |
 
 **Play-level `vars:` rules:**
@@ -85,6 +87,20 @@ playbooks, shared tasks, SQL schema, and Grafana dashboard work unchanged.
 
 **Quick test:** If you changed homelabs and had to edit a value, it must be in a `vars/` file.
 If the value describes the operation itself (not the environment), it can stay in the playbook.
+
+**Prefer Docker labels over vars files for per-container metadata.**
+
+When a configuration value is specific to a single Docker container or stack — backup paths,
+health check timeouts, test-mode skip flags — put it in a `homelab.*` label on the container
+rather than in a vars file. Labels are co-located with what they describe, survive stack
+redeployment automatically, and let tasks discover config at runtime without a vars-file edit
+for every new stack. Vars files are for deployment-wide configuration (hostnames, API endpoints,
+credentials, thresholds that apply across the whole homelab). If you find yourself adding a
+per-stack or per-container entry to a vars file, consider a container label instead.
+
+**Docker labels are not a substitute for MariaDB.** Labels hold static metadata; they cannot
+represent time-series records. Anything that accumulates per run (backup records, health check
+history, restore results, playbook runs) belongs in the database.
 
 ## File Structure
 
@@ -124,6 +140,7 @@ If the value describes the operation itself (not the environment), it can stay i
 ├── tasks/
 │   ├── notify.yaml                  # Shared notification task (Discord + Apprise)
 │   ├── log_mariadb.yaml             # Shared MariaDB logging task (backups, updates, maintenance tables)
+│   ├── log_run_context.yaml         # Shared MariaDB logging task (playbook_runs table — one row per playbook invocation)
 │   ├── log_restore.yaml             # Shared MariaDB logging task (restores table — restore operations only)
 │   ├── log_health_check.yaml        # Shared MariaDB logging task (health_checks table — single row; currently unused)
 │   ├── log_health_checks_batch.yaml # Shared MariaDB logging task (health_checks table — multi-row batch INSERT)
@@ -1712,6 +1729,28 @@ CREATE TABLE docker_sizes (
 Written by `maintain_docker.yaml` after each Docker prune run. Captures Docker storage usage
 per host — images, volumes, and containers — enabling Grafana trend panels to detect image
 accumulation and measure the effectiveness of each prune cycle.
+
+#### `playbook_runs` table
+
+```sql
+CREATE TABLE playbook_runs (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  playbook    VARCHAR(255) NOT NULL,
+  hostname    VARCHAR(255) NOT NULL,
+  run_vars    TEXT,
+  timestamp   DATETIME     NOT NULL,
+  INDEX idx_playbook  (playbook),
+  INDEX idx_hostname  (hostname),
+  INDEX idx_timestamp (timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+```
+
+Written by `tasks/log_run_context.yaml`, called in `pre_tasks` of every scheduled playbook
+(24 total) after `assert_db_connectivity` and after any `confirm=yes` safety gate. One row per
+host per invocation — remote-host plays log `inventory_hostname`; localhost-only plays log
+`controller_fqdn`. `run_vars` is a JSON string of non-sensitive extra vars (e.g.
+`{"config_file":"docker_stacks"}`) or `{}` for routine playbooks. Pruned by `maintain_semaphore.yaml`
+on the shared `retention_days` schedule (default 365 days).
 
 ### Naming scheme
 

@@ -22,6 +22,13 @@
     - name: Assert MariaDB logging database is reachable
       include_tasks: tasks/assert_db_connectivity.yaml
 
+    - name: Log playbook run context to MariaDB
+      include_tasks: tasks/log_run_context.yaml
+      vars:
+        log_playbook: "maintain_semaphore.yaml"
+        log_hostname: "{{ controller_fqdn }}"
+        log_run_vars: "{}"
+
   tasks:
     - name: Initialize maintenance state
       ansible.builtin.set_fact:
@@ -86,6 +93,7 @@
             - "DELETE FROM maintenance WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
             - "DELETE FROM backups WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
             - "DELETE FROM restores WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
+            - "DELETE FROM playbook_runs WHERE timestamp < UTC_TIMESTAMP() - INTERVAL %s DAY"
           loop_control:
             label: "{{ item.split('FROM ')[1].split(' WHERE')[0] }}"
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
