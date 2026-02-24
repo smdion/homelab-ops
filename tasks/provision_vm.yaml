@@ -64,6 +64,62 @@
   ansible.builtin.set_fact:
     _vm_already_exists: "{{ _cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0 }}"
 
+# --- Auto-advance test-vm slot if selected slot is currently running ---
+# If the resolved VMID (199–208) is running (in use), find the next free slot instead of stopping it.
+# Named VMs outside that range are not auto-advanced.
+- name: Auto-advance test-vm slot if selected slot is running
+  when: >-
+    _vm_already_exists | bool and
+    (_vm.vm_id | int) >= 199 and (_vm.vm_id | int) <= 208 and
+    (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int)
+     | selectattr('status', 'equalto', 'running') | list | length > 0)
+  block:
+    - name: Assert a free test-vm slot exists
+      ansible.builtin.assert:
+        that: >-
+          (range(199, 209) | list)
+          | difference(
+              _cluster_vms.json.data
+              | selectattr('status', 'equalto', 'running')
+              | map(attribute='vmid') | map('int') | list
+            ) | length > 0
+        fail_msg: >-
+          VMID {{ _vm.vm_id }} ({{ _vm.vm_name }}) is running and all test-vm slots
+          (VMIDs 199–208) are also running. Stop a slot first, or pass vm_index= explicitly.
+
+    - name: Resolve next free test-vm VMID
+      ansible.builtin.set_fact:
+        _next_free_vmid: >-
+          {{ ((range(199, 209) | list)
+              | difference(
+                  _cluster_vms.json.data
+                  | selectattr('status', 'equalto', 'running')
+                  | map(attribute='vmid') | map('int') | list
+                ) | map('int') | sort | first) | int }}
+
+    - name: Compute new slot index
+      ansible.builtin.set_fact:
+        _new_vm_index: "{{ (_next_free_vmid | int) - 199 }}"
+
+    - name: Update _vm to next free test-vm slot
+      ansible.builtin.set_fact:
+        vm_index: "{{ _new_vm_index }}"
+        _vm: >-
+          {{ _vm | combine({
+            'vm_id': _next_free_vmid | int,
+            'vm_name': 'test-vm' ~ _new_vm_index,
+            'vm_hostname': 'test-vm' ~ _new_vm_index ~ '.' ~ vm_search_domain,
+            'vm_ip': vault_test_vm_ip_prefix ~ (((vault_test_vm_ip_offset | int) + (_new_vm_index | int)) | string)
+          }) }}
+        _vm_already_exists: >-
+          {{ _cluster_vms.json.data | selectattr('vmid', 'equalto', _next_free_vmid | int) | list | length > 0 }}
+
+    - name: Show auto-advanced slot
+      ansible.builtin.debug:
+        msg: >-
+          Auto-advanced to vm_index={{ _new_vm_index }}
+          (VMID {{ _vm.vm_id }}, IP {{ _vm.vm_ip }}) — previous slot was running.
+
 # --- Clone, configure, resize, start —
 #     grouped block: rescue fires on any step failure with a debug hint ---
 - block:
@@ -148,23 +204,6 @@
           cloud-init ipconfig0 does not contain expected IP {{ _vm.vm_ip }}.
           Actual: {{ _vm_config_check.json.data.ipconfig0 | default('not set') }}
           Check that vault_test_vm_ip_prefix and vault_test_vm_ip_offset resolve to a valid subnet IP.
-
-    # Stop VM if running before reconfigure (requires stopped state)
-    - name: Stop VM if running before reconfigure
-      community.general.proxmox_kvm:
-        api_host: "{{ pve_api_host }}"
-        api_user: "{{ pve_api_user }}"
-        api_token_id: "{{ pve_api_token_id }}"
-        api_token_secret: "{{ pve_api_token_secret }}"
-        node: "{{ _vm_actual_node }}"
-        vmid: "{{ _vm.vm_id }}"
-        state: stopped
-        force: true
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: >-
-        _vm_already_exists and
-        (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int)
-         | selectattr('status', 'equalto', 'running') | list | length > 0)
 
     # Resize disk from cloud image (~3.5G) to target size
     - name: Resize VM disk
