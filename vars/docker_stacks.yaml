@@ -46,7 +46,7 @@ stack_backup_paths:
     - /opt/npm-le
     - /opt/beszel
 
-# Per-stack health check timeouts (seconds) used by test_restore.yaml and test_app_restore.yaml.
+# Per-stack health check timeouts (seconds) used by test_restore.yaml and test_backup_restore.yaml.
 # When testing multiple stacks at once the maximum timeout across all tested stacks is used.
 # Default fallback is 120s when a stack is not listed here.
 stack_health_timeouts:

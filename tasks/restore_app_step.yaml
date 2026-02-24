@@ -1,9 +1,9 @@
 ---
 # Restore a single app on the test VM and record the result.
-# Called in a loop from test_app_restore.yaml Play 4.
+# Called in a loop from test_backup_restore.yaml Play 4.
 #
 # Expects (from caller loop/scope):
-#   _test_app         — app name (loop_var from test_app_restore.yaml)
+#   _test_app         — app name (loop_var from test_backup_restore.yaml)
 #   _stack_archive_map — dict: app → stack archive path (set in Play 1)
 #   _db_archive_map   — dict: db_name → db archive path (set in Play 1)
 #   _app_restore_results — list to append {app, passed, detail} entries

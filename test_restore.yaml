@@ -250,6 +250,22 @@
         - not (dr_mode | default('') == 'yes')
         - _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
 
+    - name: Wait for VM lock to clear after snapshot delete
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _vm_lock_status
+      until: _vm_lock_status.json.data.lock is not defined
+      retries: 20
+      delay: 3
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when:
+        - not (dr_mode | default('') == 'yes')
+        - _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
+
     - name: Create pre-test snapshot (post-bootstrap clean state)
       ansible.builtin.uri:
         url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"

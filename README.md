@@ -120,7 +120,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `maintain_pve.yaml` | Proxmox | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; safe to re-run after node reinstall; Discord + MariaDB logging |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
 | `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=yes`) keeps restored state |
-| `test_app_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_restore` apps on a disposable VM — per-app restore (DB + appdata), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope |
+| `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_restore` apps on a disposable VM — per-app restore (DB + appdata), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
 > **unRAID — Fix Common Problems:** If you have the [Fix Common Problems](https://forums.unraid.net/topic/47266-plugin-ca-fix-common-problems/) plugin installed, it will raise an alert when `setup_ansible_user.yaml` adds the `ansible` user via SSH. This is expected behaviour — the plugin flags any new SSH-capable user as a potential security concern. You can safely acknowledge and suppress the alert once you've verified the key and confirmed the user was added intentionally.
@@ -198,7 +198,7 @@ for platforms you don't have are automatically skipped.
 ├── deploy_stacks.yaml           # Docker stack deploy from Git — .env templating, compose copy, validate, start
 ├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
 ├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks)
-├── test_app_restore.yaml        # Test all app_restore apps on disposable VM — per-app restore, OOM recovery, Discord summary
+├── test_backup_restore.yaml        # Test all app_restore apps on disposable VM — per-app restore, OOM recovery, Discord summary
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
 ├── setup_ansible_user.yaml      # One-time user setup utility
 ├── setup_pve_vip.yaml           # One-time keepalived VIP setup on PVE nodes
@@ -537,13 +537,13 @@ ansible-playbook restore_app.yaml \
   --vault-password-file ~/.vault_pass
 
 # Test all apps on a disposable VM — full restore cycle, Discord summary, auto-revert
-ansible-playbook test_app_restore.yaml \
+ansible-playbook test_backup_restore.yaml \
   -i inventory.yaml \
   -e source_host=myhost.home.local \
   --vault-password-file ~/.vault_pass
 
 # Test a subset of apps only
-ansible-playbook test_app_restore.yaml \
+ansible-playbook test_backup_restore.yaml \
   -i inventory.yaml \
   -e source_host=myhost.home.local \
   -e test_apps=authentik,jellyseerr \
