@@ -49,6 +49,10 @@
           vm_name '{{ vm_name | default('undefined') }}' not found in vm_definitions.
           Valid names: {{ vm_definitions.keys() | list | join(', ') }}
 
+    - name: Auto-select test-vm slot (test-vm and cephfs-test use the 199–208 VMID pool)
+      include_tasks: tasks/resolve_test_vm_index.yaml
+      when: vm_name in ['test-vm', 'cephfs-test']
+
     - name: Resolve VM definition
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"

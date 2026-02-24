@@ -80,10 +80,10 @@ vm_definitions:
     cephfs_host_dir: "odyssey"       # mounts /odyssey from CephFS root at /opt
 
   cephfs-test:
-    vm_id: 110
-    vm_name: cephfs-test
-    vm_hostname: "cephfs-test.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + 10 }}"
+    vm_id: "{{ (199 + (vm_index | default(0) | int)) | int }}"
+    vm_name: "cephfs-test{{ vm_index | default(0) | int }}"
+    vm_hostname: "cephfs-test{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
+    vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
     vm_cores: 2
     vm_memory_mb: 4096
     vm_disk_gb: 20
