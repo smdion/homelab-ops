@@ -233,10 +233,17 @@
           ruleset: "LAN_IN"
           action: "accept"
           protocol: "tcp"
+          protocol_match_excepted: false
           enabled: true
+          ip_version: "ipv4"
+          logging: false
+          ipsec: ""
           src_firewallzone_id: "{{ _semaphore_zone_id }}"
           dst_firewallzone_id: "{{ _test_vlan_zone_id }}"
           dst_port: "22"
+          src_mac_address: ""
+          src_firewallgroup_ids: []
+          dst_firewallgroup_ids: []
         validate_certs: false
         status_code: [200, 201]
       when: _ssh_rule_name not in _existing_rule_names and not ansible_check_mode and _effective_zone_rules | bool
@@ -254,9 +261,17 @@
           name: "{{ _block_rule_name }}"
           ruleset: "LAN_IN"
           action: "drop"
+          protocol: "all"
+          protocol_match_excepted: false
           enabled: true
+          ip_version: "ipv4"
+          logging: false
+          ipsec: ""
           src_firewallzone_id: "{{ _test_vlan_zone_id }}"
           dst_firewallzone_id: "{{ _semaphore_zone_id }}"
+          src_mac_address: ""
+          src_firewallgroup_ids: []
+          dst_firewallgroup_ids: []
         validate_certs: false
         status_code: [200, 201]
       when: _block_rule_name not in _existing_rule_names and not ansible_check_mode and _effective_zone_rules | bool
@@ -276,10 +291,17 @@
           ruleset: "LAN_IN"
           action: "accept"
           protocol: "tcp"
+          protocol_match_excepted: false
           enabled: true
+          ip_version: "ipv4"
+          logging: false
+          ipsec: ""
           src_address: "{{ _semaphore_ip }}/32"
           dst_address: "{{ vault_test_vlan_subnet }}"
           dst_port: "22"
+          src_mac_address: ""
+          src_firewallgroup_ids: []
+          dst_firewallgroup_ids: []
         validate_certs: false
         status_code: [200, 201]
       when: _ssh_rule_name not in _existing_rule_names and not ansible_check_mode and not (_effective_zone_rules | bool)
@@ -297,9 +319,17 @@
           name: "{{ _block_rule_name }}"
           ruleset: "LAN_IN"
           action: "drop"
+          protocol: "all"
+          protocol_match_excepted: false
           enabled: true
+          ip_version: "ipv4"
+          logging: false
+          ipsec: ""
           src_address: "{{ vault_test_vlan_subnet }}"
           dst_address: "{{ _prod_lan_subnet }}"
+          src_mac_address: ""
+          src_firewallgroup_ids: []
+          dst_firewallgroup_ids: []
         validate_certs: false
         status_code: [200, 201]
       when: _block_rule_name not in _existing_rule_names and not ansible_check_mode and not (_effective_zone_rules | bool)
