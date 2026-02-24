@@ -2351,11 +2351,11 @@ ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 > **⚠️ Network Isolation — Not Yet Implemented**
 > Test VMs are currently provisioned on the **production network** (`vmbr0`, untagged).
 > When `test_app_restore.yaml` starts restored Docker stacks, containers can reach live
-> production services (external APIs, SMTP relays, sync endpoints, etc.).
->
-> Database connections are isolated (they use Docker service names within the test VM),
-> but any app that phones home or calls an external service will do so using restored
-> credentials on the real network.
+> production services. Because service `.env` files contain **hardcoded production IPs**,
+> this includes live databases, external APIs, SMTP relays, sync endpoints, and any other
+> service referenced by IP. Restored containers will connect to production infrastructure
+> using real credentials. Inter-container references using Docker service names (within the
+> same compose network) are safe — those stay local to the test VM.
 >
 > **Planned fix:** Dedicated isolation VLAN (via Unifi API + Proxmox VLAN tag on net0).
 > Until implemented, run test restores only during low-traffic windows or with production
