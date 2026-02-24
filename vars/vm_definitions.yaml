@@ -79,6 +79,17 @@ vm_definitions:
     pve_target_node: "{{ vault_vm_odyssey_node }}"
     cephfs_host_dir: "odyssey"       # mounts /odyssey from CephFS root at /opt
 
+  cephfs-test:
+    vm_id: 110
+    vm_name: cephfs-test
+    vm_hostname: "{{ vault_vm_cephfstest_hostname }}"
+    vm_ip: "{{ vault_vm_cephfstest_ip }}"
+    vm_cores: 2
+    vm_memory_mb: 4096
+    vm_disk_gb: 20
+    pve_target_node: "{{ vault_vm_cephfstest_node }}"
+    cephfs_host_dir: "cephfs-test"   # throwaway PoC — remove before merging to main
+
   amp:
     vm_id: 102
     vm_name: amp
