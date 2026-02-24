@@ -613,3 +613,254 @@
             log_type: "{{ maintenance_type }}"
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 6 — Check for unused (detached) VM disks
+# Fetches all QEMU VM configs and flags any with unusedN keys —
+# disks present in storage but not attached to any bus (scsi/ide/
+# virtio/sata). Common after disk detaches or partial provisioning.
+# ═══════════════════════════════════════════════════════════════════
+- name: Check for unused VM disks
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/semaphore_check.yaml
+    - vars/proxmox.yaml
+  vars:
+    maintenance_name: "Proxmox"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Unused Disk Check"
+
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize unused disk state
+      ansible.builtin.set_fact:
+        _unused_disks: []
+
+    - name: Get all cluster VMs
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _cluster_vms
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Get config for each QEMU VM
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _vm_configs
+      loop: >-
+        {{ _cluster_vms.json.data
+           | selectattr('type', 'equalto', 'qemu')
+           | rejectattr('template', 'equalto', 1)
+           | list }}
+      loop_control:
+        label: "{{ item.name }} ({{ item.vmid }})"
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Build list of VMs with unused disks
+      ansible.builtin.set_fact:
+        _unused_disks: >-
+          {{ _unused_disks +
+             [{'vm': item.item.name,
+               'vmid': item.item.vmid,
+               'disks': item.json.data.keys() | select('match', '^unused\d+') | list}]
+             if (item.json is defined and
+                 item.json.data.keys() | select('match', '^unused\d+') | list | length > 0)
+             else _unused_disks }}
+      loop: "{{ _vm_configs.results | rejectattr('failed', 'equalto', true) | list }}"
+      loop_control:
+        label: "{{ item.item.name }} ({{ item.item.vmid }})"
+
+    - name: Format unused disk list for Discord
+      ansible.builtin.set_fact:
+        _unused_disk_msg: |
+          {% for vm in _unused_disks -%}
+          {{ vm.vm }} ({{ vm.vmid }}): {{ vm.disks | join(', ') }}
+          {% endfor %}
+      when: _unused_disks | length > 0
+
+    - name: Send Discord alert for unused disks
+      include_tasks: tasks/notify.yaml
+      when: _unused_disks | length > 0
+      vars:
+        discord_name: "{{ maintenance_name }}"
+        discord_operation: "Unused Disk Check"
+        discord_status: "warning"
+        discord_detail: "{{ _unused_disks | length }} VM(s) have unused detached disks"
+        discord_color: "{{ discord_color_warning }}"
+        discord_url: "{{ semaphore_ext_url }}"
+        discord_author: "{{ controller_fqdn }}"
+        discord_fields:
+          - name: "VMs with Unused Disks"
+            value: "{{ _unused_disk_msg | trim }}"
+
+    - name: Log unused disk check to MariaDB
+      include_tasks: tasks/log_mariadb.yaml
+      vars:
+        log_table: maintenance
+        log_application: "{{ maintenance_name }}"
+        log_hostname: "{{ controller_fqdn }}"
+        log_type: "{{ maintenance_type }}"
+        log_subtype: "{{ maintenance_subtype }}"
+        log_status: "{{ 'warning' if _unused_disks | length > 0 else 'success' }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 7 — PVE right-size check
+# Flags production VMs where 1-month average CPU < 10% AND average
+# memory < 30% of configured max. Uses PVE RRD API (timeframe=month,
+# cf=AVERAGE). Production VMs = net0 defined with no VLAN tag.
+# Warn-only — no corrective action taken.
+# ═══════════════════════════════════════════════════════════════════
+- name: PVE right-size check
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/semaphore_check.yaml
+    - vars/proxmox.yaml
+  vars:
+    maintenance_name: "Proxmox"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Right-Size Check"
+    rightsize_cpu_threshold: 0.10   # flag if 1-month avg CPU < 10%
+    rightsize_mem_threshold: 0.30   # flag if 1-month avg mem < 30% of configured max
+
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize right-size state
+      ansible.builtin.set_fact:
+        _flagged_vms: []
+
+    - name: Get all cluster VMs
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _cluster_vms
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Get config for each QEMU VM
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _vm_configs
+      loop: >-
+        {{ _cluster_vms.json.data
+           | selectattr('type', 'equalto', 'qemu')
+           | rejectattr('template', 'equalto', 1)
+           | list }}
+      loop_control:
+        label: "{{ item.name }} ({{ item.vmid }})"
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    # Production = net0 defined with no VLAN tag (same rule as pool sync)
+    - name: Derive production VM list
+      ansible.builtin.set_fact:
+        _production_qemu_vms: >-
+          {{ _vm_configs.results
+             | rejectattr('failed', 'equalto', true)
+             | selectattr('json.data.net0', 'defined')
+             | rejectattr('json.data.net0', 'search', '(?:^|,)tag=\d+(?:,|$)')
+             | map(attribute='item') | list }}
+
+    - name: Fetch 1-month RRD averages for production VMs
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/rrddata?timeframe=month&cf=AVERAGE"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _rrd_results
+      loop: "{{ _production_qemu_vms }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.vmid }})"
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _production_qemu_vms | length > 0
+
+    # RRD points with cpu=null indicate the VM was off during that period.
+    # Filter them out before averaging so uptime doesn't dilute the result.
+    - name: Flag over-provisioned VMs
+      vars:
+        _pts: >-
+          {{ item.json.data | rejectattr('cpu', 'none') | list
+             if (item.json is defined and item.json.data is defined)
+             else [] }}
+        _avg_cpu: >-
+          {{ ((_pts | map(attribute='cpu') | list | sum) / (_pts | length))
+             if _pts | length > 0 else 1.0 }}
+        _mem_pts: >-
+          {{ _pts | rejectattr('mem', 'none') | rejectattr('maxmem', 'none') | list }}
+        _maxmem: >-
+          {{ _mem_pts | map(attribute='maxmem') | list | max
+             if _mem_pts | length > 0 else 1 }}
+        _avg_mem_pct: >-
+          {{ (((_mem_pts | map(attribute='mem') | list | sum) / (_mem_pts | length)) / (_maxmem | int))
+             if (_mem_pts | length > 0 and (_maxmem | int) > 0) else 1.0 }}
+      ansible.builtin.set_fact:
+        _flagged_vms: >-
+          {{ _flagged_vms + [{'vm': item.item.name, 'vmid': item.item.vmid,
+                               'avg_cpu_pct': (_avg_cpu * 100) | round(1),
+                               'avg_mem_pct': (_avg_mem_pct * 100) | round(1)}]
+             if (_pts | length > 0 and
+                 (_avg_cpu | float) < (rightsize_cpu_threshold | float) and
+                 (_avg_mem_pct | float) < (rightsize_mem_threshold | float))
+             else _flagged_vms }}
+      loop: "{{ _rrd_results.results | rejectattr('failed', 'equalto', true) | list }}"
+      loop_control:
+        label: "{{ item.item.name }} ({{ item.item.vmid }})"
+      when: _production_qemu_vms | length > 0
+
+    - name: Format right-size report for Discord
+      ansible.builtin.set_fact:
+        _rightsize_msg: |
+          {% for vm in _flagged_vms -%}
+          {{ vm.vm }} ({{ vm.vmid }}): CPU {{ vm.avg_cpu_pct }}% / Mem {{ vm.avg_mem_pct }}% (1-month avg)
+          {% endfor %}
+      when: _flagged_vms | length > 0
+
+    - name: Send Discord alert for over-provisioned VMs
+      include_tasks: tasks/notify.yaml
+      when: _flagged_vms | length > 0
+      vars:
+        discord_name: "{{ maintenance_name }}"
+        discord_operation: "Right-Size Check"
+        discord_status: "warning"
+        discord_detail: "{{ _flagged_vms | length }} production VM(s) may be over-provisioned"
+        discord_color: "{{ discord_color_warning }}"
+        discord_url: "{{ semaphore_ext_url }}"
+        discord_author: "{{ controller_fqdn }}"
+        discord_fields:
+          - name: "Over-Provisioned VMs (CPU <{{ (rightsize_cpu_threshold * 100) | int }}% AND Mem <{{ (rightsize_mem_threshold * 100) | int }}%)"
+            value: "{{ _rightsize_msg | trim }}"
+
+    - name: Log right-size check to MariaDB
+      include_tasks: tasks/log_mariadb.yaml
+      vars:
+        log_table: maintenance
+        log_application: "{{ maintenance_name }}"
+        log_hostname: "{{ controller_fqdn }}"
+        log_type: "{{ maintenance_type }}"
+        log_subtype: "{{ maintenance_subtype }}"
+        log_status: "{{ 'warning' if _flagged_vms | length > 0 else 'success' }}"
