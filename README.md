@@ -516,6 +516,26 @@ ansible-playbook restore_amp.yaml \
 ```
 </details>
 
+### Which restore playbook to use?
+
+| Situation | Playbook |
+|---|---|
+| Scheduled backup integrity check — do my archives actually work? | `test_backup_restore.yaml` |
+| DR simulation — can I rebuild this entire host from scratch? | `test_restore.yaml` |
+| Something broke, restore this app to production now | `restore_app.yaml` |
+
+**`test_backup_restore.yaml`** deploys all stacks fresh on a disposable VM, then for each app
+restores its DB + appdata from the backup archive and asserts HTTP health. Run this on a schedule
+to prove your backups are valid before you need them.
+
+**`test_restore.yaml`** is a deployment smoke test — it restores a host's appdata archives to a
+fresh VM and verifies all containers come up healthy. Use it for DR planning or to validate a
+full host rebuild. It does **not** restore individual app databases on top of live data.
+
+**`restore_app.yaml`** is the production restore. It stops the stack on the real host, restores
+DB + appdata inplace, restarts, and checks HTTP health. Safety-gated with `confirm=yes`. Manual
+data verification is recommended after any production restore.
+
 <details>
 <summary>App Restore</summary>
 
