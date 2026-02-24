@@ -51,6 +51,9 @@
         log_run_vars: "{{ {'source_host': source_host} | to_json | to_json }}"
 
   tasks:
+    - name: Auto-detect free vm_index from test-vm pool
+      include_tasks: tasks/resolve_test_vm_index.yaml
+
     - name: Resolve test VM and stack configuration
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions['cephfs-migrate-test'] }}"
