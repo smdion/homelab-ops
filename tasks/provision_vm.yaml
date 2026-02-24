@@ -49,7 +49,22 @@
   register: _template_result
   changed_when: "'Template created' in _template_result.stdout"
 
-# --- Clone template to new VM ---
+# --- Check if VMID already exists anywhere in the cluster (partial/failed prior run) ---
+- name: Check if VMID already exists in cluster
+  ansible.builtin.uri:
+    url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    validate_certs: false
+  register: _cluster_vms
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+- name: Set VM pre-exists fact
+  ansible.builtin.set_fact:
+    _vm_already_exists: "{{ _cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0 }}"
+
+# --- Clone template to new VM (skip if VMID already exists from a prior partial run) ---
 - name: Clone VM from cloud-init template
   community.general.proxmox_kvm:
     api_host: "{{ pve_api_host }}"
@@ -65,6 +80,30 @@
     target: "{{ _vm.pve_target_node }}"
     timeout: 300
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when: not _vm_already_exists
+
+# --- Wait for cloned VM to appear in cluster (any node) ---
+- name: Wait for cloned VM to be ready
+  ansible.builtin.uri:
+    url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    validate_certs: false
+  register: _clone_ready
+  until: _clone_ready.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0
+  retries: 30
+  delay: 5
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when: not _vm_already_exists
+
+# --- Resolve actual node the VM landed on (may differ from pve_target_node via VIP) ---
+- name: Resolve actual VM node from cluster resources
+  ansible.builtin.set_fact:
+    _vm_actual_node: >-
+      {{ (_clone_ready.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
+         if not _vm_already_exists
+         else (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node }}
 
 # --- Configure hardware and cloud-init ---
 - name: Configure VM hardware and cloud-init
@@ -73,7 +112,7 @@
     api_user: "{{ pve_api_user }}"
     api_token_id: "{{ pve_api_token_id }}"
     api_token_secret: "{{ pve_api_token_secret }}"
-    node: "{{ _vm.pve_target_node }}"
+    node: "{{ _vm_actual_node }}"
     vmid: "{{ _vm.vm_id }}"
     cores: "{{ _vm.vm_cores }}"
     memory: "{{ _vm.vm_memory_mb }}"
@@ -87,10 +126,24 @@
     update: true
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
+# --- Ensure VM is stopped before resize (resize requires stopped state) ---
+- name: Stop VM if running before resize
+  community.general.proxmox_kvm:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_token_id: "{{ pve_api_token_id }}"
+    api_token_secret: "{{ pve_api_token_secret }}"
+    node: "{{ _vm_actual_node }}"
+    vmid: "{{ _vm.vm_id }}"
+    state: stopped
+    force: true
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when: _vm_already_exists
+
 # --- Resize disk from cloud image (~3.5G) to target size ---
 - name: Resize VM disk
   ansible.builtin.uri:
-    url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/resize"
+    url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/resize"
     method: PUT
     headers:
       Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -100,6 +153,7 @@
       size: "{{ _vm.vm_disk_gb }}G"
     validate_certs: false
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when: not _vm_already_exists
 
 # --- Start and wait ---
 - name: Start VM
@@ -108,7 +162,7 @@
     api_user: "{{ pve_api_user }}"
     api_token_id: "{{ pve_api_token_id }}"
     api_token_secret: "{{ pve_api_token_secret }}"
-    node: "{{ _vm.pve_target_node }}"
+    node: "{{ _vm_actual_node }}"
     vmid: "{{ _vm.vm_id }}"
     state: started
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
