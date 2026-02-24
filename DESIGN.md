@@ -2467,9 +2467,17 @@ After setup:
 
 ### Test Restore (automated)
 
-`test_restore.yaml` uses **ephemeral** VM slots defined in `vars/vm_definitions.yaml`.
-The `test-vm` key is the standard ephemeral slot (VMIDs 199–208, IPs from `vault_test_vm_ip_prefix`).
-Pass `vm_index=0..9` to select a slot (default 0). The playbook:
+`test_restore.yaml` and `test_backup_restore.yaml` use **ephemeral** VM slots defined in
+`vars/vm_definitions.yaml`. The `test-vm` key is the standard ephemeral slot (VMIDs 199–208,
+IPs from `vault_test_vm_ip_prefix`).
+
+**`vm_index` is auto-detected** via `tasks/resolve_test_vm_index.yaml` — queries the PVE cluster
+API and picks the lowest slot (0–9) whose VMID is either absent or stopped. A running VM is
+considered in use. Pass `vm_index=N` explicitly to force a specific slot (e.g. for parallel test
+runs). `vm_index` drives VMID, IP, hostname, and name consistently (index 2 → VMID 201,
+IP offset+2, name `test-vm2`).
+
+The playbook:
 1. Provisions the VM if it doesn't exist (idempotent — resumes if VMID already exists from a prior partial run)
 2. Snapshots it (`pre-test-restore`), runs the restore, then reverts — leaving the VM ready for the next test
 3. In `dr_mode=yes` mode, keeps the restored state (no revert) for real DR recovery

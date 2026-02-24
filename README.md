@@ -34,7 +34,7 @@ visibility.
 | **Test Backup Restore** | Per-app backup integrity test on a disposable VM — deploys stacks fresh, then for each app: stops the stack, restores DB + appdata from the backup archive, restarts, and asserts HTTP health; OOM auto-recovery doubles VM RAM and retries |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
-version status per host, stale detection, health trends, and maintenance logs across 23 panels.
+version status per host, stale detection, health trends, and maintenance logs across 25 panels.
 
 ## Stack
 
@@ -303,7 +303,7 @@ ansible-playbook deploy_grafana.yaml --vault-password-file ~/.vault_pass
 ansible-playbook deploy_grafana.yaml --vault-password-file ~/.vault_pass --check
 ```
 
-The dashboard includes 23 panels across 5 collapsible row groups (Alerts, Trends, Distributions,
+The dashboard includes 25 panels across 5 collapsible row groups (Alerts, Trends, Distributions,
 Recent Activity, Status). Manual import via **Dashboards → Import → Upload JSON file** also works.
 
 <details>
@@ -624,13 +624,6 @@ ansible-playbook test_restore.yaml \
   -e dr_mode=yes \
   --vault-password-file ~/.vault_pass
 
-# Restore from a specific date's backups (default: today)
-ansible-playbook test_restore.yaml \
-  -i inventory.yaml \
-  -e vm_name=test-vm \
-  -e source_host=myhost.home.local \
-  -e restore_date=2026-02-22 \
-  --vault-password-file ~/.vault_pass
 ```
 </details>
 

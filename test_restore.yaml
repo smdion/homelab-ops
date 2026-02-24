@@ -32,7 +32,7 @@
 #   - In dr_mode=yes: no revert — VM keeps the restored state for real DR recovery
 #
 # Optional extra vars:
-#   vm_index=N    — test-vm slot 0..9 (default 0); selects VMID and IP from the pool
+#   vm_index=N    — test-vm slot 0..9; auto-detected (lowest non-running slot) if omitted
 #   restore_app   — single app name to selectively extract from archive
 #   deploy_stack  — single stack to deploy
 #   dr_mode=yes   — DR recovery mode (skip snapshot/revert, keep state)
@@ -84,6 +84,10 @@
         log_run_vars: "{{ {'vm_name': vm_name | default('')} | to_json }}"
 
   tasks:
+    - name: Auto-detect free vm_index for test-vm pool
+      include_tasks: tasks/resolve_test_vm_index.yaml
+      when: vm_name == 'test-vm'
+
     - name: Resolve VM and stack configuration
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"

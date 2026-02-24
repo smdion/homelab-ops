@@ -14,6 +14,7 @@
 #
 # Optional extra vars:
 #   vm_name      — key in vm_definitions (default: test-vm)
+#   vm_index     — test-vm slot 0..9; auto-detected (lowest non-running slot) if omitted
 #   test_apps    — comma-separated subset of app_info keys (default: all)
 
 # ═══════════════════════════════════════════════════════════════════
@@ -57,6 +58,10 @@
         log_run_vars: "{{ {'vm_name': vm_name | default('')} | to_json }}"
 
   tasks:
+    - name: Auto-detect free vm_index for test-vm pool
+      include_tasks: tasks/resolve_test_vm_index.yaml
+      when: (vm_name | default('test-vm')) == 'test-vm'
+
     - name: Resolve VM and effective vm_name
       ansible.builtin.set_fact:
         _vm_name: "{{ vm_name | default('test-vm') }}"
