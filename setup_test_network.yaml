@@ -215,29 +215,10 @@
       check_mode: false
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
 
-    - name: Check which rules already exist and compute insertion indices
+    - name: Check which rules already exist
       ansible.builtin.set_fact:
         _existing_rule_names: >-
           {{ _firewall_rules.json.data | map(attribute='name') | list }}
-        _ssh_rule_index: >-
-          {{ ([(_firewall_rules.json.data
-                | selectattr('ruleset', 'equalto', 'LAN_IN')
-                | map(attribute='rule_index')
-                | map('int') | list | sort | last | default(1999) | int) + 1,
-               2000] | max) }}
-        _block_rule_index: >-
-          {{ ([(_firewall_rules.json.data
-                | selectattr('ruleset', 'equalto', 'LAN_IN')
-                | map(attribute='rule_index')
-                | map('int') | list | sort | last | default(1999) | int) + 2,
-               2001] | max) }}
-
-    - name: Debug rule index computation (temporary diagnostic — remove after fix)
-      ansible.builtin.debug:
-        msg:
-          - "Rulesets present: {{ _firewall_rules.json.data | map(attribute='ruleset') | unique | list }}"
-          - "LAN_IN indices: {{ _firewall_rules.json.data | selectattr('ruleset', 'equalto', 'LAN_IN') | map(attribute='rule_index') | list }}"
-          - "Computed SSH index: {{ _ssh_rule_index }}, Block index: {{ _block_rule_index }}"
 
     # Zone-based rules
     - name: "Create rule — {{ _ssh_rule_name }} [zone-based]"
@@ -250,7 +231,6 @@
         body:
           name: "{{ _ssh_rule_name }}"
           ruleset: "LAN_IN"
-          rule_index: "{{ _ssh_rule_index | int }}"
           action: "accept"
           protocol: "tcp"
           enabled: true
@@ -273,7 +253,6 @@
         body:
           name: "{{ _block_rule_name }}"
           ruleset: "LAN_IN"
-          rule_index: "{{ _block_rule_index | int }}"
           action: "drop"
           enabled: true
           src_firewallzone_id: "{{ _test_vlan_zone_id }}"
@@ -295,7 +274,6 @@
         body:
           name: "{{ _ssh_rule_name }}"
           ruleset: "LAN_IN"
-          rule_index: "{{ _ssh_rule_index | int }}"
           action: "accept"
           protocol: "tcp"
           enabled: true
@@ -318,7 +296,6 @@
         body:
           name: "{{ _block_rule_name }}"
           ruleset: "LAN_IN"
-          rule_index: "{{ _block_rule_index | int }}"
           action: "drop"
           enabled: true
           src_address: "{{ vault_test_vlan_subnet }}"
