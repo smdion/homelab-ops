@@ -7,11 +7,18 @@
 # are secrets — defined in vars/secrets.yaml.
 #
 # Network topology and node names are deployment-specific and must be set in vault:
-#   vault_pve_vip           — keepalived VIP (floating management IP for cluster API calls)
-#   vault_vm_gateway        — default gateway IP for all VMs
-#   vault_vm_dns            — DNS server IP for all VMs
-#   vault_vm_search_domain  — DNS search domain (e.g. "homelab.local")
-#   vault_pve_template_node — PVE node where the cloud-init template config file lives
+#   vault_pve_vip              — keepalived VIP (floating management IP for cluster API calls)
+#   vault_vm_gateway           — default gateway IP for all VMs
+#   vault_vm_dns               — DNS server IP for all VMs
+#   vault_vm_search_domain     — DNS search domain (e.g. "homelab.local")
+#   vault_pve_template_node    — PVE node where the cloud-init template config file lives
+#   vault_test_vlan_id         — VLAN ID for test VM isolation (e.g. 88)
+#   vault_test_vlan_gateway    — gateway IP on test isolation VLAN (e.g. "192.168.88.1")
+#   vault_test_vlan_subnet     — network CIDR of test VLAN for firewall rules (e.g. "192.168.88.0/24")
+#   vault_semaphore_ip         — Semaphore container static IP (SSH allow rule in setup_test_network.yaml)
+#   vault_prod_lan_subnet      — production LAN CIDR to block from test VLAN (e.g. "192.168.1.0/24")
+#   vault_pve_port_profile_name — Unifi switch port profile used by Proxmox uplinks
+#   vault_test_vm_ip_prefix    — first 3 octets of test VM IPs (update to isolated subnet, e.g. "192.168.88.")
 pve_api_host: "{{ vault_pve_vip }}"
 pve_storage: "replicated"
 pve_bridge: "vmbr0"
@@ -84,6 +91,12 @@ vm_definitions:
     vm_memory_mb: 4096
     vm_disk_gb: 20
     pve_target_node: "{{ vm_node | default(pve_template_node) }}"
+    vm_gateway: "{{ vault_test_vlan_gateway }}"   # isolated VLAN gateway (overrides global vm_gateway)
+    vm_dns: "8.8.8.8,8.8.4.4"                    # public DNS (prod DNS unreachable from isolated VLAN)
+    vm_vlan_tag: "{{ vault_test_vlan_id }}"       # triggers VLAN tag on net0 in provision_vm.yaml
+    ip_aliases:                                   # loopback aliases — containers reach prod IPs locally
+      - "{{ vault_vm_tantiveiv_ip }}"
+      - "{{ vault_vm_odyssey_ip }}"
 
 # Optional per-VM fields (used by tasks/bootstrap_vm.yaml when defined):
 #
@@ -98,3 +111,13 @@ vm_definitions:
 #       rule: "allow"                    # optional, defaults to 'allow'
 #       src: "192.0.2.0/24"             # optional, restrict to source CIDR
 #       comment: "Web UI"               # optional
+#
+#   ip_aliases:                          # IPs to alias on loopback (for test VMs with VLAN isolation)
+#     - "192.0.2.50"                     # containers reaching this IP hit the local VM instead of prod
+#     - "192.0.2.51"                     # persisted via netplan; survives reboots and OOM recovery
+#
+# Optional per-VM provision fields (used by tasks/provision_vm.yaml when defined):
+#
+#   vm_gateway: "192.0.2.1"             # overrides global vm_gateway (used in cloud-init ipconfig0)
+#   vm_dns: "8.8.8.8,8.8.4.4"          # overrides global vm_dns (comma-separated, no spaces)
+#   vm_vlan_tag: 88                      # if defined, sets VLAN tag on net0 via PVE API

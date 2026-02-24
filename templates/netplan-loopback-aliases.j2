@@ -1,0 +1,11 @@
+# Managed by Ansible — loopback IP aliases so containers reach local services via prod IPs
+network:
+  version: 2
+  ethernets:
+    lo:
+      match:
+        name: lo
+      addresses:
+{% for ip in _vm.ip_aliases %}
+        - {{ ip }}/32
+{% endfor %}
