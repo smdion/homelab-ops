@@ -143,7 +143,7 @@
               vmstate: 0
             validate_certs: false
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-          when: _vm_state == 'snapshot'
+          when: _vm_state == 'snapshot' and not ansible_check_mode
 
         # ═════════════════════════════════════════════════════════
         # REVERT PATH — vm_state == 'revert'
@@ -170,7 +170,7 @@
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
             validate_certs: false
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-          when: _vm_state == 'revert'
+          when: _vm_state == 'revert' and not ansible_check_mode
 
         - name: Start VM after revert
           community.general.proxmox_kvm:
@@ -190,7 +190,7 @@
             port: 22
             delay: 5
             timeout: 120
-          when: _vm_state == 'revert'
+          when: _vm_state == 'revert' and not ansible_check_mode
 
         - name: Record build detail
           ansible.builtin.set_fact:

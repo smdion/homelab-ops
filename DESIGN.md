@@ -1284,10 +1284,12 @@ and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
 | `restore_app.yaml` | Backup file search runs. Safety gate skipped. No stack stop/start. No DB or appdata restore. Discord/DB suppressed. |
 | `restore_amp.yaml` | AMP archive discovery runs. Safety gate skipped. No instance stop/start or data replacement. Discord/DB suppressed. |
 | `rollback_docker.yaml` | Snapshot read and parsed. Safety gate skipped. No image re-tag/pull or container recreation. Discord/DB suppressed. |
-| `maintain_pve.yaml` | keepalived + ansible user + SSH config tasks simulated. Discord/DB suppressed. |
+| `maintain_pve.yaml` | keepalived + ansible user + SSH config tasks simulated. VIP reachability check skipped. Discord/DB suppressed. |
 | `maintain_logging_db.yaml` | DB purge queries simulated. Discord/DB suppressed. |
 | `deploy_grafana.yaml` | Dashboard JSON read and parsed. All API calls skipped (datasource check, create, dashboard import). Discord/DB suppressed. |
 | `test_app_restore.yaml` | VM provisioned. Stacks deployed. No app restores performed (restore and health check steps skipped). Discord/DB suppressed. |
+| `build_ubuntu.yaml` | VM state assertion and cluster resource query run. VM clone/configure/destroy simulated (proxmox_kvm). URI PUT resize and VLAN config skipped. wait_for SSH skipped. Snapshot POST and rollback POST skipped. Discord/DB suppressed. |
+| `setup_pve_vip.yaml` | keepalived install and config tasks simulated. VRRP election pause and VIP reachability check skipped. |
 
 ### Pre-task validations
 

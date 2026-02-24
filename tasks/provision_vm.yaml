@@ -98,7 +98,7 @@
       retries: 30
       delay: 5
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: not _vm_already_exists
+      when: not _vm_already_exists and not ansible_check_mode
 
     # Resolve actual node the VM landed on (may differ from pve_target_node via VIP)
     - name: Resolve actual VM node from cluster resources
@@ -157,7 +157,7 @@
           size: "{{ _vm.vm_disk_gb }}G"
         validate_certs: false
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: not _vm_already_exists
+      when: not _vm_already_exists and not ansible_check_mode
 
     # Set VLAN tag if vm_vlan_tag is defined (test VM isolation)
     - name: Set VLAN tag on VM net0
@@ -170,7 +170,7 @@
         body:
           net0: "virtio,bridge={{ pve_bridge }},tag={{ _vm.vm_vlan_tag }}"
         validate_certs: false
-      when: _vm.vm_vlan_tag is defined
+      when: _vm.vm_vlan_tag is defined and not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     # Start VM
@@ -191,6 +191,7 @@
         port: 22
         delay: 10
         timeout: 300
+      when: not ansible_check_mode
 
     - name: Set VM IP fact
       ansible.builtin.set_fact:
