@@ -30,7 +30,8 @@ visibility.
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
 | **Deploy** | Docker stacks from Git — templates `.env` from vault, copies compose files, validates, and starts stacks in dependency order; Grafana dashboard + datasource via API with automatic threshold syncing |
 | **Build** | Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH hardening, UFW firewall; create, destroy, snapshot, or revert |
-| **Test Restore** | End-to-end restore test on a disposable Proxmox VM — provisions or reuses a VM, snapshots it, restores a source host's full appdata, deploys stacks, verifies container health, reverts to clean state; also serves as a DR recovery tool |
+| **Test Restore** | End-to-end DR simulation on a disposable Proxmox VM — restores a source host's full appdata, deploys all stacks, verifies container health, reverts to clean state; `dr_mode=yes` keeps the restored state for real DR recovery |
+| **Test Backup Restore** | Per-app backup integrity test on a disposable VM — deploys stacks fresh, then for each app: stops the stack, restores DB + appdata from the backup archive, restarts, and asserts HTTP health; OOM auto-recovery doubles VM RAM and retries |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
 version status per host, stale detection, health trends, and maintenance logs across 23 panels.
@@ -89,7 +90,7 @@ and go.
 
 | Playbook | What it does | Vars file pattern |
 |---|---|---|
-| `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller; `docker_stacks` hosts use per-stack archives (stop → archive → restart each stack individually to minimize downtime); auto-handles PiKVM RW/RO filesystem | `vars/<platform>.yaml` with `backup_*` vars; `docker_stacks` uses `stack_backup_paths` |
+| `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller; `docker_stacks` hosts use per-stack archives (stop → archive → restart each stack individually to minimize downtime); backup paths discovered from `homelab.backup.paths` container labels; auto-handles PiKVM RW/RO filesystem | `vars/<platform>.yaml` with `backup_*` vars |
 | `backup_databases.yaml` | Dump Postgres/MariaDB/InfluxDB databases from Docker containers | `vars/db_<role>_<engine>.yaml` with `db_names`, `db_container_name` |
 | `update_systems.yaml` | OS packages + Docker container updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers` | `vars/<platform>.yaml` with `update_*` vars |
 | `maintain_docker.yaml` | Prune unused Docker images | Needs `[docker]` group (children of `docker_stacks` + `docker_run`) |
@@ -100,7 +101,7 @@ and go.
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
 | `restore_hosts.yaml` | Restore config/appdata — staging or inplace; safety-gated with `confirm=yes` for inplace; selective app + coordinated cross-host DB (`with_databases=yes`) | `vars/<platform>.yaml` with `app_restore` mapping |
 | `restore_amp.yaml` | Restore AMP game server instance(s) from backup; safety-gated with `confirm=yes`; pass `restore_target`; optionally `amp_instance_filter` for a single instance | `vars/amp.yaml` |
-| `restore_app.yaml` | Restore a single app (appdata + all DBs) to a production host; safety-gated with `confirm=yes`; pass `restore_app`, `restore_target`, optionally `restore_source_host` | `vars/docker_stacks.yaml` `app_restore` dict |
+| `restore_app.yaml` | Restore a single app (appdata + all DBs) to a production host; safety-gated with `confirm=yes`; pass `restore_app`, `restore_target`, optionally `restore_source_host` | `vars/docker_stacks.yaml` `app_info` dict + runtime config from container labels |
 | `rollback_docker.yaml` | Revert Docker containers to previous images; supports all, per-stack (`rollback_stack`), or per-service (`rollback_service`); safety-gated with `confirm=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
 | `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy | `vars/docker_stacks.yaml` with `stack_assignments` |
 
@@ -120,7 +121,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `maintain_pve.yaml` | Proxmox | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; safe to re-run after node reinstall; Discord + MariaDB logging |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
 | `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=yes`) keeps restored state |
-| `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_restore` apps on a disposable VM — per-app restore (DB + appdata), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope |
+| `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_info` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
 > **unRAID — Fix Common Problems:** If you have the [Fix Common Problems](https://forums.unraid.net/topic/47266-plugin-ca-fix-common-problems/) plugin installed, it will raise an alert when `setup_ansible_user.yaml` adds the `ansible` user via SSH. This is expected behaviour — the plugin flags any new SSH-capable user as a potential security concern. You can safely acknowledge and suppress the alert once you've verified the key and confirmed the user was added intentionally.
@@ -198,7 +199,7 @@ for platforms you don't have are automatically skipped.
 ├── deploy_stacks.yaml           # Docker stack deploy from Git — .env templating, compose copy, validate, start
 ├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
 ├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks)
-├── test_backup_restore.yaml        # Test all app_restore apps on disposable VM — per-app restore, OOM recovery, Discord summary
+├── test_backup_restore.yaml        # Test all app_info apps on disposable VM — per-app restore from backup archives, OOM recovery, Discord summary
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
 ├── setup_ansible_user.yaml      # One-time user setup utility
 ├── setup_pve_vip.yaml           # One-time keepalived VIP setup on PVE nodes
@@ -518,6 +519,10 @@ ansible-playbook restore_amp.yaml \
 <details>
 <summary>App Restore</summary>
 
+> **ℹ️ Manual verification recommended.** The playbook confirms the app starts and its HTTP
+> endpoint responds, but does not validate data integrity. After restore, log in and spot-check
+> a representative data set before declaring success — especially for database-backed apps.
+
 ```bash
 # Restore a single app to production (stops stack, restores DB + appdata, restarts, verifies health)
 ansible-playbook restore_app.yaml \
@@ -554,11 +559,17 @@ ansible-playbook test_backup_restore.yaml \
 <details>
 <summary>Test Restore</summary>
 
-> **⚠️ Network isolation not yet implemented.** Test VMs run on the production network. Because
-> service `.env` files contain hardcoded production IPs, restored containers will connect to live
-> databases and services using real credentials. Inter-container references using Docker service
-> names are safe (local to the test VM). Run with production services stopped until VLAN isolation
-> is in place. See `DESIGN.md` for details and the planned fix.
+> **ℹ️ Scope:** This playbook is a deployment smoke test — it verifies that containers start and
+> pass their Docker health checks on a fresh VM. It does **not** validate application data
+> integrity. For that, use `test_backup_restore.yaml`, which deploys fresh, restores each app's
+> backup archives, and asserts HTTP health. For real DR validation, consider logging into the test
+> VM and manually inspecting a representative data set before cutting over (`dr_mode=yes` keeps
+> the VM running).
+
+> **⚠️ Network isolation recommended.** Without VLAN isolation, restored containers on the test
+> VM will connect to live databases and services using real credentials from the `.env` files.
+> Inter-container references using Docker service names are safe (local to the test VM), but
+> external connections are live. See `DESIGN.md` for the VLAN isolation setup (`setup_test_network.yaml`).
 
 ```bash
 # Full restore test — provisions or reuses a disposable VM, restores all stacks, verifies health

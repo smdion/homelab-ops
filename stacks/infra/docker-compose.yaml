@@ -32,6 +32,9 @@ services:
     container_name: beszel-agent
     image: henrygd/beszel-agent:latest
     network_mode: host
+    labels:
+      homelab.backup.paths: "/opt/beszel_socket"
+      homelab.test.skip_health: "true"
     volumes:
       - ${APPSDIR}/beszel_socket:/beszel_socket
       - /var/run/docker.sock:/var/run/docker.sock:ro

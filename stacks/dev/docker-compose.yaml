@@ -19,6 +19,9 @@ services:
     network_mode: bridge
     ports:
     - 8443:8443
+    labels:
+      homelab.backup.paths: "/opt/code-server"
+      homelab.health_timeout: "90"
     environment:
       <<: *envuid
       PROXY_DOMAIN: ${CODESERVER_PROXY_DOMAIN}
@@ -39,6 +42,8 @@ services:
     container_name: netbootxyz
     image: netbootxyz/netbootxyz:latest
     network_mode: bridge
+    labels:
+      homelab.backup.paths: "/opt/netboot"
     ports:
       - 3002:3000
       - 69:69/udp

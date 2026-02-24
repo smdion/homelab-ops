@@ -3,7 +3,7 @@
 # Stops the stack, restores each DB, restores appdata inplace, restarts, verifies health.
 #
 # Required extra vars:
-#   restore_app    — key in app_restore dict (e.g., 'authentik', 'jellyseerr')
+#   restore_app    — key in app_info dict (e.g., 'authentik', 'jellyseerr')
 #   restore_target — inventory_hostname of the production host to restore on
 #   confirm=yes    — required safety gate (intentional: prevents accidental production runs)
 #
@@ -36,12 +36,12 @@
           Missing required vars or safety gate not set.
           Usage: -e restore_app=<app> -e restore_target=<host> -e confirm=yes
 
-    - name: Assert restore_app exists in app_restore config
+    - name: Assert restore_app exists in app_info config
       ansible.builtin.assert:
-        that: restore_app in app_restore
+        that: restore_app in app_info
         fail_msg: >-
-          '{{ restore_app }}' not found in app_restore.
-          Valid apps: {{ app_restore.keys() | list | join(', ') }}
+          '{{ restore_app }}' not found in app_info.
+          Valid apps: {{ app_info.keys() | list | join(', ') }}
 
     - name: Assert MariaDB logging database is reachable
       include_tasks: tasks/assert_db_connectivity.yaml
@@ -49,7 +49,7 @@
   tasks:
     - name: Set app config and source host
       ansible.builtin.set_fact:
-        _app_cfg: "{{ app_restore[restore_app] }}"
+        _app_cfg: "{{ app_info[restore_app] }}"
         _source_host: "{{ restore_source_host | default(restore_target) }}"
 
     - name: Find latest stack archive
@@ -107,17 +107,32 @@
     _app_restore_tmp: "/tmp/restore_{{ restore_app }}"
 
   tasks:
-    - name: Load DB engine config — {{ hostvars['localhost']._app_cfg.db_config_file }}
-      ansible.builtin.include_vars:
-        file: "vars/{{ hostvars['localhost']._app_cfg.db_config_file }}.yaml"
-      when: hostvars['localhost']._app_cfg.db_names | default([]) | length > 0
-
     - name: Initialize restore state
       ansible.builtin.set_fact:
         _restore_failed: false
         _restore_detail: ""
 
     - block:
+        - name: Discover restore config from labels — {{ restore_app }}
+          become: true
+          ansible.builtin.shell: |
+            docker ps -a \
+              --filter "label=homelab.restore.app={{ restore_app }}" \
+              --format '{% raw %}{{index .Labels "homelab.restore.db_config"}}|{{index .Labels "homelab.restore.health_url"}}|{{index .Labels "homelab.restore.health_status"}}{% endraw %}'
+          register: _app_label_raw
+          changed_when: false
+
+        - name: Parse label config — {{ restore_app }}
+          ansible.builtin.set_fact:
+            _r_db_config:     "{{ _app_label_raw.stdout.split('|')[0] }}"
+            _r_health_url:    "{{ _app_label_raw.stdout.split('|')[1] }}"
+            _r_health_status: "{{ _app_label_raw.stdout.split('|')[2] | default('200') }}"
+
+        - name: Load DB engine config — {{ restore_app }}
+          ansible.builtin.include_vars:
+            file: "vars/{{ _r_db_config }}.yaml"
+          when: _r_db_config | default('') | length > 0
+
         - name: Ensure staging dir exists
           ansible.builtin.file:
             path: "{{ _app_restore_tmp }}"
@@ -173,17 +188,16 @@
 
         - name: Verify container health
           include_tasks: tasks/verify_docker_health.yaml
-          vars:
-            _health_timeout: >-
-              {{ stack_health_timeouts[hostvars['localhost']._app_cfg.stack] | default(120) }}
 
         - name: Verify HTTP health — {{ restore_app }}
           include_tasks: tasks/verify_app_http.yaml
           vars:
-            _health_check_urls: "{{ hostvars['localhost']._app_cfg.health_check_urls }}"
-            _http_check_timeout: >-
-              {{ stack_health_timeouts[hostvars['localhost']._app_cfg.stack] | default(60) }}
-          when: hostvars['localhost']._app_cfg.health_check_urls | default([]) | length > 0
+            _health_check_urls:
+              - url: "{{ _r_health_url }}"
+                status_code: "{{ _r_health_status | default('200') }}"
+          when:
+            - _r_health_url | default('') | length > 0
+            - not ansible_check_mode
 
         - name: Set success detail
           ansible.builtin.set_fact:

@@ -28,6 +28,8 @@ services:
     <<: *base
     container_name: wireguard
     image: lscr.io/linuxserver/wireguard:latest
+    labels:
+      homelab.backup.paths: "/opt/wireguard"
     ports:
       - 51820:51820/udp
       - 443:443
@@ -54,6 +56,8 @@ services:
     - *wireguard
     container_name: npm
     image: docker.io/jc21/nginx-proxy-manager:latest
+    labels:
+      homelab.backup.paths: "/opt/npm,/opt/npm-le"
     volumes:
       - ${APPSDIR}/npm:/data:rw
       - ${APPSDIR}/npm-le:/etc/letsencrypt
@@ -110,6 +114,9 @@ services:
     - *wireguard
     container_name: beszel
     image: henrygd/beszel
+    labels:
+      homelab.backup.paths: "/opt/beszel"
+      homelab.health_timeout: "90"
     volumes:
       - ${APPSDIR}/beszel:/beszel_data
       - ${APPSDIR}/beszel_socket:/beszel_socket

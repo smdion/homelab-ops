@@ -14,7 +14,7 @@
 #
 # Optional extra vars:
 #   vm_name      — key in vm_definitions (default: test-vm)
-#   test_apps    — comma-separated subset of app_restore keys (default: all)
+#   test_apps    — comma-separated subset of app_info keys (default: all)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Validate, find backups, provision VM
@@ -60,18 +60,18 @@
         _test_apps: >-
           {{ (test_apps | default('') | string).split(',') | map('trim') | select('ne', '') | list
              if test_apps | default('') | length > 0
-             else app_restore.keys() | list }}
+             else app_info.keys() | list }}
 
-    - name: Assert all test_apps exist in app_restore
+    - name: Assert all test_apps exist in app_info
       ansible.builtin.assert:
-        that: item in app_restore
-        fail_msg: "'{{ item }}' not found in app_restore. Valid apps: {{ app_restore.keys() | list | join(', ') }}"
+        that: item in app_info
+        fail_msg: "'{{ item }}' not found in app_info. Valid apps: {{ app_info.keys() | list | join(', ') }}"
       loop: "{{ _test_apps }}"
 
     # ===== FIND STACK ARCHIVES =====
     - name: Find latest stack archive — {{ item }}
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ app_restore[item].stack }}_*.tar.gz 2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ app_info[item].stack }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _test_apps }}"
       register: _stack_archive_results
       become: false
@@ -83,8 +83,8 @@
         that: item.stdout | length > 0
         fail_msg: >-
           No stack archive found for app '{{ item.item }}'
-          (stack '{{ app_restore[item.item].stack }}') on {{ source_host }}.
-          Expected: {{ backup_base_dir }}/{{ source_host }}/backup_{{ app_restore[item.item].stack }}_*.tar.gz
+          (stack '{{ app_info[item.item].stack }}') on {{ source_host }}.
+          Expected: {{ backup_base_dir }}/{{ source_host }}/backup_{{ app_info[item.item].stack }}_*.tar.gz
       loop: "{{ _stack_archive_results.results }}"
 
     - name: Build stack archive map
@@ -96,7 +96,7 @@
     - name: Gather all test DB names
       ansible.builtin.set_fact:
         _all_test_db_names: >-
-          {{ _test_apps | map('extract', app_restore)
+          {{ _test_apps | map('extract', app_info)
              | map(attribute='db_names', default=[]) | flatten | unique | list }}
 
     - name: Find latest DB backup — {{ item }}
