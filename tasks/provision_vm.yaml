@@ -215,6 +215,10 @@
         body:
           vms: "{{ _vm.vm_id }}"
         validate_certs: false
+      register: _pool_add_result
+      failed_when: >-
+        _pool_add_result.status | default(0) not in [200] and
+        'already a pool member' not in (_pool_add_result.json.message | default(''))
       when: pve_pool_test is defined and not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
