@@ -85,7 +85,7 @@
           "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  b1.hostname,\n  b1.application,\n  b1.backup_type,\n  MAX(b1.timestamp) as last_backup,\n  TIMESTAMPDIFF(HOUR, MAX(b1.timestamp), UTC_TIMESTAMP()) as hours_ago\nFROM backups b1\nWHERE b1.hostname IN ($hostname)\nGROUP BY b1.hostname, b1.application, b1.backup_type\nHAVING TIMESTAMPDIFF(HOUR, MAX(b1.timestamp), UTC_TIMESTAMP()) > 216\nORDER BY hours_ago DESC",
+          "rawSql": "SELECT \n  b1.hostname,\n  b1.application,\n  b1.backup_type,\n  MAX(b1.timestamp) as last_backup,\n  TIMESTAMPDIFF(HOUR, MAX(b1.timestamp), UTC_TIMESTAMP()) as hours_ago\nFROM backups b1\nWHERE b1.hostname IN ($hostname)\n  AND b1.backup_level IN ($backup_level)\nGROUP BY b1.hostname, b1.application, b1.backup_type\nHAVING TIMESTAMPDIFF(HOUR, MAX(b1.timestamp), UTC_TIMESTAMP()) > 216\nORDER BY hours_ago DESC",
           "refId": "A"
         }
       ],
@@ -309,7 +309,7 @@
           "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  backup_type as metric,\n  COUNT(*) as value\nFROM backups\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND backup_type IN ($backup_type)\n  AND hostname IN ($hostname)\nGROUP BY DATE(timestamp), backup_type\nORDER BY time_sec",
+          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  backup_type as metric,\n  COUNT(*) as value\nFROM backups\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND backup_type IN ($backup_type)\n  AND hostname IN ($hostname)\n  AND backup_level IN ($backup_level)\nGROUP BY DATE(timestamp), backup_type\nORDER BY time_sec",
           "refId": "A"
         }
       ],
@@ -372,7 +372,7 @@
           "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  update_type as metric,\n  COUNT(*) as value\nFROM updates\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND hostname IN ($hostname)\nGROUP BY DATE(timestamp), update_type\nORDER BY time_sec",
+          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  update_type as metric,\n  COUNT(*) as value\nFROM updates\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND hostname IN ($hostname)\n  AND update_subtype IN ($update_subtype)\nGROUP BY DATE(timestamp), update_type\nORDER BY time_sec",
           "refId": "A"
         }
       ],
@@ -435,7 +435,7 @@
           "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  subtype as metric,\n  COUNT(*) as value\nFROM maintenance\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND hostname IN ($hostname)\nGROUP BY DATE(timestamp), subtype\nORDER BY time_sec",
+          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  subtype as metric,\n  COUNT(*) as value\nFROM maintenance\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND hostname IN ($hostname)\n  AND subtype IN ($maintenance_subtype)\nGROUP BY DATE(timestamp), subtype\nORDER BY time_sec",
           "refId": "A"
         }
       ],
@@ -498,7 +498,7 @@
           "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  application as metric,\n  ROUND(AVG(file_size), 2) as value\nFROM backups\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND file_size > 0\n  AND file_name NOT LIKE 'FAILED_%'\n  AND backup_type IN ($backup_type)\n  AND hostname IN ($hostname)\nGROUP BY DATE(timestamp), application\nORDER BY time_sec",
+          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  application as metric,\n  ROUND(AVG(file_size), 2) as value\nFROM backups\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND file_size > 0\n  AND file_name NOT LIKE 'FAILED_%'\n  AND backup_type IN ($backup_type)\n  AND hostname IN ($hostname)\n  AND backup_level IN ($backup_level)\nGROUP BY DATE(timestamp), application\nORDER BY time_sec",
           "refId": "A"
         }
       ],
@@ -582,6 +582,132 @@
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "unit": "decmbytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 },
+      "id": 146,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  hostname as metric,\n  ROUND(SUM(file_size), 0) as value\nFROM backups\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND file_size > 0\n  AND file_name NOT LIKE 'FAILED_%'\n  AND backup_level IN ($backup_level)\n  AND hostname IN ($hostname)\nGROUP BY DATE(timestamp), hostname\nORDER BY time_sec",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Backup Footprint per Host",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": { "group": "A", "mode": "normal" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 }
+            ]
+          },
+          "unit": "decmbytes"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 30 },
+      "id": 147,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull", "mean"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  UNIX_TIMESTAMP(DATE(timestamp)) as time_sec,\n  backup_level as metric,\n  ROUND(SUM(file_size), 0) as value\nFROM backups\nWHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 90 DAY\n  AND file_size > 0\n  AND file_name NOT LIKE 'FAILED_%'\n  AND hostname IN ($hostname)\nGROUP BY DATE(timestamp), backup_level\nORDER BY time_sec",
+          "refId": "A"
+        }
+      ],
+      "title": "Backup Size by Level (Stacked)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
             "fillOpacity": 20,
             "gradientMode": "none",
             "hideFrom": { "legend": false, "tooltip": false, "viz": false },
@@ -607,7 +733,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 30 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 46 },
       "id": 144,
       "options": {
         "legend": {
@@ -672,7 +798,7 @@
           }
         ]
       },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 38 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 54 },
       "id": 145,
       "options": {
         "cellHeight": "sm",
@@ -695,7 +821,7 @@
     },
     {
       "collapsed": true,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 46 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 62 },
       "id": 120,
       "panels": [
         {
@@ -946,7 +1072,7 @@
               "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT application, COUNT(*) as count FROM updates WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND hostname IN ($hostname) GROUP BY application ORDER BY count DESC",
+              "rawSql": "SELECT application, COUNT(*) as count FROM updates WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND hostname IN ($hostname) AND update_subtype IN ($update_subtype) GROUP BY application ORDER BY count DESC",
               "refId": "A"
             }
           ],
@@ -959,7 +1085,7 @@
     },
     {
       "collapsed": true,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 47 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 63 },
       "id": 130,
       "panels": [
         {
@@ -1035,7 +1161,7 @@
               "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT \n  b1.hostname,\n  b1.application,\n  b1.timestamp as last_success,\n  DATEDIFF(UTC_TIMESTAMP(), b1.timestamp) as days_ago,\n  ROUND(b1.file_size, 2) as file_size_mb\nFROM backups b1\nINNER JOIN (\n  SELECT hostname, application, MAX(timestamp) as max_ts\n  FROM backups\n  WHERE file_name NOT LIKE 'FAILED_%'\n  GROUP BY hostname, application\n) b2 ON b1.hostname = b2.hostname AND b1.application = b2.application AND b1.timestamp = b2.max_ts\nWHERE b1.hostname IN ($hostname)\nORDER BY b1.hostname, b1.application",
+              "rawSql": "SELECT \n  b1.hostname,\n  b1.application,\n  b1.backup_level,\n  b1.timestamp as last_success,\n  DATEDIFF(UTC_TIMESTAMP(), b1.timestamp) as days_ago,\n  ROUND(b1.file_size, 2) as file_size_mb\nFROM backups b1\nINNER JOIN (\n  SELECT hostname, application, MAX(timestamp) as max_ts\n  FROM backups\n  WHERE file_name NOT LIKE 'FAILED_%'\n  GROUP BY hostname, application\n) b2 ON b1.hostname = b2.hostname AND b1.application = b2.application AND b1.timestamp = b2.max_ts\nWHERE b1.hostname IN ($hostname)\n  AND b1.backup_level IN ($backup_level)\nORDER BY b1.hostname, b1.backup_level, b1.application",
               "refId": "A"
             }
           ],
@@ -1108,7 +1234,7 @@
               "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT \n  u1.hostname,\n  u1.application,\n  u1.version,\n  u1.timestamp as last_success,\n  DATEDIFF(UTC_TIMESTAMP(), u1.timestamp) as days_ago\nFROM updates u1\nINNER JOIN (\n  SELECT hostname, application, MAX(timestamp) as max_ts\n  FROM updates\n  WHERE status = 'success'\n  GROUP BY hostname, application\n) u2 ON u1.hostname = u2.hostname AND u1.application = u2.application AND u1.timestamp = u2.max_ts\nWHERE u1.hostname IN ($hostname)\nORDER BY u1.hostname, u1.application",
+              "rawSql": "SELECT \n  u1.hostname,\n  u1.application,\n  u1.update_subtype,\n  u1.version,\n  u1.timestamp as last_success,\n  DATEDIFF(UTC_TIMESTAMP(), u1.timestamp) as days_ago\nFROM updates u1\nINNER JOIN (\n  SELECT hostname, application, MAX(timestamp) as max_ts\n  FROM updates\n  WHERE status = 'success'\n  GROUP BY hostname, application\n) u2 ON u1.hostname = u2.hostname AND u1.application = u2.application AND u1.timestamp = u2.max_ts\nWHERE u1.hostname IN ($hostname)\n  AND u1.update_subtype IN ($update_subtype)\nORDER BY u1.hostname, u1.update_subtype, u1.application",
               "refId": "A"
             }
           ],
@@ -1164,7 +1290,7 @@
               "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT \n  timestamp,\n  backup_type, \n  backup_subtype, \n  hostname, \n  application, \n  file_name, \n  file_size \nFROM backups\nWHERE backup_type IN ($backup_type)\n  AND hostname IN ($hostname)\nORDER BY id DESC \nLIMIT 50",
+              "rawSql": "SELECT \n  timestamp,\n  backup_type, \n  backup_subtype, \n  backup_level,\n  hostname, \n  application, \n  file_name, \n  file_size \nFROM backups\nWHERE backup_type IN ($backup_type)\n  AND hostname IN ($hostname)\n  AND backup_level IN ($backup_level)\nORDER BY id DESC \nLIMIT 50",
               "refId": "A"
             }
           ],
@@ -1232,7 +1358,7 @@
               "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT \n  timestamp,\n  update_type, \n  update_subtype, \n  hostname, \n  application, \n  version,\n  status\nFROM updates\nWHERE hostname IN ($hostname)\nORDER BY id DESC \nLIMIT 50",
+              "rawSql": "SELECT \n  timestamp,\n  update_type, \n  update_subtype, \n  hostname, \n  application, \n  version,\n  status\nFROM updates\nWHERE hostname IN ($hostname)\n  AND update_subtype IN ($update_subtype)\nORDER BY id DESC \nLIMIT 50",
               "refId": "A"
             }
           ],
@@ -1319,7 +1445,7 @@
               "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT \n  timestamp,\n  application,\n  hostname,\n  type,\n  subtype,\n  status\nFROM maintenance\nWHERE hostname IN ($hostname)\nORDER BY id DESC\nLIMIT 50",
+              "rawSql": "SELECT \n  timestamp,\n  application,\n  hostname,\n  type,\n  subtype,\n  status\nFROM maintenance\nWHERE hostname IN ($hostname)\n  AND subtype IN ($maintenance_subtype)\nORDER BY id DESC\nLIMIT 50",
               "refId": "A"
             }
           ],
@@ -1332,7 +1458,7 @@
     },
     {
       "collapsed": true,
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 72 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 88 },
       "id": 140,
       "panels": [
         {
@@ -1634,6 +1760,54 @@
         "name": "backup_type",
         "options": [],
         "query": "SELECT DISTINCT backup_type FROM backups ORDER BY backup_type",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+        "includeAll": true,
+        "label": "Backup Level",
+        "multi": true,
+        "name": "backup_level",
+        "options": [],
+        "query": "SELECT DISTINCT backup_level FROM backups ORDER BY backup_level",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+        "includeAll": true,
+        "label": "Update Subtype",
+        "multi": true,
+        "name": "update_subtype",
+        "options": [],
+        "query": "SELECT DISTINCT update_subtype FROM updates ORDER BY update_subtype",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+        "includeAll": true,
+        "label": "Maintenance Subtype",
+        "multi": true,
+        "name": "maintenance_subtype",
+        "options": [],
+        "query": "SELECT DISTINCT subtype FROM maintenance ORDER BY subtype",
         "refresh": 2,
         "sort": 1,
         "type": "query"

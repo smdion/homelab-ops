@@ -116,4 +116,5 @@
             log_hostname: "{{ inventory_hostname }}"
             log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else 'backup_') + db_result.db_name + '_' + ansible_date_time.date + '.' + (backup_ext | default('sql')) }}"
             log_file_size: "{{ (db_result.file_size / 1024 / 1024) | round(2) if db_result.backup_rc == 0 else 0 }}"
+            log_backup_level: "db"
           tags: [always]

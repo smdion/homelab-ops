@@ -648,6 +648,7 @@
             log_hostname: "{{ inventory_hostname }}"
             log_file_name: "{{ ('FAILED_' if _stack_result.failed else '') + _stack_result.file }}"
             log_file_size: "{{ (_stack_result.file_size / 1024 / 1024) | round(2) }}"
+            log_backup_level: "stack"
           when: inventory_hostname in groups["docker_stacks"] | default([])
           tags: [always]
 
@@ -663,6 +664,7 @@
             log_hostname: "{{ inventory_hostname }}"
             log_file_name: "{{ ('FAILED_' if _amp_result.failed else '') + _amp_result.file }}"
             log_file_size: "{{ (_amp_result.file_size / 1024 / 1024) | round(2) }}"
+            log_backup_level: "instance"
           when: inventory_hostname in groups["amp"] | default([])
           tags: [always]
 
@@ -675,6 +677,7 @@
             log_hostname: "{{ inventory_hostname }}"
             log_file_name: "{{ ('FAILED_' if backup_failed else '') + backup_file }}"
             log_file_size: "{{ (file_size.stat.size / 1024 / 1024) | round(2) }}"
+            log_backup_level: "host"
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])

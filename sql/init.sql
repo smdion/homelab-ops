@@ -22,10 +22,12 @@ CREATE TABLE IF NOT EXISTS backups (
   timestamp DATETIME,
   backup_type VARCHAR(50),
   backup_subtype VARCHAR(50),
+  backup_level VARCHAR(20) NOT NULL DEFAULT 'host',
   INDEX idx_hostname (hostname),
   INDEX idx_timestamp (timestamp),
   INDEX idx_backup_type (backup_type),
-  INDEX idx_backup_subtype (backup_subtype)
+  INDEX idx_backup_subtype (backup_subtype),
+  INDEX idx_backup_level (backup_level)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Update records — one row per distinct version (ON DUPLICATE KEY UPDATE refreshes timestamp)
