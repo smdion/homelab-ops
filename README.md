@@ -2,7 +2,7 @@
 
 Ansible playbooks for home lab backup, verification, restore, health monitoring, updates,
 maintenance, deployment, and provisioning — orchestrated via
-[Semaphore](https://semaphoreui.com/), logged to MariaDB, and visualized in Grafana.
+[Semaphore](https://semaphoreui.com/), logged to MariaDB, alerted to Discord, and visualized in Grafana.
 
 > **Note:** This project was built for my own home lab. I've made it as portable as possible —
 > deployment-specific values live in vault-encrypted vars files, and playbooks are
