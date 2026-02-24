@@ -1899,6 +1899,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `maintain_amp.yaml` | AMP | Servers | Maintenance |
 | `maintain_health.yaml` | Semaphore | Local | Health Check |
 | `maintain_logging_db.yaml` | Logging DB | Local | Cleanup |
+| `check_logging_db.yaml` | Logging DB | Local | Summary |
 | `maintain_pve.yaml` (Play 1) | Proxmox | Appliances | Maintenance |
 | `maintain_pve.yaml` (Play 3) | Proxmox | Appliances | Snapshot Check |
 | `maintain_pve.yaml` (Play 4) | PBS | Appliances | Task Check |
