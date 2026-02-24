@@ -1,7 +1,7 @@
 ---
-# One-time setup for test VM network isolation on Unifi UDM.
-# Creates test-isolation VLAN network + two LAN_IN firewall rules.
-# Idempotent — safe to re-run; skips resources that already exist.
+# One-time setup for test VM VLAN isolation on Unifi UDM.
+# Creates test-isolation VLAN network (idempotent). Prints zone policy settings for manual creation.
+# Safe to re-run — skips the VLAN if it already exists.
 #
 # PREREQUISITE (manual, one-time — too risky to automate):
 #   Add vault_test_vlan_id to the Proxmox uplink port profile in Unifi UI before running:
@@ -15,11 +15,11 @@
 #   ansible-playbook setup_test_network.yaml --check --vault-password-file ~/.vault_pass
 #     --check — runs all GETs and prereq checks, skips all writes, prints what would change
 #
-# Firewall rules (Step 2):
-#   Automated rule creation is NOT supported when Unifi Network is in zone-based firewall mode.
-#   The classic /rest/firewallrule POST endpoint rejects all rule_index values in that mode.
-#   This playbook prints the exact rules to create manually in Unifi UI and verifies the VLAN.
-#   After creating the rules manually, re-run this playbook — it will confirm the VLAN is present.
+# Firewall zone policies (Step 2 — manual):
+#   Unifi Network in zone-based firewall mode does not support automated policy creation.
+#   The classic /rest/firewallrule POST endpoint is blocked in zone-based mode.
+#   This playbook prints the exact zone policy settings to enter in Unifi UI.
+#   Create both policies manually, then re-run — it will confirm the VLAN is present.
 #
 # Required vault vars:
 #   vault_test_vlan_id           — VLAN ID (e.g. 3)
@@ -43,11 +43,8 @@
     _unifi_api: "https://{{ inventory_hostname }}/proxy/network/api/s/default"
     _semaphore_ip: "{{ semaphore_host_url | urlsplit('hostname') }}"
     _prod_lan_subnet: "{{ vault_vm_gateway | regex_replace('(\\d+\\.\\d+\\.\\d+)\\.\\d+', '\\1.0') }}/{{ vm_cidr }}"
-    use_zone_rules: true
-    _semaphore_zone_name: "Server"   # zone containing homedwellers_server (where Semaphore lives)
-    _test_vlan_zone_name: "Guest"    # zone containing homedwellers_test; change to "Test" if you create a dedicated zone
-    _ssh_rule_name: "Allow Server to Test"
-    _block_rule_name: "Block Test to Server"
+    _ssh_policy_name: "Allow Server to Test"
+    _block_policy_name: "Block Test to Server"
 
   tasks:
     # ═══════════════════════════════════════════════════════════
@@ -146,86 +143,32 @@
         _vlan_status: "{{ 'created' if not _test_vlan_exists else 'already existed' }}"
 
     # ═══════════════════════════════════════════════════════════
-    # STEP 2a — Resolve zone IDs (zone-based mode only)
-    # ═══════════════════════════════════════════════════════════
-    - name: Get Unifi firewall zones (v2 API)
-      ansible.builtin.uri:
-        url: "https://{{ inventory_hostname }}/proxy/network/v2/api/site/default/firewall/zones"
-        method: GET
-        headers:
-          x-api-key: "{{ unifi_network_api_key }}"
-        validate_certs: false
-      register: _firewall_zones
-      check_mode: false
-      failed_when: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
-      when: use_zone_rules | bool
-
-    - name: Warn if zone API unavailable — will fall back to address-based rules
-      ansible.builtin.debug:
-        msg: >-
-          WARNING: Zone API returned {{ _firewall_zones.status | default('no response') }} —
-          falling back to address-based firewall rules.
-          (use_zone_rules=true but zone API unavailable; requires Unifi Network 8.2+.)
-      when:
-        - use_zone_rules | bool
-        - _firewall_zones.status | default(0) != 200
-
-    - name: Resolve zone IDs and set effective rule mode
-      ansible.builtin.set_fact:
-        _effective_zone_rules: "{{ (use_zone_rules | bool) and (_firewall_zones.status | default(0) == 200) }}"
-        _semaphore_zone_id: >-
-          {{ (((_firewall_zones.json.data
-               if (_firewall_zones.json is mapping and 'data' in (_firewall_zones.json | default({})))
-               else (_firewall_zones.json | default([]))))
-             | selectattr('name', 'equalto', _semaphore_zone_name)
-             | list | first | default({})).get('_id', '') }}
-        _test_vlan_zone_id: >-
-          {{ (((_firewall_zones.json.data
-               if (_firewall_zones.json is mapping and 'data' in (_firewall_zones.json | default({})))
-               else (_firewall_zones.json | default([]))))
-             | selectattr('name', 'equalto', _test_vlan_zone_name)
-             | list | first | default({})).get('_id', '') }}
-
-    - name: Assert zone IDs resolved
-      ansible.builtin.assert:
-        that:
-          - _semaphore_zone_id | length > 0
-          - _test_vlan_zone_id | length > 0
-        fail_msg: >-
-          Zone fetch succeeded but could not resolve zone IDs.
-          Expected zones: '{{ _semaphore_zone_name }}' and '{{ _test_vlan_zone_name }}'.
-          Check _semaphore_zone_name and _test_vlan_zone_name match zone names exactly in Unifi UI
-          (Settings → Firewall & Security → Zones).
-      when: _effective_zone_rules | bool
-
-    # ═══════════════════════════════════════════════════════════
-    # STEP 2b — Firewall rules (manual — zone-based API not accessible)
+    # STEP 2 — Zone policies (manual — zone-based API not accessible)
     # NOTE: The classic /rest/firewallrule POST endpoint rejects all rule_index
     # values when Unifi Network is in zone-based firewall mode (GET returns empty,
     # POST returns FirewallRuleIndexOutOfRange for any 2xxx/4xxx index).
-    # Rules must be created manually in the Unifi UI.
+    # Policies must be created manually in the Unifi UI.
     # ═══════════════════════════════════════════════════════════
-    - name: Print firewall rule manual creation instructions
+    - name: Print zone policy manual creation instructions
       ansible.builtin.debug:
         msg:
-          - "═══ MANUAL ACTION REQUIRED — Firewall Rules ═══"
-          - "The Unifi zone-based firewall API blocks classic rule creation."
-          - "Create these two rules in Unifi UI: Settings → Firewall & Security → Rules → + Add Rule"
+          - "═══ MANUAL ACTION REQUIRED — Zone Policies ═══"
+          - "Unifi zone-based firewall mode requires manual policy creation."
+          - "Go to: Settings → Firewall & Security → Rules → Create Policy"
           - ""
-          - "Rule 1 — '{{ _ssh_rule_name }}'"
-          - "  Ruleset: LAN_IN  |  Action: Accept  |  Protocol: TCP"
-          - "  Source: {{ _semaphore_ip }}/32"
-          - "  Destination: {{ vault_test_vlan_subnet }}  |  Port: 22"
-          - "  (Allows Semaphore to SSH into test VMs)"
+          - "Policy 1 — '{{ _ssh_policy_name }}'"
+          - "  Source Zone: Server  |  Source IP: {{ _semaphore_ip }}/32"
+          - "  Action: Allow"
+          - "  Destination Zone: Guest  |  Destination Network: test-isolation  |  Port: 22  |  Protocol: TCP"
+          - "  (Allows Semaphore to SSH into test VMs on the isolated VLAN)"
           - ""
-          - "Rule 2 — '{{ _block_rule_name }}'"
-          - "  Ruleset: LAN_IN  |  Action: Drop  |  Protocol: All"
-          - "  Source: {{ vault_test_vlan_subnet }}"
-          - "  Destination: {{ _prod_lan_subnet }}"
-          - "  (Blocks test VMs from reaching production LAN)"
+          - "Policy 2 — '{{ _block_policy_name }}'"
+          - "  Source Zone: Guest  |  Source IP: {{ vault_test_vlan_subnet }}"
+          - "  Action: Block"
+          - "  Destination Zone: Server"
+          - "  (Blocks test VMs from reaching production services)"
           - ""
-          - "After creating both rules, re-run this playbook to verify."
+          - "After creating both policies, re-run this playbook to verify the VLAN is present."
       when: not ansible_check_mode
 
     # ═══════════════════════════════════════════════════════════
@@ -237,11 +180,11 @@
           - "=== CHECK MODE — No changes made ==="
           - "VLAN {{ vault_test_vlan_id }} (test-isolation): {{ 'would be created' if not _test_vlan_exists else 'already exists — no action needed' }}"
           - ""
-          - "Firewall rules require manual creation in Unifi UI:"
-          - "  Rule 1 — '{{ _ssh_rule_name }}': LAN_IN accept TCP {{ _semaphore_ip }}/32 → {{ vault_test_vlan_subnet }}:22"
-          - "  Rule 2 — '{{ _block_rule_name }}': LAN_IN drop all {{ vault_test_vlan_subnet }} → {{ _prod_lan_subnet }}"
+          - "Zone policies require manual creation in Unifi UI (Settings → Firewall & Security → Rules → Create Policy):"
+          - "  Policy 1 — '{{ _ssh_policy_name }}': Source=Server/{{ _semaphore_ip }}/32 → Allow → Dest=Guest/test-isolation:22/TCP"
+          - "  Policy 2 — '{{ _block_policy_name }}': Source=Guest/{{ vault_test_vlan_subnet }} → Block → Dest=Server"
           - ""
-          - "Re-run without --check after creating rules to verify."
+          - "Re-run without --check after creating policies to verify."
       when: ansible_check_mode
 
     # ═══════════════════════════════════════════════════════════
@@ -271,13 +214,13 @@
     - name: Print summary
       ansible.builtin.debug:
         msg:
-          - "=== Test Network Setup — VLAN Complete, Rules Pending ==="
+          - "=== Test VLAN Setup Complete — Zone Policies Pending ==="
           - "VLAN {{ vault_test_vlan_id }} (test-isolation): {{ _vlan_status }}"
           - ""
-          - "⚠ Firewall rules must be created manually (see instructions above)."
-          - "  After creating both rules in Unifi UI, re-run to verify the VLAN is still present."
+          - "⚠ Zone policies must be created manually (see instructions above)."
+          - "  After creating both policies in Unifi UI, re-run to confirm the VLAN is present."
           - ""
-          - "Next steps after manual rule creation:"
+          - "Next steps after manual policy creation:"
           - "  1. Run build_ubuntu.yaml -e vm_name=test-vm to provision a test VM"
           - "  2. Verify: VLAN tag on net0 in Proxmox UI, IP in {{ vault_test_vlan_subnet }}"
           - "  3. From test VM: ping prod host → timeout; curl https://hub.docker.com → 200"
