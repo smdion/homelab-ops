@@ -721,12 +721,12 @@ Templates are organized into views (tabs in the Semaphore UI) by verb:
 |------|-----------|-------------|
 | Backups | 13 | `Backup —` |
 | Updates | 6 | `Update —` |
-| Maintenance | 7 | `Maintain —` |
+| Maintenance | 8 | `Maintain —` |
 | Downloads | 2 | `Download —` |
-| Verify | 8 | `Verify —` |
+| Verify | 9 | `Verify —` |
 | Restore | 9 | `Restore —`, `Rollback —` |
 | Deploy | 3 | `Deploy —`, `Build —` |
-| Setup | 1 | `Setup —` |
+| Setup | 2 | `Setup —` |
 
 When adding a new template, assign it to the matching view. Views are stored in the
 `project__view` table; templates reference views via the `view_id` column in
@@ -976,20 +976,33 @@ and `download_videos` per-video embeds.
 **Do not include "Description" or "Host" fields.** The operation is in the title; the host is
 already the embed author (Line 1). Both fields were removed in the standardization pass.
 
+**`discord_fields` entries** are dicts with `name`, `value`, and an optional `inline: true` key.
+Discord renders up to 3 inline fields per row — use `inline: true` for short identifier fields
+(VM Name, Host IP, instance results) and omit it for longer values. The `tasks/notify_discord.yaml`
+comment documents the full dict shape.
+
+**"Source File (date)"** in the table above means the field value is extracted to `YYYY-MM-DD`
+via `regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1')` — showing just the backup date
+rather than the full filename.
+
 | Category | `discord_url` source | Fields | Fires on |
 |----------|---------------------|--------|----------|
-| **Backup** (`backup_hosts`, `backup_databases`) | `backup_url` | Backup Name, Backup Size | Always |
+| **Backup** (`backup_hosts`) | `backup_url` | Backup Name, Backup Size | Always |
+| **Backup — DB** (`backup_databases`) | `backup_url` | Date, Backup Size | Always |
 | **Sync** (`backup_offline`) | `backup_url` | Share, Size Transferred | Always |
-| **Verify** (`verify_backups`) | `backup_url` | Source File, Detail | Always |
-| **Restore — DB** (`restore_databases`) | `backup_url` | Source File, Tables/Measurements | Always |
-| **Restore — Host** (`restore_hosts`) | `backup_url` | Mode, Source File, Detail | Always |
+| **Verify** (`verify_backups`) | `backup_url` | Source File (date), Detail | Always |
+| **Restore — DB** (`restore_databases`) | `backup_url` | Source File (date), Tables/Measurements | Always |
+| **Restore — Host** (`restore_hosts`) | `backup_url` | Mode, Source File (date), Detail | Always |
+| **Restore — App** (`restore_app`) | `backup_url` | Detail | Always |
+| **Restore — AMP** (`restore_amp`) | `backup_url` | Per-instance ✅/❌ fields (inline), Detail | Always |
 | **Update — OS** (`update_systems` non-Docker) | `backup_url` | Version | Change or failure only |
 | **Update — Docker** (`update_systems` Docker) | `backup_url` | Updated | Change or failure only |
 | **Rollback** (`rollback_docker`) | `backup_url` | Services, Snapshot Date, Detail | Always |
 | **Deploy** (`deploy_stacks`, `deploy_grafana`) | `semaphore_ext_url` | Stacks/Detail | Always |
-| **Build** (`build_ubuntu` Play 1) | `semaphore_ext_url` | VM Name, Host IP, Proxmox Node, Detail | Always |
+| **Build** (`build_ubuntu` Play 1) | `semaphore_ext_url` | VM Name (inline), Host IP (inline), Proxmox Node (inline), Detail | Always |
 | **Bootstrap** (`build_ubuntu` Play 2) | `semaphore_ext_url` | Detail | Always |
-| **Restore Test** (`test_restore`) | `semaphore_ext_url` | Source Host, Test VM, Stacks, Detail | Always |
+| **Restore Test** (`test_restore`) | `semaphore_ext_url` | Source Host (inline), Test VM (inline), Stacks, Detail | Always |
+| **Test App Restore** (`test_app_restore`) | `semaphore_ext_url` | Per-app ✅/❌ inline fields, Detail | Always |
 | **Maintenance** (`maintain_*`) | `maintenance_url` | *(none)* | Failure only |
 | **Health** (`maintain_health` failure) | `maintenance_url` | *(none)* | Failure only |
 | **Health alerts** (`maintain_health` checks) | `maintenance_url` / per-check | Custom per alert type | Per-check logic |
@@ -1242,8 +1255,13 @@ and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
 | `verify_backups.yaml` | Backup file search runs. Integrity checks run. No temp databases created. No archives extracted. Discord/DB suppressed. |
 | `restore_databases.yaml` | Backup file search runs. Safety backup skipped. No restore performed. No container management. Discord/DB suppressed. |
 | `restore_hosts.yaml` | Backup file search runs. Archive integrity verified. No extraction or container management. Discord/DB suppressed. |
+| `restore_app.yaml` | Backup file search runs. Safety gate skipped. No stack stop/start. No DB or appdata restore. Discord/DB suppressed. |
+| `restore_amp.yaml` | AMP archive discovery runs. Safety gate skipped. No instance stop/start or data replacement. Discord/DB suppressed. |
 | `rollback_docker.yaml` | Snapshot read and parsed. Safety gate skipped. No image re-tag/pull or container recreation. Discord/DB suppressed. |
+| `maintain_pve.yaml` | keepalived + ansible user + SSH config tasks simulated. Discord/DB suppressed. |
+| `maintain_logging_db.yaml` | DB purge queries simulated. Discord/DB suppressed. |
 | `deploy_grafana.yaml` | Dashboard JSON read and parsed. All API calls skipped (datasource check, create, dashboard import). Discord/DB suppressed. |
+| `test_app_restore.yaml` | VM provisioned. Stacks deployed. No app restores performed (restore and health check steps skipped). Discord/DB suppressed. |
 
 ### Pre-task validations
 
@@ -1460,7 +1478,7 @@ tasks) checks the publish date with a three-tier fallback:
 
 ### Database: `ansible_logging`
 
-Five tables (four operational + one state). All columns are set by Ansible — no DB-side triggers,
+Seven tables (six operational + one state). All columns are set by Ansible — no DB-side triggers,
 functions, or computed columns. Run `mysql -u root -p < sql/init.sql` to create the database and
 all tables. The init script uses `CREATE TABLE IF NOT EXISTS` so re-running is safe.
 
@@ -1647,6 +1665,27 @@ Logs restore operations (`operation: restore`). Verification operations log to t
 table (subtype `Verify`) instead. `source_file` tracks which backup file was used. `detail`
 holds free-text context (e.g., "sonarr restored inplace + sonarr-log, sonarr-main DB(s) restored").
 Written by `tasks/log_restore.yaml`, separate from `log_mariadb.yaml` due to the different schema.
+
+#### `docker_sizes` table
+
+```sql
+CREATE TABLE docker_sizes (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  hostname      VARCHAR(255) NOT NULL,
+  timestamp     DATETIME     NOT NULL,
+  images_count  INT,
+  images_mb     DECIMAL(10,2),
+  volumes_count INT,
+  volumes_mb    DECIMAL(10,2),
+  containers_mb DECIMAL(10,2),
+  INDEX idx_hostname  (hostname),
+  INDEX idx_timestamp (timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+```
+
+Written by `maintain_docker.yaml` after each Docker prune run. Captures Docker storage usage
+per host — images, volumes, and containers — enabling Grafana trend panels to detect image
+accumulation and measure the effectiveness of each prune cycle.
 
 ### Naming scheme
 
@@ -1860,6 +1899,8 @@ db_host_secondary: "..."            # inventory_hostname of secondary DB host (r
 metube_webhook_id: "..."            # MeTube Discord channel — per-video download notifications (download_videos.yaml)
 metube_webhook_token: "..."         # MeTube Discord channel — per-video download notifications (download_videos.yaml)
 unvr_api_key: "..."                 # Unifi Protect UNVR API key (backup_hosts.yaml)
+unifi_network_api_key: "..."        # Unifi Network API key for device inventory export (backup_hosts.yaml via vars/unifi_network.yaml)
+docker_trusted_proxy_cidrs: "..."   # CIDR(s) of reverse proxy — trusted proxy header (stacks/auth/env.j2, Authentik)
 ansible_user_ssh_pubkey: "..."      # SSH public key for ansible user (setup_ansible_user.yaml, maintain_pve.yaml)
 synology_ip: "..."                  # Synology NAS IP address (backup_offline.yaml via vars/synology.yaml)
 synology_mac: "..."                 # Synology NAS MAC for WOL (backup_offline.yaml via vars/synology.yaml)
@@ -2102,12 +2143,12 @@ timezone — no explicit timezone configuration is needed on the datasource.
 All panel queries use `WHERE hostname IN ($hostname)` conditions so filtering applies across the
 entire dashboard. When "All" is selected, Grafana expands `$hostname` to all values automatically.
 
-**Panel layout (5 collapsible row groups, 21 content panels):**
+**Panel layout (5 collapsible row groups, 23 content panels):**
 
 | Row | Default | Panels |
 |-----|---------|--------|
 | **Alerts** | Expanded | Stale Backups (9+ Days), Stale Updates (14+ Days), Current Non-OK Health Checks (with check_detail) |
-| **Trends** | Expanded | Backups/Updates/Maintenance Over Time, Backup Size Trend by Application, Health Issues Over Time |
+| **Trends** | Expanded | Backups/Updates/Maintenance Over Time, Backup Size Trend by Application, Health Issues Over Time, Docker Storage Trend (images MB + volumes MB from `docker_sizes`) |
 | **Distributions** | Collapsed | 5 bar charts: backup subtype, update type, maintenance subtype, backups by host, updates by application |
 | **Recent Activity** | Collapsed | Last Successful Backup per Host, Last Successful Update per Host, Recent Backups/Updates/Maintenance |
 | **Status** | Collapsed | Current Version Status, Latest Health Status per Host, Recent Health Check Results |
