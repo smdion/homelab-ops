@@ -220,15 +220,17 @@
         _existing_rule_names: >-
           {{ _firewall_rules.json.data | map(attribute='name') | list }}
         _ssh_rule_index: >-
-          {{ ((_firewall_rules.json.data
-               | selectattr('ruleset', 'equalto', 'LAN_IN')
-               | map(attribute='rule_index')
-               | list | sort | last | default(0)) | int) + 1 }}
+          {{ ([(_firewall_rules.json.data
+                | selectattr('ruleset', 'equalto', 'LAN_IN')
+                | map(attribute='rule_index')
+                | map('int') | list | sort | last | default(1999) | int) + 1,
+               2000] | max) }}
         _block_rule_index: >-
-          {{ ((_firewall_rules.json.data
-               | selectattr('ruleset', 'equalto', 'LAN_IN')
-               | map(attribute='rule_index')
-               | list | sort | last | default(0)) | int) + 2 }}
+          {{ ([(_firewall_rules.json.data
+                | selectattr('ruleset', 'equalto', 'LAN_IN')
+                | map(attribute='rule_index')
+                | map('int') | list | sort | last | default(1999) | int) + 2,
+               2001] | max) }}
 
     # Zone-based rules
     - name: "Create rule — {{ _ssh_rule_name }} [zone-based]"
