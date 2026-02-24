@@ -1,5 +1,5 @@
 ---
-# Auto-detect the lowest available test-vm slot (vm_index 0–9, VMIDs 199–208).
+# Auto-detect the lowest available test-vm slot (vm_index 0–(vm_test_slot_count-1)).
 # "Available" means the VMID is either absent from the cluster or present but stopped.
 # A running VM is considered in use — even if no test is actively targeting it.
 #
@@ -9,6 +9,7 @@
 # Sets: vm_index (int)
 #
 # Requires: pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret
+#           vm_test_slot_base, vm_test_slot_count (from vars/vm_definitions.yaml)
 
 - name: Auto-detect free vm_index
   when: vm_index is not defined
@@ -23,14 +24,14 @@
       register: _slot_check_vms
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-    - name: Assert a free test-vm slot exists (0–9, VMIDs 199–208)
+    - name: Assert a free test-vm slot exists
       ansible.builtin.assert:
         that: _pool_vmids | difference(_running_vmids) | length > 0
         fail_msg: >-
-          All test-vm slots (0–9, VMIDs 199–208) are currently running.
+          All test-vm slots (VMIDs {{ vm_test_slot_base }}–{{ vm_test_slot_base + vm_test_slot_count - 1 }}) are currently running.
           Stop or revert a slot, or pass vm_index= explicitly to force a specific slot.
       vars:
-        _pool_vmids: "{{ range(199, 209) | list }}"
+        _pool_vmids: "{{ range(vm_test_slot_base | int, (vm_test_slot_base + vm_test_slot_count) | int) | list }}"
         _running_vmids: >-
           {{ _slot_check_vms.json.data
              | selectattr('status', 'equalto', 'running')
@@ -38,9 +39,9 @@
 
     - name: Set vm_index to lowest available test-vm slot
       ansible.builtin.set_fact:
-        vm_index: "{{ (_pool_vmids | difference(_running_vmids) | map('int') | sort | first | int) - 199 }}"
+        vm_index: "{{ (_pool_vmids | difference(_running_vmids) | map('int') | sort | first | int) - (vm_test_slot_base | int) }}"
       vars:
-        _pool_vmids: "{{ range(199, 209) | list }}"
+        _pool_vmids: "{{ range(vm_test_slot_base | int, (vm_test_slot_base + vm_test_slot_count) | int) | list }}"
         _running_vmids: >-
           {{ _slot_check_vms.json.data
              | selectattr('status', 'equalto', 'running')
@@ -50,5 +51,5 @@
       ansible.builtin.debug:
         msg: >-
           Auto-selected vm_index={{ vm_index }}
-          (VMID {{ 199 + vm_index | int }},
-          {{ 'stopped — will reuse' if _slot_check_vms.json.data | selectattr('vmid', 'equalto', (199 + vm_index | int)) | list | length > 0 else 'absent — will provision' }})
+          (VMID {{ (vm_test_slot_base | int) + (vm_index | int) }},
+          {{ 'stopped — will reuse' if _slot_check_vms.json.data | selectattr('vmid', 'equalto', ((vm_test_slot_base | int) + (vm_index | int))) | list | length > 0 else 'absent — will provision' }})

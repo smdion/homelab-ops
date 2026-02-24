@@ -44,18 +44,24 @@ pve_cloud_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server
 vm_template_memory: 2048
 vm_template_cores: 2
 
+# Test VM slot pool — shared by test-vm and cephfs-test (and any future slot-based VMs).
+# VMIDs: vm_test_slot_base .. vm_test_slot_base + vm_test_slot_count - 1
+# IPs:   vault_test_vm_ip_prefix + (vault_test_vm_ip_offset + vm_index)
+# To extend the pool or shift the VMID range, change these two values only.
+vm_test_slot_base: 199
+vm_test_slot_count: 10
+
 # vm_definitions: keyed by short name (used as vm_name arg and in stack_assignments).
 # Per-VM sensitive values (hostname, IP, PVE target node) come from vault:
 #   vault_vm_<name>_hostname  — FQDN for cloud-init hostname and Ansible inventory
 #   vault_vm_<name>_ip        — static IP for cloud-init network config
 #   vault_vm_<name>_node      — PVE node to place this VM on
 #
-# test-vm uses a dedicated IP range to avoid updating secrets per build.
-# Pass vm_index=0..9 (default 0) to select a slot:
+# test-vm / cephfs-test use a dedicated IP range to avoid updating secrets per build.
+# Pass vm_index=0..vm_test_slot_count-1 (default 0) to select a slot:
 #   vault_test_vm_ip_prefix   — first 3 octets with trailing dot (e.g. "10.10.10.")
 #   vault_test_vm_ip_offset   — last octet of the first slot (e.g. 90)
 # Resulting IPs: <prefix><offset+vm_index>  (e.g. 192.0.2.90 .. 192.0.2.99)
-# VMIDs: 199+vm_index (199..208). VM names: test-vm0..test-vm9.
 vm_definitions:
   tantiveiv:
     vm_id: 100
@@ -80,7 +86,7 @@ vm_definitions:
     cephfs_host_dir: "odyssey"       # mounts /odyssey from CephFS root at /opt
 
   cephfs-test:
-    vm_id: "{{ (199 + (vm_index | default(0) | int)) | int }}"
+    vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
     vm_name: "cephfs-test{{ vm_index | default(0) | int }}"
     vm_hostname: "cephfs-test{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
@@ -104,7 +110,7 @@ vm_definitions:
     pve_target_node: "{{ vault_vm_amp_node }}"
 
   test-vm:
-    vm_id: "{{ (199 + (vm_index | default(0) | int)) | int }}"
+    vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
     vm_name: "test-vm{{ vm_index | default(0) | int }}"
     vm_hostname: "test-vm{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"

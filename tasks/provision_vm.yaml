@@ -64,33 +64,35 @@
   ansible.builtin.set_fact:
     _vm_already_exists: "{{ _cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0 }}"
 
-# --- Auto-advance test-vm slot if selected slot is currently running ---
-# If the resolved VMID (199–208) is running (in use), find the next free slot instead of stopping it.
+# --- Auto-advance slot if selected VMID is currently running ---
+# Applies to any VM in the test pool (vm_test_slot_base to slot_base+count-1).
 # Named VMs outside that range are not auto-advanced.
-- name: Auto-advance test-vm slot if selected slot is running
+- name: Auto-advance slot if selected VMID is running
   when: >-
     _vm_already_exists | bool and
-    (_vm.vm_id | int) >= 199 and (_vm.vm_id | int) <= 208 and
+    (_vm.vm_id | int) >= (vm_test_slot_base | int) and
+    (_vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int) and
     (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int)
      | selectattr('status', 'equalto', 'running') | list | length > 0)
   block:
-    - name: Assert a free test-vm slot exists
+    - name: Assert a free slot exists
       ansible.builtin.assert:
         that: >-
-          (range(199, 209) | list)
+          (range(vm_test_slot_base | int, (vm_test_slot_base + vm_test_slot_count) | int) | list)
           | difference(
               _cluster_vms.json.data
               | selectattr('status', 'equalto', 'running')
               | map(attribute='vmid') | map('int') | list
             ) | length > 0
         fail_msg: >-
-          VMID {{ _vm.vm_id }} ({{ _vm.vm_name }}) is running and all test-vm slots
-          (VMIDs 199–208) are also running. Stop a slot first, or pass vm_index= explicitly.
+          VMID {{ _vm.vm_id }} ({{ _vm.vm_name }}) is running and all slots
+          (VMIDs {{ vm_test_slot_base }}–{{ vm_test_slot_base + vm_test_slot_count - 1 }})
+          are also running. Stop a slot first, or pass vm_index= explicitly.
 
-    - name: Resolve next free test-vm VMID
+    - name: Resolve next free VMID
       ansible.builtin.set_fact:
         _next_free_vmid: >-
-          {{ ((range(199, 209) | list)
+          {{ ((range(vm_test_slot_base | int, (vm_test_slot_base + vm_test_slot_count) | int) | list)
               | difference(
                   _cluster_vms.json.data
                   | selectattr('status', 'equalto', 'running')
@@ -99,16 +101,16 @@
 
     - name: Compute new slot index
       ansible.builtin.set_fact:
-        _new_vm_index: "{{ (_next_free_vmid | int) - 199 }}"
+        _new_vm_index: "{{ (_next_free_vmid | int) - (vm_test_slot_base | int) }}"
 
-    - name: Update _vm to next free test-vm slot
+    - name: Update _vm to next free slot
       ansible.builtin.set_fact:
         vm_index: "{{ _new_vm_index }}"
         _vm: >-
           {{ _vm | combine({
             'vm_id': _next_free_vmid | int,
-            'vm_name': 'test-vm' ~ _new_vm_index,
-            'vm_hostname': 'test-vm' ~ _new_vm_index ~ '.' ~ vm_search_domain,
+            'vm_name': (_vm.vm_name | regex_replace('[0-9]+$', '')) ~ _new_vm_index,
+            'vm_hostname': (_vm.vm_name | regex_replace('[0-9]+$', '')) ~ _new_vm_index ~ (_vm.vm_hostname | regex_replace('^[^.]+', '')),
             'vm_ip': vault_test_vm_ip_prefix ~ (((vault_test_vm_ip_offset | int) + (_new_vm_index | int)) | string)
           }) }}
         _vm_already_exists: >-
