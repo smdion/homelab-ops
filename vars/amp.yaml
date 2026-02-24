@@ -4,12 +4,10 @@
 backup_tmp_dir: "/tmp/backup"
 backup_name: "AMP"
 backup_description: "Automatic AMP Instance Backup"
-backup_type: "Servers"
 backup_subtype: "Config"
 backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ logging_domain_ext }}"
 update_name: "AMP"
 update_description: "Automatic AMP Update"
-update_type: "Servers"
 update_subtype: "Game Server"
 
 # Maintenance config — used by maintain_amp.yaml

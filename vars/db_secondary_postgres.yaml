@@ -1,11 +1,9 @@
 # db_password is in vars/secrets.yaml (vault)
 # config_file: "db_secondary_postgres" must be set in Semaphore variable group JSON
 # (hosts_variable is the host group which doesn't match this filename)
-backup_tmp_dir: "/backup"
 backup_name: "Database"
 backup_url: "https://sql.{{ logging_domain_ext }}"
 backup_description: "Automatic Database Backup"
-backup_type: "Servers"
 backup_subtype: "Database"
 backup_ext: "sql"
 backup_file: "backup_{{ item }}_{{ ansible_date_time.date }}.sql"
@@ -14,7 +12,6 @@ container_name: "postgres-immich"
 db_names:
   - "immich"
 is_postgres: true
-is_mariadb: false
 
 # Restore support — maps each DB to dependent containers ON THE SAME HOST as postgres-immich.
 db_container_deps:

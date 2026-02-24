@@ -6,9 +6,17 @@ ansible_python_interpreter: auto_silent
 
 # Backup defaults — override per-platform in vars/*.yaml where needed
 backup_base_dir: "/backup"
+backup_tmp_dir: "/backup"          # override if host uses a different staging dir
 backup_tmp_file: "{{ backup_tmp_dir }}/{{ backup_file }}"
 backup_dest_path: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ backup_file }}"
 backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ logging_domain_ext }}"
+backup_type: "Servers"             # override to "Appliances" for purpose-built gear
+update_type: "Servers"             # override to "Appliances" for purpose-built gear
+
+# Database engine flags — all default false; db_*.yaml sets only the true flag
+is_postgres: false
+is_mariadb: false
+is_influxdb: false
 
 # Discord embed colors (decimal integers)
 discord_color_success: 32768

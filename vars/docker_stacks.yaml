@@ -1,10 +1,8 @@
 src_raw_files:
   - "/opt"
 
-backup_tmp_dir: "/backup"
 backup_name: "Docker"
 backup_description: "Automatic Docker Appdata Backup"
-backup_type: "Servers"
 backup_subtype: "Appdata"
 
 # Per-stack TCP ports to wait for after docker compose up.

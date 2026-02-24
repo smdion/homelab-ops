@@ -115,7 +115,7 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 ├── inventory.example.yaml          # Template inventory with example hosts and group structure
 │
 ├── group_vars/
-│   ├── all.yaml                    # Shared defaults: ansible_remote_tmp, ansible_python_interpreter, backup_base_dir/tmp_file/dest_path/url
+│   ├── all.yaml                    # Shared defaults: ansible_remote_tmp, ansible_python_interpreter, backup_base_dir/tmp_dir/tmp_file/dest_path/url, backup_type/update_type ("Servers"), is_postgres/is_mariadb/is_influxdb (false)
 │   ├── pikvm.yaml                  # PiKVM override: ansible_remote_tmp → /tmp/.ansible/tmp (RO filesystem; /tmp is tmpfs)
 │   └── tantiveiv.yaml              # tantive-iv override: docker_mem_limit → "10g" (12GB RAM vs 4GB default)
 │
@@ -235,11 +235,17 @@ Ansible when the inventory is in the same directory. Contains:
 - `ansible_remote_tmp: ~/.ansible/tmp` — uses home directory instead of `/tmp` to avoid
   world-readable temporary files that could leak module arguments
 - `ansible_python_interpreter: auto_silent` — suppresses Python discovery warnings
-- `backup_base_dir`, `backup_tmp_file`, `backup_dest_path`, `backup_url` — centralized backup
-  path defaults; `backup_base_dir` is the controller's backup root directory (used in
-  `backup_dest_path` and the disk space pre-task assertion). Individual `vars/*.yaml` files
-  override only when their pattern differs (e.g., `backup_url` overrides in `unifi_network.yaml`,
-  `synology.yaml`, database vars, and `ubuntu_os.yaml`)
+- `backup_base_dir`, `backup_tmp_dir`, `backup_tmp_file`, `backup_dest_path`, `backup_url` —
+  centralized backup path defaults; `backup_base_dir` is the controller's backup root directory
+  (used in `backup_dest_path` and the disk space pre-task assertion). `backup_tmp_dir` defaults
+  to `"/backup"` — override in `vars/*.yaml` only for hosts that use a different staging path
+  (e.g., `"/tmp/backup"` for AMP/Unifi Protect, `"/mnt/user/Backup/ansibletemp/"` for unRAID).
+  `backup_url` overrides in `unifi_network.yaml`, `synology.yaml`, database vars, and `ubuntu_os.yaml`
+- `backup_type: "Servers"` — default category for Grafana filtering; override to `"Appliances"`
+  in vars files for purpose-built gear (proxmox, pikvm, unifi_network, unifi_protect)
+- `update_type: "Servers"` — same convention as `backup_type` for the updates table
+- `is_postgres: false`, `is_mariadb: false`, `is_influxdb: false` — database engine flags; all
+  default false so each `db_*.yaml` vars file only needs to set the one flag that is `true`
 
 **`ansible.cfg`** — Ansible configuration: disables `.retry` files and sets `stdout_callback: yaml`
 for human-readable output.
@@ -1338,7 +1344,9 @@ Both mechanisms are OR-combined — either alone is sufficient to reveal output.
 ### `host_vars` vs `group_vars` rules
 
 - **`group_vars/all.yaml`** — defaults that apply everywhere: shared Ansible settings, backup path
-  patterns, Discord colors
+  patterns, Discord colors. Also provides `backup_type`/`update_type` (default `"Servers"`),
+  `backup_tmp_dir` (default `"/backup"`), and DB engine flags (`is_postgres`/`is_mariadb`/`is_influxdb`,
+  all default `false`). Override these in `vars/*.yaml` only when needed.
 - **`group_vars/<group>.yaml`** — per-group overrides for a specific inventory group (e.g.,
   `group_vars/tantiveiv.yaml` for `docker_mem_limit`; `group_vars/pikvm.yaml` for `ansible_remote_tmp`)
 - **`vars/*.yaml`** — per-platform configs loaded explicitly via `vars_files:` in playbooks; use for
@@ -1772,15 +1780,18 @@ and why `update_systems.yaml` must use `update_name` (not `backup_name`) for DB 
 | `log_hostname` | `*.hostname` (all tables) | `include_tasks vars:` — always `inventory_hostname` or `controller_fqdn` |
 | `backup_name` | `backups.application` | `vars/*.yaml` |
 | `update_name` | `updates.application` | `vars/*.yaml` |
-| `backup_type` | `backups.backup_type` | `vars/*.yaml` |
+| `backup_type` | `backups.backup_type` | `group_vars/all.yaml` (default `"Servers"`); override in `vars/*.yaml` for Appliances |
 | `backup_subtype` | `backups.backup_subtype` | `vars/*.yaml` |
-| `update_type` | `updates.update_type` | `vars/*.yaml` |
+| `update_type` | `updates.update_type` | `group_vars/all.yaml` (default `"Servers"`); override in `vars/*.yaml` for Appliances |
 | `update_subtype` | `updates.update_subtype` | `vars/*.yaml` |
 | `maintenance_name` | `maintenance.application` | inline `vars:` in playbook |
 | `maintenance_type` | `maintenance.type` | inline `vars:` in playbook |
 | `maintenance_subtype` | `maintenance.subtype` | inline `vars:` in playbook |
 
-The first six must be present in any vars file used with `backup_hosts.yaml` or `update_systems.yaml`.
+`backup_name`, `backup_description`, `backup_subtype`, `backup_file`, `update_name`, `update_description`,
+and `update_subtype` must be present in any vars file used with `backup_hosts.yaml` or
+`update_systems.yaml`. `backup_type` and `update_type` are inherited from `group_vars/all.yaml`
+(`"Servers"`) unless overridden.
 Maintenance operation metadata (`maintenance_name`, `_type`, `_subtype`, `_description`) is defined
 in each playbook's `vars:` block — these describe the operation, not the deployment. Deployment-specific
 maintenance values (e.g., `maintenance_url` when it's a hardcoded URL) go in the platform vars file.
