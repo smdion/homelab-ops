@@ -130,8 +130,27 @@
         update: true
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-    # Stop VM if running before resize (resize requires stopped state)
-    - name: Stop VM if running before resize
+    # Verify cloud-init IP was applied before starting (fail fast, not after 5-min SSH timeout)
+    - name: Read back VM config to verify cloud-init IP
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _vm_config_check
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Assert cloud-init IP matches expected
+      ansible.builtin.assert:
+        that: "'ip=' ~ _vm.vm_ip in (_vm_config_check.json.data.ipconfig0 | default(''))"
+        fail_msg: >-
+          cloud-init ipconfig0 does not contain expected IP {{ _vm.vm_ip }}.
+          Actual: {{ _vm_config_check.json.data.ipconfig0 | default('not set') }}
+          Check that vault_test_vm_ip_prefix and vault_test_vm_ip_offset resolve to a valid subnet IP.
+
+    # Stop VM if running before reconfigure (requires stopped state)
+    - name: Stop VM if running before reconfigure
       community.general.proxmox_kvm:
         api_host: "{{ pve_api_host }}"
         api_user: "{{ pve_api_user }}"
@@ -142,7 +161,10 @@
         state: stopped
         force: true
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: _vm_already_exists
+      when: >-
+        _vm_already_exists and
+        (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int)
+         | selectattr('status', 'equalto', 'running') | list | length > 0)
 
     # Resize disk from cloud image (~3.5G) to target size
     - name: Resize VM disk
