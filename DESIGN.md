@@ -165,7 +165,7 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 │   ├── docker_start.yaml            # Start Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── restore_appdata.yaml         # Restore appdata archive (staging inspect or inplace mode)
 │   ├── restore_app_step.yaml        # Per-app restore loop body (stop stack, restore DB+appdata, restart, health check; OOM detection)
-│   ├── verify_app_http.yaml         # Per-app HTTP endpoint verification (used by restore_app.yaml and test_app_restore.yaml)
+│   ├── verify_app_http.yaml         # Per-app HTTP endpoint verification (used by restore_app.yaml and test_backup_restore.yaml)
 │   ├── backup_single_amp_instance.yaml  # Per-AMP-instance backup loop body (stop→archive→verify→fetch→start)
 │   ├── restore_single_amp_instance.yaml # Per-AMP-instance restore loop body (stop→remove→extract→start); mirrors backup_single_amp_instance
 │   └── verify_docker_health.yaml    # Poll Docker container health until all healthy or timeout
@@ -197,7 +197,7 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 ├── restore_amp.yaml               # AMP instance restore — stop instance(s), replace data dir from archive, restart; per-instance or all; requires confirm=yes
 ├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert
-├── test_app_restore.yaml          # Test all app_restore apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
+├── test_backup_restore.yaml          # Test all app_restore apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
 ├── files/
@@ -434,13 +434,13 @@ and logs to the `restores` table (`restore_subtype: Appdata`). Accepts `-e resto
 `-e restore_target=<host>`. Uses `tasks/restore_app_step.yaml` for per-app logic. Sends Discord
 notification on success or failure.
 
-**`test_app_restore.yaml`** — Automated all-app restore test on a disposable VM. Provisions a
+**`test_backup_restore.yaml`** — Automated all-app restore test on a disposable VM. Provisions a
 test VM (or reuses one with `-e provision=false`), deploys all stacks, restores each `app_restore`
 app in sequence (DB + appdata inplace), runs HTTP health checks, and summarizes results via
 Discord. Includes OOM auto-recovery: if a restore OOM-kills the VM, saves partial results to
 localhost, doubles RAM via PVE API, reboots, and retries the OOM-failed apps. Reverts the VM to
 a pre-restore snapshot when done. Uses `tasks/restore_app_step.yaml` (loop var: `_test_app`).
-Logs to the `maintenance` table (type: `Servers`, subtype: `Test App Restore`).
+Logs to the `maintenance` table (type: `Servers`, subtype: `Test Backup Restore`).
 
 **`rollback_docker.yaml`** — Reverts Docker containers to their previous image versions using
 the snapshot saved by `update_systems.yaml`. Two rollback paths: **fast** (old image still on
@@ -1027,7 +1027,7 @@ rather than the full filename.
 | **Build** (`build_ubuntu` Play 1) | `semaphore_ext_url` | VM Name (inline), Host IP (inline), Proxmox Node (inline), Detail | Always |
 | **Bootstrap** (`build_ubuntu` Play 2) | `semaphore_ext_url` | Detail | Always |
 | **Restore Test** (`test_restore`) | `semaphore_ext_url` | Source Host (inline), Test VM (inline), Stacks, Detail | Always |
-| **Test App Restore** (`test_app_restore`) | `semaphore_ext_url` | Per-app ✅/❌ inline fields, Detail | Always |
+| **Test Backup Restore** (`test_backup_restore`) | `semaphore_ext_url` | Per-app ✅/❌ inline fields, Detail | Always |
 | **Maintenance** (`maintain_*`) | `maintenance_url` | *(none)* | Failure only |
 | **Health** (`maintain_health` failure) | `maintenance_url` | *(none)* | Failure only |
 | **Health alerts** (`maintain_health` checks) | `maintenance_url` / per-check | Custom per alert type | Per-check logic |
@@ -1287,7 +1287,7 @@ and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
 | `maintain_pve.yaml` | keepalived + ansible user + SSH config tasks simulated. VIP reachability check skipped. Discord/DB suppressed. |
 | `maintain_logging_db.yaml` | DB purge queries simulated. Discord/DB suppressed. |
 | `deploy_grafana.yaml` | Dashboard JSON read and parsed. All API calls skipped (datasource check, create, dashboard import). Discord/DB suppressed. |
-| `test_app_restore.yaml` | VM provisioned. Stacks deployed. No app restores performed (restore and health check steps skipped). Discord/DB suppressed. |
+| `test_backup_restore.yaml` | VM provisioned. Stacks deployed. No app restores performed (restore and health check steps skipped). Discord/DB suppressed. |
 | `build_ubuntu.yaml` | VM state assertion and cluster resource query run. VM clone/configure/destroy simulated (proxmox_kvm). URI PUT resize and VLAN config skipped. wait_for SSH skipped. Snapshot POST and rollback POST skipped. Discord/DB suppressed. |
 | `setup_pve_vip.yaml` | keepalived install and config tasks simulated. VRRP election pause and VIP reachability check skipped. |
 
@@ -1624,7 +1624,7 @@ CREATE TABLE maintenance (
   application VARCHAR(100) NOT NULL,   -- System maintained (e.g., 'AMP', 'Docker', 'Semaphore')
   hostname    VARCHAR(255) NOT NULL,   -- FQDN of host that ran the task
   type        VARCHAR(50)  NOT NULL,   -- 'Servers', 'Appliances', or 'Local'
-  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy', 'Build', 'Test Restore', 'Test App Restore'
+  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy', 'Build', 'Test Restore', 'Test Backup Restore'
   status      VARCHAR(20)  NOT NULL DEFAULT 'success',  -- 'success', 'failed', or 'partial'
   timestamp   DATETIME,            -- UTC_TIMESTAMP() — always UTC regardless of server timezone
   INDEX idx_application (application),
@@ -1778,7 +1778,7 @@ Narrows the category. Current values:
 
 - Backups: `Config`, `Appdata`, `Database`, `Offline`
 - Updates: `PVE`, `PBS`, `OS`, `Game Server`, `KVM`, `Container`
-- Maintenance: `Cleanup`, `Prune`, `Cache`, `Restart`, `Maintenance`, `Health Check`, `Verify`, `Deploy`, `Build`, `Test Restore`, `Test App Restore`
+- Maintenance: `Cleanup`, `Prune`, `Cache`, `Restart`, `Maintenance`, `Health Check`, `Verify`, `Deploy`, `Build`, `Test Restore`, `Test Backup Restore`
 
   (`Health Check` is reserved for `maintain_health.yaml` — its subtype value regardless of how many
   checks are added to that playbook)
@@ -1886,7 +1886,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `deploy_grafana.yaml` | Grafana | Local | Deploy |
 | `build_ubuntu.yaml` | Ubuntu | Servers | Build |
 | `test_restore.yaml` | Docker | Servers | Test Restore |
-| `test_app_restore.yaml` | Docker | Servers | Test App Restore |
+| `test_backup_restore.yaml` | Docker | Servers | Test Backup Restore |
 
 **Restores** (type/subtype reuse the backup vars file values):
 
@@ -2448,7 +2448,7 @@ After setup:
    - `ping <prod_host_ip>` → times out ✓
    - `curl https://hub.docker.com` → 200 OK ✓
    - `ip addr show lo` → prod host IPs listed as /32 aliases ✓
-3. `test_app_restore.yaml -e source_host=<fqdn>` → all apps restore + health checks pass with no prod connections
+3. `test_backup_restore.yaml -e source_host=<fqdn>` → all apps restore + health checks pass with no prod connections
 
 ### Test Restore (automated)
 
@@ -2470,17 +2470,17 @@ ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqd
 ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqdn> -e dr_mode=yes --vault-password-file ~/.vault_pass
 
 # Test all app_restore apps on a disposable VM (per-app DB + appdata restore, health check, revert)
-ansible-playbook test_app_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
+ansible-playbook test_backup_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
 
 # Restore a single app to production (requires confirm=yes safety gate)
 ansible-playbook restore_app.yaml -e restore_app=authentik -e restore_target=<host-fqdn> -e confirm=yes --vault-password-file ~/.vault_pass
 ```
 
 **Per-stack health check timeouts** — `stack_health_timeouts` in `vars/docker_stacks.yaml` controls
-how long `test_restore.yaml` and `test_app_restore.yaml` wait for containers to become healthy after
+how long `test_restore.yaml` and `test_backup_restore.yaml` wait for containers to become healthy after
 a stack is started. The maximum timeout across all stacks being tested is used. Default fallback is
 120 s. Authentik (`auth` stack) is set to 420 s due to its multi-container worker startup time.
 
-**OOM auto-recovery** — `test_app_restore.yaml` detects OOM kill events (via `dmesg`) in its rescue
+**OOM auto-recovery** — `test_backup_restore.yaml` detects OOM kill events (via `dmesg`) in its rescue
 block. If any app fails due to OOM, after the full app loop it doubles VM memory via the PVE API,
 reboots the VM, and retries only the OOM-failed apps with the new memory ceiling.

@@ -44,7 +44,7 @@
     _semaphore_ip: "{{ semaphore_host_url | urlsplit('hostname') }}"
     _prod_lan_subnet: "{{ vault_vm_gateway | regex_replace('(\\d+\\.\\d+\\.\\d+)\\.\\d+', '\\1.0') }}/{{ vm_cidr }}"
     _ssh_policy_name: "Allow Server to Test"
-    _block_policy_name: "Block Test to Server"
+    _block_policy_name: "Block Test to Internal"
 
   tasks:
     # ═══════════════════════════════════════════════════════════
@@ -165,8 +165,8 @@
           - "Policy 2 — '{{ _block_policy_name }}'"
           - "  Source Zone: Guest  |  Source IP: {{ vault_test_vlan_subnet }}"
           - "  Action: Block"
-          - "  Destination Zone: Server"
-          - "  (Blocks test VMs from reaching production services)"
+          - "  Destination Zone: Any (all internal zones)"
+          - "  (Blocks test VMs from reaching any internal network)"
           - ""
           - "After creating both policies, re-run this playbook to verify the VLAN is present."
       when: not ansible_check_mode
@@ -182,7 +182,7 @@
           - ""
           - "Zone policies require manual creation in Unifi UI (Settings → Firewall & Security → Rules → Create Policy):"
           - "  Policy 1 — '{{ _ssh_policy_name }}': Source=Server/{{ _semaphore_ip }}/32 → Allow → Dest=Guest/test-isolation:22/TCP"
-          - "  Policy 2 — '{{ _block_policy_name }}': Source=Guest/{{ vault_test_vlan_subnet }} → Block → Dest=Server"
+          - "  Policy 2 — '{{ _block_policy_name }}': Source=Guest/{{ vault_test_vlan_subnet }} → Block → Dest=Any"
           - ""
           - "Re-run without --check after creating policies to verify."
       when: ansible_check_mode

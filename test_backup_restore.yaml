@@ -4,10 +4,10 @@
 #
 # Usage:
 #   # Test all apps
-#   ansible-playbook test_app_restore.yaml -e source_host=<fqdn>
+#   ansible-playbook test_backup_restore.yaml -e source_host=<fqdn>
 #
 #   # Test a subset of apps
-#   ansible-playbook test_app_restore.yaml -e source_host=<fqdn> -e test_apps=authentik,jellyseerr
+#   ansible-playbook test_backup_restore.yaml -e source_host=<fqdn> -e test_apps=authentik,jellyseerr
 #
 # Required extra vars:
 #   source_host  — inventory_hostname of source host whose backups to test
@@ -31,7 +31,7 @@
   vars:
     maintenance_name: "Docker"
     maintenance_type: "Servers"
-    maintenance_subtype: "Test App Restore"
+    maintenance_subtype: "Test Backup Restore"
 
   pre_tasks:
     - name: Assert source_host is defined
@@ -240,6 +240,20 @@
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
 
+    - name: Wait for VM lock to clear after snapshot delete
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _vm_lock_status
+      until: _vm_lock_status.json.data.lock is not defined
+      retries: 20
+      delay: 3
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
+
     - name: Create pre-test snapshot (post-bootstrap clean state)
       ansible.builtin.uri:
         url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot"
@@ -340,7 +354,7 @@
   vars:
     maintenance_name: "Docker"
     maintenance_type: "Servers"
-    maintenance_subtype: "Test App Restore"
+    maintenance_subtype: "Test Backup Restore"
 
   tasks:
     - name: Collect app restore results

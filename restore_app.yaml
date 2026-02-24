@@ -12,7 +12,7 @@
 #
 # Semaphore templates:
 #   Restore — App [Production]  (Maintenance view) — pass restore_app, restore_target, confirm=yes
-#   Test — App Restore [VM]     (Testing view)     — see test_app_restore.yaml
+#   Test — Backup Restore [VM]     (Testing view)     — see test_backup_restore.yaml
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Validate and find backup files
