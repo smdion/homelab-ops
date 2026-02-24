@@ -10,7 +10,7 @@
 #   ansible-playbook maintain_pve.yaml
 #
 # Required vault vars: vault_pve_vip, vault_pve_vrrp_password, vault_pve_vrrp_priorities,
-#                       vault_pve_template_node_ip, ansible_user_ssh_pubkey
+#                       ansible_user_ssh_pubkey
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Maintain Proxmox node OS-level configuration

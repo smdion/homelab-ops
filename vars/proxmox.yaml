@@ -1,7 +1,6 @@
 # Keepalived VRRP config for the Proxmox management VIP (setup_pve_vip.yaml, maintain_pve.yaml).
 # vault vars required: vault_pve_vip, vault_pve_vrrp_password,
-#   vault_pve_vrrp_priorities (dict: short node name → priority; highest = MASTER — domain stripped automatically),
-#   vault_pve_template_node_ip (direct IP of the template node, used for SSH in provision_vm.yaml)
+#   vault_pve_vrrp_priorities (dict: short node name → priority; highest = MASTER — domain stripped automatically)
 pve_vrrp_interface: "vmbr0"
 pve_vrrp_router_id: 51
 pve_vrrp_instance: "PVE_MGMT"

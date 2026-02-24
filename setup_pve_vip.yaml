@@ -12,8 +12,6 @@
 #   vault_pve_vrrp_password     — VRRP authentication passphrase (any string)
 #   vault_pve_vrrp_priorities   — dict: short node name → integer priority (domain from vault_vm_search_domain)
 #                                   e.g. node1: 150 / node2: 100 / node3: 50
-#   vault_pve_template_node_ip  — direct IP of the MASTER node (see vault_pve_template_node_ip)
-#                                   used by provision_vm.yaml for SSH template creation
 #
 # After running:
 #   1. Update pve_api_host in secrets.yaml to vault_pve_vip
