@@ -205,6 +205,19 @@
         groups: "{{ _provision_target_group | default('build_target') }}"
         _needs_bootstrap: true
 
+    - name: Add VM to test pool
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_test }}"
+        method: PUT
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        body_format: form-urlencoded
+        body:
+          vms: "{{ _vm.vm_id }}"
+        validate_certs: false
+      when: pve_pool_test is defined and not ansible_check_mode
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
   rescue:
     - ansible.builtin.fail:
         msg: >-

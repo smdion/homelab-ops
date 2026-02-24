@@ -343,3 +343,220 @@
         log_type: "{{ maintenance_type }}"
         log_subtype: "{{ maintenance_subtype }}"
         log_status: "{{ 'warning' if _pbs_task_errors | length > 0 else 'success' }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 5 — Manage PVE resource pools
+# Derives pool membership from live VM net0 VLAN tags — no VMID lists
+# to maintain. Adding a friend's VM to VLAN 1682 is enough.
+#   production  — net0 defined, no VLAN tag
+#   hosted      — net0 tag=<pve_pool_hosted_vlan>  (1682)
+#   test        — net0 tag=<vault_test_vlan_id>
+# After first run: update PBS backup jobs (Datacenter → Backup) to
+# filter by pool 'production' — one-time manual step.
+# ═══════════════════════════════════════════════════════════════════
+- name: Manage PVE resource pools
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+    - vars/vm_definitions.yaml
+  vars:
+    maintenance_name: "Proxmox"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Pool Sync"
+    maintenance_url: ""
+
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize pool sync state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+
+    - block:
+        - name: Get all cluster VMs
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          register: _cluster_vms
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Get existing PVE pools
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/pools"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          register: _existing_pools
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Set cluster facts
+          ansible.builtin.set_fact:
+            _qemu_vms: >-
+              {{ _cluster_vms.json.data
+                 | selectattr('type', 'equalto', 'qemu')
+                 | rejectattr('template', 'equalto', 1)
+                 | list }}
+            _pool_ids: "{{ _existing_pools.json.data | map(attribute='poolid') | list }}"
+
+        - name: Get config for each QEMU VM
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          register: _vm_configs
+          loop: "{{ _qemu_vms }}"
+          loop_control:
+            label: "{{ item.name }} ({{ item.vmid }})"
+          ignore_errors: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        # Only VMs with net0 defined are categorized.
+        # Production = net0 present AND no tag=<n> in the net0 string.
+        - name: Derive pool memberships from VLAN tags
+          ansible.builtin.set_fact:
+            _production_vmids: >-
+              {{ _vm_configs.results
+                 | rejectattr('failed', 'equalto', true)
+                 | selectattr('json.data.net0', 'defined')
+                 | rejectattr('json.data.net0', 'search', '(?:^|,)tag=\d+(?:,|$)')
+                 | map(attribute='item.vmid') | map('int') | list }}
+            _hosted_vmids: >-
+              {{ _vm_configs.results
+                 | rejectattr('failed', 'equalto', true)
+                 | selectattr('json.data.net0', 'defined')
+                 | selectattr('json.data.net0', 'search', '(?:^|,)tag=' + pve_pool_hosted_vlan | string + '(?:,|$)')
+                 | map(attribute='item.vmid') | map('int') | list }}
+            _test_vmids: >-
+              {{ _vm_configs.results
+                 | rejectattr('failed', 'equalto', true)
+                 | selectattr('json.data.net0', 'defined')
+                 | selectattr('json.data.net0', 'search', '(?:^|,)tag=' + vault_test_vlan_id | string + '(?:,|$)')
+                 | map(attribute='item.vmid') | map('int') | list }}
+
+        - name: Create production pool
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/pools"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              poolid: "{{ pve_pool_production }}"
+              comment: "Production VMs — target of PBS backup jobs"
+            validate_certs: false
+          when: pve_pool_production not in _pool_ids
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Create hosted pool
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/pools"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              poolid: "{{ pve_pool_hosted }}"
+              comment: "Hosted VMs for friends (VLAN {{ pve_pool_hosted_vlan }}) — excluded from PBS backup jobs"
+            validate_certs: false
+          when: pve_pool_hosted not in _pool_ids
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Create test pool
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/pools"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              poolid: "{{ pve_pool_test }}"
+              comment: "Ephemeral test VMs (VLAN {{ vault_test_vlan_id }}) — excluded from PBS backup jobs"
+            validate_certs: false
+          when: pve_pool_test not in _pool_ids
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        # Additive PUT — adds members, never removes existing ones
+        - name: Add production VMs to production pool
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_production }}"
+            method: PUT
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              vms: "{{ _production_vmids | join(',') }}"
+            validate_certs: false
+          when: _production_vmids | length > 0
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Add hosted VMs to hosted pool
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_hosted }}"
+            method: PUT
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              vms: "{{ _hosted_vmids | join(',') }}"
+            validate_certs: false
+          when: _hosted_vmids | length > 0
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Add test VMs to test pool
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_test }}"
+            method: PUT
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              vms: "{{ _test_vmids | join(',') }}"
+            validate_certs: false
+          when: _test_vmids | length > 0
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Report pool assignments
+          ansible.builtin.debug:
+            msg:
+              - "production ({{ _production_vmids | length }} VMs): {{ _production_vmids | sort | join(', ') }}"
+              - "hosted     ({{ _hosted_vmids | length }} VMs): {{ _hosted_vmids | sort | join(', ') }}"
+              - "test       ({{ _test_vmids | length }} VMs): {{ _test_vmids | sort | join(', ') }}"
+              - "One-time manual step: Datacenter → Backup → edit job(s) → set Pool = '{{ pve_pool_production }}'"
+
+      rescue:
+        - name: Set pool sync failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send Discord alert on failure
+          include_tasks: tasks/notify.yaml
+          when: maintenance_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Pool Sync"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+            discord_author: "{{ controller_fqdn }}"
+
+        - name: Log pool sync to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: "maintenance"
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ controller_fqdn }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"

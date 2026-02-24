@@ -17,3 +17,9 @@ update_name: "Proxmox"
 update_description: "Automatic Proxmox Update"
 update_type: "Appliances"
 update_subtype: "{{ 'PBS' if inventory_hostname in groups['pbs'] else 'PVE' }}"
+
+pve_pool_production: "production"
+pve_pool_test: "test"
+pve_pool_hosted: "hosted"
+pve_pool_hosted_vlan: 1682
+# test VLAN uses vault_test_vlan_id (already in secrets.yaml)
