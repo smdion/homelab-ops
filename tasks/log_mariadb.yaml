@@ -10,6 +10,7 @@
 # Required vars (log_table = 'backups'):
 #   log_file_name   — backup filename
 #   log_file_size   — file size in MB
+#   log_backup_level — granularity level: host | stack | instance | db | offline (default: host)
 #
 # Required vars (log_table = 'updates'):
 #   log_version     — version string
@@ -31,8 +32,8 @@
   vars:
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
     _backup_query: >-
-      INSERT INTO backups (application, hostname, file_name, file_size, timestamp, backup_type, backup_subtype)
-      VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(), %s, %s)
+      INSERT INTO backups (application, hostname, file_name, file_size, timestamp, backup_type, backup_subtype, backup_level)
+      VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(), %s, %s, %s)
     _backup_args:
       - "{{ log_application }}"
       - "{{ log_hostname }}"
@@ -40,6 +41,7 @@
       - "{{ log_file_size }}"
       - "{{ backup_type }}"
       - "{{ backup_subtype }}"
+      - "{{ log_backup_level | default('host') }}"
     _update_query: >-
       INSERT INTO updates (application, hostname, version, timestamp, update_type, update_subtype, status)
       VALUES (%s, %s, %s, UTC_TIMESTAMP(), %s, %s, %s)
