@@ -355,7 +355,7 @@
         - name: Set restore test failed flag
           ansible.builtin.set_fact:
             _restore_test_failed: true
-            _restore_test_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+            _restore_test_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}{{ (' | ' + ansible_failed_result.stdout | trim) if ansible_failed_result.stdout | default('') | trim | length > 0 else '' }}"
 
       always:
         - name: Clean up temp archive

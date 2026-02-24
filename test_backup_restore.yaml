@@ -377,7 +377,7 @@
           [
            {% for r in _all_results %}
            {% if not loop.first %},{% endif %}
-           {"name": "{{ ('❌ ' if not r.passed else '✅ ') + r.app }}", "value": "{{ 'FAILED' if not r.passed else 'OK' }}", "inline": true}
+           {"name": "{{ ('❌ ' if not r.passed else '✅ ') + r.app }}", "value": "{{ r.detail if not r.passed else 'OK' }}", "inline": true}
            {% endfor %}]
 
     - name: Send Discord summary
