@@ -139,7 +139,7 @@
         _app_restore_results: >-
           {{ _app_restore_results + [{'app': _test_app, 'passed': false,
              'oom': _oom_check.stdout | default('') | length > 0,
-             'detail': ansible_failed_result.msg | default('check Semaphore logs')}] }}
+             'detail': (ansible_failed_result.msg | default('check Semaphore logs')) ~ ((' | ' + (ansible_failed_result.stdout | default('') | trim)) if ansible_failed_result.stdout | default('') | trim | length > 0 else '')}] }}
 
     - name: Restart stack after failure (best effort) — {{ _test_app }}
       include_tasks: tasks/docker_start.yaml

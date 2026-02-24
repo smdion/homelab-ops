@@ -151,3 +151,107 @@
     - name: VIP is up
       ansible.builtin.debug:
         msg: "VIP {{ vault_pve_vip }} is reachable. keepalived is healthy."
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 3 — Check for stale VM snapshots (older than 14 days)
+# ═══════════════════════════════════════════════════════════════════
+- name: Check Proxmox for stale VM snapshots
+  hosts: localhost
+  gather_facts: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    snapshot_max_age_days: 14
+    maintenance_name: "Proxmox"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Snapshot Check"
+
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+  tasks:
+    - name: Initialize stale snapshot state
+      ansible.builtin.set_fact:
+        _stale_snapshots: []
+
+    # ===== FETCH CLUSTER VM LIST =====
+    - name: Get all cluster VMs
+      ansible.builtin.uri:
+        url: "https://{{ vault_pve_vip }}:8006/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _cluster_vms
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    # ===== FETCH SNAPSHOTS PER VM =====
+    - name: Get snapshots for each QEMU VM
+      ansible.builtin.uri:
+        url: "https://{{ vault_pve_vip }}:8006/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/snapshot"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _snapshot_results
+      loop: "{{ _cluster_vms.json.data | selectattr('type', 'equalto', 'qemu') | list }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.vmid }})"
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      ignore_errors: true
+
+    # ===== IDENTIFY STALE SNAPSHOTS =====
+    - name: Compute stale snapshot threshold (epoch minus max age)
+      ansible.builtin.set_fact:
+        _snapshot_threshold: "{{ (ansible_date_time.epoch | int) - (snapshot_max_age_days | int * 86400) }}"
+
+    - name: Build stale snapshot list
+      ansible.builtin.set_fact:
+        _stale_snapshots: >-
+          {{ _stale_snapshots +
+             (item.json.data
+              | selectattr('name', 'ne', 'current')
+              | selectattr('snaptime', 'defined')
+              | selectattr('snaptime', 'lt', _snapshot_threshold | int)
+              | map('combine', {'vm': item.item.name, 'vmid': item.item.vmid})
+              | list) }}
+      loop: "{{ _snapshot_results.results | selectattr('failed', 'equalto', false) | list }}"
+      loop_control:
+        label: "{{ item.item.name }} ({{ item.item.vmid }})"
+      when: item.json is defined
+
+    # ===== REPORT =====
+    - name: Format stale snapshot list for Discord
+      ansible.builtin.set_fact:
+        _stale_msg: |
+          {% for s in _stale_snapshots -%}
+          {{ s.vm }} ({{ s.vmid }}): {{ s.name }} — {{ ((ansible_date_time.epoch | int - s.snaptime) / 86400) | int }}d old
+          {% endfor %}
+      when: _stale_snapshots | length > 0
+
+    - name: Send Discord alert for stale snapshots
+      include_tasks: tasks/notify.yaml
+      when: _stale_snapshots | length > 0
+      vars:
+        discord_name: "{{ maintenance_name }}"
+        discord_operation: "Snapshot Check"
+        discord_status: "warning"
+        discord_detail: "{{ _stale_snapshots | length }} snapshot(s) older than {{ snapshot_max_age_days }} days"
+        discord_color: "{{ discord_color_warning }}"
+        discord_url: "{{ semaphore_ext_url }}"
+        discord_author: "{{ controller_fqdn }}"
+        discord_fields:
+          - name: "Stale Snapshots (>{{ snapshot_max_age_days }}d)"
+            value: "{{ _stale_msg | trim }}"
+
+    - name: Log snapshot check to MariaDB
+      include_tasks: tasks/log_mariadb.yaml
+      vars:
+        log_table: maintenance
+        log_application: "{{ maintenance_name }}"
+        log_hostname: "{{ controller_fqdn }}"
+        log_type: "{{ maintenance_type }}"
+        log_subtype: "{{ maintenance_subtype }}"
+        log_status: "{{ 'warning' if _stale_snapshots | length > 0 else 'success' }}"
