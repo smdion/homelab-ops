@@ -150,29 +150,44 @@
     # ═══════════════════════════════════════════════════════════
     # STEP 2a — Resolve zone IDs (zone-based mode only)
     # ═══════════════════════════════════════════════════════════
-    - name: Get Unifi firewall zones
+    - name: Get Unifi firewall zones (v2 API)
       ansible.builtin.uri:
-        url: "{{ _unifi_api }}/rest/firewallzone"
+        url: "https://{{ inventory_hostname }}/proxy/network/v2/api/site/default/firewall/zones"
         method: GET
         headers:
           x-api-key: "{{ unifi_network_api_key }}"
         validate_certs: false
       register: _firewall_zones
       check_mode: false
+      failed_when: false
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
       when: use_zone_rules | bool
 
-    - name: Resolve zone IDs
+    - name: Warn if zone API unavailable — will fall back to address-based rules
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Zone API returned {{ _firewall_zones.status | default('no response') }} —
+          falling back to address-based firewall rules.
+          (use_zone_rules=true but zone API unavailable; requires Unifi Network 8.2+.)
+      when:
+        - use_zone_rules | bool
+        - _firewall_zones.status | default(0) != 200
+
+    - name: Resolve zone IDs and set effective rule mode
       ansible.builtin.set_fact:
+        _effective_zone_rules: "{{ (use_zone_rules | bool) and (_firewall_zones.status | default(0) == 200) }}"
         _semaphore_zone_id: >-
-          {{ (_firewall_zones.json.data
+          {{ (((_firewall_zones.json.data
+               if (_firewall_zones.json is mapping and 'data' in (_firewall_zones.json | default({})))
+               else (_firewall_zones.json | default([]))))
              | selectattr('name', 'equalto', _semaphore_zone_name)
              | list | first | default({})).get('_id', '') }}
         _test_vlan_zone_id: >-
-          {{ (_firewall_zones.json.data
+          {{ (((_firewall_zones.json.data
+               if (_firewall_zones.json is mapping and 'data' in (_firewall_zones.json | default({})))
+               else (_firewall_zones.json | default([]))))
              | selectattr('name', 'equalto', _test_vlan_zone_name)
              | list | first | default({})).get('_id', '') }}
-      when: use_zone_rules | bool
 
     - name: Assert zone IDs resolved
       ansible.builtin.assert:
@@ -180,10 +195,11 @@
           - _semaphore_zone_id | length > 0
           - _test_vlan_zone_id | length > 0
         fail_msg: >-
-          Could not resolve zone IDs. Expected zones: '{{ _semaphore_zone_name }}' and '{{ _test_vlan_zone_name }}'.
+          Zone fetch succeeded but could not resolve zone IDs.
+          Expected zones: '{{ _semaphore_zone_name }}' and '{{ _test_vlan_zone_name }}'.
           Check _semaphore_zone_name and _test_vlan_zone_name match zone names exactly in Unifi UI
           (Settings → Firewall & Security → Zones).
-      when: use_zone_rules | bool
+      when: _effective_zone_rules | bool
 
     # ═══════════════════════════════════════════════════════════
     # STEP 2b — Create firewall rules (if missing)
@@ -224,7 +240,7 @@
           dst_port: "22"
         validate_certs: false
         status_code: [200, 201]
-      when: _ssh_rule_name not in _existing_rule_names and not ansible_check_mode and use_zone_rules | bool
+      when: _ssh_rule_name not in _existing_rule_names and not ansible_check_mode and _effective_zone_rules | bool
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
       register: _create_ssh_rule_zone
 
@@ -245,7 +261,7 @@
           dst_firewallzone_id: "{{ _semaphore_zone_id }}"
         validate_certs: false
         status_code: [200, 201]
-      when: _block_rule_name not in _existing_rule_names and not ansible_check_mode and use_zone_rules | bool
+      when: _block_rule_name not in _existing_rule_names and not ansible_check_mode and _effective_zone_rules | bool
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
       register: _create_block_rule_zone
 
@@ -269,7 +285,7 @@
           dst_port: "22"
         validate_certs: false
         status_code: [200, 201]
-      when: _ssh_rule_name not in _existing_rule_names and not ansible_check_mode and not (use_zone_rules | bool)
+      when: _ssh_rule_name not in _existing_rule_names and not ansible_check_mode and not (_effective_zone_rules | bool)
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
       register: _create_ssh_rule_addr
 
@@ -290,14 +306,14 @@
           dst_address: "{{ _prod_lan_subnet }}"
         validate_certs: false
         status_code: [200, 201]
-      when: _block_rule_name not in _existing_rule_names and not ansible_check_mode and not (use_zone_rules | bool)
+      when: _block_rule_name not in _existing_rule_names and not ansible_check_mode and not (_effective_zone_rules | bool)
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
       register: _create_block_rule_addr
 
     - name: Consolidate rule creation results
       ansible.builtin.set_fact:
-        _create_ssh_rule: "{{ _create_ssh_rule_zone if use_zone_rules | bool else _create_ssh_rule_addr }}"
-        _create_block_rule: "{{ _create_block_rule_zone if use_zone_rules | bool else _create_block_rule_addr }}"
+        _create_ssh_rule: "{{ _create_ssh_rule_zone if _effective_zone_rules | bool else _create_ssh_rule_addr }}"
+        _create_block_rule: "{{ _create_block_rule_zone if _effective_zone_rules | bool else _create_block_rule_addr }}"
 
     # ═══════════════════════════════════════════════════════════
     # CHECK MODE — Report what would change (no writes made)
@@ -306,7 +322,7 @@
       ansible.builtin.debug:
         msg:
           - "=== CHECK MODE — No changes made ==="
-          - "Rule mode: {{ 'zone-based (' + _semaphore_zone_name + ' → ' + _test_vlan_zone_name + ')' if use_zone_rules | bool else 'address-based' }}"
+          - "Rule mode: {{ 'zone-based (' + _semaphore_zone_name + ' → ' + _test_vlan_zone_name + ')' if _effective_zone_rules | bool else 'address-based' }}"
           - "VLAN {{ vault_test_vlan_id }} (test-isolation): {{ 'would be created' if not _test_vlan_exists else 'already exists — no action needed' }}"
           - "Rule '{{ _ssh_rule_name }}': {{ 'would be created' if _ssh_rule_name not in _existing_rule_names else 'already exists — no action needed' }}"
           - "Rule '{{ _block_rule_name }}': {{ 'would be created' if _block_rule_name not in _existing_rule_names else 'already exists — no action needed' }}"
@@ -314,8 +330,8 @@
           - "Derived values that would be used:"
           - "  Semaphore IP (address-based SSH allow source): {{ _semaphore_ip }}/32"
           - "  Prod LAN CIDR (address-based block destination): {{ _prod_lan_subnet }}"
-          - "  Server zone ID: {{ _semaphore_zone_id | default('n/a — zone mode disabled') }}"
-          - "  Guest/Test zone ID: {{ _test_vlan_zone_id | default('n/a — zone mode disabled') }}"
+          - "  Server zone ID: {{ _semaphore_zone_id | default('n/a') }} ({{ 'zone mode active' if _effective_zone_rules | bool else 'zone mode inactive — using address-based' }})"
+          - "  Guest/Test zone ID: {{ _test_vlan_zone_id | default('n/a') }}"
           - ""
           - "Re-run without --check to apply."
       when: ansible_check_mode
@@ -367,7 +383,7 @@
       ansible.builtin.debug:
         msg:
           - "=== Test Network Isolation Setup Complete ==="
-          - "Rule mode: {{ 'zone-based (' + _semaphore_zone_name + ' → ' + _test_vlan_zone_name + ')' if use_zone_rules | bool else 'address-based' }}"
+          - "Rule mode: {{ 'zone-based (' + _semaphore_zone_name + ' → ' + _test_vlan_zone_name + ')' if _effective_zone_rules | bool else 'address-based' }}"
           - "VLAN {{ vault_test_vlan_id }} (test-isolation): {{ _vlan_status }}"
           - "Rule '{{ _ssh_rule_name }}': {{ 'created' if _create_ssh_rule.changed | default(false) else 'already existed' }}"
           - "Rule '{{ _block_rule_name }}': {{ 'created' if _create_block_rule.changed | default(false) else 'already existed' }}"
