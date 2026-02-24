@@ -194,6 +194,7 @@ history, restore results, playbook runs) belongs in the database.
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert
 ├── test_backup_restore.yaml          # Test all app_info apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
 ├── migrate_appdata_to_cephfs.yaml # One-shot migration of /opt from local RBD disk to CephFS shared storage; requires -e vm_name=<key> -e confirm=yes
+├── test_migrate_cephfs.yaml      # Test CephFS migration on a disposable VM loaded with real backup data; requires -e source_host=<fqdn>
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
 ├── files/
@@ -1613,7 +1614,7 @@ CREATE TABLE maintenance (
   application VARCHAR(100) NOT NULL,   -- System maintained (e.g., 'AMP', 'Docker', 'Semaphore')
   hostname    VARCHAR(255) NOT NULL,   -- FQDN of host that ran the task
   type        VARCHAR(50)  NOT NULL,   -- 'Servers', 'Appliances', or 'Local'
-  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy', 'Build', 'Test Restore', 'Test Backup Restore'
+  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy', 'Build', 'Test Restore', 'Test Backup Restore', 'CephFS Migration', 'CephFS Verify', 'CephFS Migration Test'
   status      VARCHAR(20)  NOT NULL DEFAULT 'success',  -- 'success', 'failed', or 'partial'
   timestamp   DATETIME,            -- UTC_TIMESTAMP() — always UTC regardless of server timezone
   INDEX idx_application (application),
@@ -1789,7 +1790,7 @@ Narrows the category. Current values:
 
 - Backups: `Config`, `Appdata`, `Database`, `Offline`
 - Updates: `PVE`, `PBS`, `OS`, `Game Server`, `KVM`, `Container`
-- Maintenance: `Cleanup`, `Prune`, `Cache`, `Restart`, `Maintenance`, `Health Check`, `Verify`, `Deploy`, `Build`, `Test Restore`, `Test Backup Restore`
+- Maintenance: `Cleanup`, `Prune`, `Cache`, `Restart`, `Maintenance`, `Health Check`, `Verify`, `Deploy`, `Build`, `Test Restore`, `Test Backup Restore`, `CephFS Migration`, `CephFS Verify`, `CephFS Migration Test`
 
   (`Health Check` is reserved for `maintain_health.yaml` — its subtype value regardless of how many
   checks are added to that playbook)
@@ -1901,6 +1902,9 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `build_ubuntu.yaml` | Ubuntu | Servers | Build |
 | `test_restore.yaml` | Docker | Servers | Test Restore |
 | `test_backup_restore.yaml` | Docker | Servers | Test Backup Restore |
+| `migrate_appdata_to_cephfs.yaml` | (vm_name) | Servers | CephFS Migration |
+| `verify_cephfs.yaml` | (vm_name) | Servers | CephFS Verify |
+| `test_migrate_cephfs.yaml` | (source_host) | Servers | CephFS Migration Test |
 
 **Restores** (type/subtype reuse the backup vars file values):
 
@@ -2573,6 +2577,10 @@ See `vars/secrets.yaml.example` for the full entry and setup reference.
 
 - **tantiveiv** — `cephfs_host_dir: "tantive-iv"`
 - **odyssey** — `cephfs_host_dir: "odyssey"`
+- **cephfs-migrate-test** — `cephfs_host_dir: "cephfs-migrate-test"` — dedicated test VM (VMID 198,
+  production VLAN) used by `test_migrate_cephfs.yaml`. On production VLAN so it can reach CephFS
+  monitors. Bootstrap strips `cephfs_host_dir` so `/opt` starts local; migration runs and mounts it.
+  Manually create `/cephfs-migrate-test` on CephFS root before first run.
 - **amp** — excluded: game server I/O sensitivity; AMP instance data stays on local disk
 - **test-vm** — excluded: Proxmox snapshots only revert the RBD disk. If a test VM mounted CephFS
   at `/opt`, a snapshot revert would leave stale CephFS data visible on the next restore test,
@@ -2604,6 +2612,21 @@ A new VM's `/opt` is an empty CephFS subvolume — stacks deploy and immediately
 staging, restart stacks from local disk. Local data is always intact (rsync was read-only).
 
 Run order: odyssey first (one stack: vpn — lowest risk), then tantive-iv.
+
+### Migration Test (pre-production validation)
+
+`test_migrate_cephfs.yaml` validates the migration flow on a disposable VM before running on production:
+
+1. Provision `cephfs-migrate-test` VM (VMID 198, production VLAN, production gateway)
+2. Bootstrap Docker — without CephFS mount (`cephfs_host_dir` stripped from `_vm` during bootstrap)
+3. Restore backup archives from `source_host` (e.g. odyssey) to local `/opt` (inplace extract)
+4. Run the full migration inline: install `ceph-common`, write keyring + `.secret`, mount staging,
+   rsync, spot-check, unmount staging, mount CephFS at `/opt`
+5. Verify: `findmnt`, write/read marker file, check `/opt/stacks` present
+6. Log to MariaDB (subtype `CephFS Migration Test`) + Discord notification
+7. Stop test VM (skip with `-e keep_vm=yes` for post-test inspection)
+
+Extra vars: `-e source_host=<fqdn>` (required — FQDN in `stack_assignments`)
 
 ### Backup / DR
 

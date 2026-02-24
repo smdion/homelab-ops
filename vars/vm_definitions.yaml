@@ -95,6 +95,21 @@ vm_definitions:
     vm_disk_gb: 100
     pve_target_node: "{{ vault_vm_amp_node }}"
 
+  # Dedicated VM for testing the CephFS migration flow (test_migrate_cephfs.yaml).
+  # VMID 198 — one below the test-vm pool (199–208). Production VLAN (no vm_vlan_tag) so
+  # it can reach CephFS monitors. IP is one slot below the test pool start.
+  # Prerequisites: create /cephfs-migrate-test dir on CephFS root before running.
+  cephfs-migrate-test:
+    vm_id: 198
+    vm_name: cephfs-migrate-test
+    vm_hostname: "cephfs-migrate-test.{{ vault_vm_search_domain }}"
+    vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int - 1 }}"
+    vm_cores: 2
+    vm_memory_mb: 4096
+    vm_disk_gb: 20
+    pve_target_node: "{{ vault_pve_template_node }}"
+    cephfs_host_dir: "cephfs-migrate-test"  # create this dir on CephFS root manually first
+
   test-vm:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
     vm_name: "test-vm{{ vm_index | default(0) | int }}"
