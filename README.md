@@ -33,7 +33,7 @@ visibility.
 | **Test Restore** | End-to-end restore test on a disposable Proxmox VM — provisions or reuses a VM, snapshots it, restores a source host's full appdata, deploys stacks, verifies container health, reverts to clean state; also serves as a DR recovery tool |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
-version status per host, stale detection, health trends, and maintenance logs across 21 panels.
+version status per host, stale detection, health trends, and maintenance logs across 23 panels.
 
 ## Stack
 
@@ -115,6 +115,8 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | WOL, rsync, shutdown verification |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
+| `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
+| `maintain_pve.yaml` | Proxmox | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; safe to re-run after node reinstall; Discord + MariaDB logging |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
 | `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=yes`) keeps restored state |
 | `test_app_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_restore` apps on a disposable VM — per-app restore (DB + appdata), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope |
@@ -185,6 +187,7 @@ for platforms you don't have are automatically skipped.
 ├── restore_databases.yaml       # Database restore from backups (safety-gated)
 ├── restore_hosts.yaml           # Config/appdata restore — staging or inplace (safety-gated for inplace)
 ├── restore_amp.yaml             # AMP game server instance restore — per-instance or all (safety-gated)
+├── restore_app.yaml             # Production single-app restore — stop stack, restore DB + appdata, restart, health check (safety-gated)
 ├── rollback_docker.yaml         # Docker container rollback — revert to previous versions (safety-gated)
 ├── update_*.yaml                # Update playbook (saves rollback snapshot before Docker updates)
 ├── maintain_*.yaml              # Maintenance + health playbooks
@@ -192,8 +195,10 @@ for platforms you don't have are automatically skipped.
 ├── deploy_stacks.yaml           # Docker stack deploy from Git — .env templating, compose copy, validate, start
 ├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
 ├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks)
+├── test_app_restore.yaml        # Test all app_restore apps on disposable VM — per-app restore, OOM recovery, Discord summary
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
 ├── setup_ansible_user.yaml      # One-time user setup utility
+├── setup_pve_vip.yaml           # One-time keepalived VIP setup on PVE nodes
 ├── requirements.txt             # Python pip dependencies (PyMySQL, proxmoxer)
 ├── requirements.yaml            # Ansible Galaxy collection dependencies
 ├── inventory.example.yaml       # Example inventory with expected group structure
@@ -293,7 +298,7 @@ ansible-playbook deploy_grafana.yaml --vault-password-file ~/.vault_pass
 ansible-playbook deploy_grafana.yaml --vault-password-file ~/.vault_pass --check
 ```
 
-The dashboard includes 21 panels across 5 collapsible row groups (Alerts, Trends, Distributions,
+The dashboard includes 23 panels across 5 collapsible row groups (Alerts, Trends, Distributions,
 Recent Activity, Status). Manual import via **Dashboards → Import → Upload JSON file** also works.
 
 <details>
