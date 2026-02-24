@@ -34,11 +34,18 @@
       - curl
       - htop
       - unattended-upgrades
+      - qemu-guest-agent
     state: present
 
 - name: Enable Docker service
   ansible.builtin.systemd:
     name: docker
+    enabled: true
+    state: started
+
+- name: Enable qemu-guest-agent service
+  ansible.builtin.systemd:
+    name: qemu-guest-agent
     enabled: true
     state: started
 

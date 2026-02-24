@@ -119,6 +119,7 @@
         vmid: "{{ _vm.vm_id }}"
         cores: "{{ _vm.vm_cores }}"
         memory: "{{ _vm.vm_memory_mb }}"
+        agent: "enabled=1"
         ciuser: "{{ vm_user }}"
         cipassword: "{{ pve_vm_password }}"
         sshkeys: "{{ ansible_user_ssh_pubkey }}"
