@@ -67,7 +67,7 @@
           Port profile '{{ vault_pve_port_profile_name }}' not found in Unifi.
           Check vault_pve_port_profile_name matches the profile name exactly.
 
-    - name: Get all Unifi networks (to resolve VLAN IDs in port profile)
+    - name: Get all Unifi networks
       ansible.builtin.uri:
         url: "{{ _unifi_api }}/rest/networkconf"
         method: GET
@@ -78,31 +78,21 @@
       check_mode: false
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
 
-    - name: Build map of network id → VLAN id
+    - name: Find test VLAN network _id
       ansible.builtin.set_fact:
-        _net_id_to_vlan: >-
-          {{ dict(_all_networks.json.data
+        _test_vlan_net_id: >-
+          {{ (_all_networks.json.data
              | selectattr('vlan', 'defined')
-             | map(attribute='_id') | zip(
-               _all_networks.json.data
-               | selectattr('vlan', 'defined')
-               | map(attribute='vlan'))) }}
+             | selectattr('vlan', 'equalto', vault_test_vlan_id | int)
+             | list | first | default({})).get('_id', '') }}
 
-    - name: Resolve VLAN IDs present in port profile tagged networks
-      ansible.builtin.set_fact:
-        _profile_vlan_ids: >-
-          {{ (_pve_profile.networkconf_ids | default([]))
-             | map('extract', _net_id_to_vlan) | select('defined') | list }}
-
-    - name: DEBUG — dump full port profile object (temporary)
-      ansible.builtin.debug:
-        msg: "{{ _pve_profile }}"
-
-    - name: Assert VLAN is in port profile
+    - name: Assert VLAN network exists and is not excluded from port profile
       ansible.builtin.assert:
-        that: vault_test_vlan_id | int in _profile_vlan_ids | map('int') | list
+        that:
+          - _test_vlan_net_id | length > 0
+          - _test_vlan_net_id not in (_pve_profile.excluded_networkconf_ids | default([]))
         fail_msg: >-
-          VLAN {{ vault_test_vlan_id }} is not in port profile '{{ vault_pve_port_profile_name }}'.
+          VLAN {{ vault_test_vlan_id }} is not tagged on port profile '{{ vault_pve_port_profile_name }}'.
           Add it manually in Unifi UI first:
             Settings → Profiles → Port Profiles → {{ vault_pve_port_profile_name }}
             → Tagged Networks → add test-isolation (VLAN {{ vault_test_vlan_id }})
