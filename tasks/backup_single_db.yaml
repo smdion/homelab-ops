@@ -6,7 +6,7 @@
 #   _current_db — database name (loop_var from caller)
 #   combined_results — list to append to (initialized by caller)
 # Inherits from playbook scope:
-#   container_name, db_username, db_password, backup_tmp_dir, backup_ext,
+#   db_container_name, db_username, db_password, backup_tmp_dir, backup_ext,
 #   backup_base_dir, ansible_date_time, is_postgres, is_mariadb, is_influxdb
 
 - name: "Set file paths for {{ _current_db }}"
@@ -18,7 +18,7 @@
       include_tasks: tasks/db_dump.yaml
       vars:
         _db_name: "{{ _current_db }}"
-        _db_container: "{{ container_name }}"
+        _db_container: "{{ db_container_name }}"
         _db_username: "{{ db_username }}"
         _db_password: "{{ db_password | default('') }}"
         _db_dest_file: "{{ backup_tmp_dir }}/{{ _db_file }}"

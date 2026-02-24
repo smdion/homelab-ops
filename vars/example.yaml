@@ -123,7 +123,7 @@ update_subtype: "OS"
 # amp_user: "amp"
 # amp_home: "/home/amp"
 # amp_versions_keep: 2
-# journal_max_age: "3d"
+# amp_journal_max_age: "3d"
 
 # =============================================================================
 # DATABASE BACKUP — only for vars files used with backup_databases.yaml
@@ -131,7 +131,7 @@ update_subtype: "OS"
 
 # Database user and container name
 # db_username: "postgres"
-# container_name: "postgres"
+# db_container_name: "postgres"
 
 # List of database names to dump
 # db_names:

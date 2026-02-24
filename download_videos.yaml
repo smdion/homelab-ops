@@ -128,8 +128,8 @@
             - downloaded_videos | length > 0
             - not download_failed
           vars:
-            discord_webhook_id: "{{ metube_webhook_id }}"
-            discord_webhook_token: "{{ metube_webhook_token }}"
+            discord_webhook_id: "{{ discord_download_webhook_id }}"
+            discord_webhook_token: "{{ discord_download_webhook_token }}"
             discord_username: "{{ video.uploader }} - MeTube Bot"
             discord_avatar: "{{ metube_avatar }}"
             discord_title: "{{ video.title }}"
@@ -146,7 +146,7 @@
               - name: "Duration"
                 value: "{{ video.duration }}"
             discord_footer:
-              text: "metube.{{ logging_domain_ext }}"
+              text: "metube.{{ domain_ext }}"
               icon_url: "{{ metube_avatar }}"
 
         # -- Failure alert (operational webhook) ------------------------------

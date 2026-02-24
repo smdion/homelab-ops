@@ -23,7 +23,7 @@
 #   semaphore_api_token, semaphore_host_url
 #   discord_webhook_id, discord_webhook_token
 #   logging_db_host, logging_db_port, logging_db_user, logging_db_password, logging_db_name
-#   logging_domain_local, logging_domain_ext
+#   domain_local, domain_ext
 #
 # Threshold variables (vars/semaphore_check.yaml — all have defaults):
 #   health_disk_warn_pct, health_disk_crit_pct, health_mem_warn_pct

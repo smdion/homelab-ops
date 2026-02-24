@@ -8,5 +8,5 @@ backup_subtype: "Config"
 backup_file: "backup_protect_config_{{ ansible_date_time.date }}.unf"
 
 # Unifi Protect paths — API backup endpoint and controller temp file
-protect_api_backup_path: "/api/s/default/cmd/backup"
-protect_temp_file: "/tmp/unifi_protect_backup.unf"
+unifi_protect_api_backup_path: "/api/s/default/cmd/backup"
+unifi_protect_temp_file: "/tmp/unifi_protect_backup.unf"

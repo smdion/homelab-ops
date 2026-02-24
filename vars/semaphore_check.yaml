@@ -1,11 +1,11 @@
 semaphore_url: "{{ semaphore_host_url | regex_replace('/$', '') }}"
-semaphore_ext_url: "https://{{ controller_fqdn.split('.')[0] }}.{{ logging_domain_ext }}"
+semaphore_ext_url: "https://{{ controller_fqdn.split('.')[0] }}.{{ domain_ext }}"
 
 # CUSTOMIZE THESE FOR YOUR DEPLOYMENT
 # controller_fqdn: FQDN of the Semaphore controller host (must match inventory)
 # semaphore_project_id: numeric ID of your Semaphore project (default is 1 for first project)
 semaphore_project_id: 1
-controller_fqdn: "{{ controller_hostname }}.{{ logging_domain_local }}"
+controller_fqdn: "{{ semaphore_controller_hostname }}.{{ domain_local }}"
 semaphore_db_name: semaphore
 
 # Groups with ansible-user SSH access — used by maintain_health Play 2/3
@@ -44,9 +44,9 @@ health_update_stale_days: 14          # Grafana panel: flag updates older than N
 # These hosts are NOT covered by Play 2 SSH checks, only by stale backup detection.
 # This check provides faster detection of appliance outages.
 appliance_check_hosts:
-  - "pikvm.{{ logging_domain_local }}"
-  - "udmp.{{ logging_domain_local }}"
-  - "unvr.{{ logging_domain_local }}"
+  - "pikvm.{{ domain_local }}"
+  - "udmp.{{ domain_local }}"
+  - "unvr.{{ domain_local }}"
 appliance_check_port: 443
 
 # Display timezone (used in Discord alerts for human-readable timestamps)

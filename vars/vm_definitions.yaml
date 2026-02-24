@@ -3,7 +3,7 @@
 # Stack assignments derived from stack_assignments in vars/docker_stacks.yaml (single source of truth).
 
 # Proxmox infrastructure defaults — shared across all VMs.
-# pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret, vm_password
+# pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret, pve_vm_password
 # are secrets — defined in vars/secrets.yaml.
 #
 # Network topology and node names are deployment-specific and must be set in vault:

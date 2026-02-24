@@ -75,7 +75,7 @@
           loop: "{{ db_names }}"
           vars:
             _db_name: "{{ item }}"
-            _db_container: "{{ container_name }}"
+            _db_container: "{{ db_container_name }}"
             _db_username: "{{ db_username }}"
             _db_password: "{{ db_password | default('') }}"
             _db_source_file: "{{ backup_tmp_dir }}/verify_{{ item }}.{{ backup_ext | default('sql') }}"
@@ -94,7 +94,7 @@
           loop: "{{ db_names }}"
           vars:
             _db_name: "_restore_test_{{ item }}"
-            _db_container: "{{ container_name }}"
+            _db_container: "{{ db_container_name }}"
             _db_username: "{{ db_username }}"
             _db_password: "{{ db_password | default('') }}"
             _db_is_postgres: "{{ is_postgres | default(false) }}"
@@ -110,7 +110,7 @@
           loop: "{{ db_names }}"
           vars:
             _db_name: "_restore_test_{{ item }}"
-            _db_container: "{{ container_name }}"
+            _db_container: "{{ db_container_name }}"
             _db_username: "{{ db_username }}"
             _db_password: "{{ db_password | default('') }}"
             _db_is_postgres: "{{ is_postgres | default(false) }}"
@@ -524,7 +524,7 @@
           loop: "{{ db_names | default([]) }}"
           vars:
             _db_name: "_restore_test_{{ item }}"
-            _db_container: "{{ container_name }}"
+            _db_container: "{{ db_container_name }}"
             _db_username: "{{ db_username }}"
             _db_password: "{{ db_password | default('') }}"
             _db_is_postgres: "{{ is_postgres | default(false) }}"

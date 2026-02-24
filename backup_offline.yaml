@@ -30,7 +30,7 @@
 
     - block:
         - name: Check if Synology online
-          ansible.builtin.command: ping -c 2 {{ dest_ip }}
+          ansible.builtin.command: ping -c 2 {{ synology_ip }}
           delegate_to: localhost
           failed_when: false
           register: _ping_result
@@ -39,7 +39,7 @@
 
         - name: Send Wake-On-LAN Magic Packet
           community.general.wakeonlan:
-            mac: "{{ dest_mac }}"
+            mac: "{{ synology_mac }}"
           when:
             - _ping_result.rc != 0
             - not ansible_check_mode
@@ -48,7 +48,7 @@
         - name: Fix unRAID Backup file permissions
           become: true
           ansible.builtin.file:
-            path: "{{ src_backup_path }}"
+            path: "{{ synology_backup_path }}"
             owner: nobody
             group: users
             mode: '0770'
@@ -58,7 +58,7 @@
         - name: Find all files older than 31 days
           become: true
           ansible.builtin.find:
-            paths: "{{ src_backup_path }}"
+            paths: "{{ synology_backup_path }}"
             age: 31d
             recurse: true
           register: _old_files
@@ -92,32 +92,32 @@
 
         - name: Wait for NFS service on Synology
           ansible.builtin.wait_for:
-            host: "{{ dest_ip }}"
+            host: "{{ synology_ip }}"
             port: 2049
             timeout: 300
           delegate_to: localhost
           when: not ansible_check_mode
 
         - name: Mount, Rsync, Unmount Share
-          loop: "{{ src_shares }}"
+          loop: "{{ synology_shares }}"
           register: backup_status
           ignore_errors: true
           changed_when: true
           ansible.builtin.shell: |
-            if /usr/local/sbin/rc.unassigned mount {{ server_mountname }}:{{ server_mount }}; then
+            if /usr/local/sbin/rc.unassigned mount {{ synology_name }}:{{ synology_mount_path }}; then
               sleep 5
             else
               exit 1
             fi
-            MOUNT_POINT=$(awk '$1 == "{{ server_mountname }}:{{ server_mount }}" { print $2; exit }' /proc/mounts)
+            MOUNT_POINT=$(awk '$1 == "{{ synology_name }}:{{ synology_mount_path }}" { print $2; exit }' /proc/mounts)
             if [ -z "$MOUNT_POINT" ]; then
               exit 2
             fi
-            rsync -a --stats {{ src_base_path }}{{ item }}/ "$MOUNT_POINT"/ --delete-after
+            rsync -a --stats {{ synology_src_base_path }}{{ item }}/ "$MOUNT_POINT"/ --delete-after
             sync
             sleep 60
             let "n = {{ umount_timeout }}"
-            while ! /usr/local/sbin/rc.unassigned umount {{ server_mountname }}:{{ server_mount }}; do
+            while ! /usr/local/sbin/rc.unassigned umount {{ synology_name }}:{{ synology_mount_path }}; do
               if [ "$n" -eq 0 ]; then
                 exit 3
               fi
@@ -147,7 +147,7 @@
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Verify Synology has shut down
-          ansible.builtin.shell: "ping -c 1 -W 2 {{ dest_ip }}"
+          ansible.builtin.shell: "ping -c 1 -W 2 {{ synology_ip }}"
           delegate_to: localhost
           register: _shutdown_ping
           until: _shutdown_ping.rc != 0

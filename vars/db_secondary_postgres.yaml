@@ -2,13 +2,13 @@
 # config_file: "db_secondary_postgres" must be set in Semaphore variable group JSON
 # (hosts_variable is the host group which doesn't match this filename)
 backup_name: "Database"
-backup_url: "https://sql.{{ logging_domain_ext }}"
+backup_url: "https://sql.{{ domain_ext }}"
 backup_description: "Automatic Database Backup"
 backup_subtype: "Database"
 backup_ext: "sql"
 backup_file: "backup_{{ item }}_{{ ansible_date_time.date }}.sql"
 db_username: "postgres"
-container_name: "postgres-immich"
+db_container_name: "postgres-immich"
 db_names:
   - "immich"
 is_postgres: true

@@ -7,7 +7,7 @@
 #   pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret — PVE API credentials
 #   pve_template_vmid, pve_template_node, pve_template_name — cloud-init template config
 #   pve_cloud_image_url, pve_storage, pve_bridge — infrastructure defaults
-#   vm_user, vm_password, ansible_user_ssh_pubkey — VM user credentials
+#   vm_user, pve_vm_password, ansible_user_ssh_pubkey — VM user credentials
 #   vm_cidr, vm_gateway, vm_dns, vm_search_domain — network config
 # Optional:
 #   _provision_target_group  — inventory group name for the new VM (default: 'build_target')
@@ -78,7 +78,7 @@
     cores: "{{ _vm.vm_cores }}"
     memory: "{{ _vm.vm_memory_mb }}"
     ciuser: "{{ vm_user }}"
-    cipassword: "{{ vm_password }}"
+    cipassword: "{{ pve_vm_password }}"
     sshkeys: "{{ ansible_user_ssh_pubkey }}"
     ipconfig:
       ipconfig0: "ip={{ _vm.vm_ip }}/{{ vm_cidr }},gw={{ vm_gateway }}"

@@ -66,7 +66,7 @@ playbooks, shared tasks, SQL schema, and Grafana dashboard work unchanged.
 | Location | What belongs there | Examples |
 |----------|-------------------|----------|
 | **`vars/*.yaml`** | All deployment-specific configuration — anything that would change on a different homelab | Hostnames, URLs, filesystem paths, container names, thresholds, API endpoints, retention periods, application paths |
-| **`vars/secrets.yaml`** (vault) | Credentials, API keys, domain suffixes, IP addresses | `discord_webhook_token`, `logging_db_password`, `logging_domain_ext` |
+| **`vars/secrets.yaml`** (vault) | Credentials, API keys, domain suffixes, IP addresses | `discord_webhook_token`, `logging_db_password`, `domain_ext` |
 | **`group_vars/all.yaml`** | Shared defaults that apply to all hosts | `ansible_remote_tmp`, `backup_base_dir`, `backup_url` template |
 | **Inventory** | Host definitions, group membership, SSH/connection settings | `[ubuntu]`, `[pve]`, `[docker_stacks]`, host FQDNs |
 | **Semaphore variable groups** | Routing-only — `hosts_variable` and `config_file` | `{"hosts_variable": "pve:pbs"}` |
@@ -127,7 +127,7 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 │   ├── proxmox.yaml                 # Proxmox PVE + PBS
 │   ├── pikvm.yaml                   # PiKVM KVM — backup/update config; see group_vars/pikvm.yaml for connection override
 │   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), unifi_backup_retention, maintenance_url
-│   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (protect_api_backup_path, protect_temp_file)
+│   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (unifi_protect_api_backup_path, unifi_protect_temp_file)
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
 │   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, stack_wait_ports, docker_* defaults, app_restore mapping
 │   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists, app_restore mapping
@@ -253,7 +253,7 @@ for human-readable output.
 **`vars/secrets.yaml`** — AES256-encrypted vault. Contains Discord webhook credentials
 (`discord_webhook_id`, `discord_webhook_token`), MariaDB logging credentials (`logging_db_*`),
 API keys (`semaphore_api_token`, `unvr_api_key`), domain suffixes for hostname normalization
-(`logging_domain_local`, `logging_domain_ext`), and the ansible user SSH public key
+(`domain_local`, `domain_ext`), and the ansible user SSH public key
 (`ansible_user_ssh_pubkey`). Edit with `ansible-vault edit vars/secrets.yaml`.
 **Never commit the decrypted file.**
 
@@ -300,7 +300,7 @@ embeds stay clean. Optional vars and their usage:
 Webhook credentials (`discord_webhook_id`, `discord_webhook_token`) are inherited from the
 play-level `vars_files: vars/secrets.yaml`. Playbooks that need a different webhook (e.g.,
 `download_videos` routes per-video notifications to a separate MeTube channel) override these
-via `vars:` on the `include_tasks` call using `metube_webhook_id`/`metube_webhook_token`.
+via `vars:` on the `include_tasks` call using `discord_download_webhook_id`/`discord_download_webhook_token`.
 
 **`templates/metube.conf.j2`** — Jinja2 template for yt-dlp configuration, rendered per download
 profile from `vars/{{ config_file }}.yaml`. Profile-specific settings (quality, paths, batch
@@ -421,7 +421,7 @@ restore. Per-instance results logged to the `restores` table; partial success su
 instances succeed, others fail). Uses `tasks/restore_single_amp_instance.yaml` (loop var: `_amp_instance`).
 Semaphore template: `Restore — AMP [Instance]` (id=76). Required extra vars: `-e restore_target=<host> -e confirm=yes`.
 
-**`maintain_amp.yaml`** — AMP game server maintenance. Runs on `amp` hosts. Cleans up old AMP version binaries (keeps `amp_versions_keep` newest under `Versions/Mainline/`), rotates `instances.json` `.bak` files (same keep count), removes crash core dump files (`core*`) from all instance directories, purges instance log files older than 30 days, prunes unused Docker images (non-dangling), and vacuums journal logs older than `journal_max_age`. Stale `.tar.gz` files in `/tmp/backup` older than 1 day are also removed. Uses `block`/`rescue`/`always` — sends Discord alert on failure; logs to `maintenance` table (`type: Servers`, `subtype: Maintenance`) regardless. Supports `--tags versions` to run only the version-prune step; `-e amp_versions_keep=<n>` overrides the keep count. Semaphore template: `Maintain — AMP [Cleanup]` (id=38). Scheduled weekly.
+**`maintain_amp.yaml`** — AMP game server maintenance. Runs on `amp` hosts. Cleans up old AMP version binaries (keeps `amp_versions_keep` newest under `Versions/Mainline/`), rotates `instances.json` `.bak` files (same keep count), removes crash core dump files (`core*`) from all instance directories, purges instance log files older than 30 days, prunes unused Docker images (non-dangling), and vacuums journal logs older than `amp_journal_max_age`. Stale `.tar.gz` files in `/tmp/backup` older than 1 day are also removed. Uses `block`/`rescue`/`always` — sends Discord alert on failure; logs to `maintenance` table (`type: Servers`, `subtype: Maintenance`) regardless. Supports `--tags versions` to run only the version-prune step; `-e amp_versions_keep=<n>` overrides the keep count. Semaphore template: `Maintain — AMP [Cleanup]` (id=38). Scheduled weekly.
 
 **`restore_app.yaml`** — Production single-app restore. Safety-gated with `confirm=yes`. Stops
 the target stack, restores DB(s) + appdata inplace, restarts the stack, runs HTTP health checks,
@@ -889,7 +889,7 @@ The main data playbooks (`backup_hosts.yaml`, `backup_databases.yaml`, `update_s
 
 ```yaml
 vars_files:
-  - vars/secrets.yaml          # all secrets + domain config (logging_domain_local/ext)
+  - vars/secrets.yaml          # all secrets + domain config (domain_local/ext)
   - vars/{{ config_file }}.yaml  # host-specific config
 vars:
   config_file: "{{ hosts_variable }}"
@@ -1131,8 +1131,8 @@ and completely under the user's control. The DB and Discord output reflect exact
 the inventory, regardless of what any host reports about itself.
 
 **`controller_fqdn`** is defined in `vars/semaphore_check.yaml` as a Jinja2 expression:
-`"{{ controller_hostname }}.{{ logging_domain_local }}"`. Both `controller_hostname` and
-`logging_domain_local` come from the vault. Playbooks that run on `hosts: localhost`
+`"{{ semaphore_controller_hostname }}.{{ domain_local }}"`. Both `semaphore_controller_hostname` and
+`domain_local` come from the vault. Playbooks that run on `hosts: localhost`
 (`maintain_semaphore.yaml`, `maintain_health.yaml` Plays 1/3) use it for both DB logging and
 the `discord_author` override because `inventory_hostname` resolves to `localhost` in that
 context.
@@ -1140,10 +1140,10 @@ context.
 ### URL construction
 
 Discord embed URLs (`backup_url`) use the **external domain suffix** from the vault
-(`logging_domain_ext`) combined with the short hostname extracted from `inventory_hostname`:
+(`domain_ext`) combined with the short hostname extracted from `inventory_hostname`:
 
 ```yaml
-backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ logging_domain_ext }}"
+backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ domain_ext }}"
 ```
 
 This produces URLs like `https://myhost.example.com` — the short hostname (`myhost`) joined
@@ -1151,8 +1151,8 @@ with the external domain (`example.com`). Do **not** use the full `inventory_hos
 construction, as that would create invalid double-domain URLs (e.g., `myhost.home.local.example.com`).
 
 Some hosts use fixed URL patterns instead:
-- Synology: `https://synology.{{ logging_domain_ext }}` (runs on NAS host, URL is for synology)
-- Database: `https://sql.{{ logging_domain_ext }}` (shared URL regardless of host)
+- Synology: `https://synology.{{ domain_ext }}` (runs on NAS host, URL is for synology)
+- Database: `https://sql.{{ domain_ext }}` (shared URL regardless of host)
 - Unifi Network: `https://unifi.ui.com/` (hardcoded external cloud portal)
 
 **Semaphore dual URLs:** Semaphore has two URL variables because the API needs an internal
@@ -1161,7 +1161,7 @@ IP-based URL while Discord notification links need the external domain:
 | Variable | Source | Example | Purpose |
 |---|---|---|---|
 | `semaphore_url` | `semaphore_host_url` from vault (trailing slash stripped) | `http://10.0.0.1:3000` | API calls (`/api/project/...`) |
-| `semaphore_ext_url` | Built from `controller_fqdn` + `logging_domain_ext` | `https://controller.example.com` | Discord embed links, `maintenance_url` |
+| `semaphore_ext_url` | Built from `controller_fqdn` + `domain_ext` | `https://controller.example.com` | Discord embed links, `maintenance_url` |
 
 Both are defined in `vars/semaphore_check.yaml`. Only `maintain_health.yaml` uses both — the
 API URL for the Semaphore task query and the external URL for Discord task links and the
@@ -1882,8 +1882,8 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 ### Expected hostname format
 
 All hostnames in the inventory should be FQDNs using a consistent internal domain suffix
-(matching `logging_domain_local` in the vault). External hosts (e.g., a VPS) use the external
-domain (`logging_domain_ext`). Examples:
+(matching `domain_local` in the vault). External hosts (e.g., a VPS) use the external
+domain (`domain_ext`). Examples:
 
 ```
 pve-node1.home.local
@@ -1912,17 +1912,17 @@ logging_db_port: "..."
 logging_db_user: "..."
 logging_db_password: "..."
 logging_db_name: "..."
-logging_domain_local: "..."         # e.g. "home.local" — internal domain suffix
-logging_domain_ext: "..."           # e.g. "example.com" — external domain suffix for URLs
+domain_local: "..."         # e.g. "home.local" — internal domain suffix
+domain_ext: "..."           # e.g. "example.com" — external domain suffix for URLs
 semaphore_api_token: "..."
 semaphore_host_url: "..."           # internal IP URL, e.g. "http://10.0.0.1:3000"
-controller_hostname: "..."          # short hostname of Semaphore controller (builds controller_fqdn)
+semaphore_controller_hostname: "..."          # short hostname of Semaphore controller (builds controller_fqdn)
 db_host_primary: "..."              # inventory_hostname of primary DB host (restore cross-host delegate_to)
 db_host_secondary: "..."            # inventory_hostname of secondary DB host (restore cross-host delegate_to)
 
 # --- Optional: only needed for specific playbooks ---
-metube_webhook_id: "..."            # MeTube Discord channel — per-video download notifications (download_videos.yaml)
-metube_webhook_token: "..."         # MeTube Discord channel — per-video download notifications (download_videos.yaml)
+discord_download_webhook_id: "..."            # MeTube Discord channel — per-video download notifications (download_videos.yaml)
+discord_download_webhook_token: "..."         # MeTube Discord channel — per-video download notifications (download_videos.yaml)
 unvr_api_key: "..."                 # Unifi Protect UNVR API key (backup_hosts.yaml)
 unifi_network_api_key: "..."        # Unifi Network API key for device inventory export (backup_hosts.yaml via vars/unifi_network.yaml)
 docker_trusted_proxy_cidrs: "..."   # CIDR(s) of reverse proxy — trusted proxy header (stacks/auth/env.j2, Authentik)
@@ -1953,7 +1953,7 @@ vault_pve_template_node_ip: "..." # Direct IP of template node — SSH bypasses 
 vault_test_vm_ip_prefix: "..."   # e.g. "10.10.10." — prefix for test-vm pool
 vault_test_vm_ip_offset: "..."   # e.g. 90 — first slot; slots 0–9 = offset .. offset+9
 vm_user: "..."
-vm_password: "..."
+pve_vm_password: "..."
 vm_cidr: "..."
 vm_gateway: "..."
 vm_dns: "..."
@@ -2027,8 +2027,8 @@ UPDATE backups SET backup_type = 'NewValue' WHERE hostname LIKE 'myhost%';
 
 ### Change domain suffixes
 
-Edit `vars/secrets.yaml` (`ansible-vault edit vars/secrets.yaml`) and update `logging_domain_local`
-and `logging_domain_ext`. Propagates automatically to all future INSERTs and the health check query.
+Edit `vars/secrets.yaml` (`ansible-vault edit vars/secrets.yaml`) and update `domain_local`
+and `domain_ext`. Propagates automatically to all future INSERTs and the health check query.
 Existing rows are not affected — update them manually if needed.
 
 ### Restore a database from backup

@@ -237,7 +237,7 @@
           loop: "{{ app_restore[restore_app].db_names }}"
           vars:
             _db_name: "{{ item }}"
-            _db_container: "{{ _db_vars.container_name }}"
+            _db_container: "{{ _db_vars.db_container_name }}"
             _db_username: "{{ _db_vars.db_username }}"
             _db_password: "{{ db_password }}"
             _db_source_file: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql"
@@ -260,7 +260,7 @@
           loop: "{{ app_restore[restore_app].db_names }}"
           vars:
             _db_name: "{{ item }}"
-            _db_container: "{{ _db_vars.container_name }}"
+            _db_container: "{{ _db_vars.db_container_name }}"
             _db_username: "{{ _db_vars.db_username }}"
             _db_password: "{{ db_password }}"
             _db_is_postgres: "{{ _db_vars.is_postgres | default(false) }}"
