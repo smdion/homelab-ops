@@ -26,6 +26,9 @@
       - "{{ log_hostname }}"
       - "{{ log_run_vars | to_json | to_json }}"
   register: _log_run_result
+  retries: 40
+  delay: 10
+  until: _log_run_result is succeeded
   when: not ansible_check_mode
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   tags: [always]
