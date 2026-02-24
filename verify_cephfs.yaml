@@ -14,7 +14,8 @@
 # ═══════════════════════════════════════════════════════════════════
 - name: Resolve CephFS verification target
   hosts: localhost
-  gather_facts: false
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
@@ -152,24 +153,28 @@
         log_subtype: "CephFS Verify"
         log_status: "{{ 'failed' if _vf | bool else 'success' }}"
 
-    - name: Send Discord notification
-      include_tasks: tasks/notify.yaml
-      vars:
-        discord_name: "CephFS Verify"
-        discord_operation: "Verify"
-        discord_status: "{{ 'failed' if _vf | bool else 'successful' }}"
-        discord_color: "{{ discord_color_failure if _vf | bool else discord_color_success }}"
-        discord_url: "{{ semaphore_ext_url }}"
-        discord_author: "{{ controller_fqdn }}"
-        discord_fields:
-          - name: "VM"
-            value: "{{ vm_name }}"
-            inline: true
-          - name: "CephFS Dir"
-            value: "{{ _cephfs_host_dir }}"
-            inline: true
-          - name: "Detail"
-            value: "{{ _vd }}"
+    - block:
+        - name: Send Discord notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "CephFS Verify"
+            discord_operation: "Verify"
+            discord_status: "{{ 'failed' if _vf | bool else 'successful' }}"
+            discord_color: "{{ discord_color_failure if _vf | bool else discord_color_success }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "VM"
+                value: "{{ vm_name }}"
+                inline: true
+              - name: "CephFS Dir"
+                value: "{{ _cephfs_host_dir }}"
+                inline: true
+              - name: "Detail"
+                value: "{{ _vd }}"
+      rescue:
+        - ansible.builtin.fail:
+            msg: "Discord notification failed. Re-run with -e debug_no_log=yes for details."
 
     - name: Fail play if verification failed
       ansible.builtin.fail:
