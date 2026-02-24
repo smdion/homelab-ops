@@ -133,7 +133,7 @@
             msg: "Last check: {{ last_check }} | New failures: {{ new_failures | length }}"
 
         - name: Send Discord alert per failed task
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           loop: "{{ new_failures }}"
           loop_control:
             label: "Task #{{ item.id }}"
@@ -218,7 +218,7 @@
             stale_backup_lines: "{{ stale_backup_result.query_result[0] | map(attribute='line') | list }}"
 
         - name: Send Discord alert for stale backups
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when: stale_backup_lines | length > 0
           vars:
             discord_title: "⚠️ Stale Backup Alert"
@@ -331,7 +331,7 @@
             failed_maintenance_lines: "{{ failed_maintenance_result.query_result[0] | map(attribute='line') | list }}"
 
         - name: Send Discord alert for failed maintenance runs
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when: failed_maintenance_lines | length > 0
           vars:
             discord_title: "⚠️ Failed Maintenance Runs"
@@ -547,7 +547,7 @@
                  | list }}
 
         - name: Send Discord alert for unreachable appliances
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when: _unreachable_appliances | length > 0
           vars:
             discord_title: "🔴 Unreachable Appliances"
@@ -1451,7 +1451,7 @@
         unreachable_hosts: "{{ unreachable_hosts | default([]) }}"
 
     - name: Send Discord alert for unreachable hosts
-      include_tasks: tasks/notify_discord.yaml
+      include_tasks: tasks/notify.yaml
       when: unreachable_hosts | length > 0
       vars:
         discord_title: "🔴 Unreachable Hosts"
@@ -1467,7 +1467,7 @@
 
     # ── PER-HOST DISCORD ALERTS ────────────────────────────────────────────────
     - name: Send Discord alert for hosts with issues
-      include_tasks: tasks/notify_discord.yaml
+      include_tasks: tasks/notify.yaml
       loop: "{{ ssh_hosts }}"
       loop_control:
         label: "{{ item }}"
@@ -1539,7 +1539,7 @@
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Send Discord alert on maintenance failure
-      include_tasks: tasks/notify_discord.yaml
+      include_tasks: tasks/notify.yaml
       when: maintenance_failed
       vars:
         discord_name: "{{ maintenance_name }}"

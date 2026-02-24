@@ -119,7 +119,7 @@
       always:
         # -- Per-video Discord notifications ----------------------------------
         - name: Send per-video Discord notification
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           loop: "{{ downloaded_videos }}"
           loop_control:
             loop_var: video
@@ -151,7 +151,7 @@
 
         # -- Failure alert (operational webhook) ------------------------------
         - name: Send Discord alert on failure
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when: download_failed
           vars:
             discord_name: "Videos"

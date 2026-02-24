@@ -165,7 +165,7 @@
           when: not ansible_check_mode
 
         - name: Send Discord notification for each sync result
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           loop: "{{ backup_status.results }}"
           loop_control:
             loop_var: sync_result
@@ -187,7 +187,7 @@
                        / 1024 / 1024) | round(2) }}MB
 
         - name: Send Discord notification for pre-sync failure
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when: sync_failed
           vars:
             discord_name: "{{ backup_name }}"

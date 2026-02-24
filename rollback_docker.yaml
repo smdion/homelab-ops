@@ -237,7 +237,7 @@
 
       always:
         - name: Send Discord notification
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ update_name | default('Docker') }}"
             discord_operation: "Rollback"

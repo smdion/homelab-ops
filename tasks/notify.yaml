@@ -1,5 +1,5 @@
 ---
-# Parameterized Discord notification task.
+# Parameterized notification task — sends to Discord and/or Apprise.
 # Pass all variables via vars: on the include_tasks call.
 #
 # Standard operational vars (preferred for all playbooks):
@@ -44,6 +44,11 @@
 #   discord_webhook_id, discord_webhook_token — from vars/secrets.yaml; callers that need
 #     a different webhook (e.g., download_videos MeTube channel) override these via vars:
 #   inventory_hostname, ansible_date_time
+#
+# Optional Apprise vars (from vars/secrets.yaml; both silent if unset):
+#   apprise_urls     — space-separated Apprise URL(s) for CLI mode (pip install apprise required)
+#   apprise_api_url  — Apprise API base URL for API mode (e.g., http://apprise-api:8000)
+#   apprise_api_key  — Apprise API key (default: "ansible")
 
 - name: Send Discord notification
   community.general.discord:
@@ -85,5 +90,70 @@
     - not ansible_check_mode
     - discord_webhook_id is defined
     - discord_webhook_token is defined
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  tags: [always]
+
+# --- Apprise notifications (optional) ---
+# Both tasks are silent if their respective vars are not set in secrets.yaml.
+
+- name: Send Apprise notification (CLI)
+  vars:
+    _apprise_title: >-
+      {{ (discord_name ~ ' ' ~ discord_operation)
+         if (discord_name is defined and discord_operation is defined)
+         else (discord_title | default('Ansible Alert')) }}
+    _apprise_body: >-
+      {{ ((discord_status | capitalize) ~
+          ((' — ' ~ discord_detail) if discord_detail | default('') | length > 0 else ''))
+         if discord_status is defined
+         else (discord_description | default('')) }}
+  ansible.builtin.command:
+    argv:
+      - apprise
+      - --title
+      - "{{ _apprise_title }}"
+      - --body
+      - "{{ _apprise_body }}"
+      - "{{ apprise_urls }}"
+  delegate_to: localhost
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - apprise_urls is defined
+    - apprise_urls | length > 0
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  tags: [always]
+
+- name: Send Apprise notification (API)
+  vars:
+    _apprise_title: >-
+      {{ (discord_name ~ ' ' ~ discord_operation)
+         if (discord_name is defined and discord_operation is defined)
+         else (discord_title | default('Ansible Alert')) }}
+    _apprise_body: >-
+      {{ ((discord_status | capitalize) ~
+          ((' — ' ~ discord_detail) if discord_detail | default('') | length > 0 else ''))
+         if discord_status is defined
+         else (discord_description | default('')) }}
+    _apprise_type: >-
+      {{ 'success' if discord_status | default('') == 'successful'
+         else ('failure' if discord_status | default('') == 'failed'
+         else ('warning' if discord_status | default('') == 'partial'
+         else 'info')) }}
+  ansible.builtin.uri:
+    url: "{{ apprise_api_url }}/notify/{{ apprise_api_key | default('ansible') }}"
+    method: POST
+    body_format: json
+    body:
+      title: "{{ _apprise_title }}"
+      body: "{{ _apprise_body }}"
+      type: "{{ _apprise_type }}"
+    status_code: [200]
+  delegate_to: localhost
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - apprise_api_url is defined
+    - apprise_api_url | length > 0
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   tags: [always]

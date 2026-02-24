@@ -578,7 +578,7 @@
           tags: [docker]
 
         - name: Send Discord notification
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when: (not _is_docker_update | bool) and (update_failed or current_version != previous_version)
           vars:
             discord_name: "{{ update_name }}"
@@ -611,7 +611,7 @@
           tags: [os]
 
         - name: Send Docker update notification
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when:
             - _is_docker_update | bool
             - update_failed or (docker_update_results | selectattr('updated') | list | length > 0)

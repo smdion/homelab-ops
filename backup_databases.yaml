@@ -75,7 +75,7 @@
 
       always:
         - name: Send Discord notification for each DB result
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           loop: "{{ combined_results }}"
           loop_control:
             loop_var: db_result
@@ -94,7 +94,7 @@
           tags: [always]
 
         - name: Send Discord notification for unhandled block error
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when: backup_db_failed
           vars:
             discord_name: "{{ backup_name }}"
