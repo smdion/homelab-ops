@@ -23,7 +23,7 @@
 
 - name: Assert MariaDB logging database is reachable
   ansible.builtin.assert:
-    that: _db_connectivity is succeeded
+    that: not _db_connectivity.failed
     fail_msg: >-
       Cannot reach MariaDB logging database at {{ logging_db_host }}:{{ logging_db_port }} —
       verify the database is running, credentials are correct, and PyMySQL is installed
