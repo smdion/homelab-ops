@@ -486,8 +486,60 @@
           when: pve_pool_test not in _pool_ids
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-        # Additive PUT — adds members, never removes existing ones
-        - name: Add production VMs to production pool
+        # Fetch current pool membership before adding — PVE API returns 500 if
+        # any VM in the list is already a member, so we only PUT the diff.
+        - name: Get current production pool members
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_production }}"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          register: _production_pool
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Get current hosted pool members
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_hosted }}"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          register: _hosted_pool
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Get current test pool members
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_test }}"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          register: _test_pool
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Compute pool membership diffs
+          ansible.builtin.set_fact:
+            _production_new_vmids: >-
+              {{ _production_vmids | difference(
+                   _production_pool.json.data.members | default([])
+                   | selectattr('type', 'equalto', 'qemu')
+                   | map(attribute='vmid') | map('int') | list
+                 ) }}
+            _hosted_new_vmids: >-
+              {{ _hosted_vmids | difference(
+                   _hosted_pool.json.data.members | default([])
+                   | selectattr('type', 'equalto', 'qemu')
+                   | map(attribute='vmid') | map('int') | list
+                 ) }}
+            _test_new_vmids: >-
+              {{ _test_vmids | difference(
+                   _test_pool.json.data.members | default([])
+                   | selectattr('type', 'equalto', 'qemu')
+                   | map(attribute='vmid') | map('int') | list
+                 ) }}
+
+        - name: Add new production VMs to production pool
           ansible.builtin.uri:
             url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_production }}"
             method: PUT
@@ -495,12 +547,12 @@
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
             body_format: form-urlencoded
             body:
-              vms: "{{ _production_vmids | join(',') }}"
+              vms: "{{ _production_new_vmids | join(',') }}"
             validate_certs: false
-          when: _production_vmids | length > 0
+          when: _production_new_vmids | length > 0
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-        - name: Add hosted VMs to hosted pool
+        - name: Add new hosted VMs to hosted pool
           ansible.builtin.uri:
             url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_hosted }}"
             method: PUT
@@ -508,12 +560,12 @@
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
             body_format: form-urlencoded
             body:
-              vms: "{{ _hosted_vmids | join(',') }}"
+              vms: "{{ _hosted_new_vmids | join(',') }}"
             validate_certs: false
-          when: _hosted_vmids | length > 0
+          when: _hosted_new_vmids | length > 0
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-        - name: Add test VMs to test pool
+        - name: Add new test VMs to test pool
           ansible.builtin.uri:
             url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_test }}"
             method: PUT
@@ -521,17 +573,17 @@
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
             body_format: form-urlencoded
             body:
-              vms: "{{ _test_vmids | join(',') }}"
+              vms: "{{ _test_new_vmids | join(',') }}"
             validate_certs: false
-          when: _test_vmids | length > 0
+          when: _test_new_vmids | length > 0
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Report pool assignments
           ansible.builtin.debug:
             msg:
-              - "production ({{ _production_vmids | length }} VMs): {{ _production_vmids | sort | join(', ') }}"
-              - "hosted     ({{ _hosted_vmids | length }} VMs): {{ _hosted_vmids | sort | join(', ') }}"
-              - "test       ({{ _test_vmids | length }} VMs): {{ _test_vmids | sort | join(', ') }}"
+              - "production ({{ _production_vmids | length }} VMs, {{ _production_new_vmids | length }} new): {{ _production_vmids | sort | join(', ') }}"
+              - "hosted     ({{ _hosted_vmids | length }} VMs, {{ _hosted_new_vmids | length }} new): {{ _hosted_vmids | sort | join(', ') }}"
+              - "test       ({{ _test_vmids | length }} VMs, {{ _test_new_vmids | length }} new): {{ _test_vmids | sort | join(', ') }}"
               - "One-time manual step: Datacenter → Backup → edit job(s) → set Pool = '{{ pve_pool_production }}'"
 
       rescue:
