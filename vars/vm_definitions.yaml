@@ -48,7 +48,7 @@ vm_template_cores: 2
 # VMIDs: vm_test_slot_base .. vm_test_slot_base + vm_test_slot_count - 1
 # IPs:   vault_test_vm_ip_prefix + (vault_test_vm_ip_offset + vm_index)
 # To extend the pool or shift the VMID range, change these two values only.
-vm_test_slot_base: 199
+vm_test_slot_base: 500
 vm_test_slot_count: 10
 
 # vm_definitions: keyed by short name (used as vm_name arg and in stack_assignments).
