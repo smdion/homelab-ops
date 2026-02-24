@@ -232,6 +232,13 @@
                 | map('int') | list | sort | last | default(1999) | int) + 2,
                2001] | max) }}
 
+    - name: Debug rule index computation (temporary diagnostic — remove after fix)
+      ansible.builtin.debug:
+        msg:
+          - "Rulesets present: {{ _firewall_rules.json.data | map(attribute='ruleset') | unique | list }}"
+          - "LAN_IN indices: {{ _firewall_rules.json.data | selectattr('ruleset', 'equalto', 'LAN_IN') | map(attribute='rule_index') | list }}"
+          - "Computed SSH index: {{ _ssh_rule_index }}, Block index: {{ _block_rule_index }}"
+
     # Zone-based rules
     - name: "Create rule — {{ _ssh_rule_name }} [zone-based]"
       ansible.builtin.uri:
