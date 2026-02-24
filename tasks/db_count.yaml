@@ -7,21 +7,25 @@
 # Registers: _db_count_result (stdout = count as string)
 # Accumulates: _db_count_results dict (keyed by _db_name)
 
-- name: "Count tables — {{ _db_name }}"
-  ansible.builtin.shell: |
-    {% if _db_is_postgres | default(false) | bool %}
-    docker exec {{ _db_container }} psql -U {{ _db_username }} -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" "{{ _db_name }}"
-    {% elif _db_is_mariadb | default(false) | bool %}
-    docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysql -u {{ _db_username }} -sN -e "SELECT count(*) FROM information_schema.tables WHERE table_schema = '{{ _db_name }}';"
-    {% elif _db_is_influxdb | default(false) | bool %}
-    docker exec {{ _db_container }} influx -database {{ _db_name }} -execute "SHOW MEASUREMENTS" -format csv | tail -n +2 | wc -l
-    {% endif %}
-  environment:
-    DB_PASSWORD: "{{ _db_password | default('') }}"
-  register: _db_count_result
-  become: true
-  changed_when: false
-  no_log: "{{ not (_db_is_influxdb | default(false) | bool) and not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+- block:
+    - name: "Count tables — {{ _db_name }}"
+      ansible.builtin.shell: |
+        {% if _db_is_postgres | default(false) | bool %}
+        docker exec {{ _db_container }} psql -U {{ _db_username }} -t -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" "{{ _db_name }}"
+        {% elif _db_is_mariadb | default(false) | bool %}
+        docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysql -u {{ _db_username }} -sN -e "SELECT count(*) FROM information_schema.tables WHERE table_schema = '{{ _db_name }}';"
+        {% elif _db_is_influxdb | default(false) | bool %}
+        docker exec {{ _db_container }} influx -database {{ _db_name }} -execute "SHOW MEASUREMENTS" -format csv | tail -n +2 | wc -l
+        {% endif %}
+      environment:
+        DB_PASSWORD: "{{ _db_password | default('') }}"
+      register: _db_count_result
+      become: true
+      changed_when: false
+      no_log: "{{ not (_db_is_influxdb | default(false) | bool) and not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  rescue:
+    - ansible.builtin.fail:
+        msg: "Count tables in '{{ _db_name }}' failed. Re-run with -e debug_no_log=yes for details."
 
 - name: "Store count for {{ _db_name }}"
   ansible.builtin.set_fact:

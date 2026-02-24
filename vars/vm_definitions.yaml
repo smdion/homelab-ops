@@ -3,14 +3,16 @@
 # Stack assignments derived from stack_assignments in vars/docker_stacks.yaml (single source of truth).
 
 # Proxmox infrastructure defaults — shared across all VMs.
-# pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret, pve_vm_password
+# pve_api_user, pve_api_token_id, pve_api_token_secret, pve_vm_password
 # are secrets — defined in vars/secrets.yaml.
 #
 # Network topology and node names are deployment-specific and must be set in vault:
+#   vault_pve_vip           — keepalived VIP (floating management IP for cluster API calls)
 #   vault_vm_gateway        — default gateway IP for all VMs
 #   vault_vm_dns            — DNS server IP for all VMs
 #   vault_vm_search_domain  — DNS search domain (e.g. "homelab.local")
 #   vault_pve_template_node — PVE node where the cloud-init template config file lives
+pve_api_host: "{{ vault_pve_vip }}"
 pve_storage: "replicated"
 pve_bridge: "vmbr0"
 vm_user: "ansible"
@@ -21,8 +23,8 @@ vm_cidr: 24
 
 # Cloud-init template — created automatically on first build.
 # Ceph (replicated) storage is shared across all nodes, so one template serves the entire cluster.
-# pve_template_node must match the node pve_api_host resolves to — that's where the
-# template config file lives. Clones use Ceph shared storage to target any node.
+# pve_api_host = vault_pve_vip (VIP). provision_vm.yaml resolves the actual node the VM
+# lands on via the cluster resources API — safe regardless of which PVE node holds the VIP.
 pve_template_vmid: 9000
 pve_template_node: "{{ vault_pve_template_node }}"
 pve_template_name: "ubuntu-cloud-template"

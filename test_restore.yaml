@@ -18,13 +18,24 @@
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e dr_mode=yes
 #
 # Required extra vars:
-#   vm_name      — key in vm_definitions (e.g., test-vm)
+#   vm_name      — ephemeral VM key from vm_definitions (use "test-vm"; pass vm_index=0..9 for
+#                  parallel runs). Do NOT use permanent VM keys (tantiveiv, odyssey, amp).
 #   source_host  — inventory_hostname of source host in stack_assignments
 #
+# VM lifecycle (provision_vm.yaml is idempotent):
+#   - If the VMID doesn't exist, the VM is provisioned from the cloud-init template
+#   - If the VMID already exists (e.g. from a prior partial run), clone is skipped and
+#     provisioning resumes from configure/start — no manual cleanup needed
+#   - Node resolution uses the cluster resources API — VIP-safe regardless of which
+#     PVE node is currently MASTER
+#   - After restore: snapshot is reverted, VM stays running and ready for next test
+#   - In dr_mode=yes: no revert — VM keeps the restored state for real DR recovery
+#
 # Optional extra vars:
+#   vm_index=N    — test-vm slot 0..9 (default 0); selects VMID and IP from the pool
 #   restore_app   — single app to restore (uses app_restore mapping)
 #   deploy_stack  — single stack to deploy
-#   dr_mode=yes  — DR recovery mode (skip snapshot/revert, keep state)
+#   dr_mode=yes   — DR recovery mode (skip snapshot/revert, keep state)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Prepare: Validate, find backup, build VM if needed, snapshot
@@ -118,20 +129,28 @@
       check_mode: false
 
     # ===== CHECK IF VM EXISTS =====
-    - name: Check if VM already exists
+    # Use cluster resources API (VIP-safe — discovers the actual node regardless of which PVE node is MASTER)
+    - name: Check if VM exists in cluster
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/status/current"
+        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
         validate_certs: false
-        status_code: [200, 500]
-      register: _vm_status
+      register: _cluster_vms
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-    - name: Set VM existence fact
+    - name: Set VM existence and node facts
       ansible.builtin.set_fact:
-        _vm_exists: "{{ _vm_status.status == 200 }}"
+        _vm_exists: "{{ _cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0 }}"
+        _vm_actual_node: >-
+          {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
+             if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
+             else _vm.pve_target_node }}
+        _vm_cluster_status: >-
+          {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).status
+             if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
+             else 'unknown' }}
 
     # ===== BUILD VM IF NEEDED =====
     - name: Provision VM on Proxmox
@@ -151,7 +170,7 @@
 
     - name: Start existing VM if stopped
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm.pve_target_node }}/qemu/{{ _vm.vm_id }}/status/start"
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/status/start"
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -160,7 +179,7 @@
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when:
         - _vm_exists
-        - _vm_status.json.data.status == 'stopped'
+        - _vm_cluster_status == 'stopped'
 
     - name: Wait for SSH on existing VM
       ansible.builtin.wait_for:
@@ -170,7 +189,7 @@
         timeout: 300
       when:
         - _vm_exists
-        - _vm_status.json.data.status == 'stopped'
+        - _vm_cluster_status == 'stopped'
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 2 — Bootstrap (new VM or Docker missing)
@@ -210,7 +229,7 @@
   tasks:
     - name: Get existing snapshots
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ vm_definitions[vm_name].pve_target_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -221,7 +240,7 @@
 
     - name: Delete existing pre-test snapshot if present
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ vm_definitions[vm_name].pve_target_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore"
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore"
         method: DELETE
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -233,7 +252,7 @@
 
     - name: Create pre-test snapshot (post-bootstrap clean state)
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ vm_definitions[vm_name].pve_target_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -386,7 +405,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ vm_definitions[vm_name].pve_target_node }}"
+            node: "{{ _vm_actual_node }}"
             vmid: "{{ vm_definitions[vm_name].vm_id }}"
             state: stopped
             force: true
@@ -395,7 +414,7 @@
 
         - name: Revert to pre-test snapshot
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ vm_definitions[vm_name].pve_target_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore/rollback"
+            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore/rollback"
             method: POST
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -408,7 +427,7 @@
 
         - name: Delete pre-test snapshot
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ vm_definitions[vm_name].pve_target_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore"
+            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore"
             method: DELETE
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
