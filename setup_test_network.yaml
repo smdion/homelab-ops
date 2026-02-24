@@ -15,6 +15,14 @@
 #   ansible-playbook setup_test_network.yaml --check --vault-password-file ~/.vault_pass
 #     --check — runs all GETs and prereq checks, skips all writes, prints what would change
 #
+# Firewall rule mode (use_zone_rules, default true):
+#   use_zone_rules=true  — zone-based rules (consistent with existing rules in Unifi UI)
+#                          NOTE: homedwellers_test is in the Guest zone alongside homedwellers_guest.
+#                          Zone rules apply to ALL Guest networks. To scope to test only,
+#                          create a dedicated "Test" zone in Unifi and move homedwellers_test there.
+#   use_zone_rules=false — address-based rules (Semaphore IP → test subnet, test subnet → prod LAN)
+#                          More precise but deviates from existing rule convention.
+#
 # Required vault vars:
 #   vault_test_vlan_id           — VLAN ID (e.g. 3)
 #   vault_test_vlan_gateway      — gateway IP on test VLAN (e.g. 192.168.3.1)
@@ -37,6 +45,11 @@
     _unifi_api: "https://{{ inventory_hostname }}/proxy/network/api/s/default"
     _semaphore_ip: "{{ semaphore_host_url | urlsplit('hostname') }}"
     _prod_lan_subnet: "{{ vault_vm_gateway | regex_replace('(\\d+\\.\\d+\\.\\d+)\\.\\d+', '\\1.0') }}/{{ vm_cidr }}"
+    use_zone_rules: true
+    _semaphore_zone_name: "Server"   # zone containing homedwellers_server (where Semaphore lives)
+    _test_vlan_zone_name: "Guest"    # zone containing homedwellers_test; change to "Test" if you create a dedicated zone
+    _ssh_rule_name: "Allow Server to Test"
+    _block_rule_name: "Block Test to Server"
 
   tasks:
     # ═══════════════════════════════════════════════════════════
@@ -135,7 +148,45 @@
         _vlan_status: "{{ 'created' if not _test_vlan_exists else 'already existed' }}"
 
     # ═══════════════════════════════════════════════════════════
-    # STEP 2 — Create firewall rules (if missing)
+    # STEP 2a — Resolve zone IDs (zone-based mode only)
+    # ═══════════════════════════════════════════════════════════
+    - name: Get Unifi firewall zones
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/firewallzone"
+        method: GET
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        validate_certs: false
+      register: _firewall_zones
+      check_mode: false
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      when: use_zone_rules | bool
+
+    - name: Resolve zone IDs
+      ansible.builtin.set_fact:
+        _semaphore_zone_id: >-
+          {{ (_firewall_zones.json.data
+             | selectattr('name', 'equalto', _semaphore_zone_name)
+             | list | first | default({})).get('_id', '') }}
+        _test_vlan_zone_id: >-
+          {{ (_firewall_zones.json.data
+             | selectattr('name', 'equalto', _test_vlan_zone_name)
+             | list | first | default({})).get('_id', '') }}
+      when: use_zone_rules | bool
+
+    - name: Assert zone IDs resolved
+      ansible.builtin.assert:
+        that:
+          - _semaphore_zone_id | length > 0
+          - _test_vlan_zone_id | length > 0
+        fail_msg: >-
+          Could not resolve zone IDs. Expected zones: '{{ _semaphore_zone_name }}' and '{{ _test_vlan_zone_name }}'.
+          Check _semaphore_zone_name and _test_vlan_zone_name match zone names exactly in Unifi UI
+          (Settings → Firewall & Security → Zones).
+      when: use_zone_rules | bool
+
+    # ═══════════════════════════════════════════════════════════
+    # STEP 2b — Create firewall rules (if missing)
     # ═══════════════════════════════════════════════════════════
     - name: Get existing Unifi firewall rules
       ansible.builtin.uri:
@@ -153,7 +204,8 @@
         _existing_rule_names: >-
           {{ _firewall_rules.json.data | map(attribute='name') | list }}
 
-    - name: Create rule — Allow Semaphore SSH to test-isolation
+    # Zone-based rules
+    - name: "Create rule — {{ _ssh_rule_name }} [zone-based]"
       ansible.builtin.uri:
         url: "{{ _unifi_api }}/rest/firewallrule"
         method: POST
@@ -161,7 +213,52 @@
           x-api-key: "{{ unifi_network_api_key }}"
         body_format: json
         body:
-          name: "Allow Semaphore SSH to test-isolation"
+          name: "{{ _ssh_rule_name }}"
+          ruleset: "LAN_IN"
+          rule_index: 2000
+          action: "accept"
+          protocol: "tcp"
+          enabled: true
+          src_firewallzone_id: "{{ _semaphore_zone_id }}"
+          dst_firewallzone_id: "{{ _test_vlan_zone_id }}"
+          dst_port: "22"
+        validate_certs: false
+        status_code: [200, 201]
+      when: _ssh_rule_name not in _existing_rule_names and not ansible_check_mode and use_zone_rules | bool
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      register: _create_ssh_rule_zone
+
+    - name: "Create rule — {{ _block_rule_name }} [zone-based]"
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/firewallrule"
+        method: POST
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        body_format: json
+        body:
+          name: "{{ _block_rule_name }}"
+          ruleset: "LAN_IN"
+          rule_index: 2010
+          action: "drop"
+          enabled: true
+          src_firewallzone_id: "{{ _test_vlan_zone_id }}"
+          dst_firewallzone_id: "{{ _semaphore_zone_id }}"
+        validate_certs: false
+        status_code: [200, 201]
+      when: _block_rule_name not in _existing_rule_names and not ansible_check_mode and use_zone_rules | bool
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      register: _create_block_rule_zone
+
+    # Address-based rules
+    - name: "Create rule — {{ _ssh_rule_name }} [address-based]"
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/firewallrule"
+        method: POST
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        body_format: json
+        body:
+          name: "{{ _ssh_rule_name }}"
           ruleset: "LAN_IN"
           rule_index: 2000
           action: "accept"
@@ -172,11 +269,11 @@
           dst_port: "22"
         validate_certs: false
         status_code: [200, 201]
-      when: "'Allow Semaphore SSH to test-isolation' not in _existing_rule_names and not ansible_check_mode"
+      when: _ssh_rule_name not in _existing_rule_names and not ansible_check_mode and not (use_zone_rules | bool)
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
-      register: _create_ssh_rule
+      register: _create_ssh_rule_addr
 
-    - name: Create rule — Block test-isolation to LAN
+    - name: "Create rule — {{ _block_rule_name }} [address-based]"
       ansible.builtin.uri:
         url: "{{ _unifi_api }}/rest/firewallrule"
         method: POST
@@ -184,7 +281,7 @@
           x-api-key: "{{ unifi_network_api_key }}"
         body_format: json
         body:
-          name: "Block test-isolation to LAN"
+          name: "{{ _block_rule_name }}"
           ruleset: "LAN_IN"
           rule_index: 2010
           action: "drop"
@@ -193,9 +290,14 @@
           dst_address: "{{ _prod_lan_subnet }}"
         validate_certs: false
         status_code: [200, 201]
-      when: "'Block test-isolation to LAN' not in _existing_rule_names and not ansible_check_mode"
+      when: _block_rule_name not in _existing_rule_names and not ansible_check_mode and not (use_zone_rules | bool)
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
-      register: _create_block_rule
+      register: _create_block_rule_addr
+
+    - name: Consolidate rule creation results
+      ansible.builtin.set_fact:
+        _create_ssh_rule: "{{ _create_ssh_rule_zone if use_zone_rules | bool else _create_ssh_rule_addr }}"
+        _create_block_rule: "{{ _create_block_rule_zone if use_zone_rules | bool else _create_block_rule_addr }}"
 
     # ═══════════════════════════════════════════════════════════
     # CHECK MODE — Report what would change (no writes made)
@@ -204,13 +306,16 @@
       ansible.builtin.debug:
         msg:
           - "=== CHECK MODE — No changes made ==="
+          - "Rule mode: {{ 'zone-based (' + _semaphore_zone_name + ' → ' + _test_vlan_zone_name + ')' if use_zone_rules | bool else 'address-based' }}"
           - "VLAN {{ vault_test_vlan_id }} (test-isolation): {{ 'would be created' if not _test_vlan_exists else 'already exists — no action needed' }}"
-          - "Rule 'Allow Semaphore SSH to test-isolation': {{ 'would be created' if 'Allow Semaphore SSH to test-isolation' not in _existing_rule_names else 'already exists — no action needed' }}"
-          - "Rule 'Block test-isolation to LAN': {{ 'would be created' if 'Block test-isolation to LAN' not in _existing_rule_names else 'already exists — no action needed' }}"
+          - "Rule '{{ _ssh_rule_name }}': {{ 'would be created' if _ssh_rule_name not in _existing_rule_names else 'already exists — no action needed' }}"
+          - "Rule '{{ _block_rule_name }}': {{ 'would be created' if _block_rule_name not in _existing_rule_names else 'already exists — no action needed' }}"
           - ""
           - "Derived values that would be used:"
-          - "  Semaphore IP (SSH allow source): {{ _semaphore_ip }}/32"
-          - "  Prod LAN CIDR (block destination): {{ _prod_lan_subnet }}"
+          - "  Semaphore IP (address-based SSH allow source): {{ _semaphore_ip }}/32"
+          - "  Prod LAN CIDR (address-based block destination): {{ _prod_lan_subnet }}"
+          - "  Server zone ID: {{ _semaphore_zone_id | default('n/a — zone mode disabled') }}"
+          - "  Guest/Test zone ID: {{ _test_vlan_zone_id | default('n/a — zone mode disabled') }}"
           - ""
           - "Re-run without --check to apply."
       when: ansible_check_mode
@@ -253,8 +358,8 @@
     - name: Assert both firewall rules exist
       ansible.builtin.assert:
         that:
-          - "'Allow Semaphore SSH to test-isolation' in (_verify_rules.json.data | map(attribute='name') | list)"
-          - "'Block test-isolation to LAN' in (_verify_rules.json.data | map(attribute='name') | list)"
+          - "_ssh_rule_name in (_verify_rules.json.data | map(attribute='name') | list)"
+          - "_block_rule_name in (_verify_rules.json.data | map(attribute='name') | list)"
         fail_msg: "One or more firewall rules missing after creation"
       when: not ansible_check_mode
 
@@ -262,9 +367,10 @@
       ansible.builtin.debug:
         msg:
           - "=== Test Network Isolation Setup Complete ==="
+          - "Rule mode: {{ 'zone-based (' + _semaphore_zone_name + ' → ' + _test_vlan_zone_name + ')' if use_zone_rules | bool else 'address-based' }}"
           - "VLAN {{ vault_test_vlan_id }} (test-isolation): {{ _vlan_status }}"
-          - "Rule 'Allow Semaphore SSH to test-isolation': {{ 'created' if _create_ssh_rule.changed | default(false) else 'already existed' }}"
-          - "Rule 'Block test-isolation to LAN': {{ 'created' if _create_block_rule.changed | default(false) else 'already existed' }}"
+          - "Rule '{{ _ssh_rule_name }}': {{ 'created' if _create_ssh_rule.changed | default(false) else 'already existed' }}"
+          - "Rule '{{ _block_rule_name }}': {{ 'created' if _create_block_rule.changed | default(false) else 'already existed' }}"
           - ""
           - "Next steps:"
           - "  1. Run build_ubuntu.yaml -e vm_name=test-vm to provision a test VM"
