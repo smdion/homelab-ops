@@ -1,6 +1,6 @@
 ---
 # Test the CephFS migration flow using a disposable VM loaded with real backup data.
-# Provisions the dedicated cephfs-migrate-test VM (VMID 198, production VLAN), restores
+# Provisions the dedicated cephfs-migrate-test VM (VMID: vm_test_slot_base + vm_test_slot_count, production VLAN), restores
 # backup archives from source_host to its local /opt, then runs the full CephFS migration
 # inline and verifies the result. Use this to validate migrate_appdata_to_cephfs.yaml
 # before running it on production.
