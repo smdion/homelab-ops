@@ -116,9 +116,11 @@
         - name: Discover restore config from labels — {{ restore_app }}
           become: true
           ansible.builtin.shell: |
-            docker ps -a \
-              --filter "label=homelab.restore.app={{ restore_app }}" \
-              --format '{% raw %}{{index .Labels "homelab.restore.db_config"}}|{{index .Labels "homelab.restore.health_url"}}|{{index .Labels "homelab.restore.health_status"}}{% endraw %}'
+            ids=$(docker ps -a -q \
+              --filter "label=homelab.restore.app={{ restore_app }}")
+            [ -z "$ids" ] && exit 0
+            echo "$ids" | xargs docker inspect \
+              --format '{% raw %}{{index .Config.Labels "homelab.restore.db_config"}}|{{index .Config.Labels "homelab.restore.health_url"}}|{{index .Config.Labels "homelab.restore.health_status"}}{% endraw %}'
           register: _app_label_raw
           changed_when: false
 
