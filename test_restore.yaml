@@ -33,7 +33,7 @@
 #
 # Optional extra vars:
 #   vm_index=N    — test-vm slot 0..9 (default 0); selects VMID and IP from the pool
-#   restore_app   — single app to restore (uses app_restore mapping)
+#   restore_app   — single app name to selectively extract from archive
 #   deploy_stack  — single stack to deploy
 #   dr_mode=yes   — DR recovery mode (skip snapshot/revert, keep state)
 
@@ -336,15 +336,14 @@
           loop: "{{ hostvars['localhost']._stacks }}"
           loop_control:
             loop_var: _current_stack
+          vars:
+            _test_mode: true
 
         # ===== HEALTH CHECK =====
         - name: Verify container health
           include_tasks: tasks/verify_docker_health.yaml
           vars:
-            _health_timeout: >-
-              {{ ([120] + (hostvars['localhost']._stacks
-                  | map('extract', stack_health_timeouts | default({}))
-                  | select('defined') | list)) | max }}
+            _test_mode: true
 
         - name: Record success detail
           ansible.builtin.set_fact:

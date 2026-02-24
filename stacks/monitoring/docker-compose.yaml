@@ -15,6 +15,9 @@ services:
     network_mode: bridge
     ports:
     - 3000:3000
+    labels:
+      homelab.backup.paths: "/opt/grafana"
+      homelab.health_timeout: "150"
     environment:
       <<: *env
       GF_SERVER_ROOT_URL: ${GRAFANA_SERVER_ROOT_URL}

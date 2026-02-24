@@ -27,6 +27,9 @@ services:
     network_mode: bridge
     ports:
     - 8123:8123
+    labels:
+      homelab.backup.paths: "/opt/home_assistant"
+      homelab.health_timeout: "150"
     volumes:
     - ${APPSDIR}/home_assistant/:/config
     healthcheck:
@@ -42,6 +45,8 @@ services:
     network_mode: bridge
     ports:
     - 8084:8080
+    labels:
+      homelab.backup.paths: "/opt/guacamole"
     environment:
       <<: *env
       EXTENSIONS: ${GUAC_EXTENSIONS}
@@ -57,6 +62,8 @@ services:
     ports:
     - 7814:5800
     - 7914:5900
+    labels:
+      homelab.backup.paths: "/opt/firefox"
     environment:
       <<: *envuid
       DISPLAY_WIDTH: ${FF_DISPLAY_WIDTH}
@@ -75,6 +82,8 @@ services:
     ports:
     - 8088:80
     - 8444:443
+    labels:
+      homelab.backup.paths: "/opt/xbackbone"
     volumes:
     - ${APPSDIR}/xbackbone:/config
     healthcheck:
@@ -90,6 +99,8 @@ services:
     network_mode: bridge
     ports:
       - 3003:3000
+    labels:
+      homelab.backup.paths: "/opt/homepage"
     environment:
       <<: *envuid
       HOMEPAGE_ALLOWED_HOSTS: ${HOMEPAGE_ALLOWED_HOSTS}
@@ -108,6 +119,8 @@ services:
     network_mode: bridge
     ports:
       - 3100:7745
+    labels:
+      homelab.backup.paths: "/opt/homebox"
     volumes:
       - ${APPSDIR}/homebox:/data/
   rickroll:
@@ -122,6 +135,8 @@ services:
     container_name: cloudflareddns
     image: ghcr.io/hotio/cloudflareddns
     network_mode: bridge
+    labels:
+      homelab.backup.paths: "/opt/cloudflareddns"
     environment:
       <<: *envuid
       INTERVAL: ${DDNS_INTERVAL}

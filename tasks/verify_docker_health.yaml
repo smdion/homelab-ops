@@ -3,8 +3,9 @@
 # Fails if any container remains unhealthy after timeout.
 #
 # Optional:
-#   _health_timeout  — seconds to poll (default 120)
+#   _health_timeout  — seconds to poll (overrides label discovery; default: auto-discover from labels, min 120)
 #   _health_delay    — seconds between polls (default 10)
+#   _test_mode       — when true, containers with homelab.test.skip_health=true are excluded
 # Sets:
 #   _health_summary  — human-readable container status summary for logging
 
@@ -12,12 +13,35 @@
   become: true
   ansible.builtin.shell:
     cmd: |
-      timeout={{ _health_timeout | default(120) }}
+      # Discover max timeout from homelab.health_timeout labels if not explicitly passed
+      timeout={{ _health_timeout | default(0) }}
+      if [ "$timeout" -eq 0 ]; then
+        timeout=120
+        for t in $(docker ps --format '{% raw %}{{index .Labels "homelab.health_timeout"}}{% endraw %}' | grep -E '^[0-9]+$'); do
+          [ "$t" -gt "$timeout" ] && timeout=$t
+        done
+      fi
+
       delay={{ _health_delay | default(10) }}
       elapsed=0
+
+      # Build skip list from homelab.test.skip_health label (only in test mode)
+      skip_pattern=""
+      if [ "{{ _test_mode | default(false) | bool | lower }}" = "true" ]; then
+        skip_names=$(docker ps -a \
+          --filter "label=homelab.test.skip_health=true" \
+          --format '{% raw %}{{.Names}}{% endraw %}' 2>/dev/null)
+        [ -n "$skip_names" ] && \
+          skip_pattern=$(echo "$skip_names" | tr '\n' '|' | sed 's/|$//')
+      fi
+
       while [ $elapsed -lt $timeout ]; do
         unhealthy=$(docker ps --filter health=unhealthy --format '{% raw %}{{.Names}}{% endraw %}' 2>/dev/null)
         starting=$(docker ps --filter health=starting --format '{% raw %}{{.Names}}{% endraw %}' 2>/dev/null)
+        if [ -n "$skip_pattern" ]; then
+          unhealthy=$(echo "$unhealthy" | grep -vE "^($skip_pattern)$" || true)
+          starting=$(echo "$starting"   | grep -vE "^($skip_pattern)$" || true)
+        fi
         if [ -z "$unhealthy" ] && [ -z "$starting" ]; then
           echo "ALL_HEALTHY"
           exit 0

@@ -20,6 +20,14 @@ services:
     ports:
       - 9001:9000
       - 9443:9443
+    labels:
+      homelab.backup.paths: "/opt/authentik_worker"
+      homelab.health_timeout: "420"
+      homelab.restore.app: "authentik"
+      homelab.restore.db_config: "db_primary_postgres"
+      homelab.restore.db_names: "authentik"
+      homelab.restore.health_url: "http://localhost:9001/-/health/ready/"
+      homelab.restore.health_status: "204"
     environment:
       <<: *envuid
       AUTHENTIK_POSTGRESQL__HOST: ${POSTGRES_HOST}
@@ -81,6 +89,8 @@ services:
     container_name: swag
     image: lscr.io/linuxserver/swag
     network_mode: bridge
+    labels:
+      homelab.backup.paths: "/opt/swag"
     ports:
       - 443:443
       - 8081:8081
@@ -127,6 +137,8 @@ services:
     container_name: crowdsec
     image: docker.io/crowdsecurity/crowdsec:latest
     network_mode: bridge
+    labels:
+      homelab.backup.paths: "/opt/crowdsec"
     ports:
       - 8080:8080
       - 6060:6060

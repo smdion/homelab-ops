@@ -108,7 +108,7 @@ If the value describes the operation itself (not the environment), it can stay i
 │   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), unifi_backup_retention, maintenance_url
 │   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (unifi_protect_api_backup_path, unifi_protect_temp_file)
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
-│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, stack_wait_ports, docker_* defaults, app_restore mapping
+│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, app_info (pre-deploy restore map), docker_* defaults
 │   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists, app_restore mapping
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
 │   ├── unraid_os.yaml               # unRAID OS backup
@@ -176,7 +176,7 @@ If the value describes the operation itself (not the environment), it can stay i
 ├── restore_amp.yaml               # AMP instance restore — stop instance(s), replace data dir from archive, restart; per-instance or all; requires confirm=yes
 ├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert
-├── test_backup_restore.yaml          # Test all app_restore apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
+├── test_backup_restore.yaml          # Test all app_info apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
 ├── files/
@@ -340,7 +340,7 @@ app name maps to subdirectory under `src_raw_files[0]`). Supports coordinated DB
 `-e with_databases=yes` — loads DB vars into a `_db_vars` namespace (avoiding collision with
 play-level Docker vars) and uses `delegate_to: db_host` to restore databases on the correct host
 (handles cross-host scenarios like appdata on one host + DB on another). Multi-container
-apps handled via `app_restore[restore_app].containers` mapping in `vars/docker_*.yaml`. `serial: 1`
+apps handled via `app_info[restore_app]` in `vars/docker_stacks.yaml` + runtime config from container labels. `serial: 1`
 matches `backup_hosts.yaml`. Requires `--limit <hostname>` when using `restore_app` on multi-host
 groups.
 
@@ -414,7 +414,7 @@ and logs to the `restores` table (`restore_subtype: Appdata`). Accepts `-e resto
 notification on success or failure.
 
 **`test_backup_restore.yaml`** — Automated all-app restore test on a disposable VM. Provisions a
-test VM (or reuses one with `-e provision=false`), deploys all stacks, restores each `app_restore`
+test VM (or reuses one with `-e provision=false`), deploys all stacks, restores each `app_info`
 app in sequence (DB + appdata inplace), runs HTTP health checks, and summarizes results via
 Discord. Includes OOM auto-recovery: if a restore OOM-kills the VM, saves partial results to
 localhost, doubles RAM via PVE API, reboots, and retries the OOM-failed apps. Reverts the VM to
@@ -441,8 +441,8 @@ in regular `/opt` appdata backups automatically.
 
 **Per-stack backup architecture:** Docker stacks hosts use per-stack backup archives instead of
 a monolithic `/opt` tar.gz. Each stack is stopped individually, archived, and restarted — minimizing
-downtime. The `stack_backup_paths` mapping in `vars/docker_stacks.yaml` defines which `/opt/`
-directories belong to each stack; `/opt/stacks/{name}/` (compose + .env) is always included
+downtime. Backup paths are discovered at runtime from `homelab.backup.paths` labels on containers
+(stopped containers retain labels); `/opt/stacks/{name}/` (compose + .env) is always appended
 automatically. Database data directories are excluded because they have dedicated SQL dump jobs.
 Non-docker_stacks hosts (proxmox, pikvm, unraid, unifi) still use monolithic archives with
 `backup_exclude_dirs | default([])` for hosts that define exclusions.
@@ -454,8 +454,8 @@ Non-docker_stacks hosts (proxmox, pikvm, unraid, unifi) still use monolithic arc
 **`tasks/restore_single_amp_instance.yaml`** — Per-instance AMP restore loop body called by `restore_amp.yaml` (loop var: `_amp_instance`). Stops the instance, removes the existing data directory, extracts the latest archive from the controller, and restarts the instance if it was running before the restore. Logs per-instance result to the `restores` table. Mirrors the backup task's structure — stop, act, restart in `always:`.
 
 **`tasks/backup_single_stack.yaml`** — Per-stack backup loop body called by `backup_hosts.yaml`
-(loop var: `_backup_stack`). Stops the named stack via `docker_stop.yaml`, computes the full
-archive path list from `stack_backup_paths[stack] + ['/opt/stacks/<stack>']`, filters to paths
+(loop var: `_backup_stack`). Stops the named stack via `docker_stop.yaml`, discovers backup paths
+from `homelab.backup.paths` container labels, appends `/opt/stacks/<stack>/`, filters to paths
 that exist (via `stat`), creates a `.tar.gz` archive, verifies integrity with `gunzip -t`, fetches
 to the controller, and records success/failure in `_stack_backup_results`. The `always:` block
 restarts the stack and deletes the temp archive regardless of outcome — containers are always
@@ -2053,8 +2053,10 @@ ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostna
 ```
 
 Always use `--limit <hostname>` with `-e restore_app` since `docker_stacks`/`docker_run` are
-multi-host groups. The `app_restore` mapping in `vars/docker_*.yaml` provides the container list,
-DB config file, and `db_host` for cross-host `delegate_to`.
+multi-host groups. For docker_stacks apps, `app_info` in `vars/docker_stacks.yaml` provides the
+stack name + DB names (pre-deploy); DB config and health URLs are discovered from container labels
+at runtime. For docker_run apps, `app_restore` in `vars/docker_run.yaml` provides the container
+list, DB config file, and `db_host` for cross-host `delegate_to`.
 
 ### Roll back a Docker container update
 
@@ -2448,17 +2450,17 @@ ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqd
 # DR mode — same playbook, keeps the VM running after restore (no revert)
 ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqdn> -e dr_mode=yes --vault-password-file ~/.vault_pass
 
-# Test all app_restore apps on a disposable VM (per-app DB + appdata restore, health check, revert)
+# Test all app_info apps on a disposable VM (per-app DB + appdata restore, health check, revert)
 ansible-playbook test_backup_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
 
 # Restore a single app to production (requires confirm=yes safety gate)
 ansible-playbook restore_app.yaml -e restore_app=authentik -e restore_target=<host-fqdn> -e confirm=yes --vault-password-file ~/.vault_pass
 ```
 
-**Per-stack health check timeouts** — `stack_health_timeouts` in `vars/docker_stacks.yaml` controls
-how long `test_restore.yaml` and `test_backup_restore.yaml` wait for containers to become healthy after
-a stack is started. The maximum timeout across all stacks being tested is used. Default fallback is
-120 s. Authentik (`auth` stack) is set to 420 s due to its multi-container worker startup time.
+**Per-stack health check timeouts** — Timeouts are discovered at runtime from `homelab.health_timeout`
+labels on running containers. `tasks/verify_docker_health.yaml` takes the maximum value across all
+running containers; the default fallback is 120 s. Services with slow startup (e.g. Authentik at
+420 s, databases at 180 s) set their own label value — no central config required.
 
 **OOM auto-recovery** — `test_backup_restore.yaml` detects OOM kill events (via `dmesg`) in its rescue
 block. If any app fails due to OOM, after the full app loop it doubles VM memory via the PVE API,

@@ -8,7 +8,6 @@
 #
 # Required (from caller scope):
 #   _backup_stack         — stack name (e.g. 'auth', 'vpn')
-#   stack_backup_paths    — dict mapping stack → list of appdata dirs
 #   backup_tmp_dir        — temp directory for archive creation
 #   ansible_date_time     — gathered fact
 #   _stack_backup_results — list to append results to (caller initializes to [])
@@ -25,10 +24,22 @@
       vars:
         _docker_selective_stacks: ["{{ _backup_stack }}"]
 
+    - name: Discover backup paths from container labels for {{ _backup_stack }}
+      become: true
+      ansible.builtin.shell: |
+        docker ps -a \
+          --filter "label=com.docker.compose.project={{ _backup_stack }}" \
+          --filter "label=homelab.backup.paths" \
+          --format '{% raw %}{{index .Labels "homelab.backup.paths"}}{% endraw %}' \
+          | tr ',' '\n' | sed '/^$/d' | sort -u
+      register: _label_backup_paths
+      changed_when: false
+      check_mode: false
+
     - name: Compute archive paths for {{ _backup_stack }}
       ansible.builtin.set_fact:
         _backup_archive_paths: >-
-          {{ (stack_backup_paths[_backup_stack] | default([]))
+          {{ (_label_backup_paths.stdout_lines | default([]) | reject('eq', '') | list)
              + ['/opt/stacks/' + _backup_stack] }}
 
     - name: Filter to existing paths for {{ _backup_stack }}

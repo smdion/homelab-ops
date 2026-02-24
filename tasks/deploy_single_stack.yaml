@@ -47,6 +47,27 @@
   register: _override_j2_stat
   changed_when: false
 
+- name: "Check for docker-compose.test.j2 — {{ _current_stack }}"
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/stacks/{{ _current_stack }}/docker-compose.test.j2"
+  delegate_to: localhost
+  become: false
+  register: _test_override_j2_stat
+  changed_when: false
+  when: _test_mode | default(false) | bool
+
+- name: "Template docker-compose.override.yaml (test mode) — {{ _current_stack }}"
+  become: true
+  ansible.builtin.template:
+    src: "stacks/{{ _current_stack }}/docker-compose.test.j2"
+    dest: "/opt/stacks/{{ _current_stack }}/docker-compose.override.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - _test_mode | default(false) | bool
+    - _test_override_j2_stat.stat.exists | default(false)
+
 - name: "Template docker-compose.override.yaml — {{ _current_stack }}"
   become: true
   ansible.builtin.template:
@@ -55,7 +76,9 @@
     owner: root
     group: root
     mode: "0644"
-  when: _override_j2_stat.stat.exists
+  when:
+    - _override_j2_stat.stat.exists
+    - not (_test_mode | default(false) | bool and _test_override_j2_stat.stat.exists | default(false))
 
 - name: "Validate compose config — {{ _current_stack }}"
   become: true
@@ -82,13 +105,24 @@
     - not ansible_check_mode
     - not (validate_only | default('') == 'yes')
 
+- name: "Discover wait ports from labels — {{ _current_stack }}"
+  become: true
+  ansible.builtin.shell: |
+    docker ps \
+      --filter "label=com.docker.compose.project={{ _current_stack }}" \
+      --filter "label=homelab.wait_port" \
+      --format '{% raw %}{{index .Labels "homelab.wait_port"}}{% endraw %}'
+  register: _label_wait_ports
+  changed_when: false
+  when: not ansible_check_mode
+
 - name: "Wait for stack ports — {{ _current_stack }}"
   ansible.builtin.wait_for:
     host: 127.0.0.1
-    port: "{{ item }}"
+    port: "{{ item | int }}"
     timeout: 60
-  loop: "{{ (stack_wait_ports | default({}))[_current_stack] | default([]) }}"
+  loop: "{{ _label_wait_ports.stdout_lines | default([]) | reject('eq', '') | list }}"
   when:
-    - (stack_wait_ports | default({}))[_current_stack] | default([]) | length > 0
     - not ansible_check_mode
     - not (validate_only | default('') == 'yes')
+    - _label_wait_ports.stdout_lines | default([]) | reject('eq', '') | list | length > 0

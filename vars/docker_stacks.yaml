@@ -5,61 +5,6 @@ backup_name: "Docker"
 backup_description: "Automatic Docker Appdata Backup"
 backup_subtype: "Appdata"
 
-# Per-stack TCP ports to wait for after docker compose up.
-# Any stack listed here will have its ports polled before the deploy task returns.
-# Add entries for stacks that expose ports that downstream stacks depend on.
-stack_wait_ports:
-  databases: [3306, 5432]
-
-# Per-stack backup paths — appdata directories to archive for each stack.
-# /opt/stacks/{name}/ is always included automatically (compose + .env).
-# DB data dirs (mariadb, postgres, influxdb) are excluded — they have dedicated SQL dump jobs.
-stack_backup_paths:
-  infra:
-    - /opt/beszel_socket
-  databases:
-    - /opt/adminer
-  auth:
-    - /opt/authentik_worker
-    - /opt/swag
-    - /opt/crowdsec
-  monitoring:
-    - /opt/grafana
-  dev:
-    - /opt/code-server
-    - /opt/netboot
-  media:
-    - /opt/tautulli
-    - /opt/jellyseerr
-  apps:
-    - /opt/home_assistant
-    - /opt/guacamole
-    - /opt/firefox
-    - /opt/xbackbone
-    - /opt/homepage
-    - /opt/homebox
-    - /opt/cloudflareddns
-  nfs: []
-  vpn:
-    - /opt/wireguard
-    - /opt/npm
-    - /opt/npm-le
-    - /opt/beszel
-
-# Per-stack health check timeouts (seconds) used by test_restore.yaml and test_backup_restore.yaml.
-# When testing multiple stacks at once the maximum timeout across all tested stacks is used.
-# Default fallback is 120s when a stack is not listed here.
-stack_health_timeouts:
-  nfs: 60           # Minimal containers, no DB
-  infra: 90         # No DB; fast startup
-  vpn: 90           # No DB
-  dev: 90           # Light containers
-  media: 120        # Some DB queries on startup
-  monitoring: 150   # Grafana startup time
-  apps: 150         # Mixed; includes Home Assistant
-  databases: 180    # DB containers init
-  auth: 420         # Authentik is slow (worker + server)
-
 # Update vars
 update_name: "Docker"
 update_description: "Automatic Docker Container Update"
@@ -69,29 +14,16 @@ update_delay_days: 3
 update_exclude_services:
   - semaphore
 
-# Restore support — maps app names to containers, DB config, and DB host.
-# Used by restore_hosts.yaml for selective and coordinated DB+appdata restore.
-app_restore:
+# Minimal mapping shared by restore_app.yaml (production) and test_backup_restore.yaml (test).
+# Only contains what must be known BEFORE containers run (archive discovery on controller).
+# All runtime restore config (DB engine, health URLs) lives in container labels.
+app_info:
   authentik:
-    stack: "auth"
-    containers: ["authentik", "authentik_worker"]
-    db_config_file: db_primary_postgres
-    db_host: "{{ db_host_primary }}"
-    db_names: ["authentik"]
-    health_check_urls:
-      - name: "Authentik readiness"
-        url: "http://localhost:9001/-/health/ready/"
-        status_code: 204
+    stack: auth
+    db_names: [authentik]
   jellyseerr:
-    stack: "media"
-    containers: ["jellyseerr"]
-    db_config_file: db_primary_postgres
-    db_host: "{{ db_host_primary }}"
-    db_names: ["jellyseerr"]
-    health_check_urls:
-      - name: "Jellyseerr UI"
-        url: "http://localhost:5055/"
-        status_code: 200
+    stack: media
+    db_names: [jellyseerr]
 
 # Stack assignments: host → ordered list of stack names.
 # ORDER MATTERS: on tantive-iv, databases MUST precede auth (Authentik requires Postgres).
