@@ -33,6 +33,7 @@
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           become: false
           connection: local
+          when: not ansible_check_mode
           community.mysql.mysql_query:
             login_host: "{{ logging_db_host }}"
             login_port: "{{ logging_db_port }}"
