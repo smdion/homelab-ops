@@ -175,6 +175,7 @@
         api_token_secret: "{{ pve_api_token_secret }}"
         node: "{{ _vm_actual_node }}"
         vmid: "{{ _vm.vm_id }}"
+        name: "{{ _vm.vm_name }}"
         cores: "{{ _vm.vm_cores }}"
         memory: "{{ _vm.vm_memory_mb }}"
         agent: "enabled=1"
