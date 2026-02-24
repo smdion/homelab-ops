@@ -330,7 +330,7 @@
             state: absent
 
         - name: Send Discord notification
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
             discord_operation: "Restore Test"

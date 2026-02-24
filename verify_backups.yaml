@@ -570,7 +570,7 @@
 
       always:
         - name: Send Discord notification for each result
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           loop: "{{ combined_results }}"
           loop_control:
             loop_var: verify_result
@@ -589,7 +589,7 @@
           tags: [always]
 
         - name: Send Discord notification for unhandled block error
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when: verify_failed and combined_results | length == 0
           vars:
             discord_name: "{{ backup_name }}"

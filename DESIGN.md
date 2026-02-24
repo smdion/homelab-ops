@@ -143,7 +143,7 @@ shared task extraction (composable building blocks in `tasks/`), and `test_resto
 │   └── download_on_demand.yaml    # yt-dlp download profile: on_demand (bookmarklet-triggered; verbose, allows live streams)
 │
 ├── tasks/
-│   ├── notify_discord.yaml          # Shared Discord notification task
+│   ├── notify.yaml                  # Shared notification task (Discord + Apprise)
 │   ├── log_mariadb.yaml             # Shared MariaDB logging task (backups, updates, maintenance tables)
 │   ├── log_restore.yaml             # Shared MariaDB logging task (restores table — restore operations only)
 │   ├── log_health_check.yaml        # Shared MariaDB logging task (health_checks table — single row; currently unused)
@@ -264,12 +264,19 @@ all six tables (`backups`, `updates`, `maintenance`, `restores`, `health_checks`
 Run once with `mysql -u root -p < sql/init.sql`. Uses `CREATE TABLE IF NOT EXISTS` so re-running
 is safe.
 
-**`tasks/notify_discord.yaml`** — Shared Discord notification. Called via `include_tasks` with
-`vars:` block providing required vars (`discord_title`, `discord_color`, `discord_fields`) and
-optional vars. **Discord is optional** — if `discord_webhook_id` or `discord_webhook_token` are
-not defined in the vault, the task is silently skipped (no errors). The embed dict is built
-dynamically — optional fields are only included when set, so Discord embeds stay clean. Optional
-vars and their usage:
+**`tasks/notify.yaml`** — Shared notification task (Discord + optional Apprise). Called via
+`include_tasks` with `vars:` block providing required vars (`discord_title`, `discord_color`,
+`discord_fields`) and optional vars. **All notification channels are optional** — each fires only
+if its credentials are present in the vault; unconfigured channels are silently skipped.
+
+**Apprise support** — set `apprise_urls` (space-separated Apprise service URLs; requires
+`pip install apprise` on the controller) and/or `apprise_api_url` + `apprise_api_key` (self-hosted
+[Apprise API](https://github.com/caronc/apprise-api) Docker container). Both can be active
+simultaneously alongside Discord. Title and body are derived from the same `discord_name`,
+`discord_operation`, and `discord_status` vars — no extra vars needed in callers.
+
+Discord embed dict is built dynamically — optional fields are only included when set, so Discord
+embeds stay clean. Optional vars and their usage:
 
 - `discord_description` — embed body text (all playbooks on failure; `download_videos` per-video)
 - `discord_url` — clickable link on title (backup/update/maintenance playbooks)
@@ -938,7 +945,7 @@ rescue:
       backup_failed: true   # or maintenance_failed: true
 always:
   - name: Notify Discord
-    include_tasks: tasks/notify_discord.yaml
+    include_tasks: tasks/notify.yaml
   - name: Log to MariaDB
     include_tasks: tasks/log_mariadb.yaml
 ```
@@ -957,7 +964,7 @@ task history is cleaned up by `maintain_semaphore.yaml` after `download_task_ret
 
 #### Discord notification field patterns
 
-Every `always:` block passes a standard set of vars to `tasks/notify_discord.yaml` using the
+Every `always:` block passes a standard set of vars to `tasks/notify.yaml` using the
 standard operational interface. Embed layout is built automatically from three vars:
 
 - **`discord_name`** — system name from `vars/*.yaml` (e.g. `backup_name`, `maintenance_name`,
@@ -978,7 +985,7 @@ already the embed author (Line 1). Both fields were removed in the standardizati
 
 **`discord_fields` entries** are dicts with `name`, `value`, and an optional `inline: true` key.
 Discord renders up to 3 inline fields per row — use `inline: true` for short identifier fields
-(VM Name, Host IP, instance results) and omit it for longer values. The `tasks/notify_discord.yaml`
+(VM Name, Host IP, instance results) and omit it for longer values. The `tasks/notify.yaml`
 comment documents the full dict shape.
 
 **"Source File (date)"** in the table above means the field value is extracted to `YYYY-MM-DD`

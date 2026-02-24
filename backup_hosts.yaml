@@ -541,7 +541,7 @@
           tags: [always]
 
         - name: Send per-stack Discord notification
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"
             discord_operation: "Backup"
@@ -571,7 +571,7 @@
           tags: [always]
 
         - name: Send per-instance AMP Discord notification
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"
             discord_operation: "Backup"
@@ -590,7 +590,7 @@
 
         # ===== REPORTING (monolithic) =====
         - name: Send Discord notification
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"
             discord_operation: "Backup"
@@ -611,7 +611,7 @@
           tags: [always]
 
         - name: Send Docker recovery failure alert
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when:
             - backup_failed | bool
             - (_docker_start_stacks is defined and _docker_start_stacks is failed) or

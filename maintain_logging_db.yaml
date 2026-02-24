@@ -56,7 +56,7 @@
 
       always:
         - name: Send Discord alert on failure
-          include_tasks: tasks/notify_discord.yaml
+          include_tasks: tasks/notify.yaml
           when: maintenance_failed
           vars:
             discord_name: "{{ maintenance_name }}"

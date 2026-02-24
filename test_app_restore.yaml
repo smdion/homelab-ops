@@ -359,7 +359,7 @@
            {% endfor %}]
 
     - name: Send Discord summary
-      include_tasks: tasks/notify_discord.yaml
+      include_tasks: tasks/notify.yaml
       vars:
         discord_name: "{{ maintenance_name }}"
         discord_operation: "App Restore Test"
