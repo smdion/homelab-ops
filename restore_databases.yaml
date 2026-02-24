@@ -85,7 +85,7 @@
           loop: "{{ _restore_db_list }}"
           vars:
             _db_name: "{{ item }}"
-            _db_container: "{{ container_name }}"
+            _db_container: "{{ db_container_name }}"
             _db_username: "{{ db_username }}"
             _db_password: "{{ db_password | default('') }}"
             _db_dest_file: "{{ backup_tmp_dir }}/pre_restore_{{ item }}_{{ ansible_date_time.date }}.{{ backup_ext | default('sql') }}"
@@ -128,7 +128,7 @@
           loop: "{{ _restore_db_list }}"
           vars:
             _db_name: "{{ item }}"
-            _db_container: "{{ container_name }}"
+            _db_container: "{{ db_container_name }}"
             _db_username: "{{ db_username }}"
             _db_password: "{{ db_password | default('') }}"
             _db_source_file: "{{ backup_tmp_dir }}/restore_{{ item }}.{{ backup_ext | default('sql') }}"
@@ -144,7 +144,7 @@
           loop: "{{ _restore_db_list }}"
           vars:
             _db_name: "{{ item }}"
-            _db_container: "{{ container_name }}"
+            _db_container: "{{ db_container_name }}"
             _db_username: "{{ db_username }}"
             _db_password: "{{ db_password | default('') }}"
             _db_is_postgres: "{{ is_postgres | default(false) }}"

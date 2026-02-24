@@ -132,7 +132,7 @@
         # ===== UNVR PROTECT BACKUP VIA API =====
         - name: Trigger UNVR backup
           ansible.builtin.uri:
-            url: "https://{{ inventory_hostname }}{{ protect_api_backup_path }}"
+            url: "https://{{ inventory_hostname }}{{ unifi_protect_api_backup_path }}"
             method: POST
             body_format: json
             body:
@@ -153,7 +153,7 @@
         - name: Download UNVR backup file
           ansible.builtin.get_url:
             url: "https://{{ inventory_hostname }}{{ unvr_backup.json.data[0].url }}"
-            dest: "{{ protect_temp_file }}"
+            dest: "{{ unifi_protect_temp_file }}"
             mode: "0600"
             validate_certs: false  # UNVR uses a self-signed cert; vendor API prevents proper TLS cert management
             headers:
@@ -168,7 +168,7 @@
 
         - name: Copy backup to UNVR
           ansible.builtin.copy:
-            src: "{{ protect_temp_file }}"
+            src: "{{ unifi_protect_temp_file }}"
             dest: "{{ backup_tmp_file }}"
           when:
             - inventory_hostname in groups["unifi_protect"]
@@ -630,7 +630,7 @@
 
         - name: Clean up UNVR temp backup file
           ansible.builtin.file:
-            path: "{{ protect_temp_file }}"
+            path: "{{ unifi_protect_temp_file }}"
             state: absent
           delegate_to: localhost
           when: inventory_hostname in groups["unifi_protect"]

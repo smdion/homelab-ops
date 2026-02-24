@@ -90,7 +90,7 @@ and go.
 | Playbook | What it does | Vars file pattern |
 |---|---|---|
 | `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller; `docker_stacks` hosts use per-stack archives (stop → archive → restart each stack individually to minimize downtime); auto-handles PiKVM RW/RO filesystem | `vars/<platform>.yaml` with `backup_*` vars; `docker_stacks` uses `stack_backup_paths` |
-| `backup_databases.yaml` | Dump Postgres/MariaDB/InfluxDB databases from Docker containers | `vars/db_<role>_<engine>.yaml` with `db_names`, `container_name` |
+| `backup_databases.yaml` | Dump Postgres/MariaDB/InfluxDB databases from Docker containers | `vars/db_<role>_<engine>.yaml` with `db_names`, `db_container_name` |
 | `update_systems.yaml` | OS packages + Docker container updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers` | `vars/<platform>.yaml` with `update_*` vars |
 | `maintain_docker.yaml` | Prune unused Docker images | Needs `[docker]` group (children of `docker_stacks` + `docker_run`) |
 | `maintain_semaphore.yaml` | Clean stopped Semaphore tasks, prune old download tasks (`download_task_retention_days`), and prune `ansible_logging` rows (`retention_days`) | Runs on localhost |
@@ -233,7 +233,7 @@ ansible-vault encrypt vars/secrets.yaml
 ```
 
 See [`vars/secrets.yaml.example`](vars/secrets.yaml.example) for all available keys. Only the
-`logging_db_*` and `logging_domain_*` keys are required by every playbook. Discord and Semaphore
+`logging_db_*` and `domain_*` keys are required by every playbook. Discord and Semaphore
 API keys are optional — features degrade gracefully without them.
 
 ### 3. Inventory

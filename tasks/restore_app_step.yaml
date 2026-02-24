@@ -58,7 +58,7 @@
         loop_var: _db_name_item
       vars:
         _db_name: "{{ _db_name_item }}"
-        _db_container: "{{ container_name }}"
+        _db_container: "{{ db_container_name }}"
         _db_username: "{{ db_username }}"
         _db_password: "{{ db_password | default('') }}"
         _db_source_file: "/tmp/restore_{{ _test_app }}/{{ _db_name_item }}.sql.gz"

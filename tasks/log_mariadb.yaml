@@ -24,7 +24,7 @@
 # Inherited from playbook scope (no need to pass):
 #   logging_db_host, logging_db_port, logging_db_user,
 #   logging_db_password, logging_db_name
-#   logging_domain_local, logging_domain_ext  (from vars/secrets.yaml)
+#   domain_local, domain_ext  (from vars/secrets.yaml)
 #   backup_type, backup_subtype   (for backups — from vars file)
 #   update_type, update_subtype   (for updates — from vars file)
 

@@ -21,7 +21,7 @@
     maintenance_name: "AMP"
     maintenance_type: "Servers"
     maintenance_subtype: "Maintenance"
-    maintenance_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ logging_domain_ext }}"
+    maintenance_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ domain_ext }}"
     maintenance_description: "AMP game server maintenance (versions, core dumps, Docker prune, journal, tmp)"
 
   pre_tasks:
@@ -128,7 +128,7 @@
         # ── Journal Logs ──────────────────────────────────────────────────
         - name: Vacuum old journal logs
           ansible.builtin.command:
-            cmd: journalctl --vacuum-time={{ journal_max_age }}
+            cmd: journalctl --vacuum-time={{ amp_journal_max_age }}
           register: journal_result
           changed_when: "'freed' in journal_result.stderr and 'freed 0B' not in journal_result.stderr"
           tags: [journal]
