@@ -95,3 +95,18 @@
   loop_control:
     label: "{{ item.path }}"
   when: _vm.nfs_mounts is defined
+
+- name: Configure loopback IP aliases (production host IPs)
+  ansible.builtin.template:
+    src: templates/netplan-loopback-aliases.j2
+    dest: /etc/netplan/60-loopback-aliases.yaml
+    mode: '0600'
+  when: _vm.ip_aliases is defined
+  register: _netplan_aliases
+
+- name: Apply netplan loopback aliases
+  ansible.builtin.command: netplan apply
+  changed_when: true
+  when:
+    - _vm.ip_aliases is defined
+    - _netplan_aliases.changed

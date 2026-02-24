@@ -2348,17 +2348,104 @@ ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 | Reverse proxy config | Yes | SWAG/NPM config in appdata (restored from backup) |
 | SSL certificates | Yes | Let's Encrypt certs in appdata (restored from backup) |
 
-> **⚠️ Network Isolation — Not Yet Implemented**
-> Test VMs are currently provisioned on the **production network** (`vmbr0`, untagged).
-> When `test_app_restore.yaml` starts restored Docker stacks, containers can reach live
-> production services. Because service `.env` files contain **hardcoded production IPs**,
-> this includes live databases, external APIs, SMTP relays, sync endpoints, and any other
-> service referenced by IP. Restored containers will connect to production infrastructure
-> using real credentials. Inter-container references using Docker service names (within the
-> same compose network) are safe — those stay local to the test VM.
+> **⚠️ Network Isolation — Setup Required**
+> Test VMs provisioned without network isolation will connect to live production services.
+> Because service `.env` files contain **hardcoded production IPs**, restored Docker stacks
+> can reach live databases, external APIs, SMTP relays, sync endpoints, and any other service
+> referenced by IP — using real credentials. Inter-container references using Docker service
+> names (within the same compose network) are safe — those stay local to the test VM.
 >
-> **Planned fix:** Dedicated isolation VLAN (via Unifi API + Proxmox VLAN tag on net0).
-> Until implemented, run test restores only with production services stopped.
+> Network isolation **must be implemented** before running test restores against a live
+> environment. The mechanism depends on your network stack. See
+> [Test VM Network Isolation](#test-vm-network-isolation) below for how this project
+> implements it with Unifi + Proxmox VLANs.
+
+### Test VM Network Isolation
+
+This project isolates test VMs on a dedicated VLAN with no route to the production LAN
+(internet access allowed for Docker pulls). Cross-stack container references using hardcoded
+production IPs are handled via persistent loopback aliases — containers reach each other
+locally instead of reaching production.
+
+#### Architecture
+
+```
+Production LAN (vault_prod_lan_subnet)
+  ├── Semaphore (vault_semaphore_ip — static)
+  └── Tantive-iv, Odyssey, NAS, DBs...
+
+Test Isolation VLAN (vault_test_vlan_id / vault_test_vlan_subnet)
+  └── test-vm0..9
+        ├── net0: vmbr0, tag=vault_test_vlan_id   (set by provision_vm.yaml)
+        ├── IP: vault_test_vm_ip_prefix + offset   (in isolated subnet)
+        └── lo aliases: vault_vm_tantiveiv_ip, vault_vm_odyssey_ip
+              ↑ containers use hardcoded prod IPs → hit local Docker services, not prod
+
+Unifi firewall rules (LAN_IN):
+  ALLOW  tcp  vault_semaphore_ip/32 → vault_test_vlan_subnet  port 22
+  DROP   any  vault_test_vlan_subnet → vault_prod_lan_subnet
+  (WAN egress allowed by default — Docker pulls work)
+```
+
+#### Manual Prerequisite (one-time)
+
+The Proxmox uplink switch ports use a named tagged-only port profile. Adding a new VLAN
+to that profile requires a read-modify-write of the entire profile object — a mistake
+corrupts the profile and drops all Proxmox nodes simultaneously. This step is manual:
+
+1. **Devices → Switch → Ports → click a Proxmox uplink port** — note the port profile name
+2. **Settings → Profiles → Port Profiles → `<vault_pve_port_profile_name>`**
+   - Under **Tagged Networks**, add `test-isolation` (VLAN `<vault_test_vlan_id>`)
+   - Save — this is additive; existing tagged VLANs are unaffected; no traffic disruption
+3. If Proxmox nodes connect to different switches, repeat on each switch
+4. Record the profile name as `vault_pve_port_profile_name` in vault
+
+`setup_test_network.yaml` asserts this prereq is done before creating any resources.
+
+#### Required Vault Vars
+
+| Var | Purpose | Example |
+|-----|---------|---------|
+| `vault_test_vlan_id` | VLAN ID for isolation | `88` |
+| `vault_test_vlan_gateway` | Gateway IP on test VLAN (Unifi `ip_subnet` format) | `192.168.88.1` |
+| `vault_test_vlan_subnet` | Network CIDR (firewall rule format) | `192.168.88.0/24` |
+| `vault_semaphore_ip` | Semaphore container static IP (SSH allow rule) | prod LAN IP |
+| `vault_prod_lan_subnet` | Production LAN CIDR to block | `192.168.1.0/24` |
+| `vault_pve_port_profile_name` | Unifi switch port profile for Proxmox uplinks | `Servers-Trunk` |
+| `vault_test_vm_ip_prefix` | Update to isolated subnet prefix | `192.168.88.` |
+
+Note: `vault_test_vlan_gateway` and `vault_test_vlan_subnet` describe the same subnet in
+different formats — Unifi's `networkconf` API uses gateway-address format; firewall rule
+`src_address`/`dst_address` fields use network-address format.
+
+#### Setup
+
+Run once after completing the manual port profile step:
+
+```bash
+ansible-playbook setup_test_network.yaml --vault-password-file ~/.vault_pass
+```
+
+This creates the `test-isolation` VLAN network and two LAN_IN firewall rules in Unifi.
+Idempotent — safe to re-run.
+
+#### Loopback IP Aliases
+
+Test VMs get persistent loopback aliases for production host IPs (via
+`/etc/netplan/60-loopback-aliases.yaml`). When a restored container tries to reach a
+production service by IP, it hits the loopback alias and connects to the local Docker
+service on the test VM instead. Aliases are baked into the `pre-test-restore` snapshot
+and survive OOM recovery reboots (netplan is filesystem-persistent).
+
+#### Verification
+
+After setup:
+1. `build_ubuntu.yaml -e vm_name=test-vm` — Proxmox shows `VLAN Tag: <vault_test_vlan_id>` on net0; VM gets IP in isolated subnet
+2. From test VM SSH:
+   - `ping <prod_host_ip>` → times out ✓
+   - `curl https://hub.docker.com` → 200 OK ✓
+   - `ip addr show lo` → prod host IPs listed as /32 aliases ✓
+3. `test_app_restore.yaml -e source_host=<fqdn>` → all apps restore + health checks pass with no prod connections
 
 ### Test Restore (automated)
 

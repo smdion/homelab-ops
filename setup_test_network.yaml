@@ -1,0 +1,247 @@
+---
+# One-time setup for test VM network isolation on Unifi UDM.
+# Creates test-isolation VLAN network + two LAN_IN firewall rules.
+# Idempotent — safe to re-run; skips resources that already exist.
+#
+# PREREQUISITE (manual, one-time — too risky to automate):
+#   Add vault_test_vlan_id to the Proxmox uplink port profile in Unifi UI before running:
+#     Devices → Switch → Ports → click a Proxmox uplink port → note profile name
+#     Settings → Profiles → Port Profiles → <profile> → Tagged Networks → add VLAN
+#   Save — additive change, no outage.
+#   Record the profile name as vault_pve_port_profile_name in vault.
+#
+# Usage:
+#   ansible-playbook setup_test_network.yaml --vault-password-file ~/.vault_pass
+#
+# Required vault vars:
+#   vault_test_vlan_id           — VLAN ID (e.g. 88)
+#   vault_test_vlan_gateway      — gateway IP on test VLAN (e.g. 192.168.88.1)
+#   vault_test_vlan_subnet       — network CIDR (e.g. 192.168.88.0/24)
+#   vault_semaphore_ip           — Semaphore container static IP (SSH allow rule)
+#   vault_prod_lan_subnet        — production LAN CIDR to block (e.g. 192.168.1.0/24)
+#   vault_pve_port_profile_name  — Unifi switch port profile used by Proxmox uplinks
+#   unifi_network_api_key        — Unifi Network API key (already in vault)
+
+- name: Setup test VM network isolation on Unifi
+  hosts: unifi_network
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    _unifi_api: "https://{{ inventory_hostname }}/proxy/network/api/s/default"
+
+  tasks:
+    # ═══════════════════════════════════════════════════════════
+    # STEP 0 — Prereq check: VLAN must already be in port profile
+    # ═══════════════════════════════════════════════════════════
+    - name: Get Unifi port profiles
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/portconf"
+        method: GET
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        validate_certs: false
+      register: _portconf
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+
+    - name: Find Proxmox uplink port profile
+      ansible.builtin.set_fact:
+        _pve_profile: >-
+          {{ _portconf.json.data
+             | selectattr('name', 'equalto', vault_pve_port_profile_name)
+             | list | first | default({}) }}
+
+    - name: Assert port profile exists
+      ansible.builtin.assert:
+        that: _pve_profile | length > 0
+        fail_msg: >-
+          Port profile '{{ vault_pve_port_profile_name }}' not found in Unifi.
+          Check vault_pve_port_profile_name matches the profile name exactly.
+
+    - name: Get all Unifi networks (to resolve VLAN IDs in port profile)
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/networkconf"
+        method: GET
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        validate_certs: false
+      register: _all_networks
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+
+    - name: Build map of network id → VLAN id
+      ansible.builtin.set_fact:
+        _net_id_to_vlan: >-
+          {{ dict(_all_networks.json.data
+             | selectattr('vlan', 'defined')
+             | map(attribute='_id') | zip(
+               _all_networks.json.data
+               | selectattr('vlan', 'defined')
+               | map(attribute='vlan'))) }}
+
+    - name: Resolve VLAN IDs present in port profile tagged networks
+      ansible.builtin.set_fact:
+        _profile_vlan_ids: >-
+          {{ (_pve_profile.networkconf_ids | default([]))
+             | map('extract', _net_id_to_vlan) | select('defined') | list }}
+
+    - name: Assert VLAN is in port profile
+      ansible.builtin.assert:
+        that: vault_test_vlan_id | int in _profile_vlan_ids | map('int') | list
+        fail_msg: >-
+          VLAN {{ vault_test_vlan_id }} is not in port profile '{{ vault_pve_port_profile_name }}'.
+          Add it manually in Unifi UI first:
+            Settings → Profiles → Port Profiles → {{ vault_pve_port_profile_name }}
+            → Tagged Networks → add test-isolation (VLAN {{ vault_test_vlan_id }})
+          Then re-run this playbook.
+
+    # ═══════════════════════════════════════════════════════════
+    # STEP 1 — Create test-isolation VLAN network (if missing)
+    # ═══════════════════════════════════════════════════════════
+    - name: Check if test-isolation VLAN already exists
+      ansible.builtin.set_fact:
+        _test_vlan_exists: >-
+          {{ _all_networks.json.data
+             | selectattr('vlan', 'defined')
+             | selectattr('vlan', 'equalto', vault_test_vlan_id | int)
+             | list | length > 0 }}
+
+    - name: Create test-isolation VLAN network
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/networkconf"
+        method: POST
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        body_format: json
+        body:
+          name: "test-isolation"
+          purpose: "corporate"
+          vlan: "{{ vault_test_vlan_id | int }}"
+          vlan_enabled: true
+          ip_subnet: "{{ vault_test_vlan_gateway }}/24"
+          dhcpd_enabled: false
+          ipv6_interface_type: "none"
+        validate_certs: false
+        status_code: [200, 201]
+      when: not _test_vlan_exists
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      register: _create_vlan
+
+    - name: Record VLAN status
+      ansible.builtin.set_fact:
+        _vlan_status: "{{ 'created' if not _test_vlan_exists else 'already existed' }}"
+
+    # ═══════════════════════════════════════════════════════════
+    # STEP 2 — Create firewall rules (if missing)
+    # ═══════════════════════════════════════════════════════════
+    - name: Get existing Unifi firewall rules
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/firewallrule"
+        method: GET
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        validate_certs: false
+      register: _firewall_rules
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+
+    - name: Check which rules already exist
+      ansible.builtin.set_fact:
+        _existing_rule_names: >-
+          {{ _firewall_rules.json.data | map(attribute='name') | list }}
+
+    - name: Create rule — Allow Semaphore SSH to test-isolation
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/firewallrule"
+        method: POST
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        body_format: json
+        body:
+          name: "Allow Semaphore SSH to test-isolation"
+          ruleset: "LAN_IN"
+          rule_index: 2000
+          action: "accept"
+          protocol: "tcp"
+          enabled: true
+          src_address: "{{ vault_semaphore_ip }}/32"
+          dst_address: "{{ vault_test_vlan_subnet }}"
+          dst_port: "22"
+        validate_certs: false
+        status_code: [200, 201]
+      when: "'Allow Semaphore SSH to test-isolation' not in _existing_rule_names"
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      register: _create_ssh_rule
+
+    - name: Create rule — Block test-isolation to LAN
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/firewallrule"
+        method: POST
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        body_format: json
+        body:
+          name: "Block test-isolation to LAN"
+          ruleset: "LAN_IN"
+          rule_index: 2010
+          action: "drop"
+          enabled: true
+          src_address: "{{ vault_test_vlan_subnet }}"
+          dst_address: "{{ vault_prod_lan_subnet }}"
+        validate_certs: false
+        status_code: [200, 201]
+      when: "'Block test-isolation to LAN' not in _existing_rule_names"
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      register: _create_block_rule
+
+    # ═══════════════════════════════════════════════════════════
+    # STEP 3 — Verify all resources exist
+    # ═══════════════════════════════════════════════════════════
+    - name: Re-fetch networks for verification
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/networkconf"
+        method: GET
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        validate_certs: false
+      register: _verify_networks
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+
+    - name: Assert test-isolation VLAN exists
+      ansible.builtin.assert:
+        that: >-
+          _verify_networks.json.data
+          | selectattr('vlan', 'defined')
+          | selectattr('vlan', 'equalto', vault_test_vlan_id | int)
+          | list | length > 0
+        fail_msg: "test-isolation VLAN {{ vault_test_vlan_id }} not found after creation"
+
+    - name: Re-fetch firewall rules for verification
+      ansible.builtin.uri:
+        url: "{{ _unifi_api }}/rest/firewallrule"
+        method: GET
+        headers:
+          x-api-key: "{{ unifi_network_api_key }}"
+        validate_certs: false
+      register: _verify_rules
+      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+
+    - name: Assert both firewall rules exist
+      ansible.builtin.assert:
+        that:
+          - "'Allow Semaphore SSH to test-isolation' in (_verify_rules.json.data | map(attribute='name') | list)"
+          - "'Block test-isolation to LAN' in (_verify_rules.json.data | map(attribute='name') | list)"
+        fail_msg: "One or more firewall rules missing after creation"
+
+    - name: Print summary
+      ansible.builtin.debug:
+        msg:
+          - "=== Test Network Isolation Setup Complete ==="
+          - "VLAN {{ vault_test_vlan_id }} (test-isolation): {{ _vlan_status }}"
+          - "Rule 'Allow Semaphore SSH to test-isolation': {{ 'created' if _create_ssh_rule.changed | default(false) else 'already existed' }}"
+          - "Rule 'Block test-isolation to LAN': {{ 'created' if _create_block_rule.changed | default(false) else 'already existed' }}"
+          - ""
+          - "Next steps:"
+          - "  1. Run build_ubuntu.yaml -e vm_name=test-vm to provision a test VM"
+          - "  2. Verify: VLAN tag on net0 in Proxmox UI, IP in {{ vault_test_vlan_subnet }}"
+          - "  3. From test VM: ping prod host → timeout; curl https://hub.docker.com → 200"

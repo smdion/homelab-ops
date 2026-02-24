@@ -124,8 +124,8 @@
         cipassword: "{{ pve_vm_password }}"
         sshkeys: "{{ ansible_user_ssh_pubkey }}"
         ipconfig:
-          ipconfig0: "ip={{ _vm.vm_ip }}/{{ vm_cidr }},gw={{ vm_gateway }}"
-        nameservers: "{{ vm_dns }}"
+          ipconfig0: "ip={{ _vm.vm_ip }}/{{ vm_cidr }},gw={{ _vm.vm_gateway | default(vm_gateway) }}"
+        nameservers: "{{ _vm.vm_dns | default(vm_dns) }}"
         searchdomains: "{{ vm_search_domain }}"
         update: true
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -158,6 +158,20 @@
         validate_certs: false
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when: not _vm_already_exists
+
+    # Set VLAN tag if vm_vlan_tag is defined (test VM isolation)
+    - name: Set VLAN tag on VM net0
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
+        method: PUT
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        body_format: form-urlencoded
+        body:
+          net0: "virtio,bridge={{ pve_bridge }},tag={{ _vm.vm_vlan_tag }}"
+        validate_certs: false
+      when: _vm.vm_vlan_tag is defined
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     # Start VM
     - name: Start VM
