@@ -123,6 +123,8 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `test_app_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_restore` apps on a disposable VM — per-app restore (DB + appdata), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
+> **unRAID — Fix Common Problems:** If you have the [Fix Common Problems](https://forums.unraid.net/topic/47266-plugin-ca-fix-common-problems/) plugin installed, it will raise an alert when `setup_ansible_user.yaml` adds the `ansible` user via SSH. This is expected behaviour — the plugin flags any new SSH-capable user as a potential security concern. You can safely acknowledge and suppress the alert once you've verified the key and confirmed the user was added intentionally.
+
 ### Health checks by platform
 
 `maintain_health.yaml` runs checks conditionally based on inventory group membership. Checks
