@@ -2,7 +2,7 @@
 
 Ansible playbooks for home lab backup, verification, restore, health monitoring, updates,
 maintenance, deployment, and provisioning — orchestrated via
-[Semaphore](https://semaphoreui.com/), logged to MariaDB, alerted to Discord, and visualized in Grafana.
+[Semaphore](https://semaphoreui.com/), logged to MariaDB, alerted via Discord or Apprise, and visualized in Grafana.
 
 > **Note:** This project was built for my own home lab. I've made it as portable as possible —
 > deployment-specific values live in vault-encrypted vars files, and playbooks are
@@ -25,7 +25,7 @@ visibility.
 | **Verify** | Restores each database to a temp instance and validates config archives — proves backups work before you need them |
 | **Restore** | Safety-gated database and appdata restore with pre-restore snapshots, selective per-app targeting, and coordinated cross-host recovery |
 | **Rollback** | Revert Docker containers to previous image versions — fast local re-tag or registry pull; safety-gated with per-service targeting |
-| **Health** | 26 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord alerts and anomaly detection |
+| **Health** | 26 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord/Apprise alerts and anomaly detection |
 | **Updates** | OS package and Docker container updates with version tracking, optional delay, and per-container exclusions |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
 | **Deploy** | Docker stacks from Git — templates `.env` from vault, copies compose files, validates, and starts stacks in dependency order; Grafana dashboard + datasource via API with automatic threshold syncing |
@@ -44,7 +44,8 @@ version status per host, stale detection, health trends, and maintenance logs ac
 | **MariaDB** | >= 10.5 | Logging database (`ansible_logging`) | Yes |
 | **Semaphore** | any | Scheduling UI, credential management | No — [CLI works too](#running-without-semaphore) |
 | **Grafana** | any | Dashboard (MySQL datasource) | No — data is in MariaDB regardless |
-| **Discord** | — | Notifications (webhooks) | No — [silently skipped if not configured](#discord-notifications) |
+| **Discord** | — | Notifications (webhooks) | No — [silently skipped if not configured](#notifications) |
+| **Apprise** | any | 60+ notification services (Telegram, ntfy, Gotify, Pushover, Slack, etc.) — CLI or self-hosted API | No — [silently skipped if not configured](#notifications) |
 | **Uptime Kuma** | any | Dead man's switch for health monitoring | No — [silently skipped if not configured](#uptime-kuma-dead-mans-switch) |
 
 ## Quick start
@@ -112,7 +113,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `maintain_amp.yaml` | [AMP](https://cubecoders.com/AMP) game server | Version checks, journal pruning, dump cleanup |
 | `maintain_unifi.yaml` | Unifi Network (UDMP) | Service restart |
 | `maintain_cache.yaml` | Ubuntu / unRAID | Drop Linux page cache |
-| `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | WOL, rsync, shutdown verification |
+| `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | Wake Synology via WOL, rsync backup data from unRAID to Synology, verify shutdown |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
@@ -663,14 +664,20 @@ ansible-playbook maintain_health.yaml \
 ```
 </details>
 
-## Discord notifications
+## Notifications
 
-Discord is **optional**. If `discord_webhook_id` and `discord_webhook_token` are not defined in
-the vault, all Discord notification tasks are silently skipped. No errors, no changes needed to
-playbooks.
+All notification channels are **optional** and independent — configure none, one, or all. Each is
+silently skipped if its credentials are absent from the vault. No errors, no changes to playbooks.
 
-To enable: create a webhook in your Discord server (Server Settings > Integrations > Webhooks),
-extract the ID and token from the URL, and add them to your vault.
+### Discord
+
+Create a webhook in your Discord server (Server Settings > Integrations > Webhooks), extract the
+ID and token from the URL, and add to your vault:
+
+```yaml
+discord_webhook_id: "..."
+discord_webhook_token: "..."
+```
 
 <details>
 <summary>Notification examples</summary>
@@ -686,6 +693,31 @@ extract the ID and token from the URL, and add them to your vault.
 </tr>
 </table>
 </details>
+
+### Apprise
+
+[Apprise](https://github.com/caronc/apprise) supports 60+ services — Telegram, ntfy, Gotify,
+Pushover, Slack, Matrix, and more. Two modes are supported and can run simultaneously alongside
+Discord:
+
+**CLI mode** — install `apprise` on the controller (`pip install apprise`) and add a
+space-separated list of service URLs to the vault:
+
+```yaml
+apprise_urls: "tgram://bottoken/chatid ntfy://ntfy.example.com/topic"
+```
+
+**API mode** — run the [Apprise API](https://github.com/caronc/apprise-api) container and add to
+your vault:
+
+```yaml
+apprise_api_url: "http://apprise-api:8000"
+apprise_api_key: "ansible"   # matches your Apprise API config (default: ansible)
+```
+
+Apprise messages use the same title/body derived from existing notification vars — no extra vars
+needed in any playbook. See `vars/secrets.yaml.example` for the full list of supported service URL
+formats.
 
 ## Uptime Kuma dead man's switch
 
