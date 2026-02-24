@@ -24,7 +24,7 @@
     positional_args:
       - "{{ log_playbook }}"
       - "{{ log_hostname }}"
-      - "{{ log_run_vars }}"
+      - "{{ log_run_vars | to_json if log_run_vars is not string else log_run_vars }}"
   register: _log_run_result
   retries: 40
   delay: 10
