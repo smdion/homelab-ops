@@ -9,7 +9,6 @@ pve_vip_cidr: 24
 
 src_raw_files:
   - "/etc"
-backup_tmp_dir: "/backup"
 backup_name: "{{ 'PBS' if inventory_hostname in groups['pbs'] else ('PVE' if inventory_hostname in groups['pve'] else 'Proxmox') }}"
 backup_description: "Automatic Proxmox Backup"
 backup_type: "Appliances"

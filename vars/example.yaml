@@ -34,9 +34,11 @@ src_raw_files:
   - "/etc"
   - "/opt/myapp"
 
-# Temporary directory on the remote host (used during archive creation)
-# Use /backup if the host has a dedicated backup partition, or /tmp/backup otherwise
-backup_tmp_dir: "/backup"
+# Temporary directory on the remote host (used during archive creation).
+# Defaults to "/backup" via group_vars/all.yaml — only set here to override.
+# Use "/tmp/backup" for hosts without a dedicated /backup partition.
+# Use "/mnt/user/Backup/ansibletemp/" for unRAID hosts.
+# backup_tmp_dir: "/tmp/backup"
 
 # Display name for this platform in the database (backups.application column)
 backup_name: "MyApp"
@@ -53,7 +55,8 @@ backup_description: "Automatic MyApp Backup"
 # Category for Grafana filtering — "Appliances" or "Servers"
 #   Appliances = purpose-built gear (Proxmox, PiKVM, Unifi, etc.)
 #   Servers    = general-purpose hosts (Docker, Ubuntu, databases, etc.)
-backup_type: "Servers"
+# Defaults to "Servers" via group_vars/all.yaml — only set here to override.
+# backup_type: "Appliances"
 
 # Subcategory — "Config", "Appdata", "Database", or "Offline"
 backup_subtype: "Config"
@@ -73,8 +76,9 @@ update_name: "MyApp"
 # Discord notification description text
 update_description: "Automatic MyApp Update"
 
-# Category — same "Appliances" / "Servers" convention as backups
-update_type: "Servers"
+# Category — same "Appliances" / "Servers" convention as backups.
+# Defaults to "Servers" via group_vars/all.yaml — only set here to override.
+# update_type: "Appliances"
 
 # Subcategory — e.g., "OS", "Container", "PVE", "PBS", "KVM", "Game Server"
 update_subtype: "OS"
@@ -134,10 +138,10 @@ update_subtype: "OS"
 #   - "mydb1"
 #   - "mydb2"
 
-# Database engine flags (exactly one must be true)
+# Database engine flags — all default false via group_vars/all.yaml.
+# Set only the flag for the engine this vars file targets.
 # is_postgres: true
-# is_mariadb: false
-# is_influxdb: false
+# is_influxdb: true
 
 # Backup file extension — "sql" for SQL engines, "tar.gz" for InfluxDB portable backups
 # backup_ext: "sql"

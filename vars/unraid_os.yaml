@@ -3,6 +3,5 @@ src_raw_files:
 backup_tmp_dir: "/mnt/user/Backup/ansibletemp/"
 backup_name: "unRAID"
 backup_description: "Automatic unRAID Boot Backup"
-backup_type: "Servers"
 backup_subtype: "Config"
 backup_file: "backup_{{ inventory_hostname }}_boot_{{ ansible_date_time.date }}.tar.gz"

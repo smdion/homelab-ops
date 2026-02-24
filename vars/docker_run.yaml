@@ -3,7 +3,6 @@ src_raw_files:
 backup_tmp_dir: "/mnt/user/Backup/ansibletemp/"
 backup_name: "Docker"
 backup_description: "Automatic Docker Backup"
-backup_type: "Servers"
 backup_subtype: "Appdata"
 backup_file: "backup_docker_appdata_{{ ansible_date_time.date }}.tar.gz"
 
@@ -16,7 +15,6 @@ backup_exclude_containers:
 # Update vars
 update_name: "Docker"
 update_description: "Automatic Docker Container Update"
-update_type: "Servers"
 update_subtype: "Container"
 update_delay_days: 3
 update_exclude_containers:
