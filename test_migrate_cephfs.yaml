@@ -13,9 +13,8 @@
 #
 # Prerequisites (manual, on PVE cluster):
 #   1. CephFS operational (see migrate_appdata_to_cephfs.yaml prerequisites 1–3)
-#   2. /cephfs-migrate-test directory created on CephFS root:
-#      mkdir /mnt/cephfs_admin/cephfs-migrate-test
-#   3. Backup archives exist for source_host on the Semaphore controller
+#   2. Backup archives exist for source_host on the Semaphore controller
+#   (Play 1 automatically creates /cephfs-migrate-test on CephFS root if missing)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Validate, find backups, provision test VM
@@ -56,6 +55,36 @@
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions['cephfs-migrate-test'] }}"
         _stacks: "{{ stack_assignments[source_host] }}"
+
+    # ── Ensure CephFS test directory exists ───────────────────────
+    - name: Add PVE host to in-memory inventory
+      ansible.builtin.add_host:
+        name: pve_builder
+        ansible_host: "{{ pve_api_host }}"
+        ansible_user: ansible
+
+    - name: Ensure /cephfs-migrate-test directory exists on CephFS root
+      ansible.builtin.shell: |
+        set -e
+        MOUNT_DIR=$(mktemp -d)
+        ADMIN_KEY=$(ceph auth print-key client.admin)
+        mount -t ceph {{ vault_ceph_mons }}:/ "$MOUNT_DIR" \
+          -o "name=admin,secret=${ADMIN_KEY}"
+        if [ -d "$MOUNT_DIR/cephfs-migrate-test" ]; then
+          echo "exists"
+        else
+          mkdir "$MOUNT_DIR/cephfs-migrate-test"
+          echo "created"
+        fi
+        umount "$MOUNT_DIR"
+        rmdir "$MOUNT_DIR"
+      args:
+        executable: /bin/bash
+      delegate_to: pve_builder
+      become: true
+      register: _cephfs_dir_result
+      changed_when: "'created' in _cephfs_dir_result.stdout"
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     # ── Find backup archives ───────────────────────────────────────
     - name: Find per-stack backup archives for source host
