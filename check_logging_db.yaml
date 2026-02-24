@@ -1,0 +1,178 @@
+---
+# Weekly ansible_logging summary — queries 7-day row counts, hosts with no recent backup,
+# and failed operation counts; sends an informational Discord embed and logs to MariaDB.
+# Schedule via Semaphore weekly (e.g., Sunday 08:00 UTC).
+
+- name: Weekly ansible_logging summary report
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "Logging DB"
+    maintenance_type: "Local"
+    maintenance_subtype: "Summary"
+    maintenance_url: ""
+    maintenance_description: "7-day activity report for ansible_logging"
+
+  pre_tasks:
+    - name: Assert MariaDB logging database is reachable
+      include_tasks: tasks/assert_db_connectivity.yaml
+
+    - name: Log playbook run context to MariaDB
+      include_tasks: tasks/log_run_context.yaml
+      vars:
+        log_playbook: "check_logging_db.yaml"
+        log_hostname: "{{ controller_fqdn }}"
+        log_run_vars: "{}"
+
+  tasks:
+    - name: Initialize check state
+      ansible.builtin.set_fact:
+        check_failed: false
+
+    - block:
+        - name: Query 7-day row counts from ansible_logging
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          become: false
+          connection: local
+          community.mysql.mysql_query:
+            login_host: "{{ logging_db_host }}"
+            login_port: "{{ logging_db_port }}"
+            login_user: "{{ logging_db_user }}"
+            login_password: "{{ logging_db_password }}"
+            login_db: "{{ logging_db_name }}"
+            query: >-
+              SELECT
+                (SELECT COUNT(*) FROM backups       WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS backups_7d,
+                (SELECT COUNT(*) FROM playbook_runs WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS runs_7d,
+                (SELECT COUNT(*) FROM health_checks WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS health_7d,
+                (SELECT COUNT(*) FROM updates       WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS updates_7d,
+                (SELECT COUNT(*) FROM maintenance   WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS maintenance_7d,
+                (SELECT COUNT(*) FROM restores      WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS restores_7d
+          register: _counts_result
+          when: not ansible_check_mode
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Query hosts with no backup in last 7 days
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          become: false
+          connection: local
+          community.mysql.mysql_query:
+            login_host: "{{ logging_db_host }}"
+            login_port: "{{ logging_db_port }}"
+            login_user: "{{ logging_db_user }}"
+            login_password: "{{ logging_db_password }}"
+            login_db: "{{ logging_db_name }}"
+            query: >-
+              SELECT DISTINCT hostname FROM backups
+              WHERE hostname NOT IN (
+                SELECT DISTINCT hostname FROM backups
+                WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
+              )
+              ORDER BY hostname
+          register: _no_backup_result
+          when: not ansible_check_mode
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Query failed operation counts in last 7 days
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          become: false
+          connection: local
+          community.mysql.mysql_query:
+            login_host: "{{ logging_db_host }}"
+            login_port: "{{ logging_db_port }}"
+            login_user: "{{ logging_db_user }}"
+            login_password: "{{ logging_db_password }}"
+            login_db: "{{ logging_db_name }}"
+            query: >-
+              SELECT
+                (SELECT COUNT(*) FROM updates     WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS failed_updates,
+                (SELECT COUNT(*) FROM maintenance WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS failed_maintenance,
+                (SELECT COUNT(*) FROM restores    WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS failed_restores
+          register: _failures_result
+          when: not ansible_check_mode
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Extract query results into facts
+          ansible.builtin.set_fact:
+            _counts: "{{ _counts_result.query_result[0][0] }}"
+            _no_backup_hosts: "{{ _no_backup_result.query_result[0] | map(attribute='hostname') | list }}"
+            _failures: "{{ _failures_result.query_result[0][0] }}"
+          when: not ansible_check_mode
+
+        - name: Build Discord summary fields
+          ansible.builtin.set_fact:
+            _discord_fields:
+              - name: "Backups (7d)"
+                value: "{{ _counts.backups_7d | string }}"
+                inline: true
+              - name: "Playbook Runs (7d)"
+                value: "{{ _counts.runs_7d | string }}"
+                inline: true
+              - name: "Health Checks (7d)"
+                value: "{{ _counts.health_7d | string }}"
+                inline: true
+              - name: "Updates (7d)"
+                value: "{{ _counts.updates_7d | string }}"
+                inline: true
+              - name: "Maintenance (7d)"
+                value: "{{ _counts.maintenance_7d | string }}"
+                inline: true
+              - name: "Restores (7d)"
+                value: "{{ _counts.restores_7d | string }}"
+                inline: true
+              - name: "No Recent Backup"
+                value: "{{ _no_backup_hosts | join(', ') if _no_backup_hosts | length > 0 else 'All hosts current' }}"
+                inline: false
+              - name: "Failures (7d)"
+                value: >-
+                  {{ 'Updates: ' ~ _failures.failed_updates ~ ' | Maintenance: ' ~ _failures.failed_maintenance ~ ' | Restores: ' ~ _failures.failed_restores
+                     if (_failures.failed_updates | int + _failures.failed_maintenance | int + _failures.failed_restores | int) > 0
+                     else 'None' }}
+                inline: false
+          when: not ansible_check_mode
+
+        - name: Send Discord weekly summary
+          include_tasks: tasks/notify.yaml
+          when: not ansible_check_mode
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Summary"
+            discord_description: "{{ maintenance_description }}"
+            discord_color: "{{ discord_color_success }}"
+            discord_fields: "{{ _discord_fields }}"
+            discord_author: "{{ controller_fqdn }}"
+
+      rescue:
+        - name: Set check failed
+          ansible.builtin.set_fact:
+            check_failed: true
+
+      always:
+        - name: Send Discord alert on failure
+          include_tasks: tasks/notify.yaml
+          when: check_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Summary"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+            discord_author: "{{ controller_fqdn }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: "maintenance"
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ controller_fqdn }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if check_failed else 'success' }}"
