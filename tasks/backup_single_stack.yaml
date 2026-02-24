@@ -60,11 +60,10 @@
 
     - name: Create compressed archive for {{ _backup_stack }}
       become: true
-      community.general.archive:
-        path: "{{ _validated_archive_paths }}"
-        dest: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
-        format: gz
-        remove: false
+      ansible.builtin.shell: >
+        tar czf "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
+        -C /
+        {{ _validated_archive_paths | map('regex_replace', '^/', '') | join(' ') }}
       timeout: "{{ stack_backup_timeout | default(1800) }}"
 
     - name: Verify archive integrity for {{ _backup_stack }}
