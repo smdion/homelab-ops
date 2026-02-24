@@ -215,10 +215,22 @@
       check_mode: false
       no_log: "{{ not (debug_no_log | default(false) | bool) }}"
 
-    - name: Check which rules already exist
+    - name: Check which rules already exist and compute insertion indices
       ansible.builtin.set_fact:
         _existing_rule_names: >-
           {{ _firewall_rules.json.data | map(attribute='name') | list }}
+        _ssh_rule_index: >-
+          {{ ([(_firewall_rules.json.data
+                | selectattr('ruleset', 'equalto', 'LAN_IN')
+                | map(attribute='rule_index')
+                | map('int') | list | sort | last | default(3999) | int) + 1,
+               4000] | max) }}
+        _block_rule_index: >-
+          {{ ([(_firewall_rules.json.data
+                | selectattr('ruleset', 'equalto', 'LAN_IN')
+                | map(attribute='rule_index')
+                | map('int') | list | sort | last | default(3999) | int) + 2,
+               4001] | max) }}
 
     # Zone-based rules
     - name: "Create rule — {{ _ssh_rule_name }} [zone-based]"
@@ -231,6 +243,7 @@
         body:
           name: "{{ _ssh_rule_name }}"
           ruleset: "LAN_IN"
+          rule_index: "{{ _ssh_rule_index | int }}"
           action: "accept"
           protocol: "tcp"
           protocol_match_excepted: false
@@ -260,6 +273,7 @@
         body:
           name: "{{ _block_rule_name }}"
           ruleset: "LAN_IN"
+          rule_index: "{{ _block_rule_index | int }}"
           action: "drop"
           protocol: "all"
           protocol_match_excepted: false
@@ -289,6 +303,7 @@
         body:
           name: "{{ _ssh_rule_name }}"
           ruleset: "LAN_IN"
+          rule_index: "{{ _ssh_rule_index | int }}"
           action: "accept"
           protocol: "tcp"
           protocol_match_excepted: false
@@ -318,6 +333,7 @@
         body:
           name: "{{ _block_rule_name }}"
           ruleset: "LAN_IN"
+          rule_index: "{{ _block_rule_index | int }}"
           action: "drop"
           protocol: "all"
           protocol_match_excepted: false
