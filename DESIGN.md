@@ -125,6 +125,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (unifi_protect_api_backup_path, unifi_protect_temp_file)
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
 │   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, app_info (pre-deploy restore map), docker_* defaults
+│   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists, app_restore mapping
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
 │   ├── unraid_os.yaml               # unRAID OS backup
 │   ├── synology.yaml                # Synology NAS sync
@@ -1854,6 +1855,7 @@ No SQL changes needed.
 | `vars/unifi_protect.yaml` | Unifi Protect | Appliances | Config |
 | `vars/amp.yaml` | AMP | Servers | Config |
 | `vars/docker_stacks.yaml` | (stack name) | Servers | Appdata |
+| `vars/docker_run.yaml` | Docker | Servers | Appdata |
 | `vars/unraid_os.yaml` | unRAID | Servers | Config |
 | `vars/synology.yaml` | unRAID | Servers | Offline |
 | `vars/db_*.yaml` | (individual db name)-db | Servers | Database |
@@ -1870,6 +1872,7 @@ which controls file extensions in find/copy/cleanup paths across all three datab
 | `vars/amp.yaml` | AMP | Servers | Game Server |
 | `vars/ubuntu_os.yaml` | Ubuntu | Servers | OS |
 | `vars/docker_stacks.yaml` | (container name) | Servers | Container |
+| `vars/docker_run.yaml` | (container name) | Servers | Container |
 
 Docker container updates log per-container rows: `application` is the individual service/container
 name (e.g., `nginx`, `plex`), not `"Docker"`. This follows the same pattern as `backup_databases.yaml`
@@ -1905,6 +1908,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `vars/db_*.yaml` | (db name)-db | Servers | Database | restore |
 | `vars/proxmox.yaml` | PVE or PBS | Appliances | Config | restore |
 | `vars/docker_stacks.yaml` | (stack name) or (app name) | Servers | Appdata | restore |
+| `vars/docker_run.yaml` | Docker or (app name) | Servers | Appdata | restore |
 | `vars/unraid_os.yaml` | unRAID | Servers | Config | restore |
 | `vars/pikvm.yaml` | PiKVM | Appliances | Config | restore |
 | `vars/docker_stacks.yaml` | (service name) | Servers | Container | rollback |
