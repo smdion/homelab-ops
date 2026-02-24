@@ -94,13 +94,9 @@
           {{ (_pve_profile.networkconf_ids | default([]))
              | map('extract', _net_id_to_vlan) | select('defined') | list }}
 
-    - name: DEBUG — dump VLAN resolution (temporary)
+    - name: DEBUG — dump full port profile object (temporary)
       ansible.builtin.debug:
-        msg:
-          - "_profile_vlan_ids: {{ _profile_vlan_ids }}"
-          - "_pve_profile.networkconf_ids: {{ _pve_profile.networkconf_ids | default('NOT DEFINED') }}"
-          - "_net_id_to_vlan entry count: {{ _net_id_to_vlan | length }}"
-          - "vault_test_vlan_id (int): {{ vault_test_vlan_id | int }}"
+        msg: "{{ _pve_profile }}"
 
     - name: Assert VLAN is in port profile
       ansible.builtin.assert:
