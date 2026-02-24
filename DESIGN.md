@@ -154,7 +154,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── db_drop_temp.yaml            # Drop a database and clean up container temp files — all engines
 │   ├── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, up)
 │   ├── provision_vm.yaml            # Provision VM on Proxmox via cloud-init template clone + API config
-│   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS
+│   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS, CephFS /opt mount
 │   ├── ssh_hardening.yaml           # Passwordless sudo + SSH config hardening + service restart
 │   ├── docker_stop.yaml             # Stop Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── docker_start.yaml            # Start Docker containers/stacks (selective, stack, or unRAID mode)
@@ -193,6 +193,7 @@ history, restore results, playbook runs) belongs in the database.
 ├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert
 ├── test_backup_restore.yaml          # Test all app_info apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
+├── migrate_appdata_to_cephfs.yaml # One-shot migration of /opt from local RBD disk to CephFS shared storage; requires -e vm_name=<key> -e confirm=yes
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
 ├── files/
@@ -2528,3 +2529,115 @@ running containers; the default fallback is 120 s. Services with slow startup (e
 **OOM auto-recovery** — `test_backup_restore.yaml` detects OOM kill events (via `dmesg`) in its rescue
 block. If any app fails due to OOM, after the full app loop it doubles VM memory via the PVE API,
 reboots the VM, and retries only the OOM-failed apps with the new memory ceiling.
+
+---
+
+## CephFS Appdata Storage
+
+**Phase 1 of the portability redesign.** Docker stack appdata moves from individual VM RBD block
+devices to CephFS shared storage. A rebuilt VM mounts its CephFS subvolume at `/opt` and immediately
+sees all existing data — no restore step required. Backup archives remain for disaster recovery only.
+
+### Architecture
+
+VM storage is two independent layers:
+
+- **Ceph RBD disk** (`replicated` pool) — VM OS, Docker engine, container images in
+  `/var/lib/docker`. Provisioned by `provision_vm.yaml` exactly as today. No change.
+- **CephFS mount at `/opt`** (new) — all Docker appdata. Mounted via fstab on boot.
+
+Per-VM directories on the shared CephFS filesystem:
+```
+CephFS root /
+  /tantive-iv/    →  mounted at /opt on tantive-iv VM
+  /odyssey/       →  mounted at /opt on odyssey VM
+```
+
+All existing paths (`${APPSDIR}/<app>`, `/opt/stacks/<stack>/`, `homelab.backup.paths` labels)
+work **unchanged** — they still resolve to `/opt/<...>`, now backed by CephFS instead of local disk.
+
+### Vault Variables
+
+Two new secrets required when `cephfs_host_dir` is defined for any VM:
+
+| Variable | Description |
+|---|---|
+| `vault_ceph_mons` | Comma-separated Ceph monitor IPs (no spaces) |
+| `vault_ceph_vm_appdata_key` | Key from `ceph auth print-key client.vm-appdata` |
+
+See `vars/secrets.yaml.example` for the full entry and setup reference.
+
+### VM Eligibility
+
+`cephfs_host_dir` is defined in `vm_definitions` for eligible VMs only:
+
+- **tantiveiv** — `cephfs_host_dir: "tantive-iv"`
+- **odyssey** — `cephfs_host_dir: "odyssey"`
+- **amp** — excluded: game server I/O sensitivity; AMP instance data stays on local disk
+- **test-vm** — excluded: Proxmox snapshots only revert the RBD disk. If a test VM mounted CephFS
+  at `/opt`, a snapshot revert would leave stale CephFS data visible on the next restore test,
+  corrupting the test result. Test VMs always use local disk.
+
+### Bootstrap (new VMs)
+
+`tasks/bootstrap_vm.yaml` handles CephFS automatically when `_vm.cephfs_host_dir` is defined:
+1. Installs `ceph-common`
+2. Writes the client keyring to `{{ cephfs_keyring_path }}`
+3. Mounts CephFS at `/opt` via `ansible.posix.mount state: mounted` (adds fstab + mounts)
+
+A new VM's `/opt` is an empty CephFS subvolume — stacks deploy and immediately see any existing data.
+
+### Migration (existing VMs)
+
+`migrate_appdata_to_cephfs.yaml` migrates a live production VM in one shot:
+
+1. Pre-flight: fail if `/opt` is already CephFS
+2. Install `ceph-common`, write keyring, mount CephFS at `/mnt/cephfs_migrate`
+3. Stop all Docker stacks (reverse `stack_assignments` order)
+4. `rsync -av --delete /opt/ /mnt/cephfs_migrate/` — full copy; local `/opt` is untouched (read-only source)
+5. Spot-check: assert `/mnt/cephfs_migrate/stacks/` exists
+6. Unmount staging; mount CephFS at `/opt`
+7. Start all Docker stacks
+8. Log to MariaDB (`maintenance` table, subtype `CephFS Migration`) + Discord notification
+
+**Rescue block**: if any step from the remount onward fails — unmount CephFS from `/opt`, unmount
+staging, restart stacks from local disk. Local data is always intact (rsync was read-only).
+
+Run order: odyssey first (one stack: vpn — lowest risk), then tantive-iv.
+
+### Backup / DR
+
+Backup strategy is unchanged. `backup_single_stack.yaml` discovers paths via `homelab.backup.paths`
+labels — those paths still resolve to `/opt/<app>`, now on CephFS instead of local disk. Tar
+archives remain disaster recovery.
+
+### MDS High Availability
+
+Deploy 2 MDS daemons (active + standby). With 3 monitors + 2 MDS, a single-node failure is non-fatal.
+
+### Recovery if CephFS Goes Down
+
+If CephFS becomes unavailable and `/opt` fails to mount on boot, the VM will hang at the
+`x-systemd.requires=network-online.target` dependency. Recovery options:
+1. Restore CephFS availability (preferred)
+2. Remove the CephFS fstab entry (`ansible.posix.mount state: absent`) and reboot — VM falls back
+   to local disk `/opt` (data is the pre-migration snapshot; use backup archives to restore current state)
+
+### NFS Stack Note
+
+The `nfs` stack mounts `${APPSDIR}` (`/opt`) as `/nfsshare` inside a privileged container. The
+container sees a bind-mounted directory — it does not know the host's `/opt` is CephFS. CephFS
+presents stable inodes so containerized `nfsd` re-exporting a CephFS-backed path should work.
+Verify explicitly in the odyssey pilot phase (Phase C).
+
+### Phase Roadmap
+
+- **Phase 1 (this)** — CephFS: data survives VM destruction. VMs still need their own FQDN.
+- **Phase 2 (next)** — Docker networking: remove `network_mode: bridge` + host-IP dependencies;
+  containers communicate by name across stacks; removes host IPs from `env.j2`. Rename `/opt` to
+  a better path (e.g. `/srv/appdata`) if desired — all compose files will be touched anyway.
+- **Phase 3 (future)** — VM name pool: VMs become interchangeable; role-based stack assignment;
+  names drawn from a user-defined list; inventory goes dynamic.
+
+Each phase is independent: Phase 1 delivers immediate value; Phases 2 and 3 touch different layers
+(app config / inventory) and can be planned separately without wasted effort.

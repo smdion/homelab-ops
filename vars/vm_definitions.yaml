@@ -21,6 +21,11 @@
 #   vault_test_vm_ip_prefix    — first 3 octets of test VM IPs (update to isolated subnet, e.g. "192.168.88.")
 pve_api_host: "{{ vault_pve_vip }}"
 pve_storage: "replicated"
+
+# CephFS shared appdata — mounted at /opt on eligible VMs (cephfs_host_dir defined).
+# Credentials in vault: vault_ceph_mons, vault_ceph_vm_appdata_key
+cephfs_client_name: "vm-appdata"
+cephfs_keyring_path: "/etc/ceph/ceph.client.vm-appdata.keyring"
 pve_bridge: "vmbr0"
 vm_user: "ansible"
 vm_gateway: "{{ vault_vm_gateway }}"
@@ -61,6 +66,7 @@ vm_definitions:
     vm_memory_mb: 12288
     vm_disk_gb: 200
     pve_target_node: "{{ vault_vm_tantiveiv_node }}"
+    cephfs_host_dir: "tantive-iv"    # mounts /tantive-iv from CephFS root at /opt
 
   odyssey:
     vm_id: 101
@@ -71,6 +77,7 @@ vm_definitions:
     vm_memory_mb: 4096
     vm_disk_gb: 100
     pve_target_node: "{{ vault_vm_odyssey_node }}"
+    cephfs_host_dir: "odyssey"       # mounts /odyssey from CephFS root at /opt
 
   amp:
     vm_id: 102
@@ -115,6 +122,10 @@ vm_definitions:
 #   ip_aliases:                          # IPs to alias on loopback (for test VMs with VLAN isolation)
 #     - "192.0.2.50"                     # containers reaching this IP hit the local VM instead of prod
 #     - "192.0.2.51"                     # persisted via netplan; survives reboots and OOM recovery
+#
+#   cephfs_host_dir: "hostname"          # if defined, mounts /<dir> from CephFS root at /opt
+#                                        # omit for test-vm (snapshots don't revert CephFS data)
+#                                        # omit for amp (game server I/O sensitivity)
 #
 # Optional per-VM provision fields (used by tasks/provision_vm.yaml when defined):
 #
