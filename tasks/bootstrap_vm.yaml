@@ -110,3 +110,29 @@
   when:
     - _vm.ip_aliases is defined
     - _netplan_aliases.changed
+
+- name: Install ceph-common
+  ansible.builtin.apt:
+    name: ceph-common
+    state: present
+  when: _vm.cephfs_host_dir is defined
+
+- name: Write CephFS client keyring
+  ansible.builtin.copy:
+    content: |
+      [client.{{ cephfs_client_name }}]
+          key = {{ vault_ceph_vm_appdata_key }}
+    dest: "{{ cephfs_keyring_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: _vm.cephfs_host_dir is defined
+
+- name: Mount CephFS at /opt
+  ansible.posix.mount:
+    path: /opt
+    src: "{{ vault_ceph_mons }}:/{{ _vm.cephfs_host_dir }}"
+    fstype: ceph
+    opts: "name={{ cephfs_client_name }},secretfile={{ cephfs_keyring_path }},_netdev,x-systemd.requires=network-online.target"
+    state: mounted
+  when: _vm.cephfs_host_dir is defined
