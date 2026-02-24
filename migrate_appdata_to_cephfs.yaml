@@ -108,7 +108,7 @@
             name: ceph-common
             state: present
 
-        - name: Write CephFS client keyring
+        - name: Write CephFS client keyring (INI format — for ceph CLI tools)
           ansible.builtin.copy:
             content: |
               [client.{{ cephfs_client_name }}]
@@ -117,6 +117,24 @@
             owner: root
             group: root
             mode: "0600"
+
+        - name: Write CephFS mount secret (raw key — for kernel secretfile= option)
+          ansible.builtin.copy:
+            content: "{{ vault_ceph_vm_appdata_key }}"
+            dest: "{{ cephfs_keyring_path | regex_replace('\\.keyring$', '.secret') }}"
+            owner: root
+            group: root
+            mode: "0600"
+
+        - name: Write minimal ceph.conf (suppresses DNS SRV fallback warning)
+          ansible.builtin.copy:
+            content: |
+              [global]
+              mon_host = {{ vault_ceph_mons }}
+            dest: /etc/ceph/ceph.conf
+            owner: root
+            group: root
+            mode: "0644"
 
         # ─── Mount CephFS at staging path ──────────────────────────
         - name: Create staging mount directory
@@ -130,7 +148,7 @@
             path: /mnt/cephfs_migrate
             src: "{{ vault_ceph_mons }}:/{{ hostvars['localhost']._cephfs_host_dir }}"
             fstype: ceph
-            opts: "name={{ cephfs_client_name }},secretfile={{ cephfs_keyring_path }},_netdev,x-systemd.requires=network-online.target"
+            opts: "name={{ cephfs_client_name }},secretfile={{ cephfs_keyring_path | regex_replace('\\.keyring$', '.secret') }},_netdev,x-systemd.requires=network-online.target"
             state: mounted
 
         # ─── Stop all Docker stacks ─────────────────────────────────
@@ -165,7 +183,7 @@
             path: /opt
             src: "{{ vault_ceph_mons }}:/{{ hostvars['localhost']._cephfs_host_dir }}"
             fstype: ceph
-            opts: "name={{ cephfs_client_name }},secretfile={{ cephfs_keyring_path }},_netdev,x-systemd.requires=network-online.target"
+            opts: "name={{ cephfs_client_name }},secretfile={{ cephfs_keyring_path | regex_replace('\\.keyring$', '.secret') }},_netdev,x-systemd.requires=network-online.target"
             state: mounted
 
         # ─── Restart all Docker stacks ──────────────────────────────
