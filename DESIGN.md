@@ -2493,9 +2493,9 @@ After setup:
 
 ### Test Restore (automated)
 
-`test_restore.yaml` and `test_backup_restore.yaml` use **ephemeral** VM slots defined in
-`vars/vm_definitions.yaml`. The `test-vm` key is the standard ephemeral slot. Pool size and
-base values are controlled entirely by two vars in `vars/vm_definitions.yaml`:
+`test_restore.yaml`, `test_backup_restore.yaml`, and `test_migrate_cephfs.yaml` all use **ephemeral**
+VM slots drawn from the same shared pool defined in `vars/vm_definitions.yaml`. Pool size and base
+values are controlled entirely by two vars:
 
 - `vm_test_slot_base` — base VMID; pool spans `vm_test_slot_base .. vm_test_slot_base + vm_test_slot_count - 1`
 - `vault_test_vm_ip_offset` (in `vars/secrets.yaml`) — last-octet of the first slot IP; combined with `vault_test_vm_ip_prefix`
@@ -2505,17 +2505,16 @@ API and picks the lowest slot (0–`vm_test_slot_count - 1`) whose VMID is eithe
 A running VM is considered in use. Pass `vm_index=N` explicitly to force a specific slot (e.g. for
 parallel test runs). `vm_index` drives VMID, IP, hostname, and name consistently.
 
-**Convention — all ephemeral/test VMs must derive VMID and IP from the offset vars**, never
-hardcode numeric IDs. This ensures the pool can be shifted by changing `vm_test_slot_base` and
-`vault_test_vm_ip_offset` without touching individual VM entries:
+**Convention — all ephemeral/test VMs use the same pool and derive VMID and IP from `vm_index`**,
+never hardcode numeric IDs:
 
-| VM | VMID expression | IP last-octet expression |
-|---|---|---|
-| `test-vm` (index 0..N) | `vm_test_slot_base + vm_index` | `vault_test_vm_ip_offset + vm_index` |
-| `cephfs-migrate-test` | `vm_test_slot_base + vm_test_slot_count` | `vault_test_vm_ip_offset + vm_test_slot_count` |
+| VM definition | VMID expression | IP last-octet expression | Notes |
+|---|---|---|---|
+| `test-vm` | `vm_test_slot_base + vm_index` | `vault_test_vm_ip_offset + vm_index` | isolated VLAN; `ip_aliases` for container prod-IP routing |
+| `cephfs-migrate-test` | `vm_test_slot_base + vm_index` | `vault_test_vm_ip_offset + vm_index` | same isolated VLAN; CephFS monitor access via "Allow Test to Ceph" zone policy (ports 3300/6789/6800-7300) |
 
-Adding any future ephemeral VM: use `vm_test_slot_base + vm_test_slot_count + N` for VMID and
-`vault_test_vm_ip_offset + vm_test_slot_count + N` for the IP last octet. Never use a literal number.
+All VMs in the pool share the same VMID and IP expressions. Definitions differ only in optional fields
+(`vm_vlan_tag`, `vm_gateway`, `vm_dns`, `ip_aliases`, `cephfs_host_dir`). Never use a literal VMID or IP number.
 
 The playbook:
 1. Provisions the VM if it doesn't exist (idempotent — resumes if VMID already exists from a prior partial run)
@@ -2591,10 +2590,12 @@ See `vars/secrets.yaml.example` for the full entry and setup reference.
 
 - **tantiveiv** — `cephfs_host_dir: "tantive-iv"`
 - **odyssey** — `cephfs_host_dir: "odyssey"`
-- **cephfs-migrate-test** — `cephfs_host_dir: "cephfs-migrate-test"` — dedicated test VM (VMID:
-  `vm_test_slot_base + vm_test_slot_count`, production VLAN) used by `test_migrate_cephfs.yaml`. On
-  production VLAN so it can reach CephFS monitors. Bootstrap strips `cephfs_host_dir` so `/opt` starts
-  local; migration runs and mounts it. Play 1 auto-creates `/cephfs-migrate-test` on CephFS root if missing.
+- **cephfs-migrate-test** — `cephfs_host_dir: "cephfs-migrate-test"` — ephemeral test VM used by
+  `test_migrate_cephfs.yaml`. Draws a slot from the same `vm_test_slot_base` pool as `test-vm` via
+  `resolve_test_vm_index.yaml`. Same test VLAN isolation as `test-vm` (backup data stays off prod
+  network); CephFS monitor access allowed via "Allow Test to Ceph" zone policy. Bootstrap strips
+  `cephfs_host_dir` so `/opt` starts local; migration runs and mounts it.
+  Play 1 auto-creates `/cephfs-migrate-test` on CephFS root if missing.
 - **amp** — excluded: game server I/O sensitivity; AMP instance data stays on local disk
 - **test-vm** — excluded: Proxmox snapshots only revert the RBD disk. If a test VM mounted CephFS
   at `/opt`, a snapshot revert would leave stale CephFS data visible on the next restore test,
@@ -2631,7 +2632,7 @@ Run order: odyssey first (one stack: vpn — lowest risk), then tantive-iv.
 
 `test_migrate_cephfs.yaml` validates the migration flow on a disposable VM before running on production:
 
-1. Provision `cephfs-migrate-test` VM (VMID: `vm_test_slot_base + vm_test_slot_count`, production VLAN, production gateway)
+1. Auto-detect free slot via `resolve_test_vm_index.yaml`; provision `cephfs-migrate-test` VM from same pool as `test-vm`, production VLAN
 2. Bootstrap Docker — without CephFS mount (`cephfs_host_dir` stripped from `_vm` during bootstrap)
 3. Restore backup archives from `source_host` (e.g. odyssey) to local `/opt` (inplace extract)
 4. Run the full migration inline: install `ceph-common`, write keyring + `.secret`, mount staging,
