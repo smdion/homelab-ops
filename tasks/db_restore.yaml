@@ -15,11 +15,12 @@
     - name: "Restore database — {{ _db_target_name | default(_db_name) }}"
       ansible.builtin.shell: |
         _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-        # Auto-detect: use cat for plain .sql, gzip -dc for .sql.gz
-        case "{{ _db_source_file }}" in
-          *.gz) _decompress="$_gz -dc" ;;
-          *)    _decompress="cat" ;;
-        esac
+        # Auto-detect compression from magic bytes (1f 8b = gzip), not extension
+        if head -c2 "{{ _db_source_file }}" | od -An -tx1 | grep -q '1f 8b'; then
+          _decompress="$_gz -dc"
+        else
+          _decompress="cat"
+        fi
         {% set target = _db_target_name | default(_db_name) %}
         {% if _db_is_postgres | default(false) | bool %}
         docker exec {{ _db_container }} psql -U {{ _db_username }} -tc "SELECT 1 FROM pg_database WHERE datname='{{ target }}'" postgres | grep -q 1 \
