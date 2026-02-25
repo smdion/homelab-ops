@@ -167,10 +167,12 @@
             msg: "/opt is already mounted as CephFS — run findmnt -t ceph /opt to inspect"
           when: _cephfs_check.rc == 0
 
-        # ─── Install ceph-common and write keyring ──────────────────
-        - name: Install ceph-common
+        # ─── Install dependencies and write keyring ──────────────────
+        - name: Install ceph-common and rsync
           ansible.builtin.apt:
-            name: ceph-common
+            name:
+              - ceph-common
+              - rsync
             state: present
 
         - name: Write CephFS client keyring (INI format — for ceph CLI tools)
