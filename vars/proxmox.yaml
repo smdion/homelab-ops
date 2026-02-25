@@ -23,3 +23,7 @@ pve_pool_test: "test"
 pve_pool_hosted: "hosted"
 pve_pool_hosted_vlan: 1682
 # test VLAN uses vault_test_vlan_id (already in secrets.yaml)
+
+# VMIDs to exclude from the production pool even if they match the no-VLAN rule.
+# Use this for VMs that sit on the default VLAN but should not be backed up via PBS pool jobs.
+pve_pool_exclude_vmids: []
