@@ -714,7 +714,7 @@ Semaphore template (task) names follow `Verb — Target [Subtype]`:
 | `Setup — {Target} [{Subtype}]` | `Setup — Ansible User [SSH]` |
 | `Backup — {Target} [{Subtype}]` | `Backup — Proxmox [Config]`, `Backup — unRAID [Offline]` |
 | `Backup — Database [{Role} {Engine}]` | `Backup — Database [Primary PostgreSQL]`, `Backup — Database [Secondary PostgreSQL]` |
-| `Build — {Target} [{Subtype}]` | `Build — Ubuntu [VM]` |
+| `Build — {Target} [{Subtype}]` | `Build — Ubuntu [VM]`, `Build — Ubuntu [VM] (CephFS)` |
 | `Deploy — {Target} [{Subtype}]` | `Deploy — Docker Stacks`, `Deploy — Grafana [Dashboard]` |
 | `Download — {Target} [{Subtype}]` | `Download — Videos [Channels]`, `Download — Videos [On Demand]` |
 | `Maintain — {Target} [{Subtype}]` | `Maintain — AMP [Cleanup]`, `Maintain — Cache [Flush]`, `Maintain — Docker [Cleanup]`, `Maintain — Health [Check]` |
@@ -730,6 +730,12 @@ variant (e.g., `Backup — unRAID [Config]` vs `Backup — unRAID [Offline]`, or
 vs `Download — Videos [On Demand]`). Database templates use `Database` as the target so all DB
 operations cluster together alphabetically, with `[Role Engine]` (e.g., `[Primary PostgreSQL]`,
 `[Secondary PostgreSQL]`) as the subtype.
+
+Both `Build — Ubuntu [VM]` templates run the same `build_ubuntu.yaml` playbook. The base
+template targets standard VMs (local RBD `/opt`), while the `(CephFS)` variant targets
+CephFS-backed VMs (where `/opt` is a shared CephFS mount). The playbook adapts automatically
+based on whether `cephfs_host_dir` is defined in the VM's entry in `vars/vm_definitions.yaml`.
+Having separate templates lets operators rebuild CephFS-backed and standard VMs independently.
 
 ### Template views
 
