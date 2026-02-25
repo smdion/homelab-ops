@@ -24,6 +24,15 @@
       become: true
       when: not ansible_check_mode
 
+    - name: Deploy databases stack (dependency for DB restore)
+      include_tasks: tasks/deploy_single_stack.yaml
+      vars:
+        _current_stack: databases
+        _test_mode: true
+      when:
+        - app_info[_test_app].db_names | default([]) | length > 0
+        - _cur_stack != 'databases'
+
     - name: Deploy stack — {{ _cur_stack }}
       include_tasks: tasks/deploy_single_stack.yaml
       vars:
