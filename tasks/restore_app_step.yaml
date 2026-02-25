@@ -106,7 +106,6 @@
         rsync_opts:
           - "--timeout=1800"
           - "--whole-file"
-          - "-e '/usr/bin/ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10'"
       become: true
       loop: "{{ _cur_db_names | default([]) }}"
       loop_control:
