@@ -61,7 +61,7 @@
       vars:
         _docker_selective_stacks: ["{{ _cur_stack }}"]
 
-    - name: Copy DB backup to staging — {{ _db_name_item }}
+    - name: Copy production DB backup to test VM staging — {{ _db_name_item }}
       ansible.builtin.copy:
         src: "{{ _db_archive_map[_db_name_item] }}"
         dest: "/tmp/restore_{{ _test_app }}/{{ _db_name_item }}.sql.gz"
@@ -73,7 +73,7 @@
         - _cur_db_names | default([]) | length > 0
         - not ansible_check_mode
 
-    - name: Restore DB — {{ _db_name_item }}
+    - name: Restore DB on test VM — {{ _db_name_item }}
       include_tasks: tasks/db_restore.yaml
       loop: "{{ _cur_db_names | default([]) }}"
       loop_control:
@@ -92,7 +92,7 @@
         - _cur_db_names | default([]) | length > 0
         - not ansible_check_mode
 
-    - name: Restore appdata inplace — {{ _test_app }}
+    - name: Restore appdata on test VM — {{ _test_app }}
       include_tasks: tasks/restore_appdata.yaml
       vars:
         backup_tmp_dir: "/tmp/restore_{{ _test_app }}"
