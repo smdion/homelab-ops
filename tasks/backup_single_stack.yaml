@@ -2,9 +2,10 @@
 # Back up a single Docker Compose stack's appdata.
 # Called in a loop from backup_hosts.yaml with loop_var: _backup_stack.
 #
-# Stops the stack, archives its appdata + compose dir, verifies integrity,
-# starts the stack, and records the result. On failure the stack is restarted
-# and the failure is recorded (not re-raised — caller checks _stack_backup_results).
+# Stops the stack, archives its appdata + compose dir, restarts the stack,
+# then fetches the archive to the controller (stack is back online during transfer).
+# On failure the stack is restarted and the failure is recorded
+# (not re-raised — caller checks _stack_backup_results).
 #
 # Required (from caller scope):
 #   _backup_stack         — stack name (e.g. 'auth', 'vpn')
@@ -71,6 +72,12 @@
         path: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
       register: _stack_file_size
       changed_when: false
+
+    - name: Start {{ _backup_stack }} stack (reduce downtime during fetch)
+      include_tasks: tasks/docker_start.yaml
+      vars:
+        _docker_selective_stacks: ["{{ _backup_stack }}"]
+        _docker_ignore_errors: true
 
     - name: Delete stale archive on controller for {{ _backup_stack }}
       ansible.builtin.file:
