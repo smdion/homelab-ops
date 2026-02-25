@@ -214,7 +214,6 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── dev/                        # Development: code-server, netbootxyz
 │   ├── media/                      # Media: jellyseerr, tautulli
 │   ├── apps/                       # Applications: homepage, firefox, homebox, etc.
-│   ├── nfs/                        # NFS server
 │   └── vpn/                        # VPN: wireguard, npm, beszel, dozzle-agent
 │   # Each stack contains:
 │   #   docker-compose.yaml         — plain YAML, committed to Git
@@ -2591,11 +2590,11 @@ VM storage is two independent layers:
   `/var/lib/docker`. Provisioned by `provision_vm.yaml` exactly as today. No change.
 - **CephFS mount at `/opt`** (new) — all Docker appdata. Mounted via fstab on boot.
 
-Per-VM directories on the shared CephFS filesystem:
+Per-VM directories on the shared CephFS filesystem (current names — Phase 3 renames to role names):
 ```
 CephFS root /
-  /tantive-iv/    →  mounted at /opt on tantive-iv VM
-  /odyssey/       →  mounted at /opt on odyssey VM
+  /tantive-iv/    →  mounted at /opt on tantive-iv VM    (Phase 3: /core/)
+  /odyssey/       →  mounted at /opt on odyssey VM       (Phase 3: /apps/, new /dev/)
 ```
 
 All existing paths (`${APPSDIR}/<app>`, `/opt/stacks/<stack>/`, `homelab.backup.paths` labels)
@@ -2614,10 +2613,10 @@ See `vars/secrets.yaml.example` for the full entry and setup reference.
 
 ### VM Eligibility
 
-`cephfs_host_dir` is defined in `vm_definitions` for eligible VMs only:
+`cephfs_host_dir` is defined in `vm_definitions` for eligible VMs only (Phase 3 renames these):
 
-- **tantiveiv** — `cephfs_host_dir: "tantive-iv"`
-- **odyssey** — `cephfs_host_dir: "odyssey"`
+- **tantiveiv** — `cephfs_host_dir: "tantive-iv"` (Phase 3: `core` → `cephfs_host_dir: "core"`)
+- **odyssey** — `cephfs_host_dir: "odyssey"` (Phase 3: `apps` → `cephfs_host_dir: "apps"`, new `dev`)
 - **cephfs-migrate-test** — `cephfs_host_dir: "cephfs-migrate-test"` — ephemeral test VM used by
   `test_restore.yaml -e vm_name=cephfs-migrate-test`. Draws a slot from the same `vm_test_slot_base`
   pool as `test-vm` via `resolve_test_vm_index.yaml`. Same test VLAN isolation as `test-vm` (backup
@@ -2703,21 +2702,17 @@ If CephFS becomes unavailable and `/opt` fails to mount on boot, the VM will han
 2. Remove the CephFS fstab entry (`ansible.posix.mount state: absent`) and reboot — VM falls back
    to local disk `/opt` (data is the pre-migration snapshot; use backup archives to restore current state)
 
-### NFS Stack Note
-
-The `nfs` stack mounts `${APPSDIR}` (`/opt`) as `/nfsshare` inside a privileged container. The
-container sees a bind-mounted directory — it does not know the host's `/opt` is CephFS. CephFS
-presents stable inodes so containerized `nfsd` re-exporting a CephFS-backed path should work.
-Verify explicitly in the odyssey pilot phase (Phase C).
-
 ### Phase Roadmap
 
-- **Phase 1 (this)** — CephFS: data survives VM destruction. VMs still need their own FQDN.
-- **Phase 2 (next)** — Docker networking: remove `network_mode: bridge` + host-IP dependencies;
-  containers communicate by name across stacks; removes host IPs from `env.j2`. Rename `/opt` to
-  a better path (e.g. `/srv/appdata`) if desired — all compose files will be touched anyway.
-- **Phase 3 (future)** — VM name pool: VMs become interchangeable; role-based stack assignment;
-  names drawn from a user-defined list; inventory goes dynamic.
+- **Phase 1 (complete)** — CephFS: data survives VM destruction. VMs still need their own FQDN.
+  Merged Feb 2026.
+- **Phase 2 (planned)** — Docker networking + stack reorg: shared `homelab` Docker network for
+  cross-stack service-name resolution; media stack moves to core (eliminates cross-host postgres);
+  NFS stack deleted (replaced by CephFS direct mounts for code-server); host-IP references in
+  `env.j2` templates replaced with Docker service names. See `future/HOST_INDEPENDENT_STACKS.md`.
+- **Phase 3 (planned)** — 3-VM role-based architecture (core/apps/dev) with keepalived VIPs;
+  role-based stack assignment via `stack_roles` + `vault_vm_roles`; CephFS directories renamed to
+  role names; dynamic `docker_mem_limit` replaces static group_vars. See
+  `future/HOST_INDEPENDENT_STACKS.md`.
 
-Each phase is independent: Phase 1 delivers immediate value; Phases 2 and 3 touch different layers
-(app config / inventory) and can be planned separately without wasted effort.
+Phases 2 and 3 ship as a single feature branch — one deployment, one round of troubleshooting.
