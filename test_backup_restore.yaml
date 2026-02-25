@@ -208,13 +208,21 @@
 - name: Bootstrap test VM
   hosts: test_target
   become: true
-  gather_facts: true
+  gather_facts: false
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
     - vars/docker_vips.yaml
 
   tasks:
+    - name: Wait for system boot to complete
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 300
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
     - name: Check if Docker is installed
       ansible.builtin.command: docker --version
       register: _docker_check
