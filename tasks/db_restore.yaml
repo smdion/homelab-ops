@@ -14,6 +14,7 @@
 - block:
     - name: "Restore database — {{ _db_target_name | default(_db_name) }}"
       ansible.builtin.shell: |
+        set -ex
         _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
         # Auto-detect compression from magic bytes (1f 8b = gzip), not extension
         if head -c2 "{{ _db_source_file }}" | od -An -tx1 | grep -q '1f 8b'; then
@@ -21,37 +22,55 @@
         else
           _decompress="cat"
         fi
+        echo "[db_restore] source={{ _db_source_file }} decompress=$_decompress"
         {% set target = _db_target_name | default(_db_name) %}
         {% if _db_is_postgres | default(false) | bool %}
+        echo "[db_restore] Ensuring database '{{ target }}' exists..."
         docker exec {{ _db_container }} psql -U {{ _db_username }} -tc "SELECT 1 FROM pg_database WHERE datname='{{ target }}'" postgres | grep -q 1 \
           || docker exec {{ _db_container }} psql -U {{ _db_username }} -c 'CREATE DATABASE "{{ target }}";' postgres
-        # Copy decompressed SQL into container, then run psql on it (avoids docker exec -i pipe hang)
+        echo "[db_restore] Decompressing to /tmp/_db_restore_{{ target }}.sql..."
         $_decompress {{ _db_source_file }} > /tmp/_db_restore_{{ target }}.sql
+        ls -lh /tmp/_db_restore_{{ target }}.sql
+        echo "[db_restore] Copying SQL into container..."
         docker cp /tmp/_db_restore_{{ target }}.sql {{ _db_container }}:/tmp/_db_restore.sql
-        docker exec {{ _db_container }} psql -U {{ _db_username }} -f /tmp/_db_restore.sql "{{ target }}"
+        echo "[db_restore] Running psql -f (this may take a few minutes for large databases)..."
+        docker exec {{ _db_container }} psql -U {{ _db_username }} -f /tmp/_db_restore.sql "{{ target }}" 2>&1 | tail -5
+        echo "[db_restore] psql complete, cleaning up..."
         docker exec {{ _db_container }} rm -f /tmp/_db_restore.sql
         rm -f /tmp/_db_restore_{{ target }}.sql
         {% elif _db_is_mariadb | default(false) | bool %}
+        echo "[db_restore] Ensuring database '{{ target }}' exists..."
         docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysql -u {{ _db_username }} -e "CREATE DATABASE IF NOT EXISTS \`{{ target }}\`;"
+        echo "[db_restore] Decompressing to /tmp/_db_restore_{{ target }}.sql..."
         $_decompress {{ _db_source_file }} > /tmp/_db_restore_{{ target }}.sql
+        ls -lh /tmp/_db_restore_{{ target }}.sql
+        echo "[db_restore] Copying SQL into container..."
         docker cp /tmp/_db_restore_{{ target }}.sql {{ _db_container }}:/tmp/_db_restore.sql
+        echo "[db_restore] Running mysql import (this may take a few minutes for large databases)..."
         docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} sh -c 'mysql -u {{ _db_username }} {{ target }} < /tmp/_db_restore.sql'
+        echo "[db_restore] mysql complete, cleaning up..."
         docker exec {{ _db_container }} rm -f /tmp/_db_restore.sql
         rm -f /tmp/_db_restore_{{ target }}.sql
         {% elif _db_is_influxdb | default(false) | bool %}
         {% if target == _db_name %}
+        echo "[db_restore] Dropping existing InfluxDB database '{{ _db_name }}'..."
         docker exec {{ _db_container }} influx -execute "DROP DATABASE \"{{ _db_name }}\""
         {% endif %}
+        echo "[db_restore] Extracting backup archive..."
         tar -I "$_gz" --no-same-owner --no-same-permissions -xf {{ _db_source_file }} -C {{ _db_tmp_dir }}
+        echo "[db_restore] Copying backup into container..."
         docker cp {{ _db_tmp_dir }}/backup_{{ _db_name }} {{ _db_container }}:/tmp/db_restore_{{ _db_name }}
+        echo "[db_restore] Running influxd restore..."
         {% if target != _db_name %}
         docker exec {{ _db_container }} influxd restore -portable -database {{ _db_name }} -newdb {{ target }} /tmp/db_restore_{{ _db_name }}
         {% else %}
         docker exec {{ _db_container }} influxd restore -portable -database {{ _db_name }} /tmp/db_restore_{{ _db_name }}
         {% endif %}
+        echo "[db_restore] influxd restore complete, cleaning up..."
         rm -rf {{ _db_tmp_dir }}/backup_{{ _db_name }}
         docker exec {{ _db_container }} rm -rf /tmp/db_restore_{{ _db_name }}
         {% endif %}
+        echo "[db_restore] Done."
       environment:
         DB_PASSWORD: "{{ _db_password | default('') }}"
       register: _db_restore_result
