@@ -348,7 +348,7 @@
 # Play 5 — Manage PVE resource pools
 # Derives pool membership from live VM net0 VLAN tags — no VMID lists
 # to maintain. Adding a friend's VM to VLAN 1682 is enough.
-#   production  — net0 defined, no VLAN tag
+#   production  — net0 defined, no VLAN tag (minus pve_pool_exclude_vmids)
 #   hosted      — net0 tag=<pve_pool_hosted_vlan>  (1682)
 #   test        — net0 tag=<vault_test_vlan_id>
 # After first run: update PBS backup jobs (Datacenter → Backup) to
@@ -422,7 +422,8 @@
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         # Only VMs with net0 defined are categorized.
-        # Production = net0 present AND no tag=<n> in the net0 string.
+        # Production = net0 present AND no tag=<n> in the net0 string,
+        # minus any VMIDs in pve_pool_exclude_vmids.
         - name: Derive pool memberships from VLAN tags
           ansible.builtin.set_fact:
             _production_vmids: >-
@@ -430,7 +431,9 @@
                  | rejectattr('failed', 'equalto', true)
                  | selectattr('json.data.net0', 'defined')
                  | rejectattr('json.data.net0', 'search', '(?:^|,)tag=\d+(?:,|$)')
-                 | map(attribute='item.vmid') | map('int') | list }}
+                 | map(attribute='item.vmid') | map('int')
+                 | difference(pve_pool_exclude_vmids | default([]) | map('int') | list)
+                 | list }}
             _hosted_vmids: >-
               {{ _vm_configs.results
                  | rejectattr('failed', 'equalto', true)
@@ -774,7 +777,7 @@
       ignore_errors: true
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-    # Production = net0 defined with no VLAN tag (same rule as pool sync)
+    # Production = net0 defined with no VLAN tag, minus excluded VMIDs (same rule as pool sync)
     - name: Derive production VM list
       ansible.builtin.set_fact:
         _production_qemu_vms: >-
@@ -782,7 +785,9 @@
              | rejectattr('failed', 'equalto', true)
              | selectattr('json.data.net0', 'defined')
              | rejectattr('json.data.net0', 'search', '(?:^|,)tag=\d+(?:,|$)')
-             | map(attribute='item') | list }}
+             | map(attribute='item')
+             | rejectattr('vmid', 'in', pve_pool_exclude_vmids | default([]) | map('int') | list)
+             | list }}
 
     - name: Fetch 1-month RRD averages for production VMs
       ansible.builtin.uri:
