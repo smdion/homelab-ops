@@ -2616,19 +2616,21 @@ A new VM's `/opt` is an empty CephFS subvolume — stacks deploy and immediately
 
 `migrate_appdata_to_cephfs.yaml` migrates a live production VM in one shot:
 
-1. Pre-flight: fail if `/opt` is already CephFS
-2. Install `ceph-common`, write keyring, mount CephFS at `/mnt/cephfs_migrate`
-3. Stop all Docker stacks (reverse `stack_assignments` order)
-4. `rsync -av --delete /opt/ /mnt/cephfs_migrate/` — full copy; local `/opt` is untouched (read-only source)
-5. Spot-check: assert `/mnt/cephfs_migrate/stacks/` exists
-6. Unmount staging; mount CephFS at `/opt`
-7. Start all Docker stacks
-8. Log to MariaDB (`maintenance` table, subtype `CephFS Migration`) + Discord notification
+1. **Play 1 (localhost)**: Validate `vm_name` + `confirm=yes`; resolve the VM's actual PVE node
+   via cluster API; create a `pre-cephfs-migration` PVE snapshot (disk-only, no RAM state)
+2. **Play 2 (target VM)**: Pre-flight — fail if `/opt` is already CephFS; install `ceph-common`
+   and `rsync`; write keyring; mount CephFS at `/mnt/cephfs_migrate`; stop all Docker stacks;
+   clean the CephFS target (`find -mindepth 1 -delete`); `rsync -av --delete /opt/ /mnt/cephfs_migrate/`;
+   spot-check `/mnt/cephfs_migrate/stacks/`; unmount staging; mount CephFS at `/opt`; start stacks
+3. **Play 3 (localhost)**: On failure — stop VM, revert to `pre-cephfs-migration` snapshot, start
+   VM, wait for SSH (VM returns to exact pre-migration state). On success — delete the snapshot.
+4. **Play 4 (localhost)**: Log to MariaDB (`maintenance` table, subtype `CephFS Migration`) +
+   Discord notification
 
-**Rescue block**: if any step from the remount onward fails — unmount CephFS from `/opt`, unmount
-staging, restart stacks from local disk. Local data is always intact (rsync was read-only).
+Local `/opt` data is never deleted — CephFS mounts on top. The old data is hidden under the
+overlay mount and can be reclaimed later.
 
-Run order: odyssey first (one stack: vpn — lowest risk), then tantive-iv.
+Run order: odyssey first (fewer stacks — lowest risk), then tantive-iv.
 
 ### CephFS Restore Test (pre-production validation)
 
