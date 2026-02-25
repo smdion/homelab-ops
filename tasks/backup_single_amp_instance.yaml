@@ -3,8 +3,8 @@
 # Called in a loop from backup_hosts.yaml with loop_var: _amp_instance.
 #
 # Stops the instance, archives its data dir (excluding re-downloadable Versions/),
-# verifies integrity, starts the instance, and records the result.
-# On failure the instance is restarted and the failure recorded
+# restarts the instance, then fetches to controller (instance is back online during
+# transfer). On failure the instance is restarted and the failure recorded
 # (not re-raised — caller checks _amp_backup_results).
 # Instances that were offline before backup are not started afterward.
 #
@@ -90,6 +90,18 @@
         path: "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
       register: _amp_file_size
       changed_when: false
+
+    - name: Start AMP instance {{ _amp_instance }} (reduce downtime during fetch)
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.shell: ampinstmgr StartInstance {{ _amp_instance }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+      ignore_errors: true
+      when: _amp_was_running | default(false)
 
     - name: Delete stale archive on controller for {{ _amp_instance }}
       ansible.builtin.file:
