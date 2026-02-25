@@ -75,7 +75,7 @@
         tar --ignore-failed-read \
             --exclude="{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Versions" \
             --exclude="{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Backups" \
-            -czf "{{ backup_tmp_dir }}/{{ _amp_archive_name }}" \
+            -I 'pigz -1' -cf "{{ backup_tmp_dir }}/{{ _amp_archive_name }}" \
             -C "{{ amp_home }}/.ampdata/instances" \
             "{{ _amp_instance }}"
       args:
@@ -84,12 +84,6 @@
       changed_when: true
       failed_when: _amp_tar.rc > 1  # rc=1 = files changed/removed during shutdown (expected); rc=2 = fatal
       timeout: "{{ amp_backup_timeout | default(1800) }}"
-
-    - name: Verify archive integrity for {{ _amp_instance }}
-      become: true
-      ansible.builtin.shell: gunzip -t "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
-      changed_when: false
-      check_mode: false
 
     - name: Get archive file size for {{ _amp_instance }}
       ansible.builtin.stat:

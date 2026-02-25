@@ -19,17 +19,17 @@
         {% if target != _db_name %}
         docker exec {{ _db_container }} psql -U {{ _db_username }} -c 'CREATE DATABASE "{{ target }}";' postgres
         {% endif %}
-        gunzip -cf {{ _db_source_file }} | docker exec -i {{ _db_container }} psql -U {{ _db_username }} "{{ target }}"
+        pigz -dc {{ _db_source_file }} | docker exec -i {{ _db_container }} psql -U {{ _db_username }} "{{ target }}"
         {% elif _db_is_mariadb | default(false) | bool %}
         {% if target != _db_name %}
         docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysql -u {{ _db_username }} -e "CREATE DATABASE \`{{ target }}\`;"
         {% endif %}
-        gunzip -cf {{ _db_source_file }} | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysql -u {{ _db_username }} {{ target }}
+        pigz -dc {{ _db_source_file }} | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysql -u {{ _db_username }} {{ target }}
         {% elif _db_is_influxdb | default(false) | bool %}
         {% if target == _db_name %}
         docker exec {{ _db_container }} influx -execute "DROP DATABASE \"{{ _db_name }}\""
         {% endif %}
-        tar xzf {{ _db_source_file }} -C {{ _db_tmp_dir }}
+        tar -I pigz -xf {{ _db_source_file }} -C {{ _db_tmp_dir }}
         docker cp {{ _db_tmp_dir }}/backup_{{ _db_name }} {{ _db_container }}:/tmp/db_restore_{{ _db_name }}
         {% if target != _db_name %}
         docker exec {{ _db_container }} influxd restore -portable -database {{ _db_name }} -newdb {{ target }} /tmp/db_restore_{{ _db_name }}

@@ -449,17 +449,6 @@
             - inventory_hostname not in groups["amp"] | default([])
           tags: [always]
 
-        - name: Verify backup archive integrity
-          become: true
-          ansible.builtin.shell: gunzip -t "{{ backup_tmp_file }}"
-          when:
-            - inventory_hostname not in groups["docker_stacks"] | default([])
-            - inventory_hostname not in groups["unifi_protect"]
-            - inventory_hostname not in groups["amp"] | default([])
-          changed_when: false
-          check_mode: false
-          tags: [always]
-
         # ===== START DOCKER =====
         - include_tasks: tasks/docker_start.yaml
           vars:

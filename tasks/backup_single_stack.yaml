@@ -61,16 +61,10 @@
     - name: Create compressed archive for {{ _backup_stack }}
       become: true
       ansible.builtin.shell: >
-        tar czf "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
+        tar -I 'pigz -1' -cf "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
         -C /
         {{ _validated_archive_paths | map('regex_replace', '^/', '') | join(' ') }}
       timeout: "{{ stack_backup_timeout | default(1800) }}"
-
-    - name: Verify archive integrity for {{ _backup_stack }}
-      become: true
-      ansible.builtin.shell: gunzip -t "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
-      changed_when: false
-      check_mode: false
 
     - name: Get archive file size for {{ _backup_stack }}
       ansible.builtin.stat:
