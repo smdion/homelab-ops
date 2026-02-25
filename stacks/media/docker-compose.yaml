@@ -15,6 +15,9 @@ x-baseuid: &baseuid
   <<: *base
   environment:
     <<: *envuid
+networks:
+  homelab:
+    external: true
 services:
   tautulli:
     <<: *baseuid
@@ -37,6 +40,8 @@ services:
     <<: *base
     container_name: jellyseerr
     image: fallenbagel/jellyseerr:preview-OIDC
+    networks:
+      - homelab
     labels:
       homelab.backup.paths: "/opt/jellyseerr"
       homelab.restore.app: "jellyseerr"

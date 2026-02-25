@@ -25,30 +25,42 @@ app_info:
     stack: media
     db_names: [jellyseerr]
 
+# Role-to-stack mapping. ORDER MATTERS: databases MUST precede auth (Authentik requires Postgres).
+# stack_assignments and backup_stack_order are derived dynamically from this + vault_vm_roles.
+stack_roles:
+  core: [infra, databases, auth, media]
+  apps: [infra, apps, monitoring]
+  dev:  [infra, dev]
+
 # Stack assignments: host → ordered list of stack names.
-# ORDER MATTERS: on tantive-iv, databases MUST precede auth (Authentik requires Postgres).
-# Keys are inventory_hostname (FQDNs) — must be set in vault as vault_stack_assignments.
-# Example structure:
-#   vault_stack_assignments:
-#     <vps-fqdn>:      [vpn]
-#     <odyssey-fqdn>:  [infra, media, apps, nfs]
-#     <tantiveiv-fqdn>: [infra, databases, auth, monitoring, dev]
-stack_assignments: "{{ vault_stack_assignments }}"
+# Derived from stack_roles (above) + vault_vm_roles (vault: hostname → role mapping).
+stack_assignments: >-
+  {{ dict(
+    vault_vm_roles | dict2items | map(attribute='key') | list
+    | zip(
+      vault_vm_roles | dict2items | map(attribute='value')
+      | map('extract', stack_roles) | list
+    )
+  ) }}
 
 # Backup order: least-critical stacks first so auth/databases go down last.
-# Defaults to reverse of stack_assignments if not specified.
-# Keys are inventory_hostname (FQDNs) — must be set in vault as vault_backup_stack_order.
-# Example structure:
-#   vault_backup_stack_order:
-#     <vps-fqdn>:       [vpn]
-#     <odyssey-fqdn>:   [nfs, media, apps, infra]
-#     <tantiveiv-fqdn>: [dev, monitoring, infra, databases, auth]
-backup_stack_order: "{{ vault_backup_stack_order }}"
+# Derived as reverse of stack_assignments per role.
+backup_stack_order: >-
+  {{ dict(
+    vault_vm_roles | dict2items | map(attribute='key') | list
+    | zip(
+      vault_vm_roles | dict2items | map(attribute='value')
+      | map('extract', stack_roles)
+      | map('reverse') | map('list') | list
+    )
+  ) }}
 
 # Docker defaults — non-secret, shared across all stacks.
-# docker_mem_limit default (3000m) suits 4GB hosts. Override in group_vars/<group>.yaml
-# for hosts with more RAM (e.g. group_vars/tantiveiv.yaml sets docker_mem_limit: "10g").
-docker_mem_limit: "3000m"
+# docker_mem_limit scales with host RAM — replaces static group_vars overrides.
+docker_mem_limit: >-
+  {{ '10g' if ansible_memtotal_mb | default(0) | int > 12000
+     else '6g' if ansible_memtotal_mb | default(0) | int > 6000
+     else '3000m' }}
 docker_tz: "America/Chicago"
 docker_puid: "1000"
 docker_pgid: "1000"
@@ -63,5 +75,3 @@ docker_authentik_tag: "2025.12.4"
 docker_email_host: "smtp.gmail.com"
 docker_email_port: 587
 docker_dozzle_level: "info"
-docker_dozzle_remote_agent: "{{ vault_docker_dozzle_remote_agent }}"
-docker_dozzle_hostname: "Odyssey"

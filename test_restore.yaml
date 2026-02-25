@@ -248,6 +248,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/docker_vips.yaml
 
   tasks:
     - name: Wait for system boot to complete
@@ -359,6 +360,19 @@
       ansible.builtin.set_fact:
         _restore_test_failed: false
         _restore_test_detail: ""
+
+    - name: Clean CephFS appdata for fresh test
+      ansible.builtin.shell: |
+        find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+      when:
+        - hostvars['localhost']._vm.cephfs_host_dir is defined
+        - _test_mode | default(false)
+
+    - name: Ensure shared Docker network exists
+      community.docker.docker_network:
+        name: homelab
+        state: present
+      become: true
 
     - block:
         # ===== EXTRACT APPDATA FROM BACKUP =====

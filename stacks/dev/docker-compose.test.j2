@@ -1,9 +1,13 @@
-# Test-mode compose override — replaces NFS volumes with local empty dirs.
+# Test-mode compose override — replaces CephFS bind mounts and NFS with local empty dirs.
 # Applied automatically by deploy_single_stack.yaml when _test_mode is true.
-# code-server healthcheck (ls /workspace/odyssey /workspace/vps) passes:
+# code-server healthcheck (ls /workspace/core /workspace/apps /workspace/dev /workspace/vps) passes:
 # mountpoints exist as empty local dirs.
 volumes:
-  odyssey:
+  core:
+    driver: local
+  apps:
+    driver: local
+  dev:
     driver: local
   vps:
     driver: local
