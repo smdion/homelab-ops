@@ -29,7 +29,7 @@
         {% if target == _db_name %}
         docker exec {{ _db_container }} influx -execute "DROP DATABASE \"{{ _db_name }}\""
         {% endif %}
-        tar -I pigz -xf {{ _db_source_file }} -C {{ _db_tmp_dir }}
+        tar -I pigz --no-same-owner --no-same-permissions -xf {{ _db_source_file }} -C {{ _db_tmp_dir }}
         docker cp {{ _db_tmp_dir }}/backup_{{ _db_name }} {{ _db_container }}:/tmp/db_restore_{{ _db_name }}
         {% if target != _db_name %}
         docker exec {{ _db_container }} influxd restore -portable -database {{ _db_name }} -newdb {{ target }} /tmp/db_restore_{{ _db_name }}

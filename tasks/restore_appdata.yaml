@@ -33,7 +33,7 @@
     - not ansible_check_mode
 
 - name: Extract to staging (selective)
-  ansible.builtin.shell: tar -I pigz -xf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging "{{ _restore_extract_path }}"
+  ansible.builtin.shell: tar -I pigz --no-same-owner --no-same-permissions -xf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging "{{ _restore_extract_path }}"
   become: true
   when:
     - _restore_mode == 'staging'
@@ -41,7 +41,7 @@
     - not ansible_check_mode
 
 - name: Extract to staging (full)
-  ansible.builtin.shell: tar -I pigz -xf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging
+  ansible.builtin.shell: tar -I pigz --no-same-owner --no-same-permissions -xf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging
   become: true
   when:
     - _restore_mode == 'staging'
@@ -85,7 +85,7 @@
 
 # ===== INPLACE MODE =====
 - name: Extract inplace (selective)
-  ansible.builtin.shell: tar -I pigz -xf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C / "{{ _restore_extract_path }}"
+  ansible.builtin.shell: tar -I pigz --no-same-owner --no-same-permissions -xf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C / "{{ _restore_extract_path }}"
   become: true
   when:
     - _restore_mode == 'inplace'
@@ -93,7 +93,7 @@
     - not ansible_check_mode
 
 - name: Extract inplace (full)
-  ansible.builtin.shell: tar -I pigz -xf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C /
+  ansible.builtin.shell: tar -I pigz --no-same-owner --no-same-permissions -xf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C /
   become: true
   when:
     - _restore_mode == 'inplace'
