@@ -250,6 +250,11 @@
     - vars/vm_definitions.yaml
 
   tasks:
+    - name: Wait for system boot to complete
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 300
+
     - name: Check if Docker is installed
       ansible.builtin.command: docker --version
       register: _docker_check
