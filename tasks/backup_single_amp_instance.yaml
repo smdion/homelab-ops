@@ -72,10 +72,11 @@
     - name: Create compressed archive for {{ _amp_instance }}
       become: true
       ansible.builtin.shell: |
+        _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
         tar --ignore-failed-read \
             --exclude="{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Versions" \
             --exclude="{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Backups" \
-            -I 'pigz -1' -cf "{{ backup_tmp_dir }}/{{ _amp_archive_name }}" \
+            -I "$_gz -1" -cf "{{ backup_tmp_dir }}/{{ _amp_archive_name }}" \
             -C "{{ amp_home }}/.ampdata/instances" \
             "{{ _amp_instance }}"
       args:
