@@ -202,7 +202,8 @@
           include_tasks: tasks/verify_app_http.yaml
           vars:
             _health_check_urls:
-              - url: "{{ _r_health_url }}"
+              - name: "{{ restore_app }}"
+                url: "{{ _r_health_url }}"
                 status_code: "{{ _r_health_status | default('200') }}"
           when:
             - _r_health_url | default('') | length > 0
