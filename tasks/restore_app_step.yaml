@@ -101,7 +101,7 @@
     - name: Copy production DB backup to test VM staging — {{ _db_name_item }}
       ansible.builtin.copy:
         src: "{{ _db_archive_map[_db_name_item] }}"
-        dest: "/tmp/restore_{{ _test_app }}/{{ _db_name_item }}.sql.gz"
+        dest: "/tmp/restore_{{ _test_app }}/{{ _db_archive_map[_db_name_item] | basename }}"
       become: true
       loop: "{{ _cur_db_names | default([]) }}"
       loop_control:
@@ -120,7 +120,7 @@
         _db_container: "{{ db_container_name }}"
         _db_username: "{{ db_username }}"
         _db_password: "{{ db_password | default('') }}"
-        _db_source_file: "/tmp/restore_{{ _test_app }}/{{ _db_name_item }}.sql.gz"
+        _db_source_file: "/tmp/restore_{{ _test_app }}/{{ _db_archive_map[_db_name_item] | basename }}"
         _db_is_postgres: "{{ is_postgres | default(false) }}"
         _db_is_mariadb: "{{ is_mariadb | default(false) }}"
         _db_is_influxdb: "{{ is_influxdb | default(false) }}"
