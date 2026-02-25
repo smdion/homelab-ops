@@ -118,7 +118,7 @@
 
     - name: Find latest DB backup — {{ item }}
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql{,.gz} 2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
       loop: "{{ _all_test_db_names }}"
       register: _db_archive_results
       become: false
