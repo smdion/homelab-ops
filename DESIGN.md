@@ -398,7 +398,10 @@ Proxmox REST API, starts the VM, and waits for SSH. **Destroy** stops and remove
 **Snapshot** creates a named disk-only snapshot via the Proxmox REST API (no RAM state — fast and
 lightweight on Ceph). **Revert** stops the VM, rolls back to a named snapshot, restarts, and waits
 for SSH — ideal for iterative testing (e.g., snapshot after bootstrap, test restores, revert,
-repeat). Snapshot and revert require `-e snapshot_name=<name>`. VM definitions (VMID, IP, cores,
+repeat). **CephFS caveat**: PVE snapshots only revert the RBD disk. For CephFS-backed VMs, appdata
+on CephFS is not reverted — test playbooks explicitly clean CephFS state between runs
+(`find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +`). AMP (local RBD disk, no CephFS) is
+unaffected. Snapshot and revert require `-e snapshot_name=<name>`. VM definitions (VMID, IP, cores,
 memory, disk, target node) come from `vars/vm_definitions.yaml`, selected by `-e vm_name=<key>`.
 `pve_api_host` should be the cluster VIP (set by `setup_pve_vip.yaml`) — provisioning uses the
 cluster resources API to resolve which node the VM actually landed on, so node assignment is
@@ -2449,7 +2452,7 @@ Test Isolation VLAN (vault_test_vlan_id / vault_test_vlan_subnet)
   └── test-vm0..9
         ├── net0: vmbr0, tag=vault_test_vlan_id   (set by provision_vm.yaml)
         ├── IP: vault_test_vm_ip_prefix + offset   (in isolated subnet)
-        └── lo aliases: vault_vm_tantiveiv_ip, vault_vm_odyssey_ip
+        └── lo aliases: vault_vm_core_ip, vault_vm_apps_ip, vault_vm_dev_ip
               ↑ containers use hardcoded prod IPs → hit local Docker services, not prod
 
 Unifi firewall rules (LAN_IN):
@@ -2545,7 +2548,10 @@ All VMs in the pool share the same VMID and IP expressions. Definitions differ o
 
 The playbook:
 1. Provisions the VM if it doesn't exist (idempotent — resumes if VMID already exists from a prior partial run)
-2. Snapshots it (`pre-test-restore`), runs the restore, then reverts — leaving the VM ready for the next test
+2. Snapshots it (`pre-test-restore`), runs the restore, then reverts — leaving the VM ready for the next test.
+   For CephFS-backed VMs (`cephfs-migrate-test`), revert restores OS/Docker state but CephFS data
+   persists — test playbooks explicitly clean CephFS appdata before each run to replace the
+   clean-slate behavior that PVE revert provides for local-`/opt` VMs (`test-vm`).
 3. In `dr_mode=yes` mode, keeps the restored state (no revert) for real DR recovery
 
 **Do not use permanent VM keys** (`tantiveiv`, `odyssey`, `amp`) with `test_restore.yaml` — those
@@ -2634,7 +2640,9 @@ See `vars/secrets.yaml.example` for the full entry and setup reference.
 2. Writes the client keyring (INI format for CLI tools) to `{{ cephfs_keyring_path }}`
 3. Writes the raw mount secret (for kernel `secretfile=` option) to `.secret` alongside the keyring
 4. Writes a minimal `ceph.conf` with `mon_host` (suppresses DNS SRV fallback warning)
-5. Mounts CephFS at `/opt` via `ansible.posix.mount state: mounted` (adds fstab + mounts)
+5. Asserts that test VMs (those with `vm_vlan_tag`) do not mount production CephFS directories
+   (`cephfs_production_dirs` allowlist in `vars/vm_definitions.yaml`)
+6. Mounts CephFS at `/opt` via `ansible.posix.mount state: mounted` (adds fstab + mounts)
 
 A new VM's `/opt` is an empty CephFS subvolume — stacks deploy and immediately see any existing data.
 
@@ -2667,8 +2675,9 @@ Uses the same `test_restore.yaml` flow as regular restore testing — the only d
   at `/opt` automatically. Archives restore directly onto CephFS.
 - `test_restore.yaml` auto-creates the CephFS directory on the root filesystem (via PVE delegation)
   when `_vm.cephfs_host_dir` is defined — no manual prerequisite.
-- Snapshot revert restores the RBD disk (OS, Docker, fstab); CephFS data persists but gets
-  overwritten by the next archive restore.
+- Snapshot revert restores the RBD disk (OS, Docker, fstab); CephFS data persists. Test playbooks
+  explicitly wipe CephFS appdata before each run (`find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +`)
+  — overwriting alone can leave orphaned files from a previous run that the new restore doesn't touch.
 
 ### Verification
 

@@ -1,0 +1,26 @@
+# Keepalived VRRP config for Docker VM VIPs.
+# Each role gets a VIP — same pattern as the PVE cluster VIP (setup_pve_vip.yaml).
+#
+# Vault vars required:
+#   vault_core_vip               — floating VIP for core role VM
+#   vault_apps_vip               — floating VIP for apps role VM
+#   vault_dev_vip                — floating VIP for dev role VM
+#   vault_docker_vrrp_password   — shared VRRP auth password
+#   vault_docker_vrrp_priorities — dict: short hostname → integer priority (highest = MASTER)
+#   vault_vm_roles               — dict: FQDN → role (core, apps, dev)
+docker_vrrp_interface: "eth0"
+docker_vip_cidr: 24
+
+docker_vips:
+  core:
+    vrrp_router_id: 52
+    vrrp_instance: "DOCKER_CORE"
+    vip: "{{ vault_core_vip }}"
+  apps:
+    vrrp_router_id: 53
+    vrrp_instance: "DOCKER_APPS"
+    vip: "{{ vault_apps_vip }}"
+  dev:
+    vrrp_router_id: 54
+    vrrp_instance: "DOCKER_DEV"
+    vip: "{{ vault_dev_vip }}"

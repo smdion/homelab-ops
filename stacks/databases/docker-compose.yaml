@@ -11,12 +11,16 @@ x-envuid: &envuid
   <<:
   - *env
   - *uid
+networks:
+  homelab:
+    external: true
 services:
   mariadb:
     <<: *base
     container_name: mariadb
     image: lscr.io/linuxserver/mariadb
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
       - 3306:3306
     labels:
@@ -37,7 +41,8 @@ services:
     <<: *base
     container_name: postgres
     image: postgres:16-alpine
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
       - 5432:5432
     labels:
@@ -60,7 +65,8 @@ services:
     <<: *base
     container_name: adminer
     image: adminer
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
       - 8087:8080
     labels:

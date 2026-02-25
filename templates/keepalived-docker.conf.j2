@@ -1,0 +1,31 @@
+# Managed by Ansible — bootstrap_vm.yaml
+# VRRP instance: floating VIP for Docker VM role.
+# The node with the highest vault_docker_vrrp_priorities entry holds the VIP (MASTER).
+# All other nodes are BACKUP and take over in priority order on failure.
+# With a single VM per role today, each VM is always MASTER.
+#
+# To check status: keepalived -t  (config test)  or  ip addr show {{ docker_vrrp_interface }}
+# To see current state: journalctl -u keepalived -f
+{% set _role = vault_vm_roles[inventory_hostname] %}
+{% set _vip_config = docker_vips[_role] %}
+{% set _node = inventory_hostname.split('.')[0] %}
+{% set my_priority = vault_docker_vrrp_priorities[_node] | default(50) %}
+{% set max_priority = vault_docker_vrrp_priorities.values() | list | max %}
+
+vrrp_instance {{ _vip_config.vrrp_instance }} {
+    state {{ 'MASTER' if my_priority == max_priority else 'BACKUP' }}
+    interface {{ docker_vrrp_interface }}
+    virtual_router_id {{ _vip_config.vrrp_router_id }}
+    priority {{ my_priority }}
+    advert_int 1
+    preempt_delay 30
+
+    authentication {
+        auth_type PASS
+        auth_pass {{ vault_docker_vrrp_password }}
+    }
+
+    virtual_ipaddress {
+        {{ _vip_config.vip }}/{{ docker_vip_cidr }}
+    }
+}

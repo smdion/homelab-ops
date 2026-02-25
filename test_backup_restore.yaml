@@ -208,6 +208,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/docker_vips.yaml
 
   tasks:
     - name: Check if Docker is installed
@@ -297,6 +298,12 @@
       ansible.builtin.set_fact:
         _stack_archive_map: "{{ hostvars['localhost']._stack_archive_map }}"
         _db_archive_map: "{{ hostvars['localhost']._db_archive_map | default({}) }}"
+
+    - name: Clean CephFS appdata for fresh test
+      ansible.builtin.shell: |
+        find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+      when:
+        - hostvars['localhost']._vm.cephfs_host_dir is defined
 
     - name: Initialize app restore results
       ansible.builtin.set_fact:

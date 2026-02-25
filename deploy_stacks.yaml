@@ -19,6 +19,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/{{ config_file }}.yaml
+    - vars/docker_vips.yaml
     - vars/semaphore_check.yaml
   vars:
     config_file: "{{ hosts_variable }}"
@@ -30,12 +31,20 @@
     - name: Assert config_file is defined and non-empty
       include_tasks: tasks/assert_config_file.yaml
 
+    - name: Assert host has a role assignment
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname in vault_vm_roles
+        fail_msg: >-
+          {{ inventory_hostname }} is not in vault_vm_roles. Add a role mapping
+          (e.g. vault_vm_roles: { {{ inventory_hostname }}: core }) before deploying.
+
     - name: Assert host has stack assignments
       ansible.builtin.assert:
         that: inventory_hostname in stack_assignments
         fail_msg: >-
           No stack_assignments entry for {{ inventory_hostname }}.
-          Add it to vars/docker_stacks.yaml.
+          Check vault_vm_roles and stack_roles in vars/docker_stacks.yaml.
       when: deploy_stack | default('') | length == 0
 
     - name: Assert sufficient disk space on target
@@ -62,6 +71,12 @@
         _deploy_stacks: >-
           {{ [deploy_stack] if deploy_stack | default('') | length > 0
              else stack_assignments[inventory_hostname] }}
+
+    - name: Ensure shared Docker network exists
+      community.docker.docker_network:
+        name: homelab
+        state: present
+      become: true
 
     - block:
         - name: Check for port conflicts across stacks

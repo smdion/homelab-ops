@@ -27,12 +27,13 @@ services:
       PROXY_DOMAIN: ${CODESERVER_PROXY_DOMAIN}
       DEFAULT_WORKSPACE: ${CODESERVER_DEFAULT_WORKSPACE}
     volumes:
-    - odyssey:/workspace/odyssey
+    - core:/workspace/core
+    - apps:/workspace/apps
+    - dev:/workspace/dev
     - vps:/workspace/vps
-    - ${APPSDIR}/:/workspace/tantive-iv
     - ${APPSDIR}/code-server:/config
     healthcheck:
-      test: ["CMD-SHELL", "ls /workspace/odyssey /workspace/vps > /dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "ls /workspace/core /workspace/apps /workspace/dev /workspace/vps > /dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -54,8 +55,10 @@ services:
       - ${APPSDIR}/netboot/config:/config
       - ${APPSDIR}/netboot/assets:/assets
 volumes:
-  # NFS driver_opts (addr=...) are deployment-specific — defined via vault in
-  # docker-compose.override.j2, which deploy_stacks.yaml templates to
-  # docker-compose.override.yaml on the host. See DESIGN.md for details.
-  odyssey:
+  # CephFS bind mounts (core, apps, dev) and VPS NFS are deployment-specific —
+  # defined via vault/fstab in docker-compose.override.j2, which deploy_stacks.yaml
+  # templates to docker-compose.override.yaml on the host. See DESIGN.md for details.
+  core:
+  apps:
+  dev:
   vps:
