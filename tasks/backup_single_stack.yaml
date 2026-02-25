@@ -2,9 +2,10 @@
 # Back up a single Docker Compose stack's appdata.
 # Called in a loop from backup_hosts.yaml with loop_var: _backup_stack.
 #
-# Stops the stack, archives its appdata + compose dir, verifies integrity,
-# starts the stack, and records the result. On failure the stack is restarted
-# and the failure is recorded (not re-raised — caller checks _stack_backup_results).
+# Stops the stack, archives its appdata + compose dir, restarts the stack,
+# then fetches the archive to the controller (stack is back online during transfer).
+# On failure the stack is restarted and the failure is recorded
+# (not re-raised — caller checks _stack_backup_results).
 #
 # Required (from caller scope):
 #   _backup_stack         — stack name (e.g. 'auth', 'vpn')
@@ -38,6 +39,20 @@
       changed_when: false
       check_mode: false
 
+    - name: Discover backup excludes from container labels for {{ _backup_stack }}
+      become: true
+      ansible.builtin.shell: |
+        ids=$(docker ps -a -q \
+          --filter "label=com.docker.compose.project={{ _backup_stack }}" \
+          --filter "label=homelab.backup.exclude")
+        [ -z "$ids" ] && exit 0
+        echo "$ids" | xargs docker inspect \
+          --format '{% raw %}{{index .Config.Labels "homelab.backup.exclude"}}{% endraw %}' \
+          | tr ',' '\n' | sed '/^$/d' | sort -u
+      register: _label_backup_excludes
+      changed_when: false
+      check_mode: false
+
     - name: Compute archive paths for {{ _backup_stack }}
       ansible.builtin.set_fact:
         _backup_archive_paths: >-
@@ -60,24 +75,33 @@
 
     - name: Create compressed archive for {{ _backup_stack }}
       become: true
-      community.general.archive:
-        path: "{{ _validated_archive_paths }}"
-        dest: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
-        format: gz
-        remove: false
+      ansible.builtin.shell: >
+        tar -I 'pigz -1' -cf "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
+        {% for excl in (_label_backup_excludes.stdout_lines | default([]) | reject('eq', '') | list) %}
+        --exclude='{{ excl }}'
+        {% endfor %}
+        -C /
+        {{ _validated_archive_paths | map('regex_replace', '^/', '') | join(' ') }}
       timeout: "{{ stack_backup_timeout | default(1800) }}"
-
-    - name: Verify archive integrity for {{ _backup_stack }}
-      become: true
-      ansible.builtin.shell: gunzip -t "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
-      changed_when: false
-      check_mode: false
 
     - name: Get archive file size for {{ _backup_stack }}
       ansible.builtin.stat:
         path: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
       register: _stack_file_size
       changed_when: false
+
+    - name: Start {{ _backup_stack }} stack (reduce downtime during fetch)
+      include_tasks: tasks/docker_start.yaml
+      vars:
+        _docker_selective_stacks: ["{{ _backup_stack }}"]
+        _docker_ignore_errors: true
+
+    - name: Delete stale archive on controller for {{ _backup_stack }}
+      ansible.builtin.file:
+        path: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _stack_archive_name }}"
+        state: absent
+      delegate_to: localhost
+      become: false
 
     - name: Fetch {{ _backup_stack }} archive to controller
       ansible.builtin.fetch:

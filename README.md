@@ -30,6 +30,7 @@ visibility.
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
 | **Deploy** | Docker stacks from Git — templates `.env` from vault, copies compose files, validates, and starts stacks in dependency order; Grafana dashboard + datasource via API with automatic threshold syncing |
 | **Build** | Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH hardening, UFW firewall; create, destroy, snapshot, or revert |
+| **CephFS Migration** | Move Docker appdata from local RBD disk to CephFS shared storage — data survives VM destruction; PVE snapshot safety net with auto-rollback on failure |
 | **Test Restore** | End-to-end DR simulation on a disposable Proxmox VM — restores a source host's full appdata, deploys all stacks, verifies container health, reverts to clean state; `dr_mode=yes` keeps the restored state for real DR recovery |
 | **Test Backup Restore** | Per-app backup integrity test on a disposable VM — deploys stacks fresh, then for each app: stops the stack, restores DB + appdata from the backup archive, restarts, and asserts HTTP health; OOM auto-recovery doubles VM RAM and retries |
 
@@ -121,8 +122,10 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
 | `maintain_pve.yaml` | Proxmox + PBS | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; VM snapshot staleness check (>14d Discord warning); PBS backup task error check (last 2 days via `proxmox-backup-manager`); Discord + MariaDB logging |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
-| `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=yes`) keeps restored state |
+| `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=yes`) keeps restored state; `vm_name=cephfs-migrate-test` tests CephFS-backed `/opt` |
 | `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_info` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope |
+| `migrate_appdata_to_cephfs.yaml` | Proxmox + CephFS | One-shot migration of `/opt` from local RBD to CephFS — PVE snapshot safety net, rsync, remount, auto-rollback on failure; requires `-e vm_name=<key> -e confirm=yes` |
+| `verify_cephfs.yaml` | Proxmox + CephFS | Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires `-e vm_name=<key>` |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
 > **unRAID — Fix Common Problems:** If you have the [Fix Common Problems](https://forums.unraid.net/topic/47266-plugin-ca-fix-common-problems/) plugin installed, it will raise an alert when `setup_ansible_user.yaml` adds the `ansible` user via SSH. This is expected behaviour — the plugin flags any new SSH-capable user as a potential security concern. You can safely acknowledge and suppress the alert once you've verified the key and confirmed the user was added intentionally.
@@ -199,8 +202,10 @@ for platforms you don't have are automatically skipped.
 ├── download_videos.yaml         # MeTube/yt-dlp automation
 ├── deploy_stacks.yaml           # Docker stack deploy from Git — .env templating, compose copy, validate, start
 ├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
-├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks)
+├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks); vm_name=cephfs-migrate-test tests CephFS-backed /opt
 ├── test_backup_restore.yaml        # Test all app_info apps on disposable VM — per-app restore from backup archives, OOM recovery, Discord summary
+├── migrate_appdata_to_cephfs.yaml  # One-shot /opt migration to CephFS with PVE snapshot safety net
+├── verify_cephfs.yaml           # Verify CephFS mount — checks mount source, writes/reads marker file
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
 ├── setup_ansible_user.yaml      # One-time user setup utility
 ├── setup_pve_vip.yaml           # One-time keepalived VIP setup on PVE nodes

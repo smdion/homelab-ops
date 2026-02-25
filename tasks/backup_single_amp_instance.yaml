@@ -3,8 +3,8 @@
 # Called in a loop from backup_hosts.yaml with loop_var: _amp_instance.
 #
 # Stops the instance, archives its data dir (excluding re-downloadable Versions/),
-# verifies integrity, starts the instance, and records the result.
-# On failure the instance is restarted and the failure recorded
+# restarts the instance, then fetches to controller (instance is back online during
+# transfer). On failure the instance is restarted and the failure recorded
 # (not re-raised — caller checks _amp_backup_results).
 # Instances that were offline before backup are not started afterward.
 #
@@ -75,7 +75,7 @@
         tar --ignore-failed-read \
             --exclude="{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Versions" \
             --exclude="{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}/Backups" \
-            -czf "{{ backup_tmp_dir }}/{{ _amp_archive_name }}" \
+            -I 'pigz -1' -cf "{{ backup_tmp_dir }}/{{ _amp_archive_name }}" \
             -C "{{ amp_home }}/.ampdata/instances" \
             "{{ _amp_instance }}"
       args:
@@ -85,17 +85,30 @@
       failed_when: _amp_tar.rc > 1  # rc=1 = files changed/removed during shutdown (expected); rc=2 = fatal
       timeout: "{{ amp_backup_timeout | default(1800) }}"
 
-    - name: Verify archive integrity for {{ _amp_instance }}
-      become: true
-      ansible.builtin.shell: gunzip -t "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
-      changed_when: false
-      check_mode: false
-
     - name: Get archive file size for {{ _amp_instance }}
       ansible.builtin.stat:
         path: "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
       register: _amp_file_size
       changed_when: false
+
+    - name: Start AMP instance {{ _amp_instance }} (reduce downtime during fetch)
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.shell: ampinstmgr StartInstance {{ _amp_instance }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+      ignore_errors: true
+      when: _amp_was_running | default(false)
+
+    - name: Delete stale archive on controller for {{ _amp_instance }}
+      ansible.builtin.file:
+        path: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _amp_archive_name }}"
+        state: absent
+      delegate_to: localhost
+      become: false
 
     - name: Fetch {{ _amp_instance }} archive to controller
       ansible.builtin.fetch:
