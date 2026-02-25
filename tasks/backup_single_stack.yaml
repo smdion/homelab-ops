@@ -39,6 +39,20 @@
       changed_when: false
       check_mode: false
 
+    - name: Discover backup excludes from container labels for {{ _backup_stack }}
+      become: true
+      ansible.builtin.shell: |
+        ids=$(docker ps -a -q \
+          --filter "label=com.docker.compose.project={{ _backup_stack }}" \
+          --filter "label=homelab.backup.exclude")
+        [ -z "$ids" ] && exit 0
+        echo "$ids" | xargs docker inspect \
+          --format '{% raw %}{{index .Config.Labels "homelab.backup.exclude"}}{% endraw %}' \
+          | tr ',' '\n' | sed '/^$/d' | sort -u
+      register: _label_backup_excludes
+      changed_when: false
+      check_mode: false
+
     - name: Compute archive paths for {{ _backup_stack }}
       ansible.builtin.set_fact:
         _backup_archive_paths: >-
@@ -63,6 +77,9 @@
       become: true
       ansible.builtin.shell: >
         tar -I 'pigz -1' -cf "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
+        {% for excl in (_label_backup_excludes.stdout_lines | default([]) | reject('eq', '') | list) %}
+        --exclude='{{ excl }}'
+        {% endfor %}
         -C /
         {{ _validated_archive_paths | map('regex_replace', '^/', '') | join(' ') }}
       timeout: "{{ stack_backup_timeout | default(1800) }}"

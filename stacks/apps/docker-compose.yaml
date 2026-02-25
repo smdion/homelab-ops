@@ -29,6 +29,7 @@ services:
     - 8123:8123
     labels:
       homelab.backup.paths: "/opt/home_assistant"
+      homelab.backup.exclude: ".cache,deps,__pycache__"
       homelab.health_timeout: "150"
     volumes:
     - ${APPSDIR}/home_assistant/:/config
