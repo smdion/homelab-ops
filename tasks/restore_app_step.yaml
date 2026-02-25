@@ -99,9 +99,13 @@
         _docker_selective_stacks: ["{{ _cur_stack }}"]
 
     - name: Copy production DB backup to test VM staging — {{ _db_name_item }}
-      ansible.builtin.copy:
+      ansible.builtin.synchronize:
         src: "{{ _db_archive_map[_db_name_item] }}"
         dest: "/tmp/restore_{{ _test_app }}/{{ _db_archive_map[_db_name_item] | basename }}"
+        compress: false
+        rsync_opts:
+          - "--timeout=1800"
+          - "--whole-file"
       become: true
       loop: "{{ _cur_db_names | default([]) }}"
       loop_control:
