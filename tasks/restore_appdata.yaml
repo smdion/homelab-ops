@@ -17,6 +17,9 @@
   ansible.builtin.synchronize:
     src: "{{ _restore_archive_path }}"
     dest: "{{ backup_tmp_dir }}/restore_{{ _restore_mode }}.tar.gz"
+    compress: false
+    rsync_opts:
+      - "--timeout=1800"
   when: not ansible_check_mode
 
 # ===== STAGING MODE =====
