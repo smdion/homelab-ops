@@ -9,7 +9,10 @@
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn>
 #
 #   # Test restore on CephFS-backed /opt (auto-creates CephFS dir + mounts during bootstrap)
-#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e source_host=<controller-fqdn>
+#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e source_host=<role-fqdn>
+#
+#   # Restore from old hostname backups after host rename (backup_source overrides archive path)
+#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e source_host=apps.example.com -e backup_source=odyssey.example.com
 #
 #   # Test single app restore
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e restore_app=authentik
@@ -24,6 +27,11 @@
 #   vm_name      — ephemeral VM key from vm_definitions (use "test-vm" for local /opt, or
 #                  "cephfs-migrate-test" for CephFS-backed /opt). Do NOT use permanent VM keys.
 #   source_host  — inventory_hostname of source host in stack_assignments
+#
+# Optional extra vars:
+#   backup_source — hostname whose backup directory to restore from (defaults to source_host).
+#                   Useful when stack_assignments keys differ from the backup directory names
+#                   (e.g. after renaming hosts: -e source_host=apps.example.com -e backup_source=odyssey.example.com).
 #
 # VM lifecycle (provision_vm.yaml is idempotent):
 #   - If the VMID doesn't exist, the VM is provisioned from the cloud-init template
@@ -95,6 +103,7 @@
     - name: Resolve VM and stack configuration
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
+        _backup_source: "{{ backup_source | default(source_host) }}"
         _stacks: >-
           {{ [deploy_stack] if deploy_stack | default('') | length > 0
              else stack_assignments[source_host] }}
@@ -136,7 +145,7 @@
     # mount (e.g. via group_add: 100 for the users group on unRAID).
     - name: Find per-stack backup archives for source host
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _stacks }}"
       register: _per_stack_archives
       become: false
@@ -149,7 +158,7 @@
 
     - name: Fall back to monolithic archive
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_*.tar.gz 2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_*.tar.gz 2>/dev/null | head -1
       register: _monolithic_archive
       become: false
       changed_when: false
@@ -166,7 +175,7 @@
     - name: Assert backup archives exist
       ansible.builtin.assert:
         that: _archive_files | length > 0
-        fail_msg: "No backup archives found for {{ source_host }}"
+        fail_msg: "No backup archives found for {{ _backup_source }}"
 
     - name: Verify archive integrity
       ansible.builtin.shell: gunzip -t "{{ item }}"
