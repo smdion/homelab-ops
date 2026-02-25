@@ -64,6 +64,64 @@
   ansible.builtin.set_fact:
     _vm_already_exists: "{{ _cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0 }}"
 
+# --- Auto-advance slot if selected VMID is currently running ---
+# Applies to any VM in the test pool (vm_test_slot_base to slot_base+count-1).
+# Named VMs outside that range are not auto-advanced.
+- name: Auto-advance slot if selected VMID is running
+  when: >-
+    _vm_already_exists | bool and
+    (_vm.vm_id | int) >= (vm_test_slot_base | int) and
+    (_vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int) and
+    (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int)
+     | selectattr('status', 'equalto', 'running') | list | length > 0)
+  block:
+    - name: Assert a free slot exists
+      ansible.builtin.assert:
+        that: >-
+          (range(vm_test_slot_base | int, (vm_test_slot_base + vm_test_slot_count) | int) | list)
+          | difference(
+              _cluster_vms.json.data
+              | selectattr('status', 'equalto', 'running')
+              | map(attribute='vmid') | map('int') | list
+            ) | length > 0
+        fail_msg: >-
+          VMID {{ _vm.vm_id }} ({{ _vm.vm_name }}) is running and all slots
+          (VMIDs {{ vm_test_slot_base }}–{{ vm_test_slot_base + vm_test_slot_count - 1 }})
+          are also running. Stop a slot first, or pass vm_index= explicitly.
+
+    - name: Resolve next free VMID
+      ansible.builtin.set_fact:
+        _next_free_vmid: >-
+          {{ ((range(vm_test_slot_base | int, (vm_test_slot_base + vm_test_slot_count) | int) | list)
+              | difference(
+                  _cluster_vms.json.data
+                  | selectattr('status', 'equalto', 'running')
+                  | map(attribute='vmid') | map('int') | list
+                ) | map('int') | sort | first) | int }}
+
+    - name: Compute new slot index
+      ansible.builtin.set_fact:
+        _new_vm_index: "{{ (_next_free_vmid | int) - (vm_test_slot_base | int) }}"
+
+    - name: Update _vm to next free slot
+      ansible.builtin.set_fact:
+        vm_index: "{{ _new_vm_index }}"
+        _vm: >-
+          {{ _vm | combine({
+            'vm_id': _next_free_vmid | int,
+            'vm_name': (_vm.vm_name | regex_replace('[0-9]+$', '')) ~ _new_vm_index,
+            'vm_hostname': (_vm.vm_name | regex_replace('[0-9]+$', '')) ~ _new_vm_index ~ (_vm.vm_hostname | regex_replace('^[^.]+', '')),
+            'vm_ip': vault_test_vm_ip_prefix ~ (((vault_test_vm_ip_offset | int) + (_new_vm_index | int)) | string)
+          }) }}
+        _vm_already_exists: >-
+          {{ _cluster_vms.json.data | selectattr('vmid', 'equalto', _next_free_vmid | int) | list | length > 0 }}
+
+    - name: Show auto-advanced slot
+      ansible.builtin.debug:
+        msg: >-
+          Auto-advanced to vm_index={{ _new_vm_index }}
+          (VMID {{ _vm.vm_id }}, IP {{ _vm.vm_ip }}) — previous slot was running.
+
 # --- Clone, configure, resize, start —
 #     grouped block: rescue fires on any step failure with a debug hint ---
 - block:
@@ -117,6 +175,7 @@
         api_token_secret: "{{ pve_api_token_secret }}"
         node: "{{ _vm_actual_node }}"
         vmid: "{{ _vm.vm_id }}"
+        name: "{{ _vm.vm_name }}"
         cores: "{{ _vm.vm_cores }}"
         memory: "{{ _vm.vm_memory_mb }}"
         agent: "enabled=1"
@@ -130,19 +189,24 @@
         update: true
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-    # Stop VM if running before resize (resize requires stopped state)
-    - name: Stop VM if running before resize
-      community.general.proxmox_kvm:
-        api_host: "{{ pve_api_host }}"
-        api_user: "{{ pve_api_user }}"
-        api_token_id: "{{ pve_api_token_id }}"
-        api_token_secret: "{{ pve_api_token_secret }}"
-        node: "{{ _vm_actual_node }}"
-        vmid: "{{ _vm.vm_id }}"
-        state: stopped
-        force: true
+    # Verify cloud-init IP was applied before starting (fail fast, not after 5-min SSH timeout)
+    - name: Read back VM config to verify cloud-init IP
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _vm_config_check
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: _vm_already_exists
+
+    - name: Assert cloud-init IP matches expected
+      ansible.builtin.assert:
+        that: "'ip=' ~ _vm.vm_ip in (_vm_config_check.json.data.ipconfig0 | default(''))"
+        fail_msg: >-
+          cloud-init ipconfig0 does not contain expected IP {{ _vm.vm_ip }}.
+          Actual: {{ _vm_config_check.json.data.ipconfig0 | default('not set') }}
+          Check that vault_test_vm_ip_prefix and vault_test_vm_ip_offset resolve to a valid subnet IP.
 
     # Resize disk from cloud image (~3.5G) to target size
     - name: Resize VM disk
@@ -185,12 +249,24 @@
         state: started
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-    - name: Wait for SSH
+    - name: Assert SSH port reachable (firewall check)
       ansible.builtin.wait_for:
         host: "{{ _vm.vm_ip }}"
         port: 22
         delay: 10
-        timeout: 300
+        timeout: 30
+        msg: >-
+          Port 22 unreachable on {{ _vm.vm_ip }} after 30s — likely a firewall issue.
+          Check that the controller IP is permitted to reach {{ _vm.vm_ip }}:22
+          (e.g. Unifi zone policy allowing Semaphore IP to test VLAN, or UFW on the VM).
+      when: not ansible_check_mode
+
+    - name: Wait for SSH
+      ansible.builtin.wait_for:
+        host: "{{ _vm.vm_ip }}"
+        port: 22
+        delay: 0
+        timeout: 270
       when: not ansible_check_mode
 
     - name: Set VM IP fact

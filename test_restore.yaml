@@ -5,8 +5,11 @@
 # Also serves as a DR recovery tool via -e dr_mode=yes.
 #
 # Usage:
-#   # Test controller's full stack
+#   # Test controller's full stack (local /opt)
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn>
+#
+#   # Test restore on CephFS-backed /opt (auto-creates CephFS dir + mounts during bootstrap)
+#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e source_host=<controller-fqdn>
 #
 #   # Test single app restore
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e restore_app=authentik
@@ -18,8 +21,8 @@
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e dr_mode=yes
 #
 # Required extra vars:
-#   vm_name      — ephemeral VM key from vm_definitions (use "test-vm"; pass vm_index=0..9 for
-#                  parallel runs). Do NOT use permanent VM keys (tantiveiv, odyssey, amp).
+#   vm_name      — ephemeral VM key from vm_definitions (use "test-vm" for local /opt, or
+#                  "cephfs-migrate-test" for CephFS-backed /opt). Do NOT use permanent VM keys.
 #   source_host  — inventory_hostname of source host in stack_assignments
 #
 # VM lifecycle (provision_vm.yaml is idempotent):
@@ -87,7 +90,7 @@
   tasks:
     - name: Auto-detect free vm_index for test-vm pool
       include_tasks: tasks/resolve_test_vm_index.yaml
-      when: vm_name == 'test-vm'
+      when: vm_name in ['test-vm', 'cephfs-migrate-test']
 
     - name: Resolve VM and stack configuration
       ansible.builtin.set_fact:
@@ -95,6 +98,38 @@
         _stacks: >-
           {{ [deploy_stack] if deploy_stack | default('') | length > 0
              else stack_assignments[source_host] }}
+
+    # ===== AUTO-CREATE CEPHFS DIR (when vm has cephfs_host_dir) =====
+    - name: Add PVE host to in-memory inventory (for CephFS dir creation)
+      ansible.builtin.add_host:
+        name: pve_builder
+        ansible_host: "{{ pve_api_host }}"
+        ansible_user: ansible
+      when: _vm.cephfs_host_dir is defined
+
+    - name: Ensure CephFS host directory exists on CephFS root
+      ansible.builtin.shell: |
+        set -e
+        MOUNT_DIR=$(mktemp -d)
+        ADMIN_KEY=$(ceph auth print-key client.admin)
+        mount -t ceph {{ vault_ceph_mons }}:/ "$MOUNT_DIR" \
+          -o "name=admin,secret=${ADMIN_KEY}"
+        if [ -d "$MOUNT_DIR/{{ _vm.cephfs_host_dir }}" ]; then
+          echo "exists"
+        else
+          mkdir "$MOUNT_DIR/{{ _vm.cephfs_host_dir }}"
+          echo "created"
+        fi
+        umount "$MOUNT_DIR"
+        rmdir "$MOUNT_DIR"
+      args:
+        executable: /bin/bash
+      delegate_to: pve_builder
+      become: true
+      register: _cephfs_dir_result
+      changed_when: "'created' in _cephfs_dir_result.stdout"
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _vm.cephfs_host_dir is defined
 
     # ===== FIND BACKUP ARCHIVES =====
     # Requires the container user to have read access to the /backup/ bind
@@ -209,12 +244,20 @@
 - name: Bootstrap test VM
   hosts: test_target
   become: true
-  gather_facts: true
+  gather_facts: false
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
 
   tasks:
+    - name: Wait for system boot to complete
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 300
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
     - name: Check if Docker is installed
       ansible.builtin.command: docker --version
       register: _docker_check

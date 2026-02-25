@@ -21,6 +21,11 @@
 #   vault_test_vm_ip_prefix    — first 3 octets of test VM IPs (update to isolated subnet, e.g. "192.168.88.")
 pve_api_host: "{{ vault_pve_vip }}"
 pve_storage: "replicated"
+
+# CephFS shared appdata — mounted at /opt on eligible VMs (cephfs_host_dir defined).
+# Credentials in vault: vault_ceph_mons, vault_ceph_vm_appdata_key
+cephfs_client_name: "vm-appdata"
+cephfs_keyring_path: "/etc/ceph/ceph.client.vm-appdata.keyring"
 pve_bridge: "vmbr0"
 vm_user: "ansible"
 vm_gateway: "{{ vault_vm_gateway }}"
@@ -39,6 +44,13 @@ pve_cloud_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server
 vm_template_memory: 2048
 vm_template_cores: 2
 
+# Test VM slot pool — used by test-vm (and any future slot-based VMs).
+# VMIDs: vm_test_slot_base .. vm_test_slot_base + vm_test_slot_count - 1
+# IPs:   vault_test_vm_ip_prefix + (vault_test_vm_ip_offset + vm_index)
+# To extend the pool or shift the VMID range, change these two values only.
+vm_test_slot_base: 500
+vm_test_slot_count: 10
+
 # vm_definitions: keyed by short name (used as vm_name arg and in stack_assignments).
 # Per-VM sensitive values (hostname, IP, PVE target node) come from vault:
 #   vault_vm_<name>_hostname  — FQDN for cloud-init hostname and Ansible inventory
@@ -46,34 +58,35 @@ vm_template_cores: 2
 #   vault_vm_<name>_node      — PVE node to place this VM on
 #
 # test-vm uses a dedicated IP range to avoid updating secrets per build.
-# Pass vm_index=0..9 (default 0) to select a slot:
+# Pass vm_index=0..vm_test_slot_count-1 (default 0) to select a slot:
 #   vault_test_vm_ip_prefix   — first 3 octets with trailing dot (e.g. "10.10.10.")
 #   vault_test_vm_ip_offset   — last octet of the first slot (e.g. 90)
 # Resulting IPs: <prefix><offset+vm_index>  (e.g. 192.0.2.90 .. 192.0.2.99)
-# VMIDs: 199+vm_index (199..208). VM names: test-vm0..test-vm9.
 vm_definitions:
   tantiveiv:
-    vm_id: 100
+    vm_id: 104
     vm_name: tantive-iv
     vm_hostname: "{{ vault_vm_tantiveiv_hostname }}"
     vm_ip: "{{ vault_vm_tantiveiv_ip }}"
     vm_cores: 4
-    vm_memory_mb: 12288
-    vm_disk_gb: 200
+    vm_memory_mb: 24576
+    vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_tantiveiv_node }}"
+    cephfs_host_dir: "tantive-iv"    # mounts /tantive-iv from CephFS root at /opt
 
   odyssey:
-    vm_id: 101
+    vm_id: 105
     vm_name: odyssey
     vm_hostname: "{{ vault_vm_odyssey_hostname }}"
     vm_ip: "{{ vault_vm_odyssey_ip }}"
-    vm_cores: 2
-    vm_memory_mb: 4096
-    vm_disk_gb: 100
+    vm_cores: 4
+    vm_memory_mb: 24576
+    vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_odyssey_node }}"
+    cephfs_host_dir: "odyssey"       # mounts /odyssey from CephFS root at /opt
 
   amp:
-    vm_id: 102
+    vm_id: 110
     vm_name: amp
     vm_hostname: "{{ vault_vm_amp_hostname }}"
     vm_ip: "{{ vault_vm_amp_ip }}"
@@ -82,8 +95,27 @@ vm_definitions:
     vm_disk_gb: 100
     pve_target_node: "{{ vault_vm_amp_node }}"
 
+  # VM for testing restore on CephFS-backed /opt (test_restore.yaml -e vm_name=cephfs-migrate-test).
+  # Draws a slot from the same test-vm pool via resolve_test_vm_index.yaml (no fixed VMID).
+  # Same test VLAN isolation as test-vm — CephFS monitor access via "Allow Test to Ceph" zone policy
+  # (setup_test_network.yaml, ports 3300/6789/6800-7300). No ip_aliases (no prod-IP routing needed).
+  # Prerequisites: none — test_restore.yaml auto-creates /cephfs-migrate-test on CephFS root.
+  cephfs-migrate-test:
+    vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
+    vm_name: "cephfs-migrate-test{{ vm_index | default(0) | int }}"
+    vm_hostname: "cephfs-migrate-test{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
+    vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
+    vm_cores: 4
+    vm_memory_mb: 24576
+    vm_disk_gb: 50
+    pve_target_node: "{{ vm_node | default(pve_template_node) }}"
+    vm_gateway: "{{ vault_test_vlan_gateway }}"   # isolated VLAN gateway (overrides global vm_gateway)
+    vm_dns: "8.8.8.8,8.8.4.4"                    # public DNS (prod DNS unreachable from isolated VLAN)
+    vm_vlan_tag: "{{ vault_test_vlan_id }}"       # same test isolation as test-vm
+    cephfs_host_dir: "cephfs-migrate-test"  # auto-created by test_restore.yaml if missing
+
   test-vm:
-    vm_id: "{{ (199 + (vm_index | default(0) | int)) | int }}"
+    vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
     vm_name: "test-vm{{ vm_index | default(0) | int }}"
     vm_hostname: "test-vm{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
@@ -115,6 +147,10 @@ vm_definitions:
 #   ip_aliases:                          # IPs to alias on loopback (for test VMs with VLAN isolation)
 #     - "192.0.2.50"                     # containers reaching this IP hit the local VM instead of prod
 #     - "192.0.2.51"                     # persisted via netplan; survives reboots and OOM recovery
+#
+#   cephfs_host_dir: "hostname"          # if defined, mounts /<dir> from CephFS root at /opt
+#                                        # omit for test-vm (snapshots don't revert CephFS data)
+#                                        # omit for amp (game server I/O sensitivity)
 #
 # Optional per-VM provision fields (used by tasks/provision_vm.yaml when defined):
 #
