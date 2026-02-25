@@ -25,10 +25,19 @@
         {% if _db_is_postgres | default(false) | bool %}
         docker exec {{ _db_container }} psql -U {{ _db_username }} -tc "SELECT 1 FROM pg_database WHERE datname='{{ target }}'" postgres | grep -q 1 \
           || docker exec {{ _db_container }} psql -U {{ _db_username }} -c 'CREATE DATABASE "{{ target }}";' postgres
-        $_decompress {{ _db_source_file }} | docker exec -i {{ _db_container }} psql -U {{ _db_username }} "{{ target }}"
+        # Copy decompressed SQL into container, then run psql on it (avoids docker exec -i pipe hang)
+        $_decompress {{ _db_source_file }} > /tmp/_db_restore_{{ target }}.sql
+        docker cp /tmp/_db_restore_{{ target }}.sql {{ _db_container }}:/tmp/_db_restore.sql
+        docker exec {{ _db_container }} psql -U {{ _db_username }} -f /tmp/_db_restore.sql "{{ target }}"
+        docker exec {{ _db_container }} rm -f /tmp/_db_restore.sql
+        rm -f /tmp/_db_restore_{{ target }}.sql
         {% elif _db_is_mariadb | default(false) | bool %}
         docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysql -u {{ _db_username }} -e "CREATE DATABASE IF NOT EXISTS \`{{ target }}\`;"
-        $_decompress {{ _db_source_file }} | docker exec -i -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysql -u {{ _db_username }} {{ target }}
+        $_decompress {{ _db_source_file }} > /tmp/_db_restore_{{ target }}.sql
+        docker cp /tmp/_db_restore_{{ target }}.sql {{ _db_container }}:/tmp/_db_restore.sql
+        docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} sh -c 'mysql -u {{ _db_username }} {{ target }} < /tmp/_db_restore.sql'
+        docker exec {{ _db_container }} rm -f /tmp/_db_restore.sql
+        rm -f /tmp/_db_restore_{{ target }}.sql
         {% elif _db_is_influxdb | default(false) | bool %}
         {% if target == _db_name %}
         docker exec {{ _db_container }} influx -execute "DROP DATABASE \"{{ _db_name }}\""
