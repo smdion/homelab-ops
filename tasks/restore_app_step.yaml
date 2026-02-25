@@ -156,7 +156,8 @@
       include_tasks: tasks/verify_app_http.yaml
       vars:
         _health_check_urls:
-          - url: "{{ _cur_health_url }}"
+          - name: "{{ _test_app }}"
+            url: "{{ _cur_health_url }}"
             status_code: "{{ _cur_health_status | default('200') }}"
       when:
         - _cur_health_url | default('') | length > 0
