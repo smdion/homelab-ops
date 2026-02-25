@@ -118,7 +118,7 @@
 
     - name: Find latest DB backup — {{ item }}
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql{,.gz} 2>/dev/null | head -1
       loop: "{{ _all_test_db_names }}"
       register: _db_archive_results
       become: false
@@ -129,7 +129,7 @@
     - name: Assert DB backup found — {{ item.item }}
       ansible.builtin.assert:
         that: item.stdout | length > 0
-        fail_msg: "No DB backup found for '{{ item.item }}' on {{ _backup_source }}"
+        fail_msg: "No DB backup found for '{{ item.item }}' on {{ _backup_source }} (tried .sql and .sql.gz)"
       loop: "{{ _db_archive_results.results | default([]) }}"
       when: _all_test_db_names | length > 0
 
