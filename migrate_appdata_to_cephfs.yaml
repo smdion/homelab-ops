@@ -222,6 +222,13 @@
         - name: Stop all Docker stacks
           include_tasks: tasks/docker_stop.yaml
 
+        # ─── Clean CephFS target before rsync ─────────────────────────
+        - name: Remove stale data from CephFS target (leftover from test restores)
+          ansible.builtin.shell: find /mnt/cephfs_migrate -mindepth 1 -delete
+          args:
+            executable: /bin/bash
+          changed_when: true
+
         # ─── Rsync /opt → CephFS ────────────────────────────────────
         - name: Sync /opt to CephFS (this may take several minutes for large datasets)
           ansible.builtin.command: rsync -av --delete /opt/ /mnt/cephfs_migrate/
