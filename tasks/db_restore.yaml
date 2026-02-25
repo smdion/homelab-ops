@@ -25,6 +25,8 @@
         echo "[db_restore] source={{ _db_source_file }} decompress=$_decompress"
         {% set target = _db_target_name | default(_db_name) %}
         {% if _db_is_postgres | default(false) | bool %}
+        echo "[db_restore] Terminating stale connections to '{{ target }}'..."
+        docker exec {{ _db_container }} psql -U {{ _db_username }} -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='{{ target }}' AND pid <> pg_backend_pid();" postgres || true
         echo "[db_restore] Ensuring database '{{ target }}' exists..."
         docker exec {{ _db_container }} psql -U {{ _db_username }} -tc "SELECT 1 FROM pg_database WHERE datname='{{ target }}'" postgres | grep -q 1 \
           || docker exec {{ _db_container }} psql -U {{ _db_username }} -c 'CREATE DATABASE "{{ target }}";' postgres
@@ -34,7 +36,7 @@
         echo "[db_restore] Copying SQL into container..."
         docker cp /tmp/_db_restore_{{ target }}.sql {{ _db_container }}:/tmp/_db_restore.sql
         echo "[db_restore] Running psql -f (this may take a few minutes for large databases)..."
-        docker exec {{ _db_container }} psql -U {{ _db_username }} -f /tmp/_db_restore.sql "{{ target }}" 2>&1 | tail -5
+        docker exec {{ _db_container }} psql -U {{ _db_username }} --single-transaction -f /tmp/_db_restore.sql "{{ target }}" 2>&1 | tail -5
         echo "[db_restore] psql complete, cleaning up..."
         docker exec {{ _db_container }} rm -f /tmp/_db_restore.sql
         rm -f /tmp/_db_restore_{{ target }}.sql
