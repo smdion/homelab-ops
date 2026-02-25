@@ -793,7 +793,7 @@ VALUES
    (SELECT id FROM project__environment WHERE project_id = 1 AND name = '<env_name>'),
    (SELECT id FROM project__view WHERE project_id = 1 AND title = '<View Title>'),
    '<path/to/playbook.yaml>', '<Template Name>', '',
-   'ansible', 1, '[]', 1, 0, 0, 0, 0);
+   'ansible', 1, '[]', 1, 1, 0, 0, 0);
 
 -- 3. Link vault key (subquery resolves template_id)
 INSERT INTO project__template_vault (project_id, template_id, vault_key_id, type)
@@ -806,8 +806,9 @@ Common `inventory_id` values: 3 (`ansible-user-ssh`), 12 (`root`). See [Inventor
 for the full list. `vault_key_id = 30` is `ansible-vault` — the vault decryption password.
 See [Key Store](#key-store). The `git_branch` subquery resolves the repository by branch name —
 use `'main'` for production templates or the feature branch name for testing.
-`allow_override_args_in_task = 1` enables CLI args (e.g., `--limit`) when running from the
-Semaphore UI — always set to `1` so operators can target specific hosts.
+`allow_override_args_in_task = 1` and `allow_override_branch_in_task = 1` enable the CLI args
+and Branch prompts when running from the Semaphore UI — always set both to `1` so operators
+can target specific hosts and override the git branch per run.
 
 **View titles** match the verb prefix: `Backups`, `Updates`, `Maintenance`, `Downloads`,
 `Verify`, `Restore`, `Deploy`, `Setup`. See [Template views](#template-views) for the full list.
