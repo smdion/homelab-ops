@@ -459,6 +459,17 @@
           tags: [docker]
 
         # ===== FETCH AND CLEANUP =====
+        - name: Delete stale archive on controller
+          ansible.builtin.file:
+            path: "{{ backup_dest_path }}"
+            state: absent
+          delegate_to: localhost
+          become: false
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["amp"] | default([])
+          tags: [always]
+
         - name: Fetch backup to controller
           ansible.builtin.fetch:
             src: "{{ backup_tmp_file }}"

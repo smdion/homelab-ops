@@ -72,6 +72,13 @@
       register: _stack_file_size
       changed_when: false
 
+    - name: Delete stale archive on controller for {{ _backup_stack }}
+      ansible.builtin.file:
+        path: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _stack_archive_name }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+
     - name: Fetch {{ _backup_stack }} archive to controller
       ansible.builtin.fetch:
         src: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
