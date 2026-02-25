@@ -1,0 +1,87 @@
+---
+# Verify keepalived VIP is active on the expected interface.
+# Checks: keepalived service running, VIP present on interface, VIP responds to self-ping.
+# Skips cleanly when host has no role assignment (test VMs).
+#
+# Requires:
+#   vars/docker_vips.yaml loaded (docker_vips, docker_vrrp_interface)
+#   vault_vm_roles — dict: FQDN → role
+# Sets:
+#   _vip_summary — human-readable verification result for logging
+
+- name: Check if host has a VIP role
+  ansible.builtin.set_fact:
+    _has_vip_role: "{{ (vault_vm_roles is defined) and (inventory_hostname in vault_vm_roles) }}"
+
+- name: Verify VIP is active
+  become: true
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      errors=0
+
+      role="{{ vault_vm_roles[inventory_hostname] }}"
+      interface="{{ docker_vrrp_interface }}"
+      vip="{{ docker_vips[vault_vm_roles[inventory_hostname]].vip }}"
+
+      # --- 1. Keepalived service ---
+      if systemctl is-active --quiet keepalived; then
+        echo "KEEPALIVED: running"
+      else
+        echo "FAIL: keepalived service is not running"
+        errors=$((errors + 1))
+      fi
+
+      # --- 2. VIP on interface ---
+      if ip addr show "$interface" | grep -q "$vip"; then
+        echo "VIP: $vip present on $interface (role: $role)"
+      else
+        echo "FAIL: VIP $vip not found on $interface"
+        errors=$((errors + 1))
+      fi
+
+      # --- 3. Self-ping VIP ---
+      if ping -c 1 -W 2 "$vip" >/dev/null 2>&1; then
+        echo "PING: $vip responds"
+      else
+        echo "FAIL: $vip does not respond to ping"
+        errors=$((errors + 1))
+      fi
+
+      echo ""
+      if [ "$errors" -gt 0 ]; then
+        echo "RESULT: $errors VIP failure(s) for role '$role'"
+        exit 1
+      fi
+      echo "RESULT: VIP $vip healthy on $interface (role: $role)"
+  register: _vip_check
+  changed_when: false
+  when:
+    - _has_vip_role | bool
+    - not ansible_check_mode
+
+- name: Display VIP verification results
+  ansible.builtin.debug:
+    msg: "{{ _vip_check.stdout }}"
+  when:
+    - _has_vip_role | bool
+    - not ansible_check_mode
+
+- name: Set VIP summary fact
+  ansible.builtin.set_fact:
+    _vip_summary: "{{ _vip_check.stdout_lines | last | default('check mode — skipped') }}"
+  when:
+    - _has_vip_role | bool
+    - not ansible_check_mode
+
+- name: Set VIP summary fact (no role)
+  ansible.builtin.set_fact:
+    _vip_summary: "skipped — no VIP role assigned"
+  when: not (_has_vip_role | bool)
+
+- name: Set VIP summary fact (check mode)
+  ansible.builtin.set_fact:
+    _vip_summary: "check mode — skipped"
+  when:
+    - _has_vip_role | bool
+    - ansible_check_mode
