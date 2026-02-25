@@ -20,6 +20,7 @@
     compress: false
     rsync_opts:
       - "--timeout=1800"
+      - "--whole-file"
   when: not ansible_check_mode
 
 # ===== STAGING MODE =====
