@@ -35,20 +35,25 @@
 
     - name: Wait for database containers to be healthy
       ansible.builtin.shell: |
+        found_any=false
         for i in $(seq 1 60); do
           all_ready=true
           # Check each running DB container in the databases stack
-          docker ps -q --filter "name=postgres" | grep -q . && \
-            { docker exec postgres pg_isready -U postgres >/dev/null 2>&1 || all_ready=false; }
-          docker ps -q --filter "name=mariadb" | grep -q . && \
-            { docker exec mariadb mysqladmin ping -h localhost >/dev/null 2>&1 || all_ready=false; }
-          if $all_ready; then
+          if docker ps -q --filter "name=postgres" | grep -q .; then
+            found_any=true
+            docker exec postgres pg_isready -U postgres >/dev/null 2>&1 || all_ready=false
+          fi
+          if docker ps -q --filter "name=mariadb" | grep -q .; then
+            found_any=true
+            docker exec mariadb mysqladmin ping -h localhost >/dev/null 2>&1 || all_ready=false
+          fi
+          if $found_any && $all_ready; then
             echo "ready"
             exit 0
           fi
           sleep 2
         done
-        echo "timeout"
+        echo "timeout — found_any=$found_any"
         exit 1
       become: true
       changed_when: false
