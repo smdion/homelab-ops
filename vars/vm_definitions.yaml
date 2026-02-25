@@ -64,7 +64,7 @@ vm_test_slot_count: 10
 # Resulting IPs: <prefix><offset+vm_index>  (e.g. 192.0.2.90 .. 192.0.2.99)
 vm_definitions:
   tantiveiv:
-    vm_id: 100
+    vm_id: 104
     vm_name: tantive-iv
     vm_hostname: "{{ vault_vm_tantiveiv_hostname }}"
     vm_ip: "{{ vault_vm_tantiveiv_ip }}"
@@ -75,7 +75,7 @@ vm_definitions:
     cephfs_host_dir: "tantive-iv"    # mounts /tantive-iv from CephFS root at /opt
 
   odyssey:
-    vm_id: 101
+    vm_id: 105
     vm_name: odyssey
     vm_hostname: "{{ vault_vm_odyssey_hostname }}"
     vm_ip: "{{ vault_vm_odyssey_ip }}"
@@ -86,7 +86,7 @@ vm_definitions:
     cephfs_host_dir: "odyssey"       # mounts /odyssey from CephFS root at /opt
 
   amp:
-    vm_id: 102
+    vm_id: 110
     vm_name: amp
     vm_hostname: "{{ vault_vm_amp_hostname }}"
     vm_ip: "{{ vault_vm_amp_ip }}"
