@@ -1,0 +1,100 @@
+---
+# Verify Docker network connectivity: membership, DNS resolution, and TCP reachability.
+# Auto-discovers containers on the network — no hardcoded names.
+#
+# Optional:
+#   _network_name  — Docker network to verify (default: 'homelab')
+# Sets:
+#   _network_summary — human-readable verification result for logging
+
+- name: Verify Docker network connectivity
+  become: true
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      network="{{ _network_name | default('homelab') }}"
+      errors=0
+
+      # --- 1. Network membership ---
+      containers=$(docker network inspect "$network" \
+        --format '{% raw %}{{range .Containers}}{{.Name}} {{end}}{% endraw %}' 2>/dev/null | xargs)
+      if [ -z "$containers" ]; then
+        echo "FAIL: No containers on '$network' network"
+        exit 1
+      fi
+      count=$(echo "$containers" | wc -w)
+      echo "NETWORK: $count container(s) on '$network': $containers"
+
+      # --- 2. DNS resolution (each container resolves every peer) ---
+      echo ""
+      echo "DNS RESOLUTION:"
+      for src in $containers; do
+        for dst in $containers; do
+          [ "$src" = "$dst" ] && continue
+          if docker exec "$src" getent hosts "$dst" >/dev/null 2>&1; then
+            ip=$(docker exec "$src" getent hosts "$dst" 2>/dev/null | awk '{print $1}')
+            echo "  OK: $src -> $dst ($ip)"
+          else
+            echo "  FAIL: $src cannot resolve '$dst'"
+            errors=$((errors + 1))
+          fi
+        done
+      done
+
+      # --- 3. TCP connectivity for DB services ---
+      echo ""
+      echo "TCP CONNECTIVITY:"
+      # Check if postgres is on the network
+      if echo "$containers" | grep -qw postgres; then
+        for src in $containers; do
+          [ "$src" = "postgres" ] && continue
+          if docker exec "$src" timeout 3 bash -c 'echo > /dev/tcp/postgres/5432' 2>/dev/null; then
+            echo "  OK: $src -> postgres:5432"
+          else
+            echo "  FAIL: $src cannot reach postgres:5432"
+            errors=$((errors + 1))
+          fi
+        done
+      else
+        echo "  SKIP: postgres not on '$network' network"
+      fi
+
+      # Check if mariadb is on the network
+      if echo "$containers" | grep -qw mariadb; then
+        for src in $containers; do
+          [ "$src" = "mariadb" ] && continue
+          if docker exec "$src" timeout 3 bash -c 'echo > /dev/tcp/mariadb/3306' 2>/dev/null; then
+            echo "  OK: $src -> mariadb:3306"
+          else
+            echo "  FAIL: $src cannot reach mariadb:3306"
+            errors=$((errors + 1))
+          fi
+        done
+      else
+        echo "  SKIP: mariadb not on '$network' network"
+      fi
+
+      echo ""
+      if [ "$errors" -gt 0 ]; then
+        echo "RESULT: $errors failure(s) — cross-stack networking is broken"
+        exit 1
+      fi
+      echo "RESULT: All DNS and TCP checks passed"
+  register: _network_check
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Display network verification results
+  ansible.builtin.debug:
+    msg: "{{ _network_check.stdout }}"
+  when: not ansible_check_mode
+
+- name: Set network summary fact
+  ansible.builtin.set_fact:
+    _network_summary: "{{ _network_check.stdout_lines | last | default('check mode — skipped') }}"
+  when: not ansible_check_mode
+
+- name: Set network summary fact (check mode)
+  ansible.builtin.set_fact:
+    _network_summary: "check mode — skipped"
+  when: ansible_check_mode

@@ -163,7 +163,8 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── verify_app_http.yaml         # Per-app HTTP endpoint verification (used by restore_app.yaml and test_backup_restore.yaml)
 │   ├── backup_single_amp_instance.yaml  # Per-AMP-instance backup loop body (stop→archive→verify→fetch→start)
 │   ├── restore_single_amp_instance.yaml # Per-AMP-instance restore loop body (stop→remove→extract→start); mirrors backup_single_amp_instance
-│   └── verify_docker_health.yaml    # Poll Docker container health until all healthy or timeout
+│   ├── verify_docker_health.yaml    # Poll Docker container health until all healthy or timeout
+│   └── verify_docker_network.yaml   # Verify cross-stack DNS resolution and TCP connectivity on shared Docker network
 │
 ├── templates/
 │   └── metube.conf.j2              # Jinja2 template for yt-dlp config — rendered per profile from vars/download_<name>.yaml
