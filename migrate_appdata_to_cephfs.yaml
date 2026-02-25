@@ -1,6 +1,7 @@
 ---
 # One-shot migration of /opt appdata from local RBD disk to CephFS shared storage.
 # Stops all Docker stacks, rsyncs /opt to CephFS, remounts /opt from CephFS, restarts stacks.
+# A Proxmox snapshot is taken before migration — on failure the VM is reverted to pre-migration state.
 # Local /opt data is read-only during migration — safe to retry if migration fails after rsync.
 #
 # Required extra vars:
@@ -69,6 +70,70 @@
         groups:
           - migration_target
           - docker_stacks
+
+    # ===== CREATE PRE-MIGRATION SNAPSHOT =====
+    - name: Resolve VM actual node via cluster API
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _cluster_vms
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Set VM actual node
+      ansible.builtin.set_fact:
+        _vm_actual_node: >-
+          {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', vm_definitions[vm_name].vm_id | int) | list | first).node }}
+
+    - name: Get existing snapshots
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _vm_snapshots
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Delete existing pre-migration snapshot if present
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-cephfs-migration"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-cephfs-migration') | list | length > 0
+
+    - name: Wait for VM lock to clear after snapshot delete
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/status/current"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _vm_lock_status
+      until: _vm_lock_status.json.data.lock is not defined
+      retries: 20
+      delay: 3
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-cephfs-migration') | list | length > 0
+
+    - name: Create pre-migration snapshot
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        body_format: form-urlencoded
+        body:
+          snapname: pre-cephfs-migration
+          description: "Pre-CephFS migration — auto-created by migrate_appdata_to_cephfs.yaml"
+          vmstate: 0
+        validate_certs: false
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 2 — Migrate /opt to CephFS on the target VM
@@ -216,25 +281,81 @@
             migration_failed: true
             _migration_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
-        - name: Emergency — unmount CephFS from /opt if mounted
-          ansible.posix.mount:
-            path: /opt
-            state: absent
-          ignore_errors: true
+# ═══════════════════════════════════════════════════════════════════
+# Play 3 — Rollback or clean up pre-migration snapshot
+# ═══════════════════════════════════════════════════════════════════
+- name: Manage pre-migration snapshot
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
 
-        - name: Emergency — unmount CephFS staging if mounted
-          ansible.posix.mount:
-            path: /mnt/cephfs_migrate
-            state: absent
-          ignore_errors: true
+  tasks:
+    - name: Resolve migration result
+      ansible.builtin.set_fact:
+        _snap_mig_failed: "{{ hostvars[_migration_hostname].migration_failed | default(true) }}"
 
-        - name: Emergency — restart stacks from local /opt
-          include_tasks: tasks/docker_start.yaml
-          vars:
-            _docker_ignore_errors: true
+    # ─── ROLLBACK on failure ────────────────────────────────────────
+    - name: Rollback — stop VM
+      community.general.proxmox_kvm:
+        api_host: "{{ pve_api_host }}"
+        api_user: "{{ pve_api_user }}"
+        api_token_id: "{{ pve_api_token_id }}"
+        api_token_secret: "{{ pve_api_token_secret }}"
+        node: "{{ _vm_actual_node }}"
+        vmid: "{{ vm_definitions[vm_name].vm_id }}"
+        state: stopped
+        force: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _snap_mig_failed | bool
+
+    - name: Rollback — revert to pre-migration snapshot
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-cephfs-migration/rollback"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _snap_mig_failed | bool
+
+    - name: Rollback — wait for snapshot revert
+      ansible.builtin.pause:
+        seconds: 20
+      when: _snap_mig_failed | bool
+
+    - name: Rollback — start VM after revert
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/status/start"
+        method: POST
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _snap_mig_failed | bool
+
+    - name: Rollback — wait for SSH
+      ansible.builtin.wait_for:
+        host: "{{ vm_definitions[vm_name].vm_ip }}"
+        port: 22
+        delay: 10
+        timeout: 300
+      when: _snap_mig_failed | bool
+
+    # ─── CLEANUP on success ─────────────────────────────────────────
+    - name: Delete pre-migration snapshot after successful migration
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-cephfs-migration"
+        method: DELETE
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: not (_snap_mig_failed | bool)
 
 # ═══════════════════════════════════════════════════════════════════
-# Play 3 — Log to MariaDB and send Discord notification
+# Play 4 — Log to MariaDB and send Discord notification
 # ═══════════════════════════════════════════════════════════════════
 - name: Log and notify migration result
   hosts: localhost
