@@ -13,6 +13,18 @@
   ansible.builtin.set_fact:
     _has_vip_role: "{{ (vault_vm_roles is defined) and (inventory_hostname in vault_vm_roles) }}"
 
+- name: Derive effective VIP (test mode uses VM subnet, prod uses vault VIP)
+  ansible.builtin.set_fact:
+    _effective_vip: >-
+      {% set _role = vault_vm_roles[inventory_hostname] %}
+      {% set _test_vip_offsets = {'core': '200', 'apps': '201', 'dev': '202'} %}
+      {% if test_vm_role is defined %}
+      {{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ _test_vip_offsets[_role] }}
+      {%- else %}
+      {{ docker_vips[_role].vip }}
+      {%- endif %}
+  when: _has_vip_role | bool
+
 - name: Verify VIP is active
   become: true
   ansible.builtin.shell:
@@ -22,7 +34,7 @@
 
       role="{{ vault_vm_roles[inventory_hostname] }}"
       interface="{{ docker_vrrp_interface }}"
-      vip="{{ docker_vips[vault_vm_roles[inventory_hostname]].vip }}"
+      vip="{{ _effective_vip | trim }}"
 
       # --- 1. Keepalived service ---
       if systemctl is-active --quiet keepalived; then
