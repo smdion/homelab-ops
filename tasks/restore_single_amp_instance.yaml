@@ -78,11 +78,9 @@
         mode: "0755"
 
     - name: Copy archive to temp dir for {{ _amp_instance }}
-      become: true
-      ansible.builtin.copy:
+      ansible.builtin.synchronize:
         src: "{{ _amp_restore_archive }}"
         dest: "{{ _amp_restore_tmp }}/{{ _amp_restore_archive | basename }}"
-        mode: "0600"
 
     - name: Remove existing instance data for {{ _amp_instance }}
       become: true
@@ -93,7 +91,7 @@
     - name: Extract archive for {{ _amp_instance }}
       become: true
       ansible.builtin.shell: |
-        tar xzf "{{ _amp_restore_tmp }}/{{ _amp_restore_archive | basename }}" \
+        tar -I pigz -xf "{{ _amp_restore_tmp }}/{{ _amp_restore_archive | basename }}" \
             -C "{{ amp_home }}/.ampdata/instances"
       args:
         executable: /bin/bash

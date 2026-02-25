@@ -33,6 +33,7 @@
       - nfs-common
       - curl
       - htop
+      - pigz
       - unattended-upgrades
       - qemu-guest-agent
     state: present
