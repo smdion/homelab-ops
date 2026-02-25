@@ -216,13 +216,13 @@
             _build_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
       always:
-        - name: Send Discord notification
+        - name: Send Discord notification (failure only; success deferred to Play 2)
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
             discord_operation: "Build"
-            discord_status: "{{ 'failed' if build_failed else 'successful' }}"
-            discord_color: "{{ discord_color_failure if build_failed else discord_color_success }}"
+            discord_status: "failed"
+            discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
@@ -237,6 +237,7 @@
                 inline: true
               - name: "Detail"
                 value: "{{ _build_detail }}"
+          when: build_failed
 
         - name: Log build to MariaDB
           include_tasks: tasks/log_mariadb.yaml
@@ -309,15 +310,25 @@
             _bootstrap_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
       always:
-        - name: Send Discord notification
+        - name: Send Discord notification (combined build + bootstrap result)
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
-            discord_operation: "Bootstrap"
+            discord_operation: "Build"
             discord_status: "{{ 'failed' if bootstrap_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if bootstrap_failed else discord_color_success }}"
             discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ hostvars['localhost'].controller_fqdn }}"
             discord_fields:
+              - name: "VM Name"
+                value: "{{ hostvars['localhost']._vm.vm_name }}"
+                inline: true
+              - name: "Host IP"
+                value: "{{ hostvars['localhost']._vm.vm_ip }}"
+                inline: true
+              - name: "Proxmox Node"
+                value: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm.pve_target_node) }}"
+                inline: true
               - name: "Detail"
                 value: "{{ _bootstrap_detail }}"
 
