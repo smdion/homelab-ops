@@ -21,6 +21,7 @@
     rsync_opts:
       - "--timeout=1800"
       - "--whole-file"
+      - "-e '/usr/bin/ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10'"
   when: not ansible_check_mode
 
 # ===== STAGING MODE =====
