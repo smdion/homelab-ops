@@ -116,7 +116,7 @@
         ansible_user: ansible
       when: _vm.cephfs_host_dir is defined
 
-    - name: Ensure CephFS host directory exists on CephFS root
+    - name: Ensure test VM CephFS directory exists (isolated from production)
       ansible.builtin.shell: |
         set -e
         MOUNT_DIR=$(mktemp -d)
@@ -143,7 +143,7 @@
     # ===== FIND BACKUP ARCHIVES =====
     # Requires the container user to have read access to the /backup/ bind
     # mount (e.g. via group_add: 100 for the users group on unRAID).
-    - name: Find per-stack backup archives for source host
+    - name: Find per-stack backup archives from production backups (read-only)
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _stacks }}"
@@ -370,7 +370,7 @@
         _restore_test_failed: false
         _restore_test_detail: ""
 
-    - name: Clean CephFS appdata for fresh test
+    - name: Clean test VM CephFS appdata (/opt on test VM only)
       ansible.builtin.shell: |
         find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +
       when:
@@ -397,7 +397,7 @@
             _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
           when: restore_app | default('') | length > 0
 
-        - name: Restore appdata from each archive
+        - name: Restore appdata from production backup to test VM
           include_tasks: tasks/restore_appdata.yaml
           loop: "{{ hostvars['localhost']._archive_files }}"
           loop_control:

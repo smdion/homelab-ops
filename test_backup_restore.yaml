@@ -86,7 +86,7 @@
       loop: "{{ _test_apps }}"
 
     # ===== FIND STACK ARCHIVES =====
-    - name: Find latest stack archive — {{ item }}
+    - name: Find latest stack archive from production backups (read-only) — {{ item }}
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ app_info[item].stack }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _test_apps }}"
@@ -116,7 +116,7 @@
           {{ _test_apps | map('extract', app_info)
              | map(attribute='db_names', default=[]) | flatten | unique | list }}
 
-    - name: Find latest DB backup — {{ item }}
+    - name: Find latest DB backup from production backups (read-only) — {{ item }}
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
       loop: "{{ _all_test_db_names }}"
@@ -311,7 +311,7 @@
         _stack_archive_map: "{{ hostvars['localhost']._stack_archive_map }}"
         _db_archive_map: "{{ hostvars['localhost']._db_archive_map | default({}) }}"
 
-    - name: Clean CephFS appdata for fresh test
+    - name: Clean test VM CephFS appdata (/opt on test VM only)
       ansible.builtin.shell: |
         find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +
       when:
