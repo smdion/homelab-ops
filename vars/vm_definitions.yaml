@@ -128,6 +128,7 @@ vm_definitions:
   # Prerequisites: none — test_restore.yaml auto-creates /cephfs-migrate-test on CephFS root.
   cephfs-migrate-test:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
+    vm_mac: "02:00:00:00:05:{{ '%02d' | format(vm_index | default(0) | int) }}"
     vm_name: "cephfs-migrate-test{{ vm_index | default(0) | int }}"
     vm_hostname: "cephfs-migrate-test{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
@@ -142,6 +143,7 @@ vm_definitions:
 
   test-vm:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
+    vm_mac: "02:00:00:00:05:{{ '%02d' | format(vm_index | default(0) | int) }}"
     vm_name: "test-vm{{ vm_index | default(0) | int }}"
     vm_hostname: "test-vm{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
