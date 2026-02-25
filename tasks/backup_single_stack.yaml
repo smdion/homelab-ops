@@ -76,7 +76,8 @@
     - name: Create compressed archive for {{ _backup_stack }}
       become: true
       ansible.builtin.shell: >
-        tar -I 'pigz -1' -cf "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
+        _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip);
+        tar -I "$_gz -1" -cf "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
         {% for excl in (_label_backup_excludes.stdout_lines | default([]) | reject('eq', '') | list) %}
         --exclude='{{ excl }}'
         {% endfor %}
