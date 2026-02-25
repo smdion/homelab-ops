@@ -91,6 +91,13 @@
       register: _amp_file_size
       changed_when: false
 
+    - name: Delete stale archive on controller for {{ _amp_instance }}
+      ansible.builtin.file:
+        path: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _amp_archive_name }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+
     - name: Fetch {{ _amp_instance }} archive to controller
       ansible.builtin.fetch:
         src: "{{ backup_tmp_dir }}/{{ _amp_archive_name }}"
