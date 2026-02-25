@@ -317,6 +317,12 @@
       when:
         - hostvars['localhost']._vm.cephfs_host_dir is defined
 
+    - name: Ensure shared Docker network exists on test VM
+      community.docker.docker_network:
+        name: homelab
+        state: present
+      become: true
+
     - name: Initialize app restore results
       ansible.builtin.set_fact:
         _app_restore_results: []
