@@ -374,6 +374,9 @@
     backup_tmp_dir: "/tmp"
 
   tasks:
+    - name: Assert /opt is not production CephFS (safety gate)
+      include_tasks: tasks/assert_test_vm.yaml
+
     - name: Inject test VM role (test_vm_role override)
       ansible.builtin.set_fact:
         vault_vm_roles: "{{ vault_vm_roles | combine({inventory_hostname: test_vm_role}) }}"
@@ -443,6 +446,12 @@
         # ===== NETWORK VERIFICATION =====
         - name: Verify Docker network connectivity
           include_tasks: tasks/verify_docker_network.yaml
+
+        # ===== NETWORK ISOLATION VERIFICATION =====
+        - name: Verify test VLAN isolation from production
+          include_tasks: tasks/verify_network_isolation.yaml
+          vars:
+            _vm: "{{ hostvars['localhost']._vm }}"
 
         # ===== VIP VERIFICATION =====
         - name: Verify VIP is active

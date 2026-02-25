@@ -306,6 +306,9 @@
     - vars/docker_stacks.yaml
 
   tasks:
+    - name: Assert /opt is not production CephFS (safety gate)
+      include_tasks: tasks/assert_test_vm.yaml
+
     - name: Set archive maps from controller facts
       ansible.builtin.set_fact:
         _stack_archive_map: "{{ hostvars['localhost']._stack_archive_map }}"
