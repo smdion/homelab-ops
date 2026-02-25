@@ -268,6 +268,14 @@
     - name: Gather facts
       ansible.builtin.setup:
 
+    - name: Inject test VM role (test_vm_role override)
+      ansible.builtin.set_fact:
+        vault_vm_roles: "{{ vault_vm_roles | combine({inventory_hostname: test_vm_role}) }}"
+        vault_docker_vrrp_priorities: >-
+          {{ vault_docker_vrrp_priorities | default({})
+             | combine({inventory_hostname.split('.')[0]: 100}) }}
+      when: test_vm_role is defined
+
     - name: Check if Docker is installed
       ansible.builtin.command: docker --version
       register: _docker_check
@@ -356,6 +364,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/docker_stacks.yaml
+    - vars/docker_vips.yaml
     - vars/vm_definitions.yaml
     - vars/semaphore_check.yaml
   vars:
@@ -365,6 +374,14 @@
     backup_tmp_dir: "/tmp"
 
   tasks:
+    - name: Inject test VM role (test_vm_role override)
+      ansible.builtin.set_fact:
+        vault_vm_roles: "{{ vault_vm_roles | combine({inventory_hostname: test_vm_role}) }}"
+        vault_docker_vrrp_priorities: >-
+          {{ vault_docker_vrrp_priorities | default({})
+             | combine({inventory_hostname.split('.')[0]: 100}) }}
+      when: test_vm_role is defined
+
     - name: Initialize restore state
       ansible.builtin.set_fact:
         _restore_test_failed: false
@@ -426,6 +443,10 @@
         # ===== NETWORK VERIFICATION =====
         - name: Verify Docker network connectivity
           include_tasks: tasks/verify_docker_network.yaml
+
+        # ===== VIP VERIFICATION =====
+        - name: Verify VIP is active
+          include_tasks: tasks/verify_vip.yaml
 
         - name: Record success detail
           ansible.builtin.set_fact:

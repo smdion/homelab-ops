@@ -31,6 +31,14 @@
     - name: Assert config_file is defined and non-empty
       include_tasks: tasks/assert_config_file.yaml
 
+    - name: Inject test VM role (test_vm_role override)
+      ansible.builtin.set_fact:
+        vault_vm_roles: "{{ vault_vm_roles | combine({inventory_hostname: test_vm_role}) }}"
+        vault_docker_vrrp_priorities: >-
+          {{ vault_docker_vrrp_priorities | default({})
+             | combine({inventory_hostname.split('.')[0]: 100}) }}
+      when: test_vm_role is defined
+
     - name: Assert host has a role assignment
       ansible.builtin.assert:
         that:
