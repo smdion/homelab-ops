@@ -391,11 +391,11 @@
         _restore_test_detail: ""
 
     - name: Clean test VM CephFS appdata (/opt on test VM only)
+      become: true
       ansible.builtin.shell: |
         find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +
       when:
         - hostvars['localhost']._vm.cephfs_host_dir is defined
-        - _test_mode | default(false)
 
     - name: Ensure shared Docker network exists
       community.docker.docker_network:
