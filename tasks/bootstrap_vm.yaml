@@ -149,6 +149,17 @@
     mode: "0644"
   when: _vm.cephfs_host_dir is defined
 
+- name: Assert test VM does not mount production CephFS directory
+  ansible.builtin.assert:
+    that:
+      - _vm.cephfs_host_dir not in cephfs_production_dirs
+    fail_msg: >-
+      Test VM '{{ _vm.vm_name }}' has cephfs_host_dir='{{ _vm.cephfs_host_dir }}'
+      which is a production directory. Test VMs must use a test-only CephFS path.
+  when:
+    - _vm.cephfs_host_dir is defined
+    - _vm.vm_vlan_tag is defined
+
 - name: Mount CephFS at /opt
   ansible.posix.mount:
     path: /opt
@@ -157,3 +168,46 @@
     opts: "name={{ cephfs_client_name }},secretfile={{ cephfs_keyring_path | regex_replace('\\.keyring$', '.secret') }},_netdev,x-systemd.requires=network-online.target"
     state: mounted
   when: _vm.cephfs_host_dir is defined
+
+- name: Mount additional CephFS directories
+  ansible.posix.mount:
+    path: "{{ item.mount_path }}"
+    src: "{{ vault_ceph_mons }}:/{{ item.cephfs_dir }}"
+    fstype: ceph
+    opts: "name={{ cephfs_client_name }},secretfile={{ cephfs_keyring_path | regex_replace('\\.keyring$', '.secret') }},_netdev,x-systemd.requires=network-online.target"
+    state: mounted
+  loop: "{{ _vm.cephfs_extra_mounts }}"
+  loop_control:
+    label: "{{ item.mount_path }}"
+  when: _vm.cephfs_extra_mounts is defined
+
+- name: Configure keepalived (VIP management)
+  when:
+    - vault_vm_roles is defined
+    - inventory_hostname in vault_vm_roles
+  block:
+    - name: Install keepalived
+      ansible.builtin.apt:
+        name: keepalived
+        state: present
+
+    - name: Template keepalived config
+      ansible.builtin.template:
+        src: templates/keepalived-docker.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: "0640"
+      register: _keepalived_config
+
+    - name: Enable and start keepalived
+      ansible.builtin.service:
+        name: keepalived
+        state: started
+        enabled: true
+
+    - name: Restart keepalived if config changed
+      ansible.builtin.service:
+        name: keepalived
+        state: restarted
+      when: _keepalived_config.changed | default(false)

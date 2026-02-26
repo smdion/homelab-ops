@@ -27,6 +27,10 @@
     - _docker_selective_containers is not defined
     - _docker_selective_stacks is defined
     - inventory_hostname in groups["docker_stacks"] | default([])
+  retries: 3
+  delay: 15
+  register: _docker_start_selective
+  until: _docker_start_selective is not failed
   ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
 
 - name: Start Docker stacks (all)
@@ -40,7 +44,10 @@
     - _docker_selective_stacks is not defined
     - inventory_hostname in groups["docker_stacks"] | default([])
     - inventory_hostname in (stack_assignments | default({}))
+  retries: 3
+  delay: 15
   register: _docker_start_stacks
+  until: _docker_start_stacks is not failed
   ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
 
 - name: Start Docker containers (unRAID)

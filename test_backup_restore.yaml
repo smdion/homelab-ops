@@ -16,6 +16,9 @@
 #   vm_name      — key in vm_definitions (default: test-vm)
 #   vm_index     — test-vm slot 0..9; auto-detected (lowest non-running slot) if omitted
 #   test_apps    — comma-separated subset of app_info keys (default: all)
+#   backup_source — hostname whose backup directory to restore from (defaults to source_host).
+#                   Useful when stack_assignments keys differ from backup directory names
+#                   (e.g. after host rename: -e source_host=apps.example.com -e backup_source=odyssey.example.com).
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Validate, find backups, provision VM
@@ -67,6 +70,7 @@
       ansible.builtin.set_fact:
         _vm_name: "{{ vm_name | default('test-vm') }}"
         _vm: "{{ vm_definitions[vm_name | default('test-vm')] }}"
+        _backup_source: "{{ backup_source | default(source_host) }}"
 
     - name: Resolve test apps list
       ansible.builtin.set_fact:
@@ -82,9 +86,9 @@
       loop: "{{ _test_apps }}"
 
     # ===== FIND STACK ARCHIVES =====
-    - name: Find latest stack archive — {{ item }}
+    - name: Find latest stack archive from production backups (read-only) — {{ item }}
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ app_info[item].stack }}_*.tar.gz 2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ app_info[item].stack }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _test_apps }}"
       register: _stack_archive_results
       become: false
@@ -96,8 +100,8 @@
         that: item.stdout | length > 0
         fail_msg: >-
           No stack archive found for app '{{ item.item }}'
-          (stack '{{ app_info[item.item].stack }}') on {{ source_host }}.
-          Expected: {{ backup_base_dir }}/{{ source_host }}/backup_{{ app_info[item.item].stack }}_*.tar.gz
+          (stack '{{ app_info[item.item].stack }}') on {{ _backup_source }}.
+          Expected: {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ app_info[item.item].stack }}_*.tar.gz
       loop: "{{ _stack_archive_results.results }}"
 
     - name: Build stack archive map
@@ -112,9 +116,9 @@
           {{ _test_apps | map('extract', app_info)
              | map(attribute='db_names', default=[]) | flatten | unique | list }}
 
-    - name: Find latest DB backup — {{ item }}
+    - name: Find latest DB backup from production backups (read-only) — {{ item }}
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
       loop: "{{ _all_test_db_names }}"
       register: _db_archive_results
       become: false
@@ -125,7 +129,7 @@
     - name: Assert DB backup found — {{ item.item }}
       ansible.builtin.assert:
         that: item.stdout | length > 0
-        fail_msg: "No DB backup found for '{{ item.item }}' on {{ source_host }}"
+        fail_msg: "No DB backup found for '{{ item.item }}' on {{ _backup_source }} (tried .sql and .sql.gz)"
       loop: "{{ _db_archive_results.results | default([]) }}"
       when: _all_test_db_names | length > 0
 
@@ -135,68 +139,9 @@
           {{ dict(_all_test_db_names | zip(
                _db_archive_results.results | default([]) | map(attribute='stdout') | list)) }}
 
-    # ===== CHECK IF VM EXISTS =====
-    # Use cluster resources API (VIP-safe — discovers the actual node regardless of which PVE node is MASTER)
-    - name: Check if VM exists in cluster
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
-        method: GET
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        validate_certs: false
-      register: _cluster_vms
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-
-    - name: Set VM existence and node facts
-      ansible.builtin.set_fact:
-        _vm_exists: "{{ _cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0 }}"
-        _vm_actual_node: >-
-          {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
-             if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
-             else _vm.pve_target_node }}
-        _vm_cluster_status: >-
-          {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).status
-             if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
-             else 'unknown' }}
-
-    # ===== BUILD VM IF NEEDED =====
-    - name: Provision VM on Proxmox
-      include_tasks: tasks/provision_vm.yaml
-      vars:
-        _provision_target_group: test_target
-      when: not _vm_exists
-
-    - name: Add existing VM to inventory
-      ansible.builtin.add_host:
-        name: "{{ _vm.vm_hostname }}"
-        ansible_host: "{{ _vm.vm_ip }}"
-        ansible_user: "{{ vm_user }}"
-        groups: test_target
-        _needs_bootstrap: false
-      when: _vm_exists
-
-    - name: Start existing VM if stopped
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/status/start"
-        method: POST
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        validate_certs: false
-        status_code: [200, 500]
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when:
-        - _vm_exists
-        - _vm_cluster_status == 'stopped'
-
-    - name: Wait for SSH on existing VM
-      ansible.builtin.wait_for:
-        host: "{{ _vm.vm_ip }}"
-        port: 22
-        delay: 10
-        timeout: 300
-      when:
-        - _vm_exists
-        - _vm_cluster_status == 'stopped'
+    # ===== RESOLVE OR PROVISION VM =====
+    - name: Resolve or provision test VM
+      include_tasks: tasks/resolve_or_provision_vm.yaml
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 2 — Bootstrap (new VM or Docker missing)
@@ -204,12 +149,21 @@
 - name: Bootstrap test VM
   hosts: test_target
   become: true
-  gather_facts: true
+  gather_facts: false
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/docker_vips.yaml
 
   tasks:
+    - name: Wait for system boot to complete
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 300
+
+    - name: Gather facts
+      ansible.builtin.setup:
+
     - name: Check if Docker is installed
       ansible.builtin.command: docker --version
       register: _docker_check
@@ -293,10 +247,32 @@
     - vars/docker_stacks.yaml
 
   tasks:
+    - name: Assert /opt is not production CephFS (safety gate)
+      include_tasks: tasks/assert_test_vm.yaml
+
     - name: Set archive maps from controller facts
       ansible.builtin.set_fact:
         _stack_archive_map: "{{ hostvars['localhost']._stack_archive_map }}"
         _db_archive_map: "{{ hostvars['localhost']._db_archive_map | default({}) }}"
+
+    - name: Stop and remove all containers on test VM before cleanup
+      ansible.builtin.shell: |
+        docker ps -aq | xargs -r docker rm -f 2>/dev/null || true
+      become: true
+      when:
+        - hostvars['localhost']._vm.cephfs_host_dir is defined
+
+    - name: Clean test VM CephFS appdata (/opt on test VM only)
+      ansible.builtin.shell: |
+        find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+      when:
+        - hostvars['localhost']._vm.cephfs_host_dir is defined
+
+    - name: Ensure shared Docker network exists on test VM
+      community.docker.docker_network:
+        name: homelab
+        state: present
+      become: true
 
     - name: Initialize app restore results
       ansible.builtin.set_fact:
@@ -308,52 +284,20 @@
       loop_control:
         loop_var: _test_app
 
-    # ===== OOM RECOVERY =====
-    - name: Identify OOM-failed apps
-      ansible.builtin.set_fact:
+    - name: Report OOM-killed apps (if any)
+      ansible.builtin.debug:
+        msg: >-
+          OOM-killed apps detected: {{ _oom_apps | join(', ') }}.
+          Consider increasing vm_memory_mb in vm_definitions.yaml for this test VM.
+      vars:
         _oom_apps: >-
           {{ _app_restore_results
              | selectattr('oom', 'default', false) | selectattr('oom', 'equalto', true)
              | map(attribute='app') | list }}
-
-    - name: OOM recovery — increase VM memory and retry
-      when: _oom_apps | length > 0
-      block:
-        - name: Save non-OOM results and OOM app list to controller
-          ansible.builtin.set_fact:
-            _saved_app_restore_results: >-
-              {{ _app_restore_results | rejectattr('app', 'in', _oom_apps) | list }}
-            _oom_apps_to_retry: "{{ _oom_apps }}"
-          delegate_to: localhost
-
-        - name: Increase VM memory ({{ (hostvars['localhost']._vm.vm_memory_mb | int * 2) }} MB)
-          ansible.builtin.uri:
-            url: "https://{{ hostvars['localhost'].pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/config"
-            method: PUT
-            headers:
-              Authorization: "PVEAPIToken={{ hostvars['localhost'].pve_api_user }}!{{ hostvars['localhost'].pve_api_token_id }}={{ hostvars['localhost'].pve_api_token_secret }}"
-            body_format: form-urlencoded
-            body:
-              memory: "{{ (hostvars['localhost']._vm.vm_memory_mb | int * 2) | int }}"
-            validate_certs: false
-          delegate_to: localhost
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-
-        - name: Reboot VM to apply increased memory
-          ansible.builtin.reboot:
-            reboot_timeout: 300
-
-        - name: Restore archive maps and results after reboot
-          ansible.builtin.set_fact:
-            _stack_archive_map: "{{ hostvars['localhost']._stack_archive_map }}"
-            _db_archive_map: "{{ hostvars['localhost']._db_archive_map | default({}) }}"
-            _app_restore_results: "{{ hostvars['localhost']._saved_app_restore_results }}"
-
-        - name: Retry restore after OOM recovery — {{ _test_app }}
-          include_tasks: tasks/restore_app_step.yaml
-          loop: "{{ hostvars['localhost']._oom_apps_to_retry }}"
-          loop_control:
-            loop_var: _test_app
+      when: >-
+        _app_restore_results
+        | selectattr('oom', 'default', false) | selectattr('oom', 'equalto', true)
+        | list | length > 0
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 5 — Report results and revert VM

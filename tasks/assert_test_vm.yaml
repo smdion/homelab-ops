@@ -1,0 +1,31 @@
+---
+# Safety gate — assert /opt CephFS mount is NOT a production directory.
+# Checks the live mount table, not config vars. Fails hard before any data writes.
+#
+# Requires:
+#   vars/vm_definitions.yaml loaded (cephfs_production_dirs)
+
+- name: "SAFETY GATE — read actual /opt mount"
+  ansible.builtin.shell:
+    cmd: findmnt -n -o SOURCE /opt 2>/dev/null || echo "not-mounted"
+  register: _opt_mount_source
+  changed_when: false
+  become: true
+
+- name: "SAFETY GATE — assert /opt is NOT a production CephFS directory"
+  ansible.builtin.assert:
+    that:
+      - item not in _opt_mount_source.stdout
+    fail_msg: >-
+      SAFETY ABORT — /opt is mounted from production CephFS directory '{{ item }}'.
+      Mounted source: {{ _opt_mount_source.stdout }}.
+      Refusing to write to production data.
+  loop: "{{ cephfs_production_dirs }}"
+  loop_control:
+    label: "checking /opt not mounted from /{{ item }}"
+
+- name: "SAFETY GATE PASSED — /opt mount is safe"
+  ansible.builtin.debug:
+    msg: >-
+      /opt mount: {{ _opt_mount_source.stdout }}
+      (not in production dirs: {{ cephfs_production_dirs | join(', ') }})
