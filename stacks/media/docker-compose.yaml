@@ -23,7 +23,8 @@ services:
     <<: *baseuid
     container_name: tautulli
     image: lscr.io/linuxserver/tautulli
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
     - 8181:8181
     labels:
