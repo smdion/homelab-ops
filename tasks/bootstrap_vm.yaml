@@ -164,7 +164,7 @@
   ansible.builtin.shell: |
     TEMP_MNT=$(mktemp -d)
     mount -t ceph {{ vault_ceph_mons }}:/ "$TEMP_MNT" \
-      -o name={{ cephfs_client_name }},secretfile={{ cephfs_keyring_path | regex_replace('\\.keyring$', '.secret') }}
+      -o name={{ cephfs_client_name }},secretfile={{ cephfs_keyring_path | replace('.keyring', '.secret') }}
     mkdir -p "$TEMP_MNT/{{ _vm.cephfs_host_dir }}"
     umount "$TEMP_MNT"
     rmdir "$TEMP_MNT"
