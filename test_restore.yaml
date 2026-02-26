@@ -178,31 +178,54 @@
         fail_msg: "No backup archives found for {{ _backup_source }}"
 
     # ===== FIND DB SQL DUMP ARCHIVES =====
+    # Load each DB vars file and capture config into explicit facts (include_vars
+    # with name: has scoping issues where the namespaced dict is empty in
+    # subsequent loop expressions).
     - name: Load postgres DB config
       ansible.builtin.include_vars:
         file: vars/db_primary_postgres.yaml
-        name: _db_postgres_config
+      when: "'databases' in _stacks"
+
+    - name: Save postgres DB config
+      ansible.builtin.set_fact:
+        _db_postgres_all_names: "{{ db_names }}"
+        _db_postgres_container: "{{ db_container_name }}"
+        _db_postgres_username: "{{ db_username }}"
       when: "'databases' in _stacks"
 
     - name: Load mariadb DB config
       ansible.builtin.include_vars:
         file: vars/db_primary_mariadb.yaml
-        name: _db_mariadb_config
       when: "'databases' in _stacks"
+
+    - name: Save mariadb DB config
+      ansible.builtin.set_fact:
+        _db_mariadb_all_names: "{{ db_names }}"
+        _db_mariadb_container: "{{ db_container_name }}"
+        _db_mariadb_username: "{{ db_username }}"
+      when: "'databases' in _stacks"
+
+    - name: Default DB facts when databases stack absent
+      ansible.builtin.set_fact:
+        _db_postgres_all_names: []
+        _db_mariadb_all_names: []
+        _db_postgres_container: ""
+        _db_mariadb_container: ""
+        _db_postgres_username: ""
+        _db_mariadb_username: ""
+      when: "'databases' not in _stacks"
 
     - name: Find latest SQL dump per database — {{ item }}
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql
         {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql.gz
         2>/dev/null | head -1
-      loop: >-
-        {{ (_db_postgres_config.db_names | default([]))
-         + (_db_mariadb_config.db_names | default([])) }}
+      loop: "{{ _db_postgres_all_names + _db_mariadb_all_names }}"
       register: _db_dump_results
       become: false
       changed_when: false
       check_mode: false
-      when: "'databases' in _stacks"
+      when: (_db_postgres_all_names + _db_mariadb_all_names) | length > 0
 
     - name: Build DB archive map and name lists
       ansible.builtin.set_fact:
@@ -220,30 +243,20 @@
              | selectattr('stdout', 'defined')
              | selectattr('stdout', 'ne', '')
              | map(attribute='item') | list
-             | intersect(_db_postgres_config.db_names | default([])) }}
+             | intersect(_db_postgres_all_names) }}
         _db_mariadb_names: >-
           {{ _db_dump_results.results | default([])
              | selectattr('stdout', 'defined')
              | selectattr('stdout', 'ne', '')
              | map(attribute='item') | list
-             | intersect(_db_mariadb_config.db_names | default([])) }}
-      when: "'databases' in _stacks"
-
-    - name: Default DB facts when databases stack absent
-      ansible.builtin.set_fact:
-        _db_archive_map: {}
-        _db_postgres_names: []
-        _db_mariadb_names: []
-        _db_postgres_config: {}
-        _db_mariadb_config: {}
-      when: "'databases' not in _stacks"
+             | intersect(_db_mariadb_all_names) }}
 
     - name: Report DB backup discovery
       ansible.builtin.debug:
         msg: >-
-          DB dumps found: {{ _db_archive_map | length }}/{{ (_db_postgres_config.db_names | default([]) + _db_mariadb_config.db_names | default([])) | length }}.
-          Postgres: {{ _db_postgres_names | join(', ') | default('none') }}.
-          MariaDB: {{ _db_mariadb_names | join(', ') | default('none') }}.
+          DB dumps found: {{ _db_archive_map | length }}/{{ (_db_postgres_all_names + _db_mariadb_all_names) | length }}.
+          Postgres: {{ _db_postgres_names | join(', ') or 'none' }}.
+          MariaDB: {{ _db_mariadb_names | join(', ') or 'none' }}.
           {{ _db_archive_map | to_nice_yaml if _db_archive_map | length > 0 else '' }}
 
     - name: Verify archive integrity
@@ -578,8 +591,8 @@
             loop_var: _db_item
           vars:
             _db_name: "{{ _db_item }}"
-            _db_container: "{{ hostvars['localhost']._db_postgres_config.db_container_name }}"
-            _db_username: "{{ hostvars['localhost']._db_postgres_config.db_username }}"
+            _db_container: "{{ hostvars['localhost']._db_postgres_container }}"
+            _db_username: "{{ hostvars['localhost']._db_postgres_username }}"
             _db_password: "{{ db_password | default('') }}"
             _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
             _db_is_postgres: true
@@ -595,8 +608,8 @@
             loop_var: _db_item
           vars:
             _db_name: "{{ _db_item }}"
-            _db_container: "{{ hostvars['localhost']._db_mariadb_config.db_container_name }}"
-            _db_username: "{{ hostvars['localhost']._db_mariadb_config.db_username }}"
+            _db_container: "{{ hostvars['localhost']._db_mariadb_container }}"
+            _db_username: "{{ hostvars['localhost']._db_mariadb_username }}"
             _db_password: "{{ db_password | default('') }}"
             _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
             _db_is_postgres: false
