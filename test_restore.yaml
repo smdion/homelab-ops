@@ -527,14 +527,15 @@
           ansible.builtin.debug:
             msg: "{{ _debug_extraction.stdout }}"
 
-        # ===== DEPLOY STACKS =====
-        - name: "Deploy stack — {{ _current_stack }}"
+        # ===== DEPLOY DATABASES STACK FIRST =====
+        # DB containers must be running and populated before app stacks start,
+        # otherwise apps (authentik, jellyseerr, etc.) connect to empty databases.
+        - name: Deploy databases stack first
           include_tasks: tasks/deploy_single_stack.yaml
-          loop: "{{ hostvars['localhost']._stacks }}"
-          loop_control:
-            loop_var: _current_stack
           vars:
+            _current_stack: databases
             _test_mode: true
+          when: "'databases' in hostvars['localhost']._stacks"
 
         # ===== RESTORE SQL DUMPS =====
         - name: Wait for database containers to be healthy
@@ -624,6 +625,15 @@
             state: absent
           become: true
           when: hostvars['localhost']._db_archive_map | default({}) | length > 0
+
+        # ===== DEPLOY REMAINING STACKS =====
+        - name: "Deploy stack — {{ _current_stack }}"
+          include_tasks: tasks/deploy_single_stack.yaml
+          loop: "{{ hostvars['localhost']._stacks | reject('equalto', 'databases') | list }}"
+          loop_control:
+            loop_var: _current_stack
+          vars:
+            _test_mode: true
 
         # ===== HEALTH CHECK =====
         - name: Verify container health
