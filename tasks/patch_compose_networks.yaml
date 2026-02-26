@@ -1,0 +1,36 @@
+---
+# Post-template patching: replace network_mode: bridge with homelab network
+# and fix hardcoded IPs in rendered .env files.
+#
+# Called by deploy_single_stack.yaml when patch_compose_networks is true.
+# Runs BEFORE validation, so compose config --quiet catches any errors.
+#
+# Expects:
+#   _compose_file  — path to docker-compose.yaml.new on target
+#   _env_file      — path to .env.new on target
+#   _current_stack — stack name (for conditional env patching)
+#   _apps_vip      — apps VIP for cross-VM references
+
+- name: "Patch compose — bridge to homelab network — {{ _current_stack }}"
+  become: true
+  ansible.builtin.shell: |
+    file="{{ _compose_file }}"
+
+    # Replace network_mode: bridge with homelab network membership
+    sed -i 's/    network_mode: bridge/    networks:\n      - homelab/g' "$file"
+
+    # Add top-level homelab network definition if not already present
+    if ! grep -qP '^networks:' "$file"; then
+      sed -i '/^services:/i networks:\n  homelab:\n    external: true' "$file"
+    fi
+  args:
+    warn: false
+  changed_when: true
+
+- name: "Patch .env — fix INFLUX_HOST to apps VIP — {{ _current_stack }}"
+  become: true
+  ansible.builtin.replace:
+    path: "{{ _env_file }}"
+    regexp: '^INFLUX_HOST=.*'
+    replace: "INFLUX_HOST={{ _apps_vip }}"
+  when: _current_stack == 'auth'
