@@ -71,7 +71,7 @@ vm_test_slot_count: 10
 # Resulting IPs: <prefix><offset+vm_index>  (e.g. 192.0.2.90 .. 192.0.2.99)
 vm_definitions:
   core:
-    vm_id: 104
+    vm_id: 300
     vm_name: core
     vm_mac: "02:00:00:00:01:04"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "{{ vault_vm_core_hostname }}"
@@ -83,7 +83,7 @@ vm_definitions:
     cephfs_host_dir: "core"           # mounts /core from CephFS root at /opt
 
   apps:
-    vm_id: 105
+    vm_id: 301
     vm_name: apps
     vm_mac: "02:00:00:00:01:05"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "{{ vault_vm_apps_hostname }}"
@@ -95,7 +95,7 @@ vm_definitions:
     cephfs_host_dir: "apps"           # mounts /apps from CephFS root at /opt
 
   dev:
-    vm_id: 106
+    vm_id: 302
     vm_name: dev
     vm_mac: "02:00:00:00:01:06"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "{{ vault_vm_dev_hostname }}"
