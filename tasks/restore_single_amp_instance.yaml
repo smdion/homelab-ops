@@ -95,7 +95,7 @@
       become: true
       ansible.builtin.shell: |
         _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-        tar -I "$_gz" --no-same-owner --no-same-permissions -xf "{{ _amp_restore_tmp }}/{{ _amp_restore_archive | basename }}" \
+        tar -I "$_gz" -xf "{{ _amp_restore_tmp }}/{{ _amp_restore_archive | basename }}" \
             -C "{{ amp_home }}/.ampdata/instances"
       args:
         executable: /bin/bash
