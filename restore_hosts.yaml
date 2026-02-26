@@ -3,28 +3,25 @@
 # Three paths: per-stack (docker_stacks), selective app (docker_run), monolithic (full host).
 # Sends Discord notification and logs result to restores table.
 #
+# Safety-gated: requires -e confirm=yes to proceed.
+# Containers are always stopped before restore and restarted after.
+#
 # Scope selectors (docker_stacks only):
 #   stack=<name>  — restore a single stack (auto-resolves host)
 #   role=<name>   — restore all stacks in a role (auto-resolves host)
 #
 # Usage:
-#   # Stage full backup for inspection (default, safe)
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=proxmox
-#
-#   # Restore a specific stack's appdata (per-stack archives)
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks -e stack=auth -e restore_mode=inplace -e confirm=yes -e with_docker=yes
+#   # Restore a specific stack's appdata
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks -e stack=auth -e confirm=yes
 #
 #   # Restore all stacks in a role
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks -e role=core -e restore_mode=inplace -e confirm=yes -e with_docker=yes
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks -e role=core -e confirm=yes
 #
-#   # Stage just one app's appdata from the full archive
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr
-#
-#   # In-place restore of ONE specific app's appdata only
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e restore_mode=inplace -e confirm=yes -e with_docker=yes
+#   # Restore ONE specific app's appdata (monolithic archive)
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e confirm=yes
 #
 #   # COORDINATED RESTORE — appdata + databases together (cross-host via delegate_to)
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e with_databases=yes -e restore_mode=inplace -e confirm=yes -e with_docker=yes
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr -e with_databases=yes -e confirm=yes
 
 - name: Restore config/appdata from backup
   hosts: "{{ hosts_variable }}"
@@ -36,7 +33,6 @@
     - vars/{{ config_file }}.yaml
   vars:
     config_file: "{{ hosts_variable }}"
-    restore_mode: staging
 
   pre_tasks:
     - name: Assert config_file is defined and non-empty
@@ -57,18 +53,17 @@
         that: inventory_hostname not in groups["unifi_protect"] | default([])
         fail_msg: "UNVR .unf backups require manual restore via the Protect UI"
 
-    - name: Assert confirm for inplace mode
+    - name: Assert confirm for restore
       ansible.builtin.assert:
         that: confirm | default('no') == 'yes'
         fail_msg: >-
-          In-place restore requires -e confirm=yes.
-          Run without restore_mode=inplace for safe staging mode.
-      when: restore_mode == 'inplace'
+          Restore requires -e confirm=yes.
+          Use verify_backups.yaml to inspect archives without restoring.
 
     - name: Assert sufficient disk space
       include_tasks: tasks/assert_disk_space.yaml
       vars:
-        assert_disk_path: "{{ backup_tmp_dir if restore_mode == 'staging' else '/' }}"
+        assert_disk_path: "/"
         assert_disk_min_gb: "{{ backup_assert_disk_min_gb | default(2) }}"
 
     - name: Assert MariaDB logging database is reachable
@@ -140,7 +135,6 @@
         - include_tasks: tasks/docker_start.yaml
           vars:
             _docker_ignore_errors: true
-          when: with_docker | default('') == 'yes'
           tags: [docker]
 
       always:
@@ -165,7 +159,7 @@
               {{ 'successful' if not (restore_failed | bool)
                  else ('failed' if (_stack_restore_results | rejectattr('failed') | list | length == 0)
                        else 'partial') }}
-            discord_detail: "{{ restore_mode | capitalize }}"
+            discord_detail: "Restore"
             discord_color: >-
               {{ discord_color_success if not (restore_failed | bool)
                  else (discord_color_failure if (_stack_restore_results | rejectattr('failed') | list | length == 0)
@@ -190,7 +184,7 @@
             restore_status: "{{ 'failed' if _stack_result.failed else 'success' }}"
             restore_detail: >-
               {{ 'restore failed — check Semaphore logs' if _stack_result.failed
-                 else restore_mode + ' restore of ' + _stack_result.stack }}
+                 else 'restore of ' + _stack_result.stack }}
           when: _restore_path == 'stack'
           tags: [always]
 
@@ -206,8 +200,6 @@
             discord_color: "{{ discord_color_failure if restore_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Mode"
-                value: "{{ restore_mode | capitalize }}"
               - name: "Source File"
                 value: "{{ _restore_source_file | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1') }}"
               - name: "Detail"

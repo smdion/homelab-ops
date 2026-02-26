@@ -163,7 +163,6 @@
       vars:
         backup_tmp_dir: "/tmp/restore_{{ _test_app }}"
         _restore_archive_path: "{{ _stack_archive_map[_test_app] }}"
-        _restore_mode: inplace
         _restore_app_name: "{{ _test_app }}"
 
     - name: Start stack — {{ _cur_stack }}

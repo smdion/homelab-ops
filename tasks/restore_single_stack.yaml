@@ -10,7 +10,6 @@
 #   _restore_stack_item     — stack name (e.g. 'auth', 'vpn')
 #   backup_base_dir         — controller-side backup root
 #   backup_tmp_dir          — temp directory on target host
-#   restore_mode            — 'staging' or 'inplace'
 #   _stack_restore_results  — list to append results to (caller initializes to [])
 
 - name: Find per-stack backup archive on controller for {{ _restore_stack_item }}
@@ -41,14 +40,11 @@
       include_tasks: tasks/docker_stop.yaml
       vars:
         _docker_selective_stacks: ["{{ _restore_stack_item }}"]
-      when:
-        - with_docker | default('') == 'yes'
-        - not ansible_check_mode
+      when: not ansible_check_mode
 
     - include_tasks: tasks/restore_appdata.yaml
       vars:
         _restore_archive_path: "{{ _stack_archive_file.stdout }}"
-        _restore_mode: "{{ restore_mode }}"
         _restore_app_name: "{{ _restore_stack_item }}"
 
     - name: Record success for {{ _restore_stack_item }}
@@ -72,12 +68,10 @@
       vars:
         _docker_selective_stacks: ["{{ _restore_stack_item }}"]
         _docker_ignore_errors: true
-      when:
-        - with_docker | default('') == 'yes'
-        - not ansible_check_mode
+      when: not ansible_check_mode
 
     - name: Clean up temp archive for {{ _restore_stack_item }}
       ansible.builtin.file:
-        path: "{{ backup_tmp_dir }}/restore_{{ restore_mode }}.tar.gz"
+        path: "{{ backup_tmp_dir }}/restore.tar.gz"
         state: absent
       become: true

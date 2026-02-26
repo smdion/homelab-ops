@@ -21,10 +21,12 @@ app_info:
   authentik:
     stack: auth
     db_stack: databases
+    db_config: db_primary_postgres
     db_names: [authentik]
   jellyseerr:
     stack: media
     db_stack: databases
+    db_config: db_primary_postgres
     db_names: [jellyseerr]
 
 # Role-to-stack mapping. ORDER MATTERS: databases MUST precede auth (Authentik requires Postgres).

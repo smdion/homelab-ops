@@ -19,22 +19,29 @@
 #   rollback_service=<name> — rollback a single service within a stack
 #   role=<name>             — rollback all stacks in a role (auto-resolves host)
 #
+# Options:
+#   with_backup=yes         — also restore appdata from backup + auto-detect DB dependencies
+#
 # Usage:
-#   # Rollback all containers
+#   # Rollback all containers (image-only, fast)
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
 #     --limit <hostname> -e confirm=yes
 #
-#   # Rollback one stack
+#   # Rollback one stack (image-only)
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
-#     -e stack=vpn -e confirm=yes
+#     -e stack=auth -e confirm=yes
 #
-#   # Rollback one service
+#   # Rollback one stack — images + appdata + auto-detected DB restore
+#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
+#     -e stack=auth -e with_backup=yes -e confirm=yes
+#
+#   # Rollback all stacks in a role — images + appdata + DB
+#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
+#     -e role=core -e with_backup=yes -e confirm=yes
+#
+#   # Rollback one service (image-only)
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
 #     --limit <hostname> -e rollback_service=jellyseerr -e confirm=yes
-#
-#   # Rollback all stacks in a role
-#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
-#     -e role=core -e confirm=yes
 #
 #   # Dry run — show snapshot info without rolling back
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
@@ -134,6 +141,13 @@
         fail_msg: "Service '{{ item }}' not found in snapshot. Available: {{ rollback_snapshot.containers.keys() | join(', ') }}"
       loop: "{{ _rollback_targets }}"
 
+    - name: Determine target stacks from rollback targets
+      ansible.builtin.set_fact:
+        _rollback_target_stacks: >-
+          {{ _rollback_targets
+             | map('extract', _service_stack_map | default({}))
+             | select('defined') | unique | list }}
+
     - name: Assert confirm for destructive operation
       ansible.builtin.assert:
         that: confirm | default('') == 'yes'
@@ -157,88 +171,80 @@
 
     - block:
         # ═══════════════════════════════════════════════════════════════════
-        # CHECK — which old images are still available locally
+        # WITH_BACKUP — stop stacks, restore appdata + DBs, then rollback
         # ═══════════════════════════════════════════════════════════════════
-        - name: Check old images still exist locally
-          become: true
-          ansible.builtin.shell: "docker image inspect {{ rollback_snapshot.containers[item].image_id }} > /dev/null 2>&1"
-          loop: "{{ _rollback_targets }}"
-          register: _image_check
-          failed_when: false
-          changed_when: false
+        - name: Stop target stacks for backup restore
+          include_tasks: tasks/docker_stop.yaml
+          vars:
+            _docker_selective_stacks: "{{ _rollback_target_stacks }}"
+          when:
+            - with_backup | default('') == 'yes'
+            - not ansible_check_mode
 
-        - name: Build image availability map
+        - name: Find and restore appdata per stack
+          include_tasks: tasks/rollback_restore_stack.yaml
+          loop: "{{ _rollback_target_stacks }}"
+          loop_control:
+            loop_var: _rollback_stack
+          when: with_backup | default('') == 'yes'
+
+        - name: Auto-detect DB dependencies from app_info
           ansible.builtin.set_fact:
-            _image_local: "{{ _image_local | default({}) | combine({item.item: (item.rc == 0)}) }}"
-          loop: "{{ _image_check.results }}"
+            _rollback_db_deps: >-
+              {{ app_info | default({}) | dict2items
+                 | selectattr('value.stack', 'in', _rollback_target_stacks)
+                 | selectattr('value.db_names', 'defined')
+                 | list }}
+          when: with_backup | default('') == 'yes'
 
-        - name: Show rollback plan
-          ansible.builtin.debug:
-            msg: >-
-              {{ item }}: {{ 'local re-tag (fast)' if _image_local[item] else 'registry pull ' + rollback_snapshot.containers[item].version + ' (slow)' }}
-              — current image {{ rollback_snapshot.containers[item].image }}
-              → version {{ rollback_snapshot.containers[item].version }}
-          loop: "{{ _rollback_targets }}"
+        - name: Start database containers for DB restore
+          include_tasks: tasks/docker_start.yaml
+          vars:
+            _docker_selective_stacks: ["databases"]
+          when:
+            - with_backup | default('') == 'yes'
+            - _rollback_db_deps | default([]) | length > 0
+            - "'databases' in _rollback_target_stacks"
+            - not ansible_check_mode
+
+        - name: Restore auto-detected DB dumps
+          include_tasks: tasks/rollback_restore_dbs.yaml
+          loop: "{{ _rollback_db_deps | default([]) }}"
+          loop_control:
+            loop_var: _db_dep
+          when:
+            - with_backup | default('') == 'yes'
+            - _rollback_db_deps | default([]) | length > 0
+            - not ansible_check_mode
 
         # ═══════════════════════════════════════════════════════════════════
-        # FAST PATH — old image still on disk (not yet pruned)
+        # IMAGE ROLLBACK — re-tag or pull old images
         # ═══════════════════════════════════════════════════════════════════
-        - name: Re-tag old images (local)
-          become: true
-          ansible.builtin.shell: >
-            docker tag {{ rollback_snapshot.containers[item].image_id }}
-            {{ rollback_snapshot.containers[item].image }}
-          loop: "{{ _rollback_targets | select('in', _image_local | dict2items | selectattr('value') | map(attribute='key')) | list }}"
-
-        # ═══════════════════════════════════════════════════════════════════
-        # SLOW PATH — image was pruned, pull old version from registry
-        # ═══════════════════════════════════════════════════════════════════
-        - name: Determine registry pull tag for pruned images
-          ansible.builtin.set_fact:
-            _registry_pull: >-
-              {{ _registry_pull | default({}) | combine({
-                item: rollback_snapshot.containers[item].image
-              }) }}
-          loop: "{{ _rollback_targets | reject('in', _image_local | dict2items | selectattr('value') | map(attribute='key')) | list }}"
-
-        - name: Pull old version from registry (image was pruned)
-          become: true
-          ansible.builtin.shell: |
-            echo "Old image pruned — pulling {{ _registry_pull[item] }} from registry"
-            docker pull {{ _registry_pull[item] }}
-            docker tag {{ _registry_pull[item] }} {{ rollback_snapshot.containers[item].image }}
-          loop: "{{ _registry_pull | default({}) | list }}"
-          register: _registry_pull_result
-          failed_when: _registry_pull_result.rc != 0
+        - include_tasks: tasks/rollback_images.yaml
 
         # ═══════════════════════════════════════════════════════════════════
         # RECREATE — bring containers back with old images
         # ═══════════════════════════════════════════════════════════════════
-        - name: Recreate containers with old images (stack mode)
+        - name: Recreate containers with old images
           become: true
           ansible.builtin.shell: >
             docker compose up -d
-            {{ _rollback_targets
-               | select('in', (_service_stack_map | default({}) | dict2items
-                               | selectattr('value', 'eq', item)
-                               | map(attribute='key') | list))
-               | join(' ') }}
+            {{ '' if (with_backup | default('') == 'yes') else
+               (_rollback_targets
+                | select('in', (_service_stack_map | default({}) | dict2items
+                                | selectattr('value', 'eq', item)
+                                | map(attribute='key') | list))
+                | join(' ')) }}
           args:
             chdir: "/opt/stacks/{{ item }}"
-          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
-          when:
-            - inventory_hostname in (stack_assignments | default({}))
-            - _rollback_targets
-              | select('in', (_service_stack_map | default({}) | dict2items
-                              | selectattr('value', 'eq', item)
-                              | map(attribute='key') | list))
-              | list | length > 0
+          loop: "{{ _rollback_target_stacks }}"
+          when: inventory_hostname in (stack_assignments | default({}))
 
         - name: Wait for containers to stabilize
           ansible.builtin.pause:
             seconds: 10
 
-        - name: Verify containers are running (stack mode)
+        - name: Verify containers are running
           become: true
           ansible.builtin.shell: >
             docker compose ps --format json {{ item }}
@@ -253,14 +259,20 @@
           ansible.builtin.set_fact:
             _rollback_detail: >-
               Rolled back {{ _rollback_targets | length }} container(s) to snapshot from {{ rollback_snapshot.timestamp }}.
-              Fast path: {{ _image_local | dict2items | selectattr('value') | map(attribute='key') | list | length }},
-              Registry pull: {{ _registry_pull | default({}) | length }}
+              {{ _rollback_image_detail | default('') }}{{ '. Appdata + DB restored from backup.' if (with_backup | default('') == 'yes') else '' }}
 
       rescue:
         - name: Set rollback failed flag
           ansible.builtin.set_fact:
             rollback_failed: true
             _rollback_detail: "Error: {{ ansible_failed_result.msg | default('unknown') }}"
+
+        - name: Attempt to restart stacks after failure
+          include_tasks: tasks/docker_start.yaml
+          vars:
+            _docker_selective_stacks: "{{ _rollback_target_stacks }}"
+            _docker_ignore_errors: true
+          when: with_backup | default('') == 'yes'
 
       always:
         - name: Send Discord notification

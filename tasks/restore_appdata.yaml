@@ -1,11 +1,8 @@
 ---
-# Restore appdata from backup archive. Supports staging and inplace modes
-# with optional selective app extraction.
-# Extracted from restore_hosts.yaml.
+# Restore appdata from backup archive with optional selective app extraction.
 #
 # Expects:
 #   _restore_archive_path  — path to archive on controller
-#   _restore_mode          — 'staging' or 'inplace'
 #   backup_tmp_dir         — temp directory on target host
 # Optional:
 #   _restore_extract_path  — relative path within archive (selective extract)
@@ -18,7 +15,7 @@
     - name: Copy archive via rsync
       ansible.builtin.synchronize:
         src: "{{ _restore_archive_path }}"
-        dest: "{{ backup_tmp_dir }}/restore_{{ _restore_mode }}.tar.gz"
+        dest: "{{ backup_tmp_dir }}/restore.tar.gz"
         compress: false
         rsync_opts:
           - "--timeout=300"
@@ -27,111 +24,39 @@
     - name: "Rsync stalled — falling back to Ansible copy"
       ansible.builtin.copy:
         src: "{{ _restore_archive_path }}"
-        dest: "{{ backup_tmp_dir }}/restore_{{ _restore_mode }}.tar.gz"
+        dest: "{{ backup_tmp_dir }}/restore.tar.gz"
         mode: "0644"
   when: not ansible_check_mode
 
-# ===== STAGING MODE =====
-- name: Create staging directory
-  ansible.builtin.file:
-    state: directory
-    path: "{{ backup_tmp_dir }}/restore_staging"
-  become: true
-  when:
-    - _restore_mode == 'staging'
-    - not ansible_check_mode
-
-- name: Extract to staging (selective)
-  ansible.builtin.shell: |
-    _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-    tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging "{{ _restore_extract_path }}"
-  become: true
-  when:
-    - _restore_mode == 'staging'
-    - _restore_extract_path | default('') | length > 0
-    - not ansible_check_mode
-
-- name: Extract to staging (full)
-  ansible.builtin.shell: |
-    _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-    tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging
-  become: true
-  when:
-    - _restore_mode == 'staging'
-    - _restore_extract_path | default('') | length == 0
-    - not ansible_check_mode
-
-- name: List staging contents
-  ansible.builtin.shell: find {{ backup_tmp_dir }}/restore_staging -type f | head -50
-  register: _staging_contents
-  become: true
-  changed_when: false
-  when:
-    - _restore_mode == 'staging'
-    - not ansible_check_mode
-
-- name: Count staged files
-  ansible.builtin.shell: find {{ backup_tmp_dir }}/restore_staging -type f | wc -l
-  register: _staged_count
-  become: true
-  changed_when: false
-  when:
-    - _restore_mode == 'staging'
-    - not ansible_check_mode
-
-- name: Display staging contents
-  ansible.builtin.debug:
-    msg: |
-      Staged {{ _staged_count.stdout }} files to {{ backup_tmp_dir }}/restore_staging/
-      First 50 files:
-      {{ _staging_contents.stdout }}
-  when:
-    - _restore_mode == 'staging'
-    - not ansible_check_mode
-
-- name: Set staging detail
-  ansible.builtin.set_fact:
-    _restore_detail: "{{ _staged_count.stdout | default('0') }} files staged to {{ backup_tmp_dir }}/restore_staging/"
-  when:
-    - _restore_mode == 'staging'
-    - not ansible_check_mode
-
-# ===== INPLACE MODE =====
 - name: Detect archive root (opt/ prefix or legacy flat layout)
   ansible.builtin.shell: |
     _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-    first=$(tar -I "$_gz" -tf {{ backup_tmp_dir }}/restore_inplace.tar.gz | head -1)
+    first=$(tar -I "$_gz" -tf {{ backup_tmp_dir }}/restore.tar.gz | head -1)
     case "$first" in opt/*) echo "/" ;; *) echo "/opt" ;; esac
   become: true
   register: _archive_extract_root
   changed_when: false
-  when:
-    - _restore_mode == 'inplace'
-    - not ansible_check_mode
+  when: not ansible_check_mode
 
-- name: Extract inplace (selective)
+- name: Extract archive (selective)
   ansible.builtin.shell: |
     _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-    tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C {{ _archive_extract_root.stdout }} "{{ _restore_extract_path }}"
+    tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore.tar.gz -C {{ _archive_extract_root.stdout }} "{{ _restore_extract_path }}"
   become: true
   when:
-    - _restore_mode == 'inplace'
     - _restore_extract_path | default('') | length > 0
     - not ansible_check_mode
 
-- name: Extract inplace (full)
+- name: Extract archive (full)
   ansible.builtin.shell: |
     _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-    tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C {{ _archive_extract_root.stdout }}
+    tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore.tar.gz -C {{ _archive_extract_root.stdout }}
   become: true
   when:
-    - _restore_mode == 'inplace'
     - _restore_extract_path | default('') | length == 0
     - not ansible_check_mode
 
-- name: Set inplace detail
+- name: Set restore detail
   ansible.builtin.set_fact:
-    _restore_detail: "{{ _restore_app_name | default('full') }} restored inplace"
-  when:
-    - _restore_mode == 'inplace'
-    - not ansible_check_mode
+    _restore_detail: "{{ _restore_app_name | default('full') }} restored"
+  when: not ansible_check_mode
