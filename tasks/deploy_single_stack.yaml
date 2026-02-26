@@ -80,6 +80,13 @@
     - _override_j2_stat.stat.exists
     - not (_test_mode | default(false) | bool and _test_override_j2_stat.stat.exists | default(false))
 
+- name: "Patch compose for homelab network — {{ _current_stack }}"
+  include_tasks: tasks/patch_compose_networks.yaml
+  vars:
+    _compose_file: "/opt/stacks/{{ _current_stack }}/docker-compose.yaml.new"
+    _env_file: "/opt/stacks/{{ _current_stack }}/.env.new"
+  when: patch_compose_networks | default(false) | bool
+
 - name: "Validate compose config — {{ _current_stack }}"
   become: true
   ansible.builtin.command:

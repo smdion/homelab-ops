@@ -484,6 +484,9 @@
           vars:
             _current_stack: databases
             _test_mode: true
+            patch_compose_networks: true
+            _apps_vip: >-
+              {% if test_vm_role is defined %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
           when: "'databases' in hostvars['localhost']._stacks"
 
         - name: Reset DB passwords to match vault (restored data may differ)
@@ -609,6 +612,9 @@
             loop_var: _current_stack
           vars:
             _test_mode: true
+            patch_compose_networks: true
+            _apps_vip: >-
+              {% if test_vm_role is defined %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
 
         # ===== HEALTH CHECK =====
         - name: Verify container health
