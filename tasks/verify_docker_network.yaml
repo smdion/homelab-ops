@@ -1,7 +1,8 @@
 ---
 # Verify Docker network connectivity: membership, DNS resolution, and TCP reachability.
 # Tests representative consumers → DB services (not O(n^2) mesh).
-# Uses nslookup (POSIX sh compatible) instead of bash-only /dev/tcp.
+# Uses getent hosts (libc-level) with ping fallback — avoids nslookup which
+# is missing from most third-party container images.
 #
 # Optional:
 #   _network_name  — Docker network to verify (default: 'homelab')
@@ -47,8 +48,10 @@
 
         for src in $consumers; do
           for dst in $db_services; do
-            if docker exec "$src" sh -c "nslookup $dst >/dev/null 2>&1" 2>/dev/null; then
-              echo "  OK: $src -> $dst"
+            if docker exec "$src" getent hosts "$dst" >/dev/null 2>&1; then
+              echo "  OK: $src -> $dst (getent)"
+            elif docker exec "$src" ping -c 1 -W 2 "$dst" >/dev/null 2>&1; then
+              echo "  OK: $src -> $dst (ping)"
             else
               echo "  FAIL: $src cannot resolve '$dst'"
               errors=$((errors + 1))
