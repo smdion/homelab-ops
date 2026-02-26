@@ -155,7 +155,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, up)
 │   ├── provision_vm.yaml            # Provision VM on Proxmox via cloud-init template clone + API config
 │   ├── resolve_or_provision_vm.yaml # Resolve existing test VM or provision new one — shared by test/verify playbooks
-│   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS, CephFS /opt mount
+│   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS server/client, CephFS (test VMs only)
 │   ├── ssh_hardening.yaml           # Passwordless sudo + SSH config hardening + service restart
 │   ├── docker_stop.yaml             # Stop Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── docker_start.yaml            # Start Docker containers/stacks (selective, stack, or unRAID mode)
@@ -2596,34 +2596,28 @@ reboots the VM, and retries only the OOM-failed apps with the new memory ceiling
 
 ---
 
-## CephFS Appdata Storage
+## CephFS (Test VMs Only)
 
-**Phase 1 of the portability redesign.** Docker stack appdata moves from individual VM RBD block
-devices to CephFS shared storage. A rebuilt VM mounts its CephFS subvolume at `/opt` and immediately
-sees all existing data — no restore step required. Backup archives remain for disaster recovery only.
+CephFS is used **only for test VMs** (`cephfs-migrate-test`). Production VMs (core, apps, dev) use
+local Ceph RBD disk for `/opt` — CephFS proved too slow for production workloads. Cross-VM workspace
+access for code-server on dev uses NFS mounts from core/apps instead.
 
 ### Architecture
 
-VM storage is two independent layers:
+Production VM storage is a single layer:
 
 - **Ceph RBD disk** (`replicated` pool) — VM OS, Docker engine, container images in
-  `/var/lib/docker`. Provisioned by `provision_vm.yaml` exactly as today. No change.
-- **CephFS mount at `/opt`** (new) — all Docker appdata. Mounted via fstab on boot.
+  `/var/lib/docker`, and all Docker appdata under `/opt`. Provisioned by `provision_vm.yaml`.
 
-Per-VM directories on the shared CephFS filesystem (role-based names):
+Dev VM additionally mounts core and apps `/opt` via NFS (read-only) for code-server workspace access:
 ```
-CephFS root /
-  /core/    →  mounted at /opt on core VM
-  /apps/    →  mounted at /opt on apps VM
-  /dev/     →  mounted at /opt on dev VM
+core:/opt   →  /mnt/nfs/core on dev VM (NFS, read-only)
+apps:/opt   →  /mnt/nfs/apps on dev VM (NFS, read-only)
 ```
-
-All existing paths (`${APPSDIR}/<app>`, `/opt/stacks/<stack>/`, `homelab.backup.paths` labels)
-work **unchanged** — they still resolve to `/opt/<...>`, now backed by CephFS instead of local disk.
 
 ### Vault Variables
 
-Two new secrets required when `cephfs_host_dir` is defined for any VM:
+Two secrets required for CephFS test VMs (`cephfs_host_dir` defined):
 
 | Variable | Description |
 |---|---|
@@ -2634,11 +2628,9 @@ See `vars/secrets.yaml.example` for the full entry and setup reference.
 
 ### VM Eligibility
 
-`cephfs_host_dir` is defined in `vm_definitions` for eligible VMs only:
+`cephfs_host_dir` is defined in `vm_definitions` for **test VMs only**:
 
-- **core** — `cephfs_host_dir: "core"`
-- **apps** — `cephfs_host_dir: "apps"`
-- **dev** — `cephfs_host_dir: "dev"`
+- **core, apps, dev** — local RBD disk (no `cephfs_host_dir`)
 - **cephfs-migrate-test** — `cephfs_host_dir: "cephfs-migrate-test"` — ephemeral test VM used by
   `test_restore.yaml -e vm_name=cephfs-migrate-test`. Draws a slot from the same `vm_test_slot_base`
   pool as `test-vm` via `resolve_test_vm_index.yaml`. Same test VLAN isolation as `test-vm` (backup
@@ -2649,40 +2641,16 @@ See `vars/secrets.yaml.example` for the full entry and setup reference.
 - **test-vm** — excluded: snapshots only revert the RBD disk, not CephFS. `test-vm` uses local `/opt`
   so snapshot revert produces a clean state for each test run.
 
-### Bootstrap (new VMs)
+### Bootstrap
 
-`tasks/bootstrap_vm.yaml` handles CephFS automatically when `_vm.cephfs_host_dir` is defined:
-1. Installs `ceph-common`
-2. Writes the client keyring (INI format for CLI tools) to `{{ cephfs_keyring_path }}`
-3. Writes the raw mount secret (for kernel `secretfile=` option) to `.secret` alongside the keyring
-4. Writes a minimal `ceph.conf` with `mon_host` (suppresses DNS SRV fallback warning)
-5. Asserts that test VMs (those with `vm_vlan_tag`) do not mount production CephFS directories
-   (`cephfs_production_dirs` allowlist in `vars/vm_definitions.yaml`)
-6. Mounts CephFS at `/opt` via `ansible.posix.mount state: mounted` (adds fstab + mounts)
+`tasks/bootstrap_vm.yaml` handles CephFS automatically when `_vm.cephfs_host_dir` is defined
+(test VMs only). For production VMs, `/opt` is the default local RBD disk — no special setup needed.
 
-A new VM's `/opt` is an empty CephFS subvolume — stacks deploy and immediately see any existing data.
+NFS server support: when `_vm.nfs_exports` is defined (core, apps), bootstrap installs
+`nfs-kernel-server` and writes `/etc/exports`. NFS client mounts (`_vm.nfs_mounts`) are configured
+for dev VM to access core/apps workspaces.
 
-### Migration (existing VMs)
-
-`migrate_appdata_to_cephfs.yaml` migrates a live production VM in one shot:
-
-1. **Play 1 (localhost)**: Validate `vm_name` + `confirm=yes`; resolve the VM's actual PVE node
-   via cluster API; create a `pre-cephfs-migration` PVE snapshot (disk-only, no RAM state)
-2. **Play 2 (target VM)**: Pre-flight — fail if `/opt` is already CephFS; install `ceph-common`
-   and `rsync`; write keyring; mount CephFS at `/mnt/cephfs_migrate`; stop all Docker stacks;
-   clean the CephFS target (`find -mindepth 1 -delete`); `rsync -av --delete /opt/ /mnt/cephfs_migrate/`;
-   spot-check `/mnt/cephfs_migrate/stacks/`; unmount staging; mount CephFS at `/opt`; start stacks
-3. **Play 3 (localhost)**: On failure — stop VM, revert to `pre-cephfs-migration` snapshot, start
-   VM, wait for SSH (VM returns to exact pre-migration state). On success — delete the snapshot.
-4. **Play 4 (localhost)**: Log to MariaDB (`maintenance` table, subtype `CephFS Migration`) +
-   Discord notification
-
-Local `/opt` data is never deleted — CephFS mounts on top. The old data is hidden under the
-overlay mount and can be reclaimed later.
-
-Run order: odyssey first (fewer stacks — lowest risk), then tantive-iv.
-
-### CephFS Restore Test (pre-production validation)
+### CephFS Restore Test
 
 `test_restore.yaml -e vm_name=cephfs-migrate-test` validates backup/restore on CephFS-backed `/opt`.
 Uses the same `test_restore.yaml` flow as regular restore testing — the only differences are:
@@ -2712,32 +2680,24 @@ to confirm CephFS is working, or on a schedule as a health check.
 ### Backup / DR
 
 Backup strategy is unchanged. `backup_single_stack.yaml` discovers paths via `homelab.backup.paths`
-labels — those paths still resolve to `/opt/<app>`, now on CephFS instead of local disk. Tar
-archives remain disaster recovery.
+labels — those paths resolve to `/opt/<app>` on local RBD disk. Tar archives remain disaster recovery.
 
-### MDS High Availability
+### Recovery if CephFS Goes Down (test VMs only)
 
-Deploy 2 MDS daemons (active + standby). With 3 monitors + 2 MDS, a single-node failure is non-fatal.
-
-### Recovery if CephFS Goes Down
-
-If CephFS becomes unavailable and `/opt` fails to mount on boot, the VM will hang at the
-`x-systemd.requires=network-online.target` dependency. Recovery options:
-1. Restore CephFS availability (preferred)
-2. Remove the CephFS fstab entry (`ansible.posix.mount state: absent`) and reboot — VM falls back
-   to local disk `/opt` (data is the pre-migration snapshot; use backup archives to restore current state)
+If CephFS becomes unavailable, test VMs with `cephfs_host_dir` will hang at boot. Production VMs
+are unaffected — they use local RBD disk. For test VMs, restore CephFS availability or destroy
+and recreate the test VM.
 
 ### Phase Roadmap
 
-- **Phase 1 (complete)** — CephFS: data survives VM destruction. VMs still need their own FQDN.
-  Merged Feb 2026.
-- **Phase 2 (code-complete, testing in progress)** — Docker networking + stack reorg: shared `homelab` Docker network for
+- **Phase 1 (reverted)** — CephFS for production VMs proved too slow. Production VMs reverted to
+  local RBD disk. CephFS retained for test VMs only. Feb 2026.
+- **Phase 2 (complete)** — Docker networking + stack reorg: shared `homelab` Docker network for
   cross-stack service-name resolution; media stack moves to core (eliminates cross-host postgres);
-  NFS stack deleted (replaced by CephFS direct mounts for code-server); host-IP references in
-  `env.j2` templates replaced with Docker service names. See `future/HOST_INDEPENDENT_STACKS.md`.
-- **Phase 3 (code-complete, testing in progress)** — 3-VM role-based architecture (core/apps/dev) with keepalived VIPs;
-  role-based stack assignment via `stack_roles` + `vault_vm_roles`; CephFS directories renamed to
-  role names; dynamic `docker_mem_limit` replaces static group_vars. See
-  `future/HOST_INDEPENDENT_STACKS.md`.
+  NFS stack deleted (code-server uses NFS from core/apps); host-IP references in `env.j2` templates
+  replaced with Docker service names.
+- **Phase 3 (complete)** — 3-VM role-based architecture (core/apps/dev) with keepalived VIPs;
+  role-based stack assignment via `stack_roles` + `vault_vm_roles`; NFS exports on core/apps for
+  dev VM workspace access; dynamic `docker_mem_limit` replaces static group_vars.
 
 Phases 2 and 3 ship as a single feature branch (`feature/host-independent-stacks`) — one deployment, one round of troubleshooting.

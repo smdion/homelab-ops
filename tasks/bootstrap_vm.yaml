@@ -85,6 +85,32 @@
     label: "{{ item.port }}/{{ item.proto | default('tcp') }}"
   when: _vm.ufw_rules is defined
 
+- name: Install NFS server
+  ansible.builtin.apt:
+    name: nfs-kernel-server
+    state: present
+  when: _vm.nfs_exports is defined
+
+- name: Configure NFS exports
+  ansible.builtin.lineinfile:
+    path: /etc/exports
+    line: "{{ item.path }} {{ item.clients }}"
+    regexp: "^{{ item.path | regex_escape }}\\s"
+    create: true
+    mode: "0644"
+  loop: "{{ _vm.nfs_exports }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _nfs_exports
+  when: _vm.nfs_exports is defined
+
+- name: Reload NFS exports
+  ansible.builtin.command: exportfs -ra
+  changed_when: true
+  when:
+    - _vm.nfs_exports is defined
+    - _nfs_exports.changed
+
 - name: Configure NFS mounts
   ansible.posix.mount:
     path: "{{ item.path }}"

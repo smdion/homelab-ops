@@ -55,8 +55,8 @@ services:
       - ${APPSDIR}/netboot/config:/config
       - ${APPSDIR}/netboot/assets:/assets
 volumes:
-  # CephFS bind mounts (core, apps, dev) and VPS NFS are deployment-specific —
-  # defined via vault/fstab in docker-compose.override.j2, which deploy_stacks.yaml
+  # NFS mounts (core, apps from other VMs), local bind (dev), and VPS NFS are
+  # deployment-specific — defined in docker-compose.override.j2, which deploy_stacks.yaml
   # templates to docker-compose.override.yaml on the host. See DESIGN.md for details.
   core:
   apps:

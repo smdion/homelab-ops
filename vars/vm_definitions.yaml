@@ -22,15 +22,14 @@
 pve_api_host: "{{ vault_pve_vip }}"
 pve_storage: "replicated"
 
-# CephFS shared appdata — mounted at /opt on eligible VMs (cephfs_host_dir defined).
+# CephFS — used by test VMs only (cephfs-migrate-test). Production VMs use local RBD disk.
 # Credentials in vault: vault_ceph_mons, vault_ceph_vm_appdata_key
-# Production CephFS directories — test VMs must NOT mount these.
-# bootstrap_vm.yaml asserts cephfs_host_dir is not in this list when vm_vlan_tag is defined.
+# cephfs_production_dirs: safety gate — assert_test_vm.yaml and bootstrap_vm.yaml check
+# that test VMs do not mount these directories (which hold real appdata on CephFS).
 cephfs_production_dirs:
   - core
   - apps
   - dev
-
 cephfs_client_name: "vm-appdata"
 cephfs_keyring_path: "/etc/ceph/ceph.client.vm-appdata.keyring"
 pve_bridge: "vmbr0"
@@ -78,9 +77,11 @@ vm_definitions:
     vm_ip: "{{ vault_vm_core_ip }}"
     vm_cores: 4
     vm_memory_mb: 16384
-    vm_disk_gb: 32
+    vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_core_node }}"
-    cephfs_host_dir: "core"           # mounts /core from CephFS root at /opt
+    nfs_exports:                       # export /opt to dev VM for code-server workspace access
+      - path: /opt
+        clients: "{{ vault_vm_dev_ip }}(ro,no_subtree_check,no_root_squash)"
 
   apps:
     vm_id: 301
@@ -90,9 +91,11 @@ vm_definitions:
     vm_ip: "{{ vault_vm_apps_ip }}"
     vm_cores: 4
     vm_memory_mb: 16384
-    vm_disk_gb: 32
+    vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_apps_node }}"
-    cephfs_host_dir: "apps"           # mounts /apps from CephFS root at /opt
+    nfs_exports:                       # export /opt to dev VM for code-server workspace access
+      - path: /opt
+        clients: "{{ vault_vm_dev_ip }}(ro,no_subtree_check,no_root_squash)"
 
   dev:
     vm_id: 302
@@ -102,13 +105,13 @@ vm_definitions:
     vm_ip: "{{ vault_vm_dev_ip }}"
     vm_cores: 2
     vm_memory_mb: 8192
-    vm_disk_gb: 20
+    vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_dev_node }}"
-    cephfs_host_dir: "dev"            # mounts /dev from CephFS root at /opt
-    cephfs_extra_mounts:              # additional CephFS mounts for code-server workspaces
-      - { cephfs_dir: "core", mount_path: "/mnt/cephfs/core" }
-      - { cephfs_dir: "apps", mount_path: "/mnt/cephfs/apps" }
-      - { cephfs_dir: "dev",  mount_path: "/mnt/cephfs/dev" }
+    nfs_mounts:                        # NFS mounts from core/apps for code-server workspace access
+      - src: "{{ vault_vm_core_ip }}:/opt"
+        path: "/mnt/nfs/core"
+      - src: "{{ vault_vm_apps_ip }}:/opt"
+        path: "/mnt/nfs/apps"
 
   amp:
     vm_id: 110
@@ -177,9 +180,12 @@ vm_definitions:
 #     - "192.0.2.50"                     # containers reaching this IP hit the local VM instead of prod
 #     - "192.0.2.51"                     # persisted via netplan; survives reboots and OOM recovery
 #
+#   nfs_exports:                         # NFS server exports (installs nfs-kernel-server)
+#     - path: "/opt"
+#       clients: "10.0.0.50(ro,no_subtree_check,no_root_squash)"
+#
 #   cephfs_host_dir: "hostname"          # if defined, mounts /<dir> from CephFS root at /opt
-#                                        # omit for test-vm (snapshots don't revert CephFS data)
-#                                        # omit for amp (game server I/O sensitivity)
+#                                        # used by test VMs only; production VMs use local RBD disk
 #
 # Optional per-VM provision fields (used by tasks/provision_vm.yaml when defined):
 #
