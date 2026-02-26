@@ -23,8 +23,6 @@
     if ! grep -qP '^networks:' "$file"; then
       sed -i '/^services:/i networks:\n  homelab:\n    external: true' "$file"
     fi
-  args:
-    warn: false
   changed_when: true
 
 - name: "Patch .env — fix INFLUX_HOST to apps VIP — {{ _current_stack }}"
