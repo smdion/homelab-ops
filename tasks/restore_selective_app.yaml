@@ -7,10 +7,8 @@
 #   restore_app            — app name to restore
 #   backup_base_dir        — controller-side backup root
 #   backup_tmp_dir         — temp directory on target host
-#   restore_mode           — 'staging' or 'inplace'
 # Optional:
 #   with_databases         — 'yes' to also restore databases cross-host
-#   with_docker            — 'yes' to stop/start containers
 #   restore_date           — date filter for archive selection
 # Sets:
 #   restore_failed, _restore_source_file, _restore_detail
@@ -64,7 +62,6 @@
       vars:
         _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
       when:
-        - with_docker | default('') == 'yes'
         - app_restore is defined
         - app_restore[restore_app] is defined
         - not ansible_check_mode
@@ -183,7 +180,6 @@
     - include_tasks: tasks/restore_appdata.yaml
       vars:
         _restore_archive_path: "{{ _archive_file.stdout }}"
-        _restore_mode: "{{ restore_mode }}"
         _restore_extract_path: "{{ _extract_path }}"
         _restore_app_name: "{{ restore_app }}"
       tags: [always]
@@ -194,7 +190,6 @@
           {{ _restore_detail }}
           + {{ app_restore[restore_app].db_names | join(', ') }} DB(s) restored
       when:
-        - restore_mode == 'inplace'
         - with_databases | default('') == 'yes'
         - app_restore is defined
         - app_restore[restore_app] is defined
@@ -206,7 +201,6 @@
       vars:
         _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
       when:
-        - with_docker | default('') == 'yes'
         - app_restore is defined
         - app_restore[restore_app] is defined
         - not ansible_check_mode
@@ -215,7 +209,7 @@
     # ===== CLEANUP =====
     - name: Clean up temp archive
       ansible.builtin.file:
-        path: "{{ backup_tmp_dir }}/restore_{{ restore_mode }}.tar.gz"
+        path: "{{ backup_tmp_dir }}/restore.tar.gz"
         state: absent
       become: true
       tags: [always]
@@ -230,7 +224,6 @@
         _docker_selective_containers: "{{ app_restore[restore_app].containers | default([]) }}"
         _docker_ignore_errors: true
       when:
-        - with_docker | default('') == 'yes'
         - app_restore is defined
         - app_restore[restore_app] is defined
       tags: [always]

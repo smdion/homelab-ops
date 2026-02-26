@@ -1,0 +1,45 @@
+---
+# Restore a single stack's appdata from backup during rollback.
+# Called in a loop from rollback_docker.yaml with loop_var: _rollback_stack.
+# Unlike restore_single_stack.yaml, does NOT stop/start the stack
+# (caller handles stop before and compose up after image rollback).
+#
+# Required (from caller scope):
+#   _rollback_stack    — stack name (e.g. 'auth')
+#   backup_base_dir    — controller-side backup root
+#   backup_tmp_dir     — temp directory on target host
+
+- name: Find per-stack backup archive for {{ _rollback_stack }}
+  ansible.builtin.shell: >
+    ls -t {{ backup_base_dir }}/{{ _rollback_stack }}/backup_{{ _rollback_stack }}_{{ restore_date | default('') }}*.tar.gz
+    2>/dev/null | head -1
+  register: _rb_archive_file
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+
+- name: Assert archive exists for {{ _rollback_stack }}
+  ansible.builtin.assert:
+    that: _rb_archive_file.stdout | length > 0
+    fail_msg: "No backup archive found for stack '{{ _rollback_stack }}'"
+
+- name: Verify archive integrity for {{ _rollback_stack }}
+  ansible.builtin.shell: gunzip -t "{{ _rb_archive_file.stdout }}"
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+
+- include_tasks: tasks/restore_appdata.yaml
+  vars:
+    _restore_archive_path: "{{ _rb_archive_file.stdout }}"
+    _restore_app_name: "{{ _rollback_stack }}"
+  when: not ansible_check_mode
+
+- name: Clean up temp archive for {{ _rollback_stack }}
+  ansible.builtin.file:
+    path: "{{ backup_tmp_dir }}/restore.tar.gz"
+    state: absent
+  become: true
+  when: not ansible_check_mode

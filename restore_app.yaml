@@ -178,12 +178,11 @@
             - hostvars['localhost']._app_cfg.db_names | default([]) | length > 0
             - not ansible_check_mode
 
-        - name: Restore appdata inplace
+        - name: Restore appdata
           include_tasks: tasks/restore_appdata.yaml
           vars:
             backup_tmp_dir: "{{ _app_restore_tmp }}"
             _restore_archive_path: "{{ hostvars['localhost']._stack_archive_path }}"
-            _restore_mode: inplace
             _restore_app_name: "{{ restore_app }}"
 
         - name: Start stack — {{ hostvars['localhost']._app_cfg.stack }}

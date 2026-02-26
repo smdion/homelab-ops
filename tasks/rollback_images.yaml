@@ -1,0 +1,76 @@
+---
+# Roll back Docker images to their pre-update versions using snapshot data.
+# Handles local re-tag (fast) when old image is still on disk, or registry
+# pull (slow) when the image has been pruned.
+#
+# Caller is responsible for recreating containers after this task completes.
+#
+# Required (from caller scope):
+#   _rollback_targets     — list of service names to roll back
+#   rollback_snapshot     — snapshot dict with .containers mapping
+# Sets:
+#   _image_local          — dict: service → bool (true if old image still local)
+#   _registry_pull        — dict: service → image ref (pruned images that needed pull)
+#   _rollback_image_detail — human-readable summary of re-tag/pull results
+
+# ═══════════════════════════════════════════════════════════════════
+# CHECK — which old images are still available locally
+# ═══════════════════════════════════════════════════════════════════
+- name: Check old images still exist locally
+  become: true
+  ansible.builtin.shell: "docker image inspect {{ rollback_snapshot.containers[item].image_id }} > /dev/null 2>&1"
+  loop: "{{ _rollback_targets }}"
+  register: _image_check
+  failed_when: false
+  changed_when: false
+
+- name: Build image availability map
+  ansible.builtin.set_fact:
+    _image_local: "{{ _image_local | default({}) | combine({item.item: (item.rc == 0)}) }}"
+  loop: "{{ _image_check.results }}"
+
+- name: Show rollback plan
+  ansible.builtin.debug:
+    msg: >-
+      {{ item }}: {{ 'local re-tag (fast)' if _image_local[item] else 'registry pull ' + rollback_snapshot.containers[item].version + ' (slow)' }}
+      — current image {{ rollback_snapshot.containers[item].image }}
+      → version {{ rollback_snapshot.containers[item].version }}
+  loop: "{{ _rollback_targets }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# FAST PATH — old image still on disk (not yet pruned)
+# ═══════════════════════════════════════════════════════════════════
+- name: Re-tag old images (local)
+  become: true
+  ansible.builtin.shell: >
+    docker tag {{ rollback_snapshot.containers[item].image_id }}
+    {{ rollback_snapshot.containers[item].image }}
+  loop: "{{ _rollback_targets | select('in', _image_local | dict2items | selectattr('value') | map(attribute='key')) | list }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# SLOW PATH — image was pruned, pull old version from registry
+# ═══════════════════════════════════════════════════════════════════
+- name: Determine registry pull tag for pruned images
+  ansible.builtin.set_fact:
+    _registry_pull: >-
+      {{ _registry_pull | default({}) | combine({
+        item: rollback_snapshot.containers[item].image
+      }) }}
+  loop: "{{ _rollback_targets | reject('in', _image_local | dict2items | selectattr('value') | map(attribute='key')) | list }}"
+
+- name: Pull old version from registry (image was pruned)
+  become: true
+  ansible.builtin.shell: |
+    echo "Old image pruned — pulling {{ _registry_pull[item] }} from registry"
+    docker pull {{ _registry_pull[item] }}
+    docker tag {{ _registry_pull[item] }} {{ rollback_snapshot.containers[item].image }}
+  loop: "{{ _registry_pull | default({}) | list }}"
+  register: _registry_pull_result
+  failed_when: _registry_pull_result.rc != 0
+
+- name: Set image rollback detail
+  ansible.builtin.set_fact:
+    _rollback_image_detail: >-
+      {{ _rollback_targets | length }} image(s) rolled back.
+      Fast path: {{ _image_local | dict2items | selectattr('value') | map(attribute='key') | list | length }},
+      Registry pull: {{ _registry_pull | default({}) | length }}

@@ -15,7 +15,7 @@
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e restore_app=authentik
 #
 #   # Test single stack deploy
-#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqdn> -e deploy_stack=media
+#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqdn> -e stack=media
 #
 #   # DR recovery (keeps restored state, no revert)
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e dr_mode=yes
@@ -24,10 +24,6 @@
 #   vm_name      — ephemeral VM key from vm_definitions (use "test-vm" for local /opt, or
 #                  "cephfs-migrate-test" for CephFS-backed /opt). Do NOT use permanent VM keys.
 #   source_host  — inventory_hostname of source host in stack_assignments
-#
-# Optional extra vars:
-#   backup_source — hostname for monolithic archive fallback (defaults to source_host).
-#                   Stack and DB archives use stack-based folders (/backup/{stack}/).
 #
 # VM lifecycle (provision_vm.yaml is idempotent):
 #   - If the VMID doesn't exist, the VM is provisioned from the cloud-init template
@@ -41,10 +37,9 @@
 # Optional extra vars:
 #   vm_index=N    — test-vm slot 0..9; auto-detected (lowest non-running slot) if omitted
 #   restore_app   — single app name to selectively extract from archive
-#   deploy_stack  — single stack to deploy
+#   stack         — single stack to deploy (instead of all assigned stacks)
 #   dr_mode=yes   — DR recovery mode (skip snapshot/revert, keep state)
 #   skip_dbs      — comma-separated DB names to skip restoring (e.g. -e skip_dbs=nextcloud)
-#   backup_source — comma-separated backup dir names to search (e.g. -e backup_source=tantiveiv.seandion.local,odyssey.seandion.local)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Prepare: Validate, find backup, build VM if needed, snapshot
@@ -101,9 +96,8 @@
     - name: Resolve VM and stack configuration
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
-        _backup_sources: "{{ (backup_source | default(source_host)).split(',') }}"
         _stacks: >-
-          {{ [deploy_stack] if deploy_stack | default('') | length > 0
+          {{ [stack] if stack is defined
              else stack_assignments[source_host] }}
 
     # ===== AUTO-CREATE CEPHFS DIR (when vm has cephfs_host_dir) =====
@@ -154,26 +148,10 @@
       ansible.builtin.set_fact:
         _archive_files: "{{ _per_stack_archives.results | selectattr('stdout', 'ne', '') | map(attribute='stdout') | list }}"
 
-    - name: Fall back to monolithic archive
-      ansible.builtin.shell: >
-        ls -t {% for src in _backup_sources %}{{ backup_base_dir }}/{{ src }}/backup_*.tar.gz {% endfor %}2>/dev/null | head -1
-      register: _monolithic_archive
-      become: false
-      changed_when: false
-      check_mode: false
-      when: _archive_files | length == 0
-
-    - name: Use monolithic archive as fallback
-      ansible.builtin.set_fact:
-        _archive_files: "{{ [_monolithic_archive.stdout] }}"
-      when:
-        - _archive_files | length == 0
-        - _monolithic_archive.stdout | default('') | length > 0
-
     - name: Assert backup archives exist
       ansible.builtin.assert:
         that: _archive_files | length > 0
-        fail_msg: "No backup archives found for stacks {{ _stacks | join(', ') }} (also checked monolithic in {{ _backup_sources | join(', ') }})"
+        fail_msg: "No per-stack backup archives found in {{ backup_base_dir }}/ for stacks: {{ _stacks | join(', ') }}"
 
     # ===== FIND DB SQL DUMP ARCHIVES =====
     # Load each DB vars file and capture config into explicit facts (include_vars
@@ -462,7 +440,6 @@
             loop_var: _current_archive
           vars:
             _restore_archive_path: "{{ _current_archive }}"
-            _restore_mode: inplace
             _restore_extract_path: "{{ _extract_path | default('') }}"
             _restore_app_name: "{{ restore_app | default('') }}"
 

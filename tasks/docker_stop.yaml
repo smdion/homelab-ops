@@ -1,6 +1,6 @@
 ---
 # Stop Docker containers/stacks. Quad-modal: selective containers, selective stacks, all stacks, unRAID.
-# Caller gates with `when:` for with_docker, check_mode, etc.
+# Caller gates with `when:` for check_mode, etc.
 #
 # Optional:
 #   _docker_selective_containers — list; stop only these containers (skips all other modes)

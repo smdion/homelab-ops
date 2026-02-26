@@ -1,0 +1,63 @@
+---
+# Restore databases for a single app during rollback with_backup.
+# Called in a loop from rollback_docker.yaml with loop_var: _db_dep.
+# _db_dep is a dict2items entry from app_info: {key: app_name, value: {stack, db_stack, db_config, db_names}}.
+#
+# Required (from caller scope):
+#   _db_dep            — app_info entry (key=app_name, value={db_stack, db_config, db_names})
+#   backup_base_dir    — controller-side backup root
+#   backup_tmp_dir     — temp directory on target host
+
+- name: Load DB config for {{ _db_dep.key }}
+  ansible.builtin.include_vars:
+    file: "vars/{{ _db_dep.value.db_config }}.yaml"
+    name: _rb_db_vars
+
+- name: Find DB backup files for {{ _db_dep.key }}
+  ansible.builtin.shell: >
+    ls -t {{ backup_base_dir }}/{{ _db_dep.value.db_stack }}/backup_{{ item }}_{{ restore_date | default('') }}*.sql
+    2>/dev/null | head -1
+  loop: "{{ _db_dep.value.db_names }}"
+  register: _rb_db_files
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+
+- name: Assert DB backup files exist for {{ _db_dep.key }}
+  ansible.builtin.assert:
+    that: _rb_db_files.results[idx].stdout | length > 0
+    fail_msg: "No backup found for database {{ item }}"
+  loop: "{{ _db_dep.value.db_names }}"
+  loop_control:
+    index_var: idx
+
+- name: Copy DB backup files to target for {{ _db_dep.key }}
+  ansible.builtin.copy:
+    src: "{{ _rb_db_files.results[idx].stdout }}"
+    dest: "{{ backup_tmp_dir }}/restore_{{ item }}.sql"
+  loop: "{{ _db_dep.value.db_names }}"
+  loop_control:
+    index_var: idx
+  become: true
+
+- name: Restore databases for {{ _db_dep.key }}
+  include_tasks: tasks/db_restore.yaml
+  loop: "{{ _db_dep.value.db_names }}"
+  vars:
+    _db_name: "{{ item }}"
+    _db_container: "{{ _rb_db_vars.db_container_name }}"
+    _db_username: "{{ _rb_db_vars.db_username }}"
+    _db_password: "{{ db_password }}"
+    _db_source_file: "{{ backup_tmp_dir }}/restore_{{ item }}.sql"
+    _db_is_postgres: "{{ _rb_db_vars.is_postgres | default(false) }}"
+    _db_is_mariadb: "{{ _rb_db_vars.is_mariadb | default(false) }}"
+    _db_is_influxdb: false
+    _db_tmp_dir: "{{ backup_tmp_dir }}"
+
+- name: Clean up DB temp files for {{ _db_dep.key }}
+  ansible.builtin.file:
+    path: "{{ backup_tmp_dir }}/restore_{{ item }}.sql"
+    state: absent
+  loop: "{{ _db_dep.value.db_names }}"
+  become: true

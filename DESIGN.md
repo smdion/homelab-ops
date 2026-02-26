@@ -160,7 +160,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── docker_stop.yaml             # Stop Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── docker_start.yaml            # Start Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── resolve_scope.yaml           # Shared scope resolution — role injection for unmapped hosts, stack/role meta:end_host filtering
-│   ├── restore_appdata.yaml         # Restore appdata archive (staging inspect or inplace mode)
+│   ├── restore_appdata.yaml         # Restore appdata archive — copy to target, detect root, extract (selective or full)
 │   ├── restore_single_stack.yaml    # Per-stack restore loop body (find→verify→stop→restore→start→record); mirrors backup_single_stack
 │   ├── restore_selective_app.yaml   # Selective app restore from monolithic archive + optional cross-host DB restore
 │   ├── restore_monolithic.yaml      # Full-host monolithic restore (verify→stop→extract→start)
@@ -168,6 +168,9 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── verify_app_http.yaml         # Per-app HTTP endpoint verification (used by restore_app.yaml and test_backup_restore.yaml)
 │   ├── backup_single_amp_instance.yaml  # Per-AMP-instance backup loop body (stop→archive→verify→fetch→start)
 │   ├── restore_single_amp_instance.yaml # Per-AMP-instance restore loop body (stop→remove→extract→start); mirrors backup_single_amp_instance
+│   ├── rollback_images.yaml         # Shared image rollback — re-tag local or pull from registry (no compose up)
+│   ├── rollback_restore_stack.yaml  # Per-stack appdata restore during rollback with_backup (find→verify→extract→clean)
+│   ├── rollback_restore_dbs.yaml    # Per-app DB restore during rollback with_backup (load config→find dumps→restore→clean)
 │   ├── verify_docker_health.yaml    # Poll Docker container health until all healthy or timeout
 │   ├── assert_test_vm.yaml          # Safety gate — assert /opt CephFS mount is not a production directory before destructive writes
 │   ├── verify_docker_network.yaml   # Verify cross-stack DNS resolution and TCP connectivity on shared Docker network
@@ -183,8 +186,8 @@ history, restore results, playbook runs) belongs in the database.
 ├── backup_offline.yaml             # unRAID → Synology offline sync (WOL + rsync); shutdown verification; logs both successful and failed syncs; hosts via hosts_variable
 ├── verify_backups.yaml             # On-demand backup verification — DB backups restored to temp DB; config archives integrity-checked and staged
 ├── restore_databases.yaml          # Database restore from backup dumps — safety-gated; supports single-DB restore on shared instances
-├── restore_hosts.yaml              # Config/appdata restore — staging or inplace; per-stack, selective app, or monolithic; stack=/role= scope selectors; coordinated cross-host DB restore
-├── rollback_docker.yaml            # Docker container rollback — revert to previous image versions; safety-gated; per-stack, per-service, or role targeting
+├── restore_hosts.yaml              # Config/appdata restore — per-stack, selective app, or monolithic; stack=/role= scope selectors; coordinated cross-host DB restore
+├── rollback_docker.yaml            # Docker container rollback — revert to previous image versions; with_backup=yes for combined image+appdata+DB recovery; safety-gated
 ├── update_systems.yaml             # OS, application, and Docker container updates (Proxmox, PiKVM, AMP, Ubuntu, Docker); PVE cluster quorum pre-check; rollback snapshot; unRAID update_container script
 ├── maintain_amp.yaml               # AMP game server maintenance (versions, dumps, prune, journal)
 ├── maintain_semaphore.yaml         # Delete stopped/error + old download tasks from Semaphore DB + prune ansible_logging retention (runs on localhost)
@@ -361,18 +364,18 @@ backup by default. Stops only **same-host** dependent containers via `db_contain
 via `restore_hosts.yaml -e with_databases=yes`. Supports `restore_db` (single DB) and
 `restore_date` (specific backup date) parameters.
 
-**`restore_hosts.yaml`** — Config/appdata restore from backup archives. Thin orchestrator dispatching
-to three task files based on restore path: `tasks/restore_single_stack.yaml` (per-stack, loopable),
-`tasks/restore_selective_app.yaml` (single app + optional cross-host DB), and
-`tasks/restore_monolithic.yaml` (full host). Two modes: `staging` (extract to
-`<backup_tmp_dir>/restore_staging/` for inspection) and `inplace` (extract to actual paths, requires
-`confirm=yes`). Supports `stack=<name>` and `role=<name>` scope selectors for docker_stacks hosts —
-auto-resolves target host via `stack_assignments`/`vault_vm_roles` (no `--limit` needed). Supports
-selective app restore via `-e restore_app=sonarr` (convention-based: app name maps to subdirectory
-under `src_raw_files[0]`). Supports coordinated DB+appdata restore via `-e with_databases=yes` —
-loads DB vars into a `_db_vars` namespace (avoiding collision with play-level Docker vars) and uses
+**`restore_hosts.yaml`** — Config/appdata restore from backup archives. Safety-gated with
+`confirm=yes`. Always stops containers before restore and restarts after (restoring while running
+corrupts state). Thin orchestrator dispatching to three task files based on restore path:
+`tasks/restore_single_stack.yaml` (per-stack, loopable), `tasks/restore_selective_app.yaml`
+(single app + optional cross-host DB), and `tasks/restore_monolithic.yaml` (full host). Supports
+`stack=<name>` and `role=<name>` scope selectors for docker_stacks hosts — auto-resolves target
+host via `stack_assignments`/`vault_vm_roles` (no `--limit` needed). Supports selective app
+restore via `-e restore_app=sonarr` (convention-based: app name maps to subdirectory under
+`src_raw_files[0]`). Supports coordinated DB+appdata restore via `-e with_databases=yes` — loads
+DB vars into a `_db_vars` namespace (avoiding collision with play-level Docker vars) and uses
 `delegate_to: db_host` to restore databases on the correct host. `serial: 1` matches
-`backup_hosts.yaml`.
+`backup_hosts.yaml`. Use `verify_backups.yaml` to inspect archives without restoring.
 
 **`deploy_grafana.yaml`** — Deploys the Grafana dashboard and `Ansible-Logging` MySQL datasource
 via the Grafana API. Runs from localhost (no SSH) — requires `grafana_url` and
@@ -460,10 +463,15 @@ disk — `docker tag` re-tag, no network needed) and **slow** (image pruned by
 `maintain_docker.yaml` — pulls old version tag from registry). Safety-gated with
 `confirm=yes`. Without it, shows snapshot info and exits (dry-run). Supports three
 scopes: all containers (default), per-stack via `-e stack=<name>` (or legacy `-e rollback_stack=<name>`),
-or per-service via `-e rollback_service=<name>`. Docker Compose
-hosts (`docker_stacks`) only — for unRAID `docker_run` hosts, see manual rollback guidance
-below. Uses `tasks/log_restore.yaml` with `operation: rollback` (per-service). Discord
-notification uses yellow (16776960) to distinguish from green/red.
+or per-service via `-e rollback_service=<name>`. Docker Compose hosts (`docker_stacks`) only —
+for unRAID `docker_run` hosts, see manual rollback guidance below. Uses `tasks/log_restore.yaml`
+with `operation: rollback` (per-service). Discord notification uses yellow (16776960) to
+distinguish from green/red. Supports combined recovery via `-e with_backup=yes`: restores
+appdata from backup archives and auto-detects dependent databases from `app_info` (e.g.,
+rolling back `auth` stack also restores the `authentik` database). The `with_backup` path
+stops stacks, restores appdata per stack (`tasks/rollback_restore_stack.yaml`), starts the DB
+stack, restores DB dumps (`tasks/rollback_restore_dbs.yaml`), then applies image rollback
+(`tasks/rollback_images.yaml`) and brings all services up.
 
 **`update_systems.yaml` — rollback snapshot:** Before pulling new Docker Compose images, the
 update playbook captures a `.rollback_snapshot.json` per stack in `/opt/stacks/<stack>/` with
@@ -944,8 +952,8 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 **Opt-in behaviours (`=yes` to enable, omit to skip):**
 | Var | Purpose |
 |-----|---------|
-| `with_docker=yes` | Stop containers before restore, restart after (`restore_hosts`) |
 | `with_databases=yes` | Include coordinated DB restore alongside appdata restore (`restore_hosts`) |
+| `with_backup=yes` | Combined recovery: restore appdata + auto-detected DBs alongside image rollback (`rollback_docker`) |
 | `validate_only=yes` | Render and validate only, skip `docker compose up` (`deploy_stacks`) |
 | `dr_mode=yes` | DR recovery mode — skip snapshot/revert, keep state (`test_restore`) |
 | `debug_no_log=yes` | Reveal output normally hidden by `no_log` (any playbook; see [no_log pattern](#no_log-pattern)) |
@@ -959,7 +967,6 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 **Playbook-specific scope selectors (string values, omit for default/all):**
 | Var | Purpose |
 |-----|---------|
-| `restore_mode=inplace` | Inplace restore (default: `staging`) — requires `confirm=yes` |
 | `restore_app=<name>` | Restore a single app by key |
 | `restore_stack=<name>` | Alias for `stack=<name>` in restore context (backward compat) |
 | `restore_db=<name>` | Restore a single database |
@@ -1326,7 +1333,7 @@ any work starts. Two shared assertion task files are available:
 `assert_disk_path` and `assert_disk_min_gb` via `vars:`. Used by `backup_hosts.yaml` (remote
 `backup_tmp_dir` + controller `/backup`), `backup_databases.yaml` (remote `backup_tmp_dir`),
 `update_systems.yaml` (root filesystem `/`), `restore_databases.yaml` (`backup_tmp_dir`), and
-`restore_hosts.yaml` (`backup_tmp_dir` for staging, `/` for inplace).
+`restore_hosts.yaml` (root filesystem `/`).
 
 **`tasks/assert_db_connectivity.yaml`** — Verifies the MariaDB logging database is reachable
 via `SELECT 1`. Used by all 18 operational playbooks that call `tasks/log_mariadb.yaml` or
@@ -1744,7 +1751,7 @@ CREATE TABLE restores (
 
 Logs restore operations (`operation: restore`). Verification operations log to the `maintenance`
 table (subtype `Verify`) instead. `source_file` tracks which backup file was used. `detail`
-holds free-text context (e.g., "sonarr restored inplace + sonarr-log, sonarr-main DB(s) restored").
+holds free-text context (e.g., "sonarr restored + sonarr-log, sonarr-main DB(s) restored").
 Written by `tasks/log_restore.yaml`, separate from `log_mariadb.yaml` due to the different schema.
 
 #### `docker_sizes` table
@@ -2131,7 +2138,7 @@ ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e
 ```bash
 # Coordinated restore — appdata on one host, DB on another (cross-host via delegate_to)
 ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> \
-  -e restore_app=sonarr -e with_databases=yes -e restore_mode=inplace -e confirm=yes -e with_docker=yes
+  -e restore_app=sonarr -e with_databases=yes -e confirm=yes
 ```
 
 Always use `--limit <hostname>` with `-e restore_app` since `docker_stacks`/`docker_run` are
@@ -2146,15 +2153,23 @@ list, DB config file, and `db_host` for cross-host `delegate_to`.
 # Dry run — show snapshot info without rolling back
 ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname>
 
-# Rollback a single stack
-ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> \
-  -e stack=vpn -e confirm=yes
+# Rollback a single stack (image-only — fast, data untouched)
+ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
+  -e stack=auth -e confirm=yes
 
 # Rollback a single service
 ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> \
   -e rollback_service=jellyseerr -e confirm=yes
 
-# Rollback all containers in the snapshot
+# Combined recovery — rollback images + restore appdata + auto-detected databases
+ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
+  -e stack=auth -e with_backup=yes -e confirm=yes
+
+# Full role rollback with backup (databases stack included naturally)
+ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
+  -e role=core -e with_backup=yes -e confirm=yes
+
+# Image-only rollback for all containers in the snapshot
 ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> \
   -e confirm=yes
 ```
@@ -2163,16 +2178,19 @@ The rollback snapshot (`.rollback_snapshot.json`) is saved automatically before 
 Compose update. If the old image is still on disk, rollback is instant (local re-tag). If it
 was pruned by `maintain_docker.yaml`, the old version is pulled from the registry.
 
+**Combined recovery (`with_backup=yes`):** When a bad upstream update also corrupted data or
+ran irreversible DB migrations, use `-e with_backup=yes` to restore appdata and databases
+alongside the image rollback. DB dependencies are auto-detected from `app_info` in
+`vars/docker_stacks.yaml` — e.g., rolling back `auth` stack auto-restores the `authentik`
+database from its latest SQL dump. The flow: stop stacks → restore appdata per stack → start
+DB containers → restore SQL dumps → apply image rollback → bring all services up.
+
 **For unRAID `docker_run` hosts** (no automated rollback):
 1. `docker stop <container>` and `docker rm <container>`
 2. Find old image ID from the snapshot or `updates` table
 3. `docker tag <old_image_id> <image_name>` (if image still local)
 4. Recreate via the unRAID Docker UI (uses the saved template XML)
 5. If image was pruned: restore from backup via `restore_hosts.yaml -e hosts_variable=docker_run`
-
-**Database schema changes:** Some container updates run DB migrations on startup. Rolling back
-the container alone may leave the DB in an incompatible state. For those cases, combine with
-`restore_databases.yaml`.
 
 ### Manage PVE resource pools
 
@@ -2425,7 +2443,7 @@ ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e
 ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 
 # 6. Restore appdata
-ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <controller-fqdn> -e restore_mode=inplace -e confirm=yes --ask-vault-pass
+ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <controller-fqdn> -e confirm=yes --ask-vault-pass
 
 # 7. Re-render .env files (restore overwrites them with backup copies) and restart stacks
 ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
@@ -2438,6 +2456,25 @@ ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 - The vault password (stored securely outside the infrastructure)
 - SSH access to Proxmox API host (for VM creation)
 - Network connectivity to the target subnet
+
+### Production VM Recovery (Semaphore Available)
+
+When Semaphore is still running (non-controller host failed, or building a new production VM):
+
+```bash
+# 1. Provision a new VM
+ansible-playbook build_ubuntu.yaml -e vm_name=<hostname>
+
+# 2. Restore all stacks in the role from backup
+ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks -e role=core -e confirm=yes
+
+# 3. Deploy stacks (re-renders .env files, pulls images, brings services up)
+ansible-playbook deploy_stacks.yaml -e role=core
+```
+
+For a single stack: replace `-e role=core` with `-e stack=auth` (auto-resolves host from
+`stack_assignments`). Database stacks restore empty and get populated separately via
+`restore_databases.yaml` if needed.
 
 ### Automation Coverage
 

@@ -5,9 +5,7 @@
 # Expects (from caller scope):
 #   backup_base_dir        — controller-side backup root
 #   backup_tmp_dir         — temp directory on target host
-#   restore_mode           — 'staging' or 'inplace'
 # Optional:
-#   with_docker            — 'yes' to stop/start all Docker
 #   restore_date           — date filter for archive selection
 # Sets:
 #   restore_failed, _restore_source_file, _restore_detail
@@ -45,29 +43,24 @@
 
     # ===== STOP DOCKER =====
     - include_tasks: tasks/docker_stop.yaml
-      when:
-        - with_docker | default('') == 'yes'
-        - not ansible_check_mode
+      when: not ansible_check_mode
       tags: [docker]
 
     # ===== RESTORE APPDATA =====
     - include_tasks: tasks/restore_appdata.yaml
       vars:
         _restore_archive_path: "{{ _archive_file.stdout }}"
-        _restore_mode: "{{ restore_mode }}"
       tags: [always]
 
     # ===== START DOCKER =====
     - include_tasks: tasks/docker_start.yaml
-      when:
-        - with_docker | default('') == 'yes'
-        - not ansible_check_mode
+      when: not ansible_check_mode
       tags: [docker]
 
     # ===== CLEANUP =====
     - name: Clean up temp archive
       ansible.builtin.file:
-        path: "{{ backup_tmp_dir }}/restore_{{ restore_mode }}.tar.gz"
+        path: "{{ backup_tmp_dir }}/restore.tar.gz"
         state: absent
       become: true
       tags: [always]
@@ -80,5 +73,4 @@
     - include_tasks: tasks/docker_start.yaml
       vars:
         _docker_ignore_errors: true
-      when: with_docker | default('') == 'yes'
       tags: [docker]
