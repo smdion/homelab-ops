@@ -3,11 +3,17 @@
 # Templates .env from vault, copies compose files, validates, and starts stacks.
 # Stacks deploy in stack_assignments order — databases before auth, etc.
 #
+# Scope selectors:
+#   stack=<name>          — deploy a single stack (auto-resolves host)
+#   deploy_stack=<name>   — alias for stack (backward compatibility)
+#   role=<name>           — deploy all stacks in a role (auto-resolves host)
+#
 # Usage:
 #   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks --limit core.example.com
+#   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks -e stack=auth
+#   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks -e role=core
 #
 # Optional extra vars:
-#   deploy_stack=infra    — deploy a single stack instead of all assigned stacks
 #   validate_only=yes     — render and validate only, skip docker compose up
 #   pull_only=yes         — render, validate, and pull images, but skip docker compose up
 #   debug_no_log=yes      — show template output in logs (NEVER in production)
@@ -33,13 +39,22 @@
     - name: Assert config_file is defined and non-empty
       include_tasks: tasks/assert_config_file.yaml
 
-    - name: Inject test VM role (test_vm_role override)
+    - name: Resolve deploy_stack → stack alias
       ansible.builtin.set_fact:
-        vault_vm_roles: "{{ vault_vm_roles | combine({inventory_hostname: test_vm_role}) }}"
+        stack: "{{ deploy_stack }}"
+      when:
+        - deploy_stack is defined
+        - stack is not defined
+
+    - name: Resolve scope (role injection + stack/role filtering)
+      include_tasks: tasks/resolve_scope.yaml
+
+    - name: Inject VRRP priority for unmapped hosts (test VMs)
+      ansible.builtin.set_fact:
         vault_docker_vrrp_priorities: >-
           {{ vault_docker_vrrp_priorities | default({})
              | combine({inventory_hostname.split('.')[0]: 100}) }}
-      when: test_vm_role is defined
+      when: _role_injected | default(false)
 
     - name: Assert host has a role assignment
       ansible.builtin.assert:
@@ -64,7 +79,7 @@
         fail_msg: >-
           No stack_assignments entry for {{ inventory_hostname }}.
           Check vault_vm_roles and stack_roles in vars/docker_stacks.yaml.
-      when: deploy_stack | default('') | length == 0
+      when: stack is not defined
 
     - name: Assert sufficient disk space on target
       include_tasks: tasks/assert_disk_space.yaml
@@ -88,7 +103,7 @@
         deploy_failed: false
         _deploy_detail: ""
         _deploy_stacks: >-
-          {{ [deploy_stack] if deploy_stack | default('') | length > 0
+          {{ [stack] if stack is defined
              else stack_assignments[inventory_hostname] }}
 
     - name: Ensure shared Docker network exists

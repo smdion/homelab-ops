@@ -295,13 +295,15 @@
     - name: Gather facts
       ansible.builtin.setup:
 
-    - name: Inject test VM role (test_vm_role override)
+    - name: Resolve scope (role injection)
+      include_tasks: tasks/resolve_scope.yaml
+
+    - name: Inject VRRP priority for unmapped hosts (test VMs)
       ansible.builtin.set_fact:
-        vault_vm_roles: "{{ vault_vm_roles | combine({inventory_hostname: test_vm_role}) }}"
         vault_docker_vrrp_priorities: >-
           {{ vault_docker_vrrp_priorities | default({})
              | combine({inventory_hostname.split('.')[0]: 100}) }}
-      when: test_vm_role is defined
+      when: _role_injected | default(false)
 
     - name: Check if Docker is installed
       ansible.builtin.command: docker --version
@@ -404,13 +406,15 @@
     - name: Assert /opt is not production CephFS (safety gate)
       include_tasks: tasks/assert_test_vm.yaml
 
-    - name: Inject test VM role (test_vm_role override)
+    - name: Resolve scope (role injection)
+      include_tasks: tasks/resolve_scope.yaml
+
+    - name: Inject VRRP priority for unmapped hosts (test VMs)
       ansible.builtin.set_fact:
-        vault_vm_roles: "{{ vault_vm_roles | combine({inventory_hostname: test_vm_role}) }}"
         vault_docker_vrrp_priorities: >-
           {{ vault_docker_vrrp_priorities | default({})
              | combine({inventory_hostname.split('.')[0]: 100}) }}
-      when: test_vm_role is defined
+      when: _role_injected | default(false)
 
     - name: Initialize restore state
       ansible.builtin.set_fact:
@@ -469,11 +473,11 @@
           include_tasks: tasks/patch_swag_confs.yaml
           vars:
             _core_vip: >-
-              {% if test_vm_role is defined %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['core'] }}{% else %}{{ vault_core_vip }}{% endif %}
+              {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['core'] }}{% else %}{{ vault_core_vip }}{% endif %}
             _apps_vip: >-
-              {% if test_vm_role is defined %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
+              {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
             _dev_vip: >-
-              {% if test_vm_role is defined %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['dev'] }}{% else %}{{ vault_dev_vip }}{% endif %}
+              {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['dev'] }}{% else %}{{ vault_dev_vip }}{% endif %}
           when: "'auth' in hostvars['localhost']._stacks"
 
         # ===== DEPLOY DATABASES STACK FIRST =====
@@ -486,7 +490,7 @@
             _test_mode: true
             patch_compose_networks: true
             _apps_vip: >-
-              {% if test_vm_role is defined %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
+              {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
           when: "'databases' in hostvars['localhost']._stacks"
 
         - name: Reset DB passwords to match vault (restored data may differ)
@@ -612,7 +616,7 @@
             _test_mode: true
             patch_compose_networks: true
             _apps_vip: >-
-              {% if test_vm_role is defined %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
+              {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
 
         # ===== HEALTH CHECK =====
         - name: Verify container health

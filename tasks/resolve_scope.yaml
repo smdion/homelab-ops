@@ -1,0 +1,45 @@
+---
+# Shared scope resolution for docker_stacks playbooks.
+# Injects role into vault_vm_roles for hosts not already mapped (test VMs),
+# then filters hosts by stack/role scope selectors via meta: end_host.
+#
+# When role is injected (host not in vault_vm_roles), sets _role_injected=true.
+# Templates use this to derive VIPs from the VM's actual subnet instead of
+# vault VIPs (test VMs are on an isolated VLAN).
+#
+# Include in pre_tasks after assert_config_file and after any
+# backward-compatible alias resolution (e.g. deploy_stack → stack).
+#
+# Expects (from caller scope, all optional):
+#   role          — target all stacks in a role; also injects into vault_vm_roles
+#                   for hosts not already mapped
+#   stack         — target a single stack (canonical scope selector)
+
+# --- inject role for unmapped hosts (test VMs) ---
+- name: Inject role into vault_vm_roles (host not already mapped)
+  ansible.builtin.set_fact:
+    vault_vm_roles: "{{ vault_vm_roles | combine({inventory_hostname: role}) }}"
+    _role_injected: true
+  when:
+    - role is defined
+    - inventory_hostname not in vault_vm_roles | default({})
+
+- name: Clear _role_injected for mapped hosts
+  ansible.builtin.set_fact:
+    _role_injected: false
+  when: _role_injected is not defined
+
+# --- scope filters ---
+- name: Skip host — stack not assigned here
+  meta: end_host
+  when:
+    - stack is defined
+    - inventory_hostname in groups["docker_stacks"] | default([])
+    - stack not in (stack_assignments[inventory_hostname] | default([]))
+
+- name: Skip host — role does not match
+  meta: end_host
+  when:
+    - role is defined
+    - inventory_hostname in groups["docker_stacks"] | default([])
+    - vault_vm_roles[inventory_hostname] | default('') != role

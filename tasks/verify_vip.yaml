@@ -17,7 +17,7 @@
   ansible.builtin.set_fact:
     _effective_vip: >-
       {% set _role = vault_vm_roles[inventory_hostname] %}
-      {% if test_vm_role is defined %}
+      {% if _role_injected | default(false) %}
       {{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets[_role] }}
       {%- else %}
       {{ docker_vips[_role].vip }}
