@@ -157,10 +157,8 @@ vm_definitions:
     vm_gateway: "{{ vault_test_vlan_gateway }}"   # isolated VLAN gateway (overrides global vm_gateway)
     vm_dns: "8.8.8.8,8.8.4.4"                    # public DNS (prod DNS unreachable from isolated VLAN)
     vm_vlan_tag: "{{ vault_test_vlan_id }}"       # triggers VLAN tag on net0 in provision_vm.yaml
-    ip_aliases:                                   # loopback aliases — containers reach prod IPs locally
-      - "{{ vault_vm_core_ip }}"
-      - "{{ vault_vm_apps_ip }}"
-      - "{{ vault_vm_dev_ip }}"
+    # No ip_aliases — keepalived assigns role-specific test VIP on eth0 (docker_test_vip_offsets).
+    # Cross-VM routing handled by SWAG config patching (tasks/patch_swag_confs.yaml).
 
 # Optional per-VM fields (used by tasks/bootstrap_vm.yaml when defined):
 #
