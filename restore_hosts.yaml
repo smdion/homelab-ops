@@ -1,15 +1,21 @@
 ---
 # Restore config/appdata archives from backup.
-# Two modes: staging (inspect) and inplace (restore). Supports selective app restore,
-# per-stack restore, and coordinated DB+appdata restore with cross-host delegate_to.
+# Three paths: per-stack (docker_stacks), selective app (docker_run), monolithic (full host).
 # Sends Discord notification and logs result to restores table.
+#
+# Scope selectors (docker_stacks only):
+#   stack=<name>  — restore a single stack (auto-resolves host)
+#   role=<name>   — restore all stacks in a role (auto-resolves host)
 #
 # Usage:
 #   # Stage full backup for inspection (default, safe)
 #   ansible-playbook restore_hosts.yaml -e hosts_variable=proxmox
 #
 #   # Restore a specific stack's appdata (per-stack archives)
-#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks --limit <hostname> -e restore_stack=auth -e restore_mode=inplace -e confirm=yes -e with_docker=yes
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks -e stack=auth -e restore_mode=inplace -e confirm=yes -e with_docker=yes
+#
+#   # Restore all stacks in a role
+#   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_stacks -e role=core -e restore_mode=inplace -e confirm=yes -e with_docker=yes
 #
 #   # Stage just one app's appdata from the full archive
 #   ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostname> -e restore_app=sonarr
@@ -35,6 +41,16 @@
   pre_tasks:
     - name: Assert config_file is defined and non-empty
       include_tasks: tasks/assert_config_file.yaml
+
+    - name: Resolve restore_stack → stack alias
+      ansible.builtin.set_fact:
+        stack: "{{ restore_stack }}"
+      when:
+        - restore_stack is defined
+        - stack is not defined
+
+    - name: Resolve scope (role injection + stack/role filtering)
+      include_tasks: tasks/resolve_scope.yaml
 
     - name: Assert UNVR not targeted
       ansible.builtin.assert:
@@ -78,287 +94,43 @@
         restore_failed: false
         _restore_source_file: "unknown"
         _restore_detail: ""
+        _stack_restore_results: []
+        _target_stacks: >-
+          {{ [stack] if stack is defined
+             else (stack_assignments[inventory_hostname] | default([])) if role is defined
+             else (stack_assignments[inventory_hostname] | default([])) if inventory_hostname in groups['docker_stacks'] | default([])
+             else [] }}
+      tags: [always]
+
+    - name: Compute restore path
+      ansible.builtin.set_fact:
+        _restore_path: >-
+          {{ 'stack' if _target_stacks | length > 0
+             else 'app' if restore_app | default('') | length > 0
+             else 'monolithic' }}
       tags: [always]
 
     - block:
-        # ===== FIND AND VERIFY BACKUP ARCHIVE =====
-        - name: Find per-stack backup archive on controller
-          ansible.builtin.shell: >
-            ls -t {{ backup_base_dir }}/{{ restore_stack }}/backup_{{ restore_stack }}_{{ restore_date | default('') }}*.tar.gz 2>/dev/null | head -1
-          register: _archive_file
-          delegate_to: localhost
-          become: false
-          changed_when: false
-          check_mode: false
-          when: restore_stack | default('') | length > 0
-          tags: [always]
-
-        - name: Find backup archive on controller
-          ansible.builtin.shell: >
-            ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_*{{ restore_date | default('') }}*.tar.gz 2>/dev/null | head -1
-          register: _archive_file
-          delegate_to: localhost
-          become: false
-          changed_when: false
-          check_mode: false
-          when: restore_stack | default('') | length == 0
-          tags: [always]
-
-        - name: Assert backup archive exists
-          ansible.builtin.assert:
-            that: _archive_file.stdout | length > 0
-            fail_msg: >-
-              No backup archive found for {{ inventory_hostname }} on controller
-              {{ '(stack: ' + restore_stack + ')' if restore_stack | default('') | length > 0 else '' }}
-              {{ ' for date ' + restore_date if restore_date | default('') | length > 0 else '' }}
-          tags: [always]
-
-        - name: Set source file fact
-          ansible.builtin.set_fact:
-            _restore_source_file: "{{ _archive_file.stdout | basename }}"
-          tags: [always]
-
-        - name: Verify archive integrity
-          ansible.builtin.shell: gunzip -t "{{ _archive_file.stdout }}"
-          delegate_to: localhost
-          become: false
-          changed_when: false
-          check_mode: false
-          tags: [always]
-
-        # ===== SELECTIVE APP EXTRACTION PATH =====
-        - name: Compute extract path for selective app restore
-          ansible.builtin.set_fact:
-            _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
-          when:
-            - restore_app | default('') | length > 0
-            - restore_stack | default('') | length == 0
-          tags: [always]
-
-        - name: Verify app directory exists in archive
-          ansible.builtin.shell: tar tzf "{{ _archive_file.stdout }}" | grep -q "^{{ _extract_path }}/"
-          delegate_to: localhost
-          become: false
-          changed_when: false
-          check_mode: false
-          when:
-            - restore_app | default('') | length > 0
-            - restore_stack | default('') | length == 0
-          tags: [always]
-
-        # ===== STOP DOCKER =====
-        - include_tasks: tasks/docker_stop.yaml
-          vars:
-            _docker_selective_stacks: ["{{ restore_stack }}"]
-          when:
-            - with_docker | default('') == 'yes'
-            - restore_stack | default('') | length > 0
-            - not ansible_check_mode
-          tags: [always]
-
-        - include_tasks: tasks/docker_stop.yaml
-          vars:
-            _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
-          when:
-            - with_docker | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-            - not ansible_check_mode
-          tags: [always]
-
-        - include_tasks: tasks/docker_stop.yaml
-          when:
-            - with_docker | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length == 0
-            - not ansible_check_mode
-          tags: [docker]
-
-        # ===== COORDINATED DB RESTORE (cross-host via delegate_to) =====
-        - name: Load DB vars into namespace
-          ansible.builtin.include_vars:
-            file: "vars/{{ app_restore[restore_app].db_config_file }}.yaml"
-            name: _db_vars
-          when:
-            - with_databases | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-          tags: [always]
-
-        - name: Find DB backup files on controller
-          ansible.builtin.shell: >
-            ls -t {{ backup_base_dir }}/{{ app_restore[restore_app].db_backup_stack | default(app_restore[restore_app].db_host) }}/backup_{{ item }}_{{ restore_date | default('*') }}.sql 2>/dev/null | head -1
-          loop: "{{ app_restore[restore_app].db_names }}"
-          register: _db_backup_files
-          delegate_to: localhost
-          become: false
-          changed_when: false
-          check_mode: false
-          when:
-            - with_databases | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-          tags: [always]
-
-        - name: Assert DB backup files exist
-          ansible.builtin.assert:
-            that: _db_backup_files.results[idx].stdout | length > 0
-            fail_msg: "No backup found for database {{ item }}"
-          loop: "{{ app_restore[restore_app].db_names }}"
+        # ===== PER-STACK PATH (docker_stacks — single stack or role) =====
+        - name: Restore stack — {{ _restore_stack_item }}
+          include_tasks: tasks/restore_single_stack.yaml
+          loop: "{{ _target_stacks }}"
           loop_control:
-            index_var: idx
-          when:
-            - with_databases | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-          tags: [always]
+            loop_var: _restore_stack_item
+          when: _restore_path == 'stack'
 
-        - name: Copy DB backup files to DB host
-          ansible.builtin.copy:
-            src: "{{ _db_backup_files.results[idx].stdout }}"
-            dest: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql"
-          loop: "{{ app_restore[restore_app].db_names }}"
-          loop_control:
-            index_var: idx
-          delegate_to: "{{ app_restore[restore_app].db_host }}"
-          become: true
-          when:
-            - with_databases | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Restore databases on DB host
-          include_tasks: tasks/db_restore.yaml
-          loop: "{{ app_restore[restore_app].db_names }}"
-          vars:
-            _db_name: "{{ item }}"
-            _db_container: "{{ _db_vars.db_container_name }}"
-            _db_username: "{{ _db_vars.db_username }}"
-            _db_password: "{{ db_password }}"
-            _db_source_file: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql"
-            _db_is_postgres: "{{ _db_vars.is_postgres | default(false) }}"
-            _db_is_mariadb: "{{ _db_vars.is_mariadb | default(false) }}"
-            _db_is_influxdb: false
-            _db_tmp_dir: "{{ _db_vars.backup_tmp_dir }}"
-          delegate_to: "{{ app_restore[restore_app].db_host }}"
-          when:
-            - with_databases | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Validate restored databases on DB host
-          include_tasks: tasks/db_count.yaml
-          loop: "{{ app_restore[restore_app].db_names }}"
-          vars:
-            _db_name: "{{ item }}"
-            _db_container: "{{ _db_vars.db_container_name }}"
-            _db_username: "{{ _db_vars.db_username }}"
-            _db_password: "{{ db_password }}"
-            _db_is_postgres: "{{ _db_vars.is_postgres | default(false) }}"
-            _db_is_mariadb: "{{ _db_vars.is_mariadb | default(false) }}"
-            _db_is_influxdb: false
-          delegate_to: "{{ app_restore[restore_app].db_host }}"
-          when:
-            - with_databases | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-            - not ansible_check_mode
-          tags: [always]
-
-        - name: Clean up DB temp files on DB host
-          ansible.builtin.file:
-            path: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql"
-            state: absent
-          loop: "{{ app_restore[restore_app].db_names }}"
-          delegate_to: "{{ app_restore[restore_app].db_host }}"
-          become: true
-          when:
-            - with_databases | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-          tags: [always]
-
-        # ===== RESTORE APPDATA =====
-        - include_tasks: tasks/restore_appdata.yaml
-          vars:
-            _restore_archive_path: "{{ _archive_file.stdout }}"
-            _restore_mode: "{{ restore_mode }}"
-            _restore_extract_path: "{{ _extract_path | default('') }}"
-            _restore_app_name: "{{ restore_stack | default(restore_app | default('')) }}"
-          tags: [always]
-
-        - name: Append DB restore detail
+        - name: Set failed flag from per-stack results
           ansible.builtin.set_fact:
-            _restore_detail: >-
-              {{ _restore_detail }}
-              + {{ app_restore[restore_app].db_names | join(', ') }} DB(s) restored
-          when:
-            - restore_mode == 'inplace'
-            - with_databases | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-            - not ansible_check_mode
-          tags: [always]
+            restore_failed: "{{ _stack_restore_results | selectattr('failed') | list | length > 0 }}"
+          when: _restore_path == 'stack'
 
-        # ===== START DOCKER =====
-        - include_tasks: tasks/docker_start.yaml
-          vars:
-            _docker_selective_stacks: ["{{ restore_stack }}"]
-          when:
-            - with_docker | default('') == 'yes'
-            - restore_stack | default('') | length > 0
-            - not ansible_check_mode
-          tags: [always]
+        # ===== SELECTIVE APP PATH (docker_run with restore_app) =====
+        - include_tasks: tasks/restore_selective_app.yaml
+          when: _restore_path == 'app'
 
-        - include_tasks: tasks/docker_start.yaml
-          vars:
-            _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
-          when:
-            - with_docker | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-            - not ansible_check_mode
-          tags: [always]
-
-        - include_tasks: tasks/docker_start.yaml
-          when:
-            - with_docker | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length == 0
-            - not ansible_check_mode
-          tags: [docker]
-
-        # ===== CLEANUP =====
-        - name: Clean up temp archive
-          ansible.builtin.file:
-            path: "{{ backup_tmp_dir }}/restore_{{ restore_mode }}.tar.gz"
-            state: absent
-          become: true
-          tags: [always]
+        # ===== MONOLITHIC PATH (full host archive) =====
+        - include_tasks: tasks/restore_monolithic.yaml
+          when: _restore_path == 'monolithic'
 
       rescue:
         - name: Set restore failed flag
@@ -371,28 +143,58 @@
           when: with_docker | default('') == 'yes'
           tags: [docker]
 
-        - include_tasks: tasks/docker_start.yaml
-          vars:
-            _docker_selective_stacks: ["{{ restore_stack }}"]
-            _docker_ignore_errors: true
-          when:
-            - with_docker | default('') == 'yes'
-            - restore_stack | default('') | length > 0
-          tags: [always]
-
-        - include_tasks: tasks/docker_start.yaml
-          vars:
-            _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
-            _docker_ignore_errors: true
-          when:
-            - with_docker | default('') == 'yes'
-            - restore_stack | default('') | length == 0
-            - restore_app | default('') | length > 0
-            - app_restore is defined
-            - app_restore[restore_app] is defined
-          tags: [always]
-
       always:
+        # ===== REPORTING (per-stack) =====
+        - name: Build per-stack Discord fields
+          ansible.builtin.set_fact:
+            _stack_restore_discord_fields: >-
+              [
+               {% for r in _stack_restore_results %}
+               {% if not loop.first %},{% endif %}
+               {"name": "{{ ('❌ ' if r.failed else '✅ ') + r.stack }}", "value": "{{ 'FAILED' if r.failed else (r.archive | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2})\\.tar\\.gz$', '\\1')) }}", "inline": true}
+               {% endfor %}]
+          when: _restore_path == 'stack'
+          tags: [always]
+
+        - name: Send per-stack Discord notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Restore"
+            discord_status: >-
+              {{ 'successful' if not (restore_failed | bool)
+                 else ('failed' if (_stack_restore_results | rejectattr('failed') | list | length == 0)
+                       else 'partial') }}
+            discord_detail: "{{ restore_mode | capitalize }}"
+            discord_color: >-
+              {{ discord_color_success if not (restore_failed | bool)
+                 else (discord_color_failure if (_stack_restore_results | rejectattr('failed') | list | length == 0)
+                       else discord_color_warning) }}
+            discord_url: "{{ backup_url }}"
+            discord_fields: "{{ _stack_restore_discord_fields }}"
+          when: _restore_path == 'stack'
+          tags: [always]
+
+        - name: Log per-stack restores to MariaDB
+          include_tasks: tasks/log_restore.yaml
+          loop: "{{ _stack_restore_results }}"
+          loop_control:
+            loop_var: _stack_result
+          vars:
+            log_hostname: "{{ inventory_hostname }}"
+            restore_application: "{{ _stack_result.stack }}"
+            restore_source_file: "{{ _stack_result.archive }}"
+            restore_type: "{{ backup_type }}"
+            restore_subtype: "{{ backup_subtype }}"
+            restore_operation: "restore"
+            restore_status: "{{ 'failed' if _stack_result.failed else 'success' }}"
+            restore_detail: >-
+              {{ 'restore failed — check Semaphore logs' if _stack_result.failed
+                 else restore_mode + ' restore of ' + _stack_result.stack }}
+          when: _restore_path == 'stack'
+          tags: [always]
+
+        # ===== REPORTING (single result — app / monolithic) =====
         - name: Send Discord notification
           include_tasks: tasks/notify.yaml
           vars:
@@ -400,8 +202,7 @@
             discord_operation: "Restore"
             discord_status: "{{ 'failed' if restore_failed else 'successful' }}"
             discord_detail: >-
-              {{ ('stack: ' + restore_stack) if restore_stack | default('') | length > 0
-                 else (restore_app if restore_app | default('') | length > 0 else '') }}
+              {{ restore_app if restore_app | default('') | length > 0 else '' }}
             discord_color: "{{ discord_color_failure if restore_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
@@ -411,19 +212,21 @@
                 value: "{{ _restore_source_file | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1') }}"
               - name: "Detail"
                 value: "{{ _restore_detail | default('check Semaphore logs') }}"
+          when: _restore_path != 'stack'
           tags: [always]
 
         - name: Log restore to MariaDB
           include_tasks: tasks/log_restore.yaml
           vars:
             log_hostname: "{{ inventory_hostname }}"
-            restore_application: "{{ restore_stack | default(restore_app | default(backup_name)) }}"
+            restore_application: "{{ restore_app | default(backup_name) }}"
             restore_source_file: "{{ _restore_source_file }}"
             restore_type: "{{ backup_type }}"
             restore_subtype: "{{ backup_subtype }}"
             restore_operation: "restore"
             restore_status: "{{ 'failed' if restore_failed else 'success' }}"
             restore_detail: "{{ _restore_detail | default('check Semaphore logs') }}"
+          when: _restore_path != 'stack'
           tags: [always]
 
         - name: Put PiKVM back in RO mode

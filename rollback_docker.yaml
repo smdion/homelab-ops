@@ -13,6 +13,12 @@
 #   logging_db_host, logging_db_port, logging_db_user, logging_db_password, logging_db_name
 #   discord_webhook_id, discord_webhook_token
 #
+# Scope selectors:
+#   stack=<name>            — rollback a single stack (auto-resolves host)
+#   rollback_stack=<name>   — alias for stack (backward compatibility)
+#   rollback_service=<name> — rollback a single service within a stack
+#   role=<name>             — rollback all stacks in a role (auto-resolves host)
+#
 # Usage:
 #   # Rollback all containers
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
@@ -20,11 +26,15 @@
 #
 #   # Rollback one stack
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
-#     --limit <hostname> -e rollback_stack=vpn -e confirm=yes
+#     -e stack=vpn -e confirm=yes
 #
 #   # Rollback one service
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
 #     --limit <hostname> -e rollback_service=jellyseerr -e confirm=yes
+#
+#   # Rollback all stacks in a role
+#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
+#     -e role=core -e confirm=yes
 #
 #   # Dry run — show snapshot info without rolling back
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
@@ -43,6 +53,16 @@
   pre_tasks:
     - name: Assert config_file is defined
       include_tasks: tasks/assert_config_file.yaml
+
+    - name: Resolve rollback_stack → stack alias
+      ansible.builtin.set_fact:
+        stack: "{{ rollback_stack }}"
+      when:
+        - rollback_stack is defined
+        - stack is not defined
+
+    - name: Resolve scope (role injection + stack/role filtering)
+      include_tasks: tasks/resolve_scope.yaml
 
     - name: Assert MariaDB logging database is reachable
       include_tasks: tasks/assert_db_connectivity.yaml
@@ -103,9 +123,9 @@
           {{ [rollback_service] if rollback_service is defined
              else (rollback_snapshot.containers.keys() | list
                    | select('in', (_service_stack_map | default({}) | dict2items
-                                   | selectattr('value', 'eq', rollback_stack)
+                                   | selectattr('value', 'eq', stack)
                                    | map(attribute='key') | list))
-                   | list) if rollback_stack is defined
+                   | list) if stack is defined
              else rollback_snapshot.containers.keys() | list }}
 
     - name: Assert requested service exists in snapshot

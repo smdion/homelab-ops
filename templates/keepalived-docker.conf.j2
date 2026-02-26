@@ -4,8 +4,8 @@
 # All other nodes are BACKUP and take over in priority order on failure.
 # With a single VM per role today, each VM is always MASTER.
 #
-# Test mode: when test_vm_role is defined, derives VIP from VM's actual subnet
-# (test VMs are on an isolated VLAN, production VIPs would cause routing conflicts).
+# Test mode: when _role_injected (host not in vault_vm_roles), derives VIP from
+# VM's actual subnet (test VMs are on an isolated VLAN — production VIPs would collide).
 #
 # To check status: keepalived -t  (config test)  or  ip addr show {{ docker_vrrp_interface }}
 # To see current state: journalctl -u keepalived -f
@@ -16,7 +16,7 @@
 {% set _role_nodes = vault_vm_roles | dict2items | selectattr('value', 'equalto', _role) | map(attribute='key') | map('regex_replace', '\\..*$', '') | list %}
 {% set _role_priorities = _role_nodes | map('extract', vault_docker_vrrp_priorities) | select('defined') | list %}
 {% set max_priority = _role_priorities | max if _role_priorities | length > 0 else my_priority %}
-{% if test_vm_role is defined %}
+{% if _role_injected | default(false) %}
 {% set _subnet = ansible_default_ipv4.address.rsplit('.', 1)[0] %}
 {% set _effective_vip = _subnet ~ '.' ~ docker_test_vip_offsets[_role] %}
 {% else %}

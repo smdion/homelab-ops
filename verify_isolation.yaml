@@ -111,7 +111,7 @@
     - name: Gather facts
       ansible.builtin.setup:
 
-    # No test_vm_role injection — no keepalived, no VIPs
+    # No role injection — no keepalived, no VIPs
 
     - name: Check if Docker is installed
       ansible.builtin.command: docker --version

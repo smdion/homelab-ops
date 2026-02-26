@@ -1,0 +1,83 @@
+---
+# Restore a single Docker Compose stack's appdata from backup.
+# Called in a loop from restore_hosts.yaml with loop_var: _restore_stack_item.
+#
+# Finds the latest per-stack archive, verifies integrity, stops the stack,
+# restores appdata, and restarts. On failure the stack is restarted and the
+# failure is recorded (not re-raised — caller checks _stack_restore_results).
+#
+# Required (from caller scope):
+#   _restore_stack_item     — stack name (e.g. 'auth', 'vpn')
+#   backup_base_dir         — controller-side backup root
+#   backup_tmp_dir          — temp directory on target host
+#   restore_mode            — 'staging' or 'inplace'
+#   _stack_restore_results  — list to append results to (caller initializes to [])
+
+- name: Find per-stack backup archive on controller for {{ _restore_stack_item }}
+  ansible.builtin.shell: >
+    ls -t {{ backup_base_dir }}/{{ _restore_stack_item }}/backup_{{ _restore_stack_item }}_{{ restore_date | default('') }}*.tar.gz
+    2>/dev/null | head -1
+  register: _stack_archive_file
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  check_mode: false
+  tags: [always]
+
+- block:
+    - name: Assert archive exists for {{ _restore_stack_item }}
+      ansible.builtin.assert:
+        that: _stack_archive_file.stdout | length > 0
+        fail_msg: "No backup archive found for stack '{{ _restore_stack_item }}'"
+
+    - name: Verify archive integrity for {{ _restore_stack_item }}
+      ansible.builtin.shell: gunzip -t "{{ _stack_archive_file.stdout }}"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+
+    - name: Stop {{ _restore_stack_item }} stack
+      include_tasks: tasks/docker_stop.yaml
+      vars:
+        _docker_selective_stacks: ["{{ _restore_stack_item }}"]
+      when:
+        - with_docker | default('') == 'yes'
+        - not ansible_check_mode
+
+    - include_tasks: tasks/restore_appdata.yaml
+      vars:
+        _restore_archive_path: "{{ _stack_archive_file.stdout }}"
+        _restore_mode: "{{ restore_mode }}"
+        _restore_app_name: "{{ _restore_stack_item }}"
+
+    - name: Record success for {{ _restore_stack_item }}
+      ansible.builtin.set_fact:
+        _stack_restore_results: >-
+          {{ _stack_restore_results + [{'stack': _restore_stack_item,
+             'archive': _stack_archive_file.stdout | basename,
+             'failed': false}] }}
+
+  rescue:
+    - name: Record failure for {{ _restore_stack_item }}
+      ansible.builtin.set_fact:
+        _stack_restore_results: >-
+          {{ _stack_restore_results + [{'stack': _restore_stack_item,
+             'archive': _stack_archive_file.stdout | default('unknown') | basename,
+             'failed': true}] }}
+
+  always:
+    - name: Start {{ _restore_stack_item }} stack
+      include_tasks: tasks/docker_start.yaml
+      vars:
+        _docker_selective_stacks: ["{{ _restore_stack_item }}"]
+        _docker_ignore_errors: true
+      when:
+        - with_docker | default('') == 'yes'
+        - not ansible_check_mode
+
+    - name: Clean up temp archive for {{ _restore_stack_item }}
+      ansible.builtin.file:
+        path: "{{ backup_tmp_dir }}/restore_{{ restore_mode }}.tar.gz"
+        state: absent
+      become: true

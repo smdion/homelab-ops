@@ -5,11 +5,17 @@
 # Config backups (monolithic): verify gzip integrity, extract to staging dir, count files.
 # Sends Discord notification and logs result to restores table.
 #
+# Scope selectors (docker_stacks only):
+#   stack=<name>  — verify a single stack's archive
+#   role=<name>   — verify all stacks in a role
+#
 # Usage:
 #   ansible-playbook verify_backups.yaml -e hosts_variable=db_primary_postgres
 #   ansible-playbook verify_backups.yaml -e hosts_variable=db_primary_influxdb
 #   ansible-playbook verify_backups.yaml -e hosts_variable=proxmox
 #   ansible-playbook verify_backups.yaml -e hosts_variable=docker_stacks
+#   ansible-playbook verify_backups.yaml -e hosts_variable=docker_stacks -e stack=auth
+#   ansible-playbook verify_backups.yaml -e hosts_variable=docker_stacks -e role=core
 
 - name: Verify latest backups are restorable
   hosts: "{{ hosts_variable }}"
@@ -24,6 +30,9 @@
   pre_tasks:
     - name: Assert config_file is defined and non-empty
       include_tasks: tasks/assert_config_file.yaml
+
+    - name: Resolve scope (role injection + stack/role filtering)
+      include_tasks: tasks/resolve_scope.yaml
 
     - name: Assert MariaDB logging database is reachable
       include_tasks: tasks/assert_db_connectivity.yaml
@@ -41,6 +50,9 @@
         verify_failed: false
         combined_results: []
         _is_db_verify: "{{ is_postgres | default(false) | bool or is_mariadb | default(false) | bool or is_influxdb | default(false) | bool }}"
+        _target_stacks: >-
+          {{ [stack] if stack is defined
+             else stack_assignments[inventory_hostname] | default([]) }}
       tags: [always]
 
     - block:
@@ -159,7 +171,7 @@
         # ===== PER-STACK CONFIG VERIFICATION (docker_stacks hosts) =====
         - name: Find per-stack backup archives on controller
           ansible.builtin.shell: ls -t {{ backup_base_dir }}/{{ item }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
-          loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+          loop: "{{ _target_stacks }}"
           register: _stack_backup_files
           delegate_to: localhost
           become: false

@@ -4,9 +4,15 @@
 # Other hosts: monolithic archive (stop Docker, archive all paths, restart).
 # Sends Discord notification + logs each backup to MariaDB.
 #
+# Scope selectors (docker_stacks only):
+#   stack=<name>  — back up a single stack (auto-resolves host)
+#   role=<name>   — back up all stacks in a role (auto-resolves host)
+#
 # Usage:
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=proxmox
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks
+#   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks -e stack=auth
+#   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks -e role=core
 
 - name: Back up host configurations and appdata
   gather_facts: true
@@ -22,6 +28,9 @@
   pre_tasks:
     - name: Assert config_file is defined and non-empty
       include_tasks: tasks/assert_config_file.yaml
+
+    - name: Resolve scope (role injection + stack/role filtering)
+      include_tasks: tasks/resolve_scope.yaml
 
     - name: Put device in RW mode
       raw: rw
@@ -106,13 +115,17 @@
         backup_failed: false
         _stack_backup_results: []
         _amp_backup_results: []
+        _target_stacks: >-
+          {{ [stack] if stack is defined
+             else backup_stack_order[inventory_hostname]
+                  | default(stack_assignments[inventory_hostname] | default([]) | reverse | list) }}
       tags: [always]
 
     - block:
         # ===== PER-STACK BACKUP (docker_stacks hosts) =====
         - name: Back up per-stack archives
           include_tasks: tasks/backup_single_stack.yaml
-          loop: "{{ backup_stack_order[inventory_hostname] | default(stack_assignments[inventory_hostname] | default([]) | reverse | list) }}"
+          loop: "{{ _target_stacks }}"
           loop_control:
             loop_var: _backup_stack
           when:

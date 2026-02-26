@@ -1,0 +1,84 @@
+---
+# Restore full host from a monolithic backup archive.
+# Extracted from restore_hosts.yaml.
+#
+# Expects (from caller scope):
+#   backup_base_dir        — controller-side backup root
+#   backup_tmp_dir         — temp directory on target host
+#   restore_mode           — 'staging' or 'inplace'
+# Optional:
+#   with_docker            — 'yes' to stop/start all Docker
+#   restore_date           — date filter for archive selection
+# Sets:
+#   restore_failed, _restore_source_file, _restore_detail
+
+- block:
+    - name: Find backup archive on controller
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_*{{ restore_date | default('') }}*.tar.gz
+        2>/dev/null | head -1
+      register: _archive_file
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+      tags: [always]
+
+    - name: Assert backup archive exists
+      ansible.builtin.assert:
+        that: _archive_file.stdout | length > 0
+        fail_msg: "No backup archive found for {{ inventory_hostname }}"
+      tags: [always]
+
+    - name: Set source file fact
+      ansible.builtin.set_fact:
+        _restore_source_file: "{{ _archive_file.stdout | basename }}"
+      tags: [always]
+
+    - name: Verify archive integrity
+      ansible.builtin.shell: gunzip -t "{{ _archive_file.stdout }}"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+      tags: [always]
+
+    # ===== STOP DOCKER =====
+    - include_tasks: tasks/docker_stop.yaml
+      when:
+        - with_docker | default('') == 'yes'
+        - not ansible_check_mode
+      tags: [docker]
+
+    # ===== RESTORE APPDATA =====
+    - include_tasks: tasks/restore_appdata.yaml
+      vars:
+        _restore_archive_path: "{{ _archive_file.stdout }}"
+        _restore_mode: "{{ restore_mode }}"
+      tags: [always]
+
+    # ===== START DOCKER =====
+    - include_tasks: tasks/docker_start.yaml
+      when:
+        - with_docker | default('') == 'yes'
+        - not ansible_check_mode
+      tags: [docker]
+
+    # ===== CLEANUP =====
+    - name: Clean up temp archive
+      ansible.builtin.file:
+        path: "{{ backup_tmp_dir }}/restore_{{ restore_mode }}.tar.gz"
+        state: absent
+      become: true
+      tags: [always]
+
+  rescue:
+    - name: Set restore failed flag
+      ansible.builtin.set_fact:
+        restore_failed: true
+
+    - include_tasks: tasks/docker_start.yaml
+      vars:
+        _docker_ignore_errors: true
+      when: with_docker | default('') == 'yes'
+      tags: [docker]
