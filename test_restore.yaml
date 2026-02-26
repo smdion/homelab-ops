@@ -538,11 +538,10 @@
             dest: "/tmp/db_restore_staging/{{ item.value | basename }}"
             compress: false
             rsync_opts:
+              - "--contimeout=30"
               - "--timeout=60"
               - "--whole-file"
           become: true
-          async: 1800
-          poll: 15
           ignore_errors: true
           register: _db_rsync_result
           loop: "{{ hostvars['localhost']._db_archive_map | default({}) | dict2items }}"

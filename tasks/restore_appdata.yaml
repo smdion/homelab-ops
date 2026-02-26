@@ -21,10 +21,9 @@
         dest: "{{ backup_tmp_dir }}/restore_{{ _restore_mode }}.tar.gz"
         compress: false
         rsync_opts:
+          - "--contimeout=30"
           - "--timeout=60"
           - "--whole-file"
-      async: 1800
-      poll: 15
   rescue:
     - name: "Rsync stalled — falling back to Ansible copy"
       ansible.builtin.copy:

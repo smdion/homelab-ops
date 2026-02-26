@@ -113,11 +113,10 @@
         dest: "/tmp/restore_{{ _test_app }}/{{ _db_archive_map[_db_name_item] | basename }}"
         compress: false
         rsync_opts:
+          - "--contimeout=30"
           - "--timeout=60"
           - "--whole-file"
       become: true
-      async: 1800
-      poll: 15
       ignore_errors: true
       register: _db_rsync_result
       loop: "{{ _cur_db_names | default([]) }}"
