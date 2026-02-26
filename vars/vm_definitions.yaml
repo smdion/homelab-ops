@@ -139,7 +139,7 @@ vm_definitions:
     vm_gateway: "{{ vault_test_vlan_gateway }}"   # isolated VLAN gateway (overrides global vm_gateway)
     vm_dns: "8.8.8.8,8.8.4.4"                    # public DNS (prod DNS unreachable from isolated VLAN)
     vm_vlan_tag: "{{ vault_test_vlan_id }}"       # same test isolation as test-vm
-    cephfs_host_dir: "cephfs-migrate-test"  # auto-created by test_restore.yaml if missing
+    cephfs_host_dir: "cephfs-migrate-test{{ vm_index | default(0) | int }}"  # per-slot — auto-created by test_restore.yaml if missing
 
   test-vm:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
