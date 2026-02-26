@@ -11,12 +11,16 @@ x-envuid: &envuid
   <<:
   - *env
   - *uid
+networks:
+  homelab:
+    external: true
 services:
   authentik:
     <<: *base
     container_name: authentik
     image: ${AUTHENTIK_IMAGE}:${AUTHENTIK_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
       - 9001:9000
       - 9443:9443
@@ -60,7 +64,8 @@ services:
     <<: *base
     container_name: authentik_worker
     image: ${AUTHENTIK_IMAGE}:${AUTHENTIK_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     environment:
       <<: *envuid
       AUTHENTIK_POSTGRESQL__HOST: ${POSTGRES_HOST}
@@ -88,7 +93,8 @@ services:
     <<: *base
     container_name: swag
     image: lscr.io/linuxserver/swag
-    network_mode: bridge
+    networks:
+      - homelab
     labels:
       homelab.backup.paths: "/opt/swag"
       homelab.test.skip_health: "true"
@@ -137,7 +143,8 @@ services:
     <<: *base
     container_name: crowdsec
     image: docker.io/crowdsecurity/crowdsec:latest
-    network_mode: bridge
+    networks:
+      - homelab
     labels:
       homelab.backup.paths: "/opt/crowdsec"
     ports:

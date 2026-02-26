@@ -24,6 +24,13 @@ pve_storage: "replicated"
 
 # CephFS shared appdata — mounted at /opt on eligible VMs (cephfs_host_dir defined).
 # Credentials in vault: vault_ceph_mons, vault_ceph_vm_appdata_key
+# Production CephFS directories — test VMs must NOT mount these.
+# bootstrap_vm.yaml asserts cephfs_host_dir is not in this list when vm_vlan_tag is defined.
+cephfs_production_dirs:
+  - core
+  - apps
+  - dev
+
 cephfs_client_name: "vm-appdata"
 cephfs_keyring_path: "/etc/ceph/ceph.client.vm-appdata.keyring"
 pve_bridge: "vmbr0"
@@ -51,11 +58,11 @@ vm_template_cores: 2
 vm_test_slot_base: 500
 vm_test_slot_count: 10
 
-# vm_definitions: keyed by short name (used as vm_name arg and in stack_assignments).
+# vm_definitions: keyed by role name (used as vm_name arg and for stack_assignments derivation).
 # Per-VM sensitive values (hostname, IP, PVE target node) come from vault:
-#   vault_vm_<name>_hostname  — FQDN for cloud-init hostname and Ansible inventory
-#   vault_vm_<name>_ip        — static IP for cloud-init network config
-#   vault_vm_<name>_node      — PVE node to place this VM on
+#   vault_vm_<role>_hostname  — FQDN for cloud-init hostname and Ansible inventory
+#   vault_vm_<role>_ip        — static IP for cloud-init network config
+#   vault_vm_<role>_node      — PVE node to place this VM on
 #
 # test-vm uses a dedicated IP range to avoid updating secrets per build.
 # Pass vm_index=0..vm_test_slot_count-1 (default 0) to select a slot:
@@ -63,31 +70,50 @@ vm_test_slot_count: 10
 #   vault_test_vm_ip_offset   — last octet of the first slot (e.g. 90)
 # Resulting IPs: <prefix><offset+vm_index>  (e.g. 192.0.2.90 .. 192.0.2.99)
 vm_definitions:
-  tantiveiv:
+  core:
     vm_id: 104
-    vm_name: tantive-iv
-    vm_hostname: "{{ vault_vm_tantiveiv_hostname }}"
-    vm_ip: "{{ vault_vm_tantiveiv_ip }}"
+    vm_name: core
+    vm_mac: "02:00:00:00:01:04"       # static MAC — stable Unifi device identity across rebuilds
+    vm_hostname: "{{ vault_vm_core_hostname }}"
+    vm_ip: "{{ vault_vm_core_ip }}"
     vm_cores: 4
-    vm_memory_mb: 24576
-    vm_disk_gb: 64
-    pve_target_node: "{{ vault_vm_tantiveiv_node }}"
-    cephfs_host_dir: "tantive-iv"    # mounts /tantive-iv from CephFS root at /opt
+    vm_memory_mb: 16384
+    vm_disk_gb: 32
+    pve_target_node: "{{ vault_vm_core_node }}"
+    cephfs_host_dir: "core"           # mounts /core from CephFS root at /opt
 
-  odyssey:
+  apps:
     vm_id: 105
-    vm_name: odyssey
-    vm_hostname: "{{ vault_vm_odyssey_hostname }}"
-    vm_ip: "{{ vault_vm_odyssey_ip }}"
+    vm_name: apps
+    vm_mac: "02:00:00:00:01:05"       # static MAC — stable Unifi device identity across rebuilds
+    vm_hostname: "{{ vault_vm_apps_hostname }}"
+    vm_ip: "{{ vault_vm_apps_ip }}"
     vm_cores: 4
-    vm_memory_mb: 24576
-    vm_disk_gb: 64
-    pve_target_node: "{{ vault_vm_odyssey_node }}"
-    cephfs_host_dir: "odyssey"       # mounts /odyssey from CephFS root at /opt
+    vm_memory_mb: 16384
+    vm_disk_gb: 32
+    pve_target_node: "{{ vault_vm_apps_node }}"
+    cephfs_host_dir: "apps"           # mounts /apps from CephFS root at /opt
+
+  dev:
+    vm_id: 106
+    vm_name: dev
+    vm_mac: "02:00:00:00:01:06"       # static MAC — stable Unifi device identity across rebuilds
+    vm_hostname: "{{ vault_vm_dev_hostname }}"
+    vm_ip: "{{ vault_vm_dev_ip }}"
+    vm_cores: 2
+    vm_memory_mb: 8192
+    vm_disk_gb: 20
+    pve_target_node: "{{ vault_vm_dev_node }}"
+    cephfs_host_dir: "dev"            # mounts /dev from CephFS root at /opt
+    cephfs_extra_mounts:              # additional CephFS mounts for code-server workspaces
+      - { cephfs_dir: "core", mount_path: "/mnt/cephfs/core" }
+      - { cephfs_dir: "apps", mount_path: "/mnt/cephfs/apps" }
+      - { cephfs_dir: "dev",  mount_path: "/mnt/cephfs/dev" }
 
   amp:
     vm_id: 110
     vm_name: amp
+    vm_mac: "02:00:00:00:01:10"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "{{ vault_vm_amp_hostname }}"
     vm_ip: "{{ vault_vm_amp_ip }}"
     vm_cores: 4
@@ -102,6 +128,7 @@ vm_definitions:
   # Prerequisites: none — test_restore.yaml auto-creates /cephfs-migrate-test on CephFS root.
   cephfs-migrate-test:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
+    vm_mac: "02:00:00:00:05:{{ '%02d' | format(vm_index | default(0) | int) }}"
     vm_name: "cephfs-migrate-test{{ vm_index | default(0) | int }}"
     vm_hostname: "cephfs-migrate-test{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
@@ -112,10 +139,11 @@ vm_definitions:
     vm_gateway: "{{ vault_test_vlan_gateway }}"   # isolated VLAN gateway (overrides global vm_gateway)
     vm_dns: "8.8.8.8,8.8.4.4"                    # public DNS (prod DNS unreachable from isolated VLAN)
     vm_vlan_tag: "{{ vault_test_vlan_id }}"       # same test isolation as test-vm
-    cephfs_host_dir: "cephfs-migrate-test"  # auto-created by test_restore.yaml if missing
+    cephfs_host_dir: "cephfs-migrate-test{{ vm_index | default(0) | int }}"  # per-slot — auto-created by test_restore.yaml if missing
 
   test-vm:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
+    vm_mac: "02:00:00:00:05:{{ '%02d' | format(vm_index | default(0) | int) }}"
     vm_name: "test-vm{{ vm_index | default(0) | int }}"
     vm_hostname: "test-vm{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
@@ -127,8 +155,9 @@ vm_definitions:
     vm_dns: "8.8.8.8,8.8.4.4"                    # public DNS (prod DNS unreachable from isolated VLAN)
     vm_vlan_tag: "{{ vault_test_vlan_id }}"       # triggers VLAN tag on net0 in provision_vm.yaml
     ip_aliases:                                   # loopback aliases — containers reach prod IPs locally
-      - "{{ vault_vm_tantiveiv_ip }}"
-      - "{{ vault_vm_odyssey_ip }}"
+      - "{{ vault_vm_core_ip }}"
+      - "{{ vault_vm_apps_ip }}"
+      - "{{ vault_vm_dev_ip }}"
 
 # Optional per-VM fields (used by tasks/bootstrap_vm.yaml when defined):
 #
@@ -154,6 +183,8 @@ vm_definitions:
 #
 # Optional per-VM provision fields (used by tasks/provision_vm.yaml when defined):
 #
+#   vm_mac: "02:00:00:00:01:04"         # static MAC on net0 — stable Unifi device identity across rebuilds
+#                                        # use locally-administered prefix (02:xx); encode VMID in last bytes
 #   vm_gateway: "192.0.2.1"             # overrides global vm_gateway (used in cloud-init ipconfig0)
 #   vm_dns: "8.8.8.8,8.8.4.4"          # overrides global vm_dns (comma-separated, no spaces)
 #   vm_vlan_tag: 88                      # if defined, sets VLAN tag on net0 via PVE API

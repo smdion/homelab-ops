@@ -24,6 +24,52 @@
       become: true
       when: not ansible_check_mode
 
+    - name: Deploy databases stack (dependency for DB restore)
+      include_tasks: tasks/deploy_single_stack.yaml
+      vars:
+        _current_stack: databases
+        _test_mode: true
+      when:
+        - app_info[_test_app].db_names | default([]) | length > 0
+        - _cur_stack != 'databases'
+
+    - name: Reset DB passwords to match vault (restored data may differ)
+      include_tasks: tasks/reset_db_auth.yaml
+      vars:
+        _db_mariadb_password: "{{ db_password }}"
+        _db_postgres_password: "{{ docker_postgres_password }}"
+      when:
+        - app_info[_test_app].db_names | default([]) | length > 0
+        - _cur_stack != 'databases'
+
+    - name: Wait for database containers to be healthy
+      ansible.builtin.shell: |
+        found_any=false
+        for i in $(seq 1 60); do
+          all_ready=true
+          # Check each running DB container in the databases stack
+          if docker ps -q --filter "name=postgres" | grep -q .; then
+            found_any=true
+            docker exec postgres pg_isready -U postgres >/dev/null 2>&1 || all_ready=false
+          fi
+          if docker ps -q --filter "name=mariadb" | grep -q .; then
+            found_any=true
+            docker exec mariadb mysqladmin ping -h localhost >/dev/null 2>&1 || all_ready=false
+          fi
+          if $found_any && $all_ready; then
+            echo "ready"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "timeout — found_any=$found_any"
+        exit 1
+      become: true
+      changed_when: false
+      when:
+        - app_info[_test_app].db_names | default([]) | length > 0
+        - _cur_stack != 'databases'
+
     - name: Deploy stack — {{ _cur_stack }}
       include_tasks: tasks/deploy_single_stack.yaml
       vars:
@@ -61,10 +107,14 @@
       vars:
         _docker_selective_stacks: ["{{ _cur_stack }}"]
 
-    - name: Copy DB backup to staging — {{ _db_name_item }}
-      ansible.builtin.copy:
+    - name: Copy production DB backup to test VM staging — {{ _db_name_item }}
+      ansible.builtin.synchronize:
         src: "{{ _db_archive_map[_db_name_item] }}"
-        dest: "/tmp/restore_{{ _test_app }}/{{ _db_name_item }}.sql.gz"
+        dest: "/tmp/restore_{{ _test_app }}/{{ _db_archive_map[_db_name_item] | basename }}"
+        compress: false
+        rsync_opts:
+          - "--timeout=1800"
+          - "--whole-file"
       become: true
       loop: "{{ _cur_db_names | default([]) }}"
       loop_control:
@@ -73,7 +123,7 @@
         - _cur_db_names | default([]) | length > 0
         - not ansible_check_mode
 
-    - name: Restore DB — {{ _db_name_item }}
+    - name: Restore DB on test VM — {{ _db_name_item }}
       include_tasks: tasks/db_restore.yaml
       loop: "{{ _cur_db_names | default([]) }}"
       loop_control:
@@ -83,7 +133,7 @@
         _db_container: "{{ db_container_name }}"
         _db_username: "{{ db_username }}"
         _db_password: "{{ db_password | default('') }}"
-        _db_source_file: "/tmp/restore_{{ _test_app }}/{{ _db_name_item }}.sql.gz"
+        _db_source_file: "/tmp/restore_{{ _test_app }}/{{ _db_archive_map[_db_name_item] | basename }}"
         _db_is_postgres: "{{ is_postgres | default(false) }}"
         _db_is_mariadb: "{{ is_mariadb | default(false) }}"
         _db_is_influxdb: "{{ is_influxdb | default(false) }}"
@@ -92,7 +142,7 @@
         - _cur_db_names | default([]) | length > 0
         - not ansible_check_mode
 
-    - name: Restore appdata inplace — {{ _test_app }}
+    - name: Restore appdata on test VM — {{ _test_app }}
       include_tasks: tasks/restore_appdata.yaml
       vars:
         backup_tmp_dir: "/tmp/restore_{{ _test_app }}"
@@ -114,7 +164,8 @@
       include_tasks: tasks/verify_app_http.yaml
       vars:
         _health_check_urls:
-          - url: "{{ _cur_health_url }}"
+          - name: "{{ _test_app }}"
+            url: "{{ _cur_health_url }}"
             status_code: "{{ _cur_health_status | default('200') }}"
       when:
         - _cur_health_url | default('') | length > 0

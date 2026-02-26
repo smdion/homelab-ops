@@ -20,6 +20,7 @@
     compress: false
     rsync_opts:
       - "--timeout=1800"
+      - "--whole-file"
   when: not ansible_check_mode
 
 # ===== STAGING MODE =====
@@ -35,7 +36,7 @@
 - name: Extract to staging (selective)
   ansible.builtin.shell: |
     _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-    tar -I "$_gz" --no-same-owner --no-same-permissions -xf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging "{{ _restore_extract_path }}"
+    tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging "{{ _restore_extract_path }}"
   become: true
   when:
     - _restore_mode == 'staging'
@@ -45,7 +46,7 @@
 - name: Extract to staging (full)
   ansible.builtin.shell: |
     _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-    tar -I "$_gz" --no-same-owner --no-same-permissions -xf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging
+    tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore_staging.tar.gz -C {{ backup_tmp_dir }}/restore_staging
   become: true
   when:
     - _restore_mode == 'staging'
@@ -88,10 +89,22 @@
     - not ansible_check_mode
 
 # ===== INPLACE MODE =====
+- name: Detect archive root (opt/ prefix or legacy flat layout)
+  ansible.builtin.shell: |
+    _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
+    first=$(tar -I "$_gz" -tf {{ backup_tmp_dir }}/restore_inplace.tar.gz | head -1)
+    case "$first" in opt/*) echo "/" ;; *) echo "/opt" ;; esac
+  become: true
+  register: _archive_extract_root
+  changed_when: false
+  when:
+    - _restore_mode == 'inplace'
+    - not ansible_check_mode
+
 - name: Extract inplace (selective)
   ansible.builtin.shell: |
     _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-    tar -I "$_gz" --no-same-owner --no-same-permissions -xf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C / "{{ _restore_extract_path }}"
+    tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C {{ _archive_extract_root.stdout }} "{{ _restore_extract_path }}"
   become: true
   when:
     - _restore_mode == 'inplace'
@@ -101,7 +114,7 @@
 - name: Extract inplace (full)
   ansible.builtin.shell: |
     _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
-    tar -I "$_gz" --no-same-owner --no-same-permissions -xf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C /
+    tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore_inplace.tar.gz -C {{ _archive_extract_root.stdout }}
   become: true
   when:
     - _restore_mode == 'inplace'

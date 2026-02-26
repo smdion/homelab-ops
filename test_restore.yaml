@@ -9,7 +9,10 @@
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn>
 #
 #   # Test restore on CephFS-backed /opt (auto-creates CephFS dir + mounts during bootstrap)
-#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e source_host=<controller-fqdn>
+#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e source_host=<role-fqdn>
+#
+#   # Restore from old hostname backups after host rename (backup_source overrides archive path)
+#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e source_host=apps.example.com -e backup_source=odyssey.example.com
 #
 #   # Test single app restore
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e restore_app=authentik
@@ -25,6 +28,11 @@
 #                  "cephfs-migrate-test" for CephFS-backed /opt). Do NOT use permanent VM keys.
 #   source_host  — inventory_hostname of source host in stack_assignments
 #
+# Optional extra vars:
+#   backup_source — hostname whose backup directory to restore from (defaults to source_host).
+#                   Useful when stack_assignments keys differ from the backup directory names
+#                   (e.g. after renaming hosts: -e source_host=apps.example.com -e backup_source=odyssey.example.com).
+#
 # VM lifecycle (provision_vm.yaml is idempotent):
 #   - If the VMID doesn't exist, the VM is provisioned from the cloud-init template
 #   - If the VMID already exists (e.g. from a prior partial run), clone is skipped and
@@ -39,6 +47,8 @@
 #   restore_app   — single app name to selectively extract from archive
 #   deploy_stack  — single stack to deploy
 #   dr_mode=yes   — DR recovery mode (skip snapshot/revert, keep state)
+#   skip_dbs      — comma-separated DB names to skip restoring (e.g. -e skip_dbs=nextcloud)
+#   backup_source — comma-separated backup dir names to search (e.g. -e backup_source=tantiveiv.seandion.local,odyssey.seandion.local)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Prepare: Validate, find backup, build VM if needed, snapshot
@@ -95,6 +105,7 @@
     - name: Resolve VM and stack configuration
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
+        _backup_sources: "{{ (backup_source | default(source_host)).split(',') }}"
         _stacks: >-
           {{ [deploy_stack] if deploy_stack | default('') | length > 0
              else stack_assignments[source_host] }}
@@ -107,7 +118,7 @@
         ansible_user: ansible
       when: _vm.cephfs_host_dir is defined
 
-    - name: Ensure CephFS host directory exists on CephFS root
+    - name: Ensure test VM CephFS directory exists (isolated from production)
       ansible.builtin.shell: |
         set -e
         MOUNT_DIR=$(mktemp -d)
@@ -134,9 +145,9 @@
     # ===== FIND BACKUP ARCHIVES =====
     # Requires the container user to have read access to the /backup/ bind
     # mount (e.g. via group_add: 100 for the users group on unRAID).
-    - name: Find per-stack backup archives for source host
+    - name: Find per-stack backup archives from production backups (read-only)
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
+        ls -t {% for src in _backup_sources %}{{ backup_base_dir }}/{{ src }}/backup_{{ item }}_*.tar.gz {% endfor %}2>/dev/null | head -1
       loop: "{{ _stacks }}"
       register: _per_stack_archives
       become: false
@@ -149,7 +160,7 @@
 
     - name: Fall back to monolithic archive
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ source_host }}/backup_*.tar.gz 2>/dev/null | head -1
+        ls -t {% for src in _backup_sources %}{{ backup_base_dir }}/{{ src }}/backup_*.tar.gz {% endfor %}2>/dev/null | head -1
       register: _monolithic_archive
       become: false
       changed_when: false
@@ -166,7 +177,95 @@
     - name: Assert backup archives exist
       ansible.builtin.assert:
         that: _archive_files | length > 0
-        fail_msg: "No backup archives found for {{ source_host }}"
+        fail_msg: "No backup archives found in {{ _backup_sources | join(', ') }}"
+
+    # ===== FIND DB SQL DUMP ARCHIVES =====
+    # Load each DB vars file and capture config into explicit facts (include_vars
+    # with name: has scoping issues where the namespaced dict is empty in
+    # subsequent loop expressions).
+    - name: Load postgres DB config
+      ansible.builtin.include_vars:
+        file: vars/db_primary_postgres.yaml
+      when: "'databases' in _stacks"
+
+    - name: Save postgres DB config
+      ansible.builtin.set_fact:
+        _db_postgres_all_names: "{{ db_names }}"
+        _db_postgres_container: "{{ db_container_name }}"
+        _db_postgres_username: "{{ db_username }}"
+      when: "'databases' in _stacks"
+
+    - name: Load mariadb DB config
+      ansible.builtin.include_vars:
+        file: vars/db_primary_mariadb.yaml
+      when: "'databases' in _stacks"
+
+    - name: Save mariadb DB config
+      ansible.builtin.set_fact:
+        _db_mariadb_all_names: "{{ db_names }}"
+        _db_mariadb_container: "{{ db_container_name }}"
+        _db_mariadb_username: "{{ db_username }}"
+      when: "'databases' in _stacks"
+
+    - name: Filter skipped DBs from restore lists
+      ansible.builtin.set_fact:
+        _db_postgres_all_names: "{{ _db_postgres_all_names | difference(skip_dbs.split(',')) }}"
+        _db_mariadb_all_names: "{{ _db_mariadb_all_names | difference(skip_dbs.split(',')) }}"
+      when:
+        - skip_dbs | default('') | length > 0
+        - "'databases' in _stacks"
+
+    - name: Default DB facts when databases stack absent
+      ansible.builtin.set_fact:
+        _db_postgres_all_names: []
+        _db_mariadb_all_names: []
+        _db_postgres_container: ""
+        _db_mariadb_container: ""
+        _db_postgres_username: ""
+        _db_mariadb_username: ""
+      when: "'databases' not in _stacks"
+
+    - name: Find latest SQL dump per database — {{ item }}
+      ansible.builtin.shell: >
+        ls -t {% for src in _backup_sources %}{{ backup_base_dir }}/{{ src }}/backup_{{ item }}_*.sql {{ backup_base_dir }}/{{ src }}/backup_{{ item }}_*.sql.gz {% endfor %}2>/dev/null | head -1
+      loop: "{{ _db_postgres_all_names + _db_mariadb_all_names }}"
+      register: _db_dump_results
+      become: false
+      changed_when: false
+      check_mode: false
+      when: (_db_postgres_all_names + _db_mariadb_all_names) | length > 0
+
+    - name: Build DB archive map and name lists
+      ansible.builtin.set_fact:
+        _db_archive_map: >-
+          {{ dict(_db_dump_results.results | default([])
+                  | selectattr('stdout', 'defined')
+                  | selectattr('stdout', 'ne', '')
+                  | map(attribute='item') | list
+                  | zip(_db_dump_results.results | default([])
+                        | selectattr('stdout', 'defined')
+                        | selectattr('stdout', 'ne', '')
+                        | map(attribute='stdout') | list)) }}
+        _db_postgres_names: >-
+          {{ _db_dump_results.results | default([])
+             | selectattr('stdout', 'defined')
+             | selectattr('stdout', 'ne', '')
+             | map(attribute='item') | list
+             | intersect(_db_postgres_all_names) }}
+        _db_mariadb_names: >-
+          {{ _db_dump_results.results | default([])
+             | selectattr('stdout', 'defined')
+             | selectattr('stdout', 'ne', '')
+             | map(attribute='item') | list
+             | intersect(_db_mariadb_all_names) }}
+
+    - name: Report DB backup discovery
+      ansible.builtin.debug:
+        msg: >-
+          DB dumps found: {{ _db_archive_map | length }}/{{ (_db_postgres_all_names + _db_mariadb_all_names) | length }}.
+          Postgres: {{ _db_postgres_names | join(', ') or 'none' }}.
+          MariaDB: {{ _db_mariadb_names | join(', ') or 'none' }}.
+          {{ _db_archive_map | to_nice_yaml if _db_archive_map | length > 0 else '' }}
 
     - name: Verify archive integrity
       ansible.builtin.shell: gunzip -t "{{ item }}"
@@ -175,68 +274,9 @@
       changed_when: false
       check_mode: false
 
-    # ===== CHECK IF VM EXISTS =====
-    # Use cluster resources API (VIP-safe — discovers the actual node regardless of which PVE node is MASTER)
-    - name: Check if VM exists in cluster
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
-        method: GET
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        validate_certs: false
-      register: _cluster_vms
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-
-    - name: Set VM existence and node facts
-      ansible.builtin.set_fact:
-        _vm_exists: "{{ _cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0 }}"
-        _vm_actual_node: >-
-          {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
-             if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
-             else _vm.pve_target_node }}
-        _vm_cluster_status: >-
-          {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).status
-             if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
-             else 'unknown' }}
-
-    # ===== BUILD VM IF NEEDED =====
-    - name: Provision VM on Proxmox
-      include_tasks: tasks/provision_vm.yaml
-      vars:
-        _provision_target_group: test_target
-      when: not _vm_exists
-
-    - name: Add existing VM to inventory
-      ansible.builtin.add_host:
-        name: "{{ _vm.vm_hostname }}"
-        ansible_host: "{{ _vm.vm_ip }}"
-        ansible_user: "{{ vm_user }}"
-        groups: test_target
-        _needs_bootstrap: false
-      when: _vm_exists
-
-    - name: Start existing VM if stopped
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/status/start"
-        method: POST
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        validate_certs: false
-        status_code: [200, 500]
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when:
-        - _vm_exists
-        - _vm_cluster_status == 'stopped'
-
-    - name: Wait for SSH on existing VM
-      ansible.builtin.wait_for:
-        host: "{{ _vm.vm_ip }}"
-        port: 22
-        delay: 10
-        timeout: 300
-      when:
-        - _vm_exists
-        - _vm_cluster_status == 'stopped'
+    # ===== RESOLVE OR PROVISION VM =====
+    - name: Resolve or provision test VM
+      include_tasks: tasks/resolve_or_provision_vm.yaml
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 2 — Bootstrap (new VM or Docker missing)
@@ -248,6 +288,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/docker_vips.yaml
 
   tasks:
     - name: Wait for system boot to complete
@@ -257,6 +298,14 @@
 
     - name: Gather facts
       ansible.builtin.setup:
+
+    - name: Inject test VM role (test_vm_role override)
+      ansible.builtin.set_fact:
+        vault_vm_roles: "{{ vault_vm_roles | combine({inventory_hostname: test_vm_role}) }}"
+        vault_docker_vrrp_priorities: >-
+          {{ vault_docker_vrrp_priorities | default({})
+             | combine({inventory_hostname.split('.')[0]: 100}) }}
+      when: test_vm_role is defined
 
     - name: Check if Docker is installed
       ansible.builtin.command: docker --version
@@ -346,6 +395,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/docker_stacks.yaml
+    - vars/docker_vips.yaml
     - vars/vm_definitions.yaml
     - vars/semaphore_check.yaml
   vars:
@@ -355,10 +405,41 @@
     backup_tmp_dir: "/tmp"
 
   tasks:
+    - name: Assert /opt is not production CephFS (safety gate)
+      include_tasks: tasks/assert_test_vm.yaml
+
+    - name: Inject test VM role (test_vm_role override)
+      ansible.builtin.set_fact:
+        vault_vm_roles: "{{ vault_vm_roles | combine({inventory_hostname: test_vm_role}) }}"
+        vault_docker_vrrp_priorities: >-
+          {{ vault_docker_vrrp_priorities | default({})
+             | combine({inventory_hostname.split('.')[0]: 100}) }}
+      when: test_vm_role is defined
+
     - name: Initialize restore state
       ansible.builtin.set_fact:
         _restore_test_failed: false
         _restore_test_detail: ""
+
+    - name: Stop and remove all containers before CephFS cleanup
+      ansible.builtin.shell: |
+        docker ps -aq | xargs -r docker rm -f 2>/dev/null || true
+      become: true
+      when:
+        - hostvars['localhost']._vm.cephfs_host_dir is defined
+
+    - name: Clean test VM CephFS appdata (/opt on test VM only)
+      become: true
+      ansible.builtin.shell: |
+        find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+      when:
+        - hostvars['localhost']._vm.cephfs_host_dir is defined
+
+    - name: Ensure shared Docker network exists
+      community.docker.docker_network:
+        name: homelab
+        state: present
+      become: true
 
     - block:
         # ===== EXTRACT APPDATA FROM BACKUP =====
@@ -374,7 +455,7 @@
             _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
           when: restore_app | default('') | length > 0
 
-        - name: Restore appdata from each archive
+        - name: Restore appdata from production backup to test VM
           include_tasks: tasks/restore_appdata.yaml
           loop: "{{ hostvars['localhost']._archive_files }}"
           loop_control:
@@ -385,10 +466,118 @@
             _restore_extract_path: "{{ _extract_path | default('') }}"
             _restore_app_name: "{{ restore_app | default('') }}"
 
-        # ===== DEPLOY STACKS =====
+        # ===== DEPLOY DATABASES STACK FIRST =====
+        # DB containers must be running and populated before app stacks start,
+        # otherwise apps (authentik, jellyseerr, etc.) connect to empty databases.
+        - name: Deploy databases stack first
+          include_tasks: tasks/deploy_single_stack.yaml
+          vars:
+            _current_stack: databases
+            _test_mode: true
+          when: "'databases' in hostvars['localhost']._stacks"
+
+        - name: Reset DB passwords to match vault (restored data may differ)
+          include_tasks: tasks/reset_db_auth.yaml
+          vars:
+            _db_mariadb_password: "{{ db_password }}"
+            _db_postgres_password: "{{ docker_postgres_password }}"
+          when: "'databases' in hostvars['localhost']._stacks"
+
+        # ===== RESTORE SQL DUMPS =====
+        - name: Wait for database containers to accept authenticated connections
+          ansible.builtin.shell: |
+            found_any=false
+            for i in $(seq 1 60); do
+              all_ready=true
+              if docker ps -q --filter "name=postgres" | grep -q .; then
+                found_any=true
+                docker exec postgres pg_isready -U postgres >/dev/null 2>&1 || all_ready=false
+              fi
+              if docker ps -q --filter "name=mariadb" | grep -q .; then
+                found_any=true
+                docker exec -e MYSQL_PWD="$DB_PASSWORD" mariadb mysql -u root -e "SELECT 1" >/dev/null 2>&1 || all_ready=false
+              fi
+              if $found_any && $all_ready; then
+                echo "ready"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "timeout — found_any=$found_any"
+            exit 1
+          environment:
+            DB_PASSWORD: "{{ db_password | default('') }}"
+          become: true
+          changed_when: false
+          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
+
+        - name: Create DB restore staging directory on test VM
+          ansible.builtin.file:
+            path: /tmp/db_restore_staging
+            state: directory
+            mode: '0755'
+          become: true
+          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
+
+        - name: Copy production DB backup to test VM — {{ item.key }}
+          ansible.builtin.synchronize:
+            src: "{{ item.value }}"
+            dest: "/tmp/db_restore_staging/{{ item.value | basename }}"
+            compress: false
+            rsync_opts:
+              - "--timeout=1800"
+              - "--whole-file"
+          become: true
+          loop: "{{ hostvars['localhost']._db_archive_map | default({}) | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
+
+        - name: Restore postgres database — {{ _db_item }}
+          include_tasks: tasks/db_restore.yaml
+          loop: "{{ hostvars['localhost']._db_postgres_names | default([]) }}"
+          loop_control:
+            loop_var: _db_item
+          vars:
+            _db_name: "{{ _db_item }}"
+            _db_container: "{{ hostvars['localhost']._db_postgres_container }}"
+            _db_username: "{{ hostvars['localhost']._db_postgres_username }}"
+            _db_password: "{{ db_password | default('') }}"
+            _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
+            _db_is_postgres: true
+            _db_is_mariadb: false
+            _db_is_influxdb: false
+            _db_tmp_dir: "/tmp/db_restore_staging"
+          when: hostvars['localhost']._db_postgres_names | default([]) | length > 0
+
+        - name: Restore mariadb database — {{ _db_item }}
+          include_tasks: tasks/db_restore.yaml
+          loop: "{{ hostvars['localhost']._db_mariadb_names | default([]) }}"
+          loop_control:
+            loop_var: _db_item
+          vars:
+            _db_name: "{{ _db_item }}"
+            _db_container: "{{ hostvars['localhost']._db_mariadb_container }}"
+            _db_username: "{{ hostvars['localhost']._db_mariadb_username }}"
+            _db_password: "{{ db_password | default('') }}"
+            _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
+            _db_is_postgres: false
+            _db_is_mariadb: true
+            _db_is_influxdb: false
+            _db_tmp_dir: "/tmp/db_restore_staging"
+          when: hostvars['localhost']._db_mariadb_names | default([]) | length > 0
+
+        - name: Clean up DB restore staging directory
+          ansible.builtin.file:
+            path: /tmp/db_restore_staging
+            state: absent
+          become: true
+          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
+
+        # ===== DEPLOY REMAINING STACKS =====
         - name: "Deploy stack — {{ _current_stack }}"
           include_tasks: tasks/deploy_single_stack.yaml
-          loop: "{{ hostvars['localhost']._stacks }}"
+          loop: "{{ hostvars['localhost']._stacks | reject('equalto', 'databases') | list }}"
           loop_control:
             loop_var: _current_stack
           vars:
@@ -399,6 +588,20 @@
           include_tasks: tasks/verify_docker_health.yaml
           vars:
             _test_mode: true
+
+        # ===== NETWORK VERIFICATION =====
+        - name: Verify Docker network connectivity
+          include_tasks: tasks/verify_docker_network.yaml
+
+        # ===== NETWORK ISOLATION VERIFICATION =====
+        - name: Verify test VLAN isolation from production
+          include_tasks: tasks/verify_network_isolation.yaml
+          vars:
+            _vm: "{{ hostvars['localhost']._vm }}"
+
+        # ===== VIP VERIFICATION =====
+        - name: Verify VIP is active
+          include_tasks: tasks/verify_vip.yaml
 
         - name: Record success detail
           ansible.builtin.set_fact:

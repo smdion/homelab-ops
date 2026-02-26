@@ -1,15 +1,29 @@
-# Docker Compose override — NFS volume definitions for the dev stack.
+# Docker Compose override — volume definitions for the dev stack.
 # Templated by deploy_stacks.yaml to docker-compose.override.yaml on the host.
 # Not committed (docker-compose.override.yaml is gitignored); this template is.
+# CephFS directories are bind-mounted via host fstab (bootstrap_vm.yaml cephfs_extra_mounts).
+# VPS NFS is direct — VPS is not on CephFS.
 # Vault vars required:
-#   vault_odyssey_nfs_ip  — IP address of the odyssey NFS server
-#   vault_vps_nfs_ip      — IP address of the VPS NFS server
+#   vault_vps_nfs_ip  — IP address of the VPS NFS server
 volumes:
-  odyssey:
+  core:
+    driver: local
     driver_opts:
-      type: nfs4
-      o: "addr={{ vault_odyssey_nfs_ip }},soft,timeo=50,retrans=3"
-      device: :/
+      type: none
+      o: bind
+      device: /mnt/cephfs/core
+  apps:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/apps
+  dev:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /mnt/cephfs/dev
   vps:
     driver_opts:
       type: nfs4
