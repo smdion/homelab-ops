@@ -31,6 +31,9 @@ stack_roles:
   core: [infra, databases, auth, media]
   apps: [infra, apps, monitoring]
   dev:  [infra, dev]
+  # Legacy (pre-migration) — remove after migration to core/apps/dev is complete
+  tantiveiv: [infra, databases, auth, monitoring, dev]
+  odyssey:   [infra, media, apps]
 
 # Stack assignments: host → ordered list of stack names.
 # Derived from stack_roles (above) + vault_vm_roles (vault: hostname → role mapping).
