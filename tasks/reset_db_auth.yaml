@@ -76,21 +76,6 @@
   when: _mariadb_running | bool
   changed_when: true
 
-- name: Diagnose MariaDB root auth plugins (after reset)
-  ansible.builtin.shell: |
-    docker exec mariadb mariadb -u root --skip-password -e "
-      SELECT User, Host, plugin, LENGTH(authentication_string) as auth_len
-      FROM mysql.user WHERE User='root';"
-  become: true
-  changed_when: false
-  register: _mariadb_auth_after
-  when: _mariadb_running | bool
-
-- name: Show MariaDB root auth after reset
-  ansible.builtin.debug:
-    var: _mariadb_auth_after.stdout_lines
-  when: _mariadb_running | bool
-
 - name: Wait for Postgres to accept connections
   ansible.builtin.shell: |
     for i in $(seq 1 30); do
