@@ -956,6 +956,7 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 | `with_backup=yes` | Combined recovery: restore appdata + auto-detected DBs alongside image rollback (`rollback_docker`) |
 | `validate_only=yes` | Render and validate only, skip `docker compose up` (`deploy_stacks`) |
 | `dr_mode=yes` | DR recovery mode — skip snapshot/revert, keep state (`test_restore`) |
+| `deploy_ssh_key=yes` | Install ansible SSH private key on VM for cross-host operations (`build_ubuntu`, `test_restore`, `test_backup_restore`) |
 | `debug_no_log=yes` | Reveal output normally hidden by `no_log` (any playbook; see [no_log pattern](#no_log-pattern)) |
 
 **Cross-cutting scope selectors (auto-resolve target host, omit for all):**
