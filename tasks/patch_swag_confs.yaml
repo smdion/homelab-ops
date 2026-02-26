@@ -1,0 +1,120 @@
+---
+# Patch SWAG nginx site-confs after restore to match the new core/apps/dev VM layout.
+# Converts same-VM services from IPs to Docker service names (homelab network DNS).
+# Converts cross-VM services from old host IPs to role VIPs.
+#
+# Required vars:
+#   _apps_vip  — IP of the apps VM (test VIP or production VIP)
+#   _dev_vip   — IP of the dev VM (test VIP or production VIP)
+#
+# Usage:
+#   include_tasks: tasks/patch_swag_confs.yaml
+#   vars:
+#     _apps_vip: "192.168.3.51"   # test
+#     _dev_vip:  "192.168.3.52"   # test
+#
+# Old host IPs (pre-migration):
+#   10.10.10.15 = tantive-iv (core: databases, auth | moved: monitoring→apps, dev→dev)
+#   10.10.10.18 = odyssey    (apps: apps           | moved: media→core)
+#
+# SWAG runs on core — services on core use Docker service names (container ports).
+# Services on apps/dev use VIPs (host ports).
+
+- name: Define SWAG site-conf patches
+  ansible.builtin.set_fact:
+    _swag_conf_dir: "{{ docker_appsdir }}/swag/nginx/site-confs"
+    # Same VM as SWAG (core) — old IP → Docker service name, host port → container port
+    _swag_core_patches:
+      - file: auth.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.15"
+            new: "set $upstream_app authentik"
+          - old: "set $upstream_port 9001"
+            new: "set $upstream_port 9000"
+      - file: sql.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.15"
+            new: "set $upstream_app adminer"
+          - old: "set $upstream_port 8087"
+            new: "set $upstream_port 8080"
+      - file: media.conf
+        replacements:
+          # Only the tautulli section uses 10.10.10.18 — other sections (Liberty, NAS) stay as-is
+          - old: "set $upstream_app 10.10.10.18"
+            new: "set $upstream_app tautulli"
+      - file: requests.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.18"
+            new: "set $upstream_app jellyseerr"
+    # Cross-VM → apps VIP (host ports stay the same)
+    _swag_apps_patches:
+      - file: homepage.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.18"
+            new: "set $upstream_app {{ _apps_vip }}"
+      - file: home.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.18"
+            new: "set $upstream_app {{ _apps_vip }}"
+          - old: "proxy_pass http://10.10.10.18:8123"
+            new: "proxy_pass http://{{ _apps_vip }}:8123"
+      - file: inventory.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.18"
+            new: "set $upstream_app {{ _apps_vip }}"
+      - file: remote.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.18"
+            new: "set $upstream_app {{ _apps_vip }}"
+      - file: img.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.18"
+            new: "set $upstream_app {{ _apps_vip }}"
+      - file: grafana.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.15"
+            new: "set $upstream_app {{ _apps_vip }}"
+      - file: default.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.18"
+            new: "set $upstream_app {{ _apps_vip }}"
+      - file: logs.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.18"
+            new: "set $upstream_app {{ _apps_vip }}"
+    # Cross-VM → dev VIP (host ports stay the same)
+    _swag_dev_patches:
+      - file: code.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.15"
+            new: "set $upstream_app {{ _dev_vip }}"
+      - file: netboot.conf
+        replacements:
+          - old: "set $upstream_app 10.10.10.15"
+            new: "set $upstream_app {{ _dev_vip }}"
+
+- name: Build flat list of all SWAG replacements
+  ansible.builtin.set_fact:
+    _swag_all_patches: "{{ _swag_core_patches + _swag_apps_patches + _swag_dev_patches }}"
+
+- name: Patch SWAG site-confs
+  ansible.builtin.replace:
+    path: "{{ _swag_conf_dir }}/{{ _patch_item.0.file }}"
+    regexp: "{{ _patch_item.1.old | regex_escape() }}"
+    replace: "{{ _patch_item.1.new }}"
+  loop: "{{ _swag_all_patches | subelements('replacements') }}"
+  loop_control:
+    loop_var: _patch_item
+    label: "{{ _patch_item.0.file }}: {{ _patch_item.1.old }} → {{ _patch_item.1.new }}"
+  become: true
+  failed_when: false
+  register: _swag_patch_results
+
+- name: Report SWAG patches applied
+  ansible.builtin.debug:
+    msg: >-
+      SWAG patches: {{ _swag_patch_results.results
+        | selectattr('changed', 'equalto', true) | list | length }} applied,
+      {{ _swag_patch_results.results
+        | selectattr('changed', 'equalto', false) | list | length }} skipped
+      (already patched or file missing)
