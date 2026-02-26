@@ -1,8 +1,9 @@
 # Docker Compose override — volume definitions for the dev stack.
 # Templated by deploy_stacks.yaml to docker-compose.override.yaml on the host.
 # Not committed (docker-compose.override.yaml is gitignored); this template is.
-# CephFS directories are bind-mounted via host fstab (bootstrap_vm.yaml cephfs_extra_mounts).
-# VPS NFS is direct — VPS is not on CephFS.
+# core/apps: NFS mounts from core/apps VMs (bootstrap_vm.yaml nfs_mounts).
+# dev: local /opt bind mount (same VM).
+# vps: direct NFS — VPS has its own NFS export.
 # Vault vars required:
 #   vault_vps_nfs_ip  — IP address of the VPS NFS server
 volumes:
@@ -11,19 +12,19 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: /mnt/cephfs/core
+      device: /mnt/nfs/core
   apps:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: /mnt/cephfs/apps
+      device: /mnt/nfs/apps
   dev:
     driver: local
     driver_opts:
       type: none
       o: bind
-      device: /mnt/cephfs/dev
+      device: /opt
   vps:
     driver_opts:
       type: nfs4
