@@ -48,6 +48,7 @@
 #   deploy_stack  — single stack to deploy
 #   dr_mode=yes   — DR recovery mode (skip snapshot/revert, keep state)
 #   skip_dbs      — comma-separated DB names to skip restoring (e.g. -e skip_dbs=nextcloud)
+#   backup_source — comma-separated backup dir names to search (e.g. -e backup_source=tantiveiv.seandion.local,odyssey.seandion.local)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Prepare: Validate, find backup, build VM if needed, snapshot
@@ -104,7 +105,7 @@
     - name: Resolve VM and stack configuration
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
-        _backup_source: "{{ backup_source | default(source_host) }}"
+        _backup_sources: "{{ (backup_source | default(source_host)).split(',') }}"
         _stacks: >-
           {{ [deploy_stack] if deploy_stack | default('') | length > 0
              else stack_assignments[source_host] }}
@@ -146,7 +147,7 @@
     # mount (e.g. via group_add: 100 for the users group on unRAID).
     - name: Find per-stack backup archives from production backups (read-only)
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
+        ls -t {% for src in _backup_sources %}{{ backup_base_dir }}/{{ src }}/backup_{{ item }}_*.tar.gz {% endfor %}2>/dev/null | head -1
       loop: "{{ _stacks }}"
       register: _per_stack_archives
       become: false
@@ -159,7 +160,7 @@
 
     - name: Fall back to monolithic archive
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_*.tar.gz 2>/dev/null | head -1
+        ls -t {% for src in _backup_sources %}{{ backup_base_dir }}/{{ src }}/backup_*.tar.gz {% endfor %}2>/dev/null | head -1
       register: _monolithic_archive
       become: false
       changed_when: false
@@ -176,7 +177,7 @@
     - name: Assert backup archives exist
       ansible.builtin.assert:
         that: _archive_files | length > 0
-        fail_msg: "No backup archives found for {{ _backup_source }}"
+        fail_msg: "No backup archives found in {{ _backup_sources | join(', ') }}"
 
     # ===== FIND DB SQL DUMP ARCHIVES =====
     # Load each DB vars file and capture config into explicit facts (include_vars
@@ -226,9 +227,7 @@
 
     - name: Find latest SQL dump per database — {{ item }}
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql
-        {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql.gz
-        2>/dev/null | head -1
+        ls -t {% for src in _backup_sources %}{{ backup_base_dir }}/{{ src }}/backup_{{ item }}_*.sql {{ backup_base_dir }}/{{ src }}/backup_{{ item }}_*.sql.gz {% endfor %}2>/dev/null | head -1
       loop: "{{ _db_postgres_all_names + _db_mariadb_all_names }}"
       register: _db_dump_results
       become: false
