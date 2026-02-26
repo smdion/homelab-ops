@@ -468,6 +468,13 @@
             _test_mode: true
           when: "'databases' in hostvars['localhost']._stacks"
 
+        - name: Reset DB passwords to match vault (restored data may differ)
+          include_tasks: tasks/reset_db_auth.yaml
+          vars:
+            _db_mariadb_password: "{{ db_password }}"
+            _db_postgres_password: "{{ docker_postgres_password }}"
+          when: "'databases' in hostvars['localhost']._stacks"
+
         # ===== RESTORE SQL DUMPS =====
         - name: Wait for database containers to accept authenticated connections
           ansible.builtin.shell: |

@@ -1,0 +1,65 @@
+---
+# Reset database root passwords to match vault variables.
+# After restoring appdata from backup, the MariaDB/Postgres data files may
+# contain a different root password than the vault. MYSQL_ROOT_PASSWORD and
+# POSTGRES_PASSWORD env vars are only applied on first-time initialization —
+# if data already exists, the container ignores them.
+#
+# This task uses socket/trust auth (available via docker exec) to force-reset
+# the root password so subsequent restore commands can authenticate.
+#
+# Expects:
+#   _db_mariadb_password — desired MariaDB root password
+#   _db_postgres_password — desired Postgres superuser password
+
+- name: Detect running database containers
+  ansible.builtin.shell: |
+    mariadb=false; postgres=false
+    docker ps -q --filter "name=^mariadb$" | grep -q . && mariadb=true
+    docker ps -q --filter "name=^postgres$" | grep -q . && postgres=true
+    echo "mariadb=$mariadb postgres=$postgres"
+  become: true
+  changed_when: false
+  register: _db_container_check
+
+- name: Set container running flags
+  ansible.builtin.set_fact:
+    _mariadb_running: "{{ 'mariadb=true' in _db_container_check.stdout }}"
+    _postgres_running: "{{ 'postgres=true' in _db_container_check.stdout }}"
+
+- name: Reset MariaDB root password to match vault
+  ansible.builtin.shell: |
+    # Use unix_socket auth (no password needed via docker exec as root)
+    docker exec mariadb mariadb -u root --skip-password -e "
+      ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+      FLUSH PRIVILEGES;"
+    # root@'%' may not exist — ignore errors
+    docker exec mariadb mariadb -u root --skip-password -e "
+      ALTER USER 'root'@'%' IDENTIFIED BY '$DB_PASSWORD';
+      FLUSH PRIVILEGES;" 2>/dev/null || true
+  environment:
+    DB_PASSWORD: "{{ _db_mariadb_password }}"
+  become: true
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when: _mariadb_running | bool
+  changed_when: true
+
+- name: Reset Postgres superuser password to match vault
+  ansible.builtin.shell: |
+    docker exec postgres psql -U postgres -c "ALTER USER postgres WITH PASSWORD '$DB_PASSWORD';"
+  environment:
+    DB_PASSWORD: "{{ _db_postgres_password }}"
+  become: true
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when: _postgres_running | bool
+  changed_when: true
+
+- name: Verify MariaDB root auth after password reset
+  ansible.builtin.shell: |
+    docker exec -e MYSQL_PWD="$DB_PASSWORD" mariadb mariadb -u root -e "SELECT 1"
+  environment:
+    DB_PASSWORD: "{{ _db_mariadb_password }}"
+  become: true
+  changed_when: false
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when: _mariadb_running | bool
