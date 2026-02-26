@@ -11,6 +11,13 @@
 docker_vrrp_interface: "eth0"
 docker_vip_cidr: 24
 
+# Test VIP offsets — last octet appended to the test VM's subnet.
+# Shared between keepalived-docker.conf.j2 and verify_vip.yaml.
+docker_test_vip_offsets:
+  core: "200"
+  apps: "201"
+  dev: "202"
+
 docker_vips:
   core:
     vrrp_router_id: 52

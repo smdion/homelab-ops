@@ -1,0 +1,87 @@
+---
+# Resolve an existing test VM or provision a new one via PVE API.
+# Uses the cluster resources API (VIP-safe — discovers the actual node regardless
+# of which PVE node is MASTER).
+#
+# Expects (set as facts by the caller):
+#   _vm                    — VM definition dict from vm_definitions
+# Expects (from vars files):
+#   pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret, vm_user
+#
+# Sets:
+#   _vm_exists             — whether the VM already existed in the cluster
+#   _vm_actual_node        — PVE node the VM lives on (or default target node)
+#   _vm_cluster_status     — 'running', 'stopped', or 'unknown'
+# Side effects:
+#   - Provisions VM via tasks/provision_vm.yaml if it doesn't exist
+#   - Adds VM to the 'test_target' inventory group
+#   - Starts the VM if it was stopped
+
+- name: Check if VM exists in cluster
+  ansible.builtin.uri:
+    url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    validate_certs: false
+  register: _cluster_vms
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+- name: Set VM existence and node facts
+  ansible.builtin.set_fact:
+    _vm_exists: "{{ _cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0 }}"
+    _vm_actual_node: >-
+      {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
+         if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
+         else _vm.pve_target_node }}
+    _vm_cluster_status: >-
+      {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).status
+         if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
+         else 'unknown' }}
+
+- name: Provision VM on Proxmox
+  include_tasks: tasks/provision_vm.yaml
+  vars:
+    _provision_target_group: test_target
+  when: not _vm_exists
+
+- name: Add existing VM to inventory
+  ansible.builtin.add_host:
+    name: "{{ _vm.vm_hostname }}"
+    ansible_host: "{{ _vm.vm_ip }}"
+    ansible_user: "{{ vm_user }}"
+    groups: test_target
+    _needs_bootstrap: false
+  when: _vm_exists
+
+- name: Start existing VM if stopped
+  ansible.builtin.uri:
+    url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/status/start"
+    method: POST
+    headers:
+      Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    validate_certs: false
+    status_code: [200, 500]
+  register: _vm_start_result
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when:
+    - _vm_exists
+    - _vm_cluster_status == 'stopped'
+
+- name: Fail if VM start returned unexpected error
+  ansible.builtin.fail:
+    msg: "PVE API error starting VM {{ _vm.vm_id }}: {{ _vm_start_result.json | default({}) }}"
+  when:
+    - _vm_start_result is defined
+    - _vm_start_result.status | default(200) == 500
+    - "'already running' not in (_vm_start_result.json | default({}) | to_json | lower)"
+
+- name: Wait for SSH on existing VM
+  ansible.builtin.wait_for:
+    host: "{{ _vm.vm_ip }}"
+    port: 22
+    delay: 10
+    timeout: 300
+  when:
+    - _vm_exists
+    - _vm_cluster_status == 'stopped'

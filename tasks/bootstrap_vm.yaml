@@ -181,40 +181,33 @@
     label: "{{ item.mount_path }}"
   when: _vm.cephfs_extra_mounts is defined
 
-- name: Install keepalived
-  ansible.builtin.apt:
-    name: keepalived
-    state: present
+- name: Configure keepalived (VIP management)
   when:
     - vault_vm_roles is defined
     - inventory_hostname in vault_vm_roles
+  block:
+    - name: Install keepalived
+      ansible.builtin.apt:
+        name: keepalived
+        state: present
 
-- name: Template keepalived config
-  ansible.builtin.template:
-    src: templates/keepalived-docker.conf.j2
-    dest: /etc/keepalived/keepalived.conf
-    owner: root
-    group: root
-    mode: "0640"
-  when:
-    - vault_vm_roles is defined
-    - inventory_hostname in vault_vm_roles
-  register: _keepalived_config
+    - name: Template keepalived config
+      ansible.builtin.template:
+        src: templates/keepalived-docker.conf.j2
+        dest: /etc/keepalived/keepalived.conf
+        owner: root
+        group: root
+        mode: "0640"
+      register: _keepalived_config
 
-- name: Enable and start keepalived
-  ansible.builtin.service:
-    name: keepalived
-    state: started
-    enabled: true
-  when:
-    - vault_vm_roles is defined
-    - inventory_hostname in vault_vm_roles
+    - name: Enable and start keepalived
+      ansible.builtin.service:
+        name: keepalived
+        state: started
+        enabled: true
 
-- name: Restart keepalived if config changed
-  ansible.builtin.service:
-    name: keepalived
-    state: restarted
-  when:
-    - vault_vm_roles is defined
-    - inventory_hostname in vault_vm_roles
-    - _keepalived_config.changed | default(false)
+    - name: Restart keepalived if config changed
+      ansible.builtin.service:
+        name: keepalived
+        state: restarted
+      when: _keepalived_config.changed | default(false)
