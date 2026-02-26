@@ -109,6 +109,9 @@
     chdir: "/opt/stacks/{{ _current_stack }}"
   register: _pull_result
   changed_when: "'Pull complete' in (_pull_result.stderr | default('')) or 'Downloaded' in (_pull_result.stderr | default(''))"
+  retries: 3
+  delay: 15
+  until: _pull_result is not failed
   when:
     - not ansible_check_mode
     - pull_only | default('') == 'yes'
@@ -119,6 +122,10 @@
     project_src: "/opt/stacks/{{ _current_stack }}"
     state: present
     remove_orphans: true
+  register: _compose_up_result
+  retries: 3
+  delay: 15
+  until: _compose_up_result is not failed
   when:
     - not ansible_check_mode
     - not (validate_only | default('') == 'yes')
