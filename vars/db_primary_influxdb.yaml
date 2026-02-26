@@ -1,4 +1,5 @@
 # No auth required for InfluxDB 1.x (default config)
+backup_stack: monitoring
 backup_name: "Database"
 backup_url: "https://sql.{{ domain_ext }}"
 backup_description: "Automatic Database Backup"

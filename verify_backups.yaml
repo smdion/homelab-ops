@@ -46,7 +46,7 @@
     - block:
         # ===== DATABASE VERIFICATION =====
         - name: Find latest backup file per database on controller
-          ansible.builtin.shell: ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_{{ item }}_*.{{ backup_ext | default('sql') }} 2>/dev/null | head -1
+          ansible.builtin.shell: ls -t {{ backup_base_dir }}/{{ backup_stack | default(inventory_hostname) }}/backup_{{ item }}_*.{{ backup_ext | default('sql') }} 2>/dev/null | head -1
           loop: "{{ db_names }}"
           register: _db_backup_files
           delegate_to: localhost
@@ -158,7 +158,7 @@
 
         # ===== PER-STACK CONFIG VERIFICATION (docker_stacks hosts) =====
         - name: Find per-stack backup archives on controller
-          ansible.builtin.shell: ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
+          ansible.builtin.shell: ls -t {{ backup_base_dir }}/{{ item }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
           loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
           register: _stack_backup_files
           delegate_to: localhost

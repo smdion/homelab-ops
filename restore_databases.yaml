@@ -69,7 +69,7 @@
     - block:
         - name: Find backup files on controller
           ansible.builtin.shell: >
-            ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_{{ item }}_{{ restore_date | default('*') }}.{{ backup_ext | default('sql') }} 2>/dev/null | head -1
+            ls -t {{ backup_base_dir }}/{{ backup_stack | default(inventory_hostname) }}/backup_{{ item }}_{{ restore_date | default('*') }}.{{ backup_ext | default('sql') }} 2>/dev/null | head -1
           loop: "{{ _restore_db_list }}"
           register: _backup_files
           delegate_to: localhost

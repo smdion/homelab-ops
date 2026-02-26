@@ -7,9 +7,6 @@
 #   restore_target — inventory_hostname of the production host to restore on
 #   confirm=yes    — required safety gate (intentional: prevents accidental production runs)
 #
-# Optional extra vars:
-#   restore_source_host — host whose backups to use (default: restore_target)
-#
 # Semaphore templates:
 #   Restore — App [Production]  (Maintenance view) — pass restore_app, restore_target, confirm=yes
 #   Test — Backup Restore [VM]     (Testing view)     — see test_backup_restore.yaml
@@ -54,14 +51,13 @@
         log_run_vars: "{{ {'restore_app': restore_app, 'restore_target': restore_target} | to_json }}"
 
   tasks:
-    - name: Set app config and source host
+    - name: Set app config
       ansible.builtin.set_fact:
         _app_cfg: "{{ app_info[restore_app] }}"
-        _source_host: "{{ restore_source_host | default(restore_target) }}"
 
     - name: Find latest stack archive
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ _source_host }}/backup_{{ _app_cfg.stack }}_*.tar.gz 2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/{{ _app_cfg.stack }}/backup_{{ _app_cfg.stack }}_*.tar.gz 2>/dev/null | head -1
       register: _stack_archive
       become: false
       changed_when: false
@@ -71,12 +67,12 @@
       ansible.builtin.assert:
         that: _stack_archive.stdout | length > 0
         fail_msg: >-
-          No stack archive found for stack '{{ _app_cfg.stack }}' on {{ _source_host }}.
-          Expected: {{ backup_base_dir }}/{{ _source_host }}/backup_{{ _app_cfg.stack }}_*.tar.gz
+          No stack archive found for stack '{{ _app_cfg.stack }}'.
+          Expected: {{ backup_base_dir }}/{{ _app_cfg.stack }}/backup_{{ _app_cfg.stack }}_*.tar.gz
 
     - name: Find latest DB backup — {{ item }}
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ _source_host }}/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/{{ _app_cfg.db_stack }}/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
       loop: "{{ _app_cfg.db_names | default([]) }}"
       register: _db_archive_results
       become: false
@@ -87,7 +83,7 @@
     - name: Assert DB backup found — {{ item.item }}
       ansible.builtin.assert:
         that: item.stdout | length > 0
-        fail_msg: "No DB backup found for '{{ item.item }}' on {{ _source_host }}"
+        fail_msg: "No DB backup found for '{{ item.item }}' in {{ _app_cfg.db_stack }} stack"
       loop: "{{ _db_archive_results.results | default([]) }}"
       when: _app_cfg.db_names | default([]) | length > 0
 

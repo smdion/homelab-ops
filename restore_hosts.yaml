@@ -84,7 +84,7 @@
         # ===== FIND AND VERIFY BACKUP ARCHIVE =====
         - name: Find per-stack backup archive on controller
           ansible.builtin.shell: >
-            ls -t {{ backup_base_dir }}/{{ inventory_hostname }}/backup_{{ restore_stack }}_{{ restore_date | default('') }}*.tar.gz 2>/dev/null | head -1
+            ls -t {{ backup_base_dir }}/{{ restore_stack }}/backup_{{ restore_stack }}_{{ restore_date | default('') }}*.tar.gz 2>/dev/null | head -1
           register: _archive_file
           delegate_to: localhost
           become: false
@@ -191,7 +191,7 @@
 
         - name: Find DB backup files on controller
           ansible.builtin.shell: >
-            ls -t {{ backup_base_dir }}/{{ app_restore[restore_app].db_host }}/backup_{{ item }}_{{ restore_date | default('*') }}.sql 2>/dev/null | head -1
+            ls -t {{ backup_base_dir }}/{{ app_restore[restore_app].db_backup_stack | default(app_restore[restore_app].db_host) }}/backup_{{ item }}_{{ restore_date | default('*') }}.sql 2>/dev/null | head -1
           loop: "{{ app_restore[restore_app].db_names }}"
           register: _db_backup_files
           delegate_to: localhost

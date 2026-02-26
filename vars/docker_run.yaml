@@ -29,21 +29,25 @@ app_restore:
     containers: ["sonarr"]
     db_config_file: db_primary_postgres
     db_host: "{{ db_host_primary }}"
+    db_backup_stack: databases
     db_names: ["sonarr-log", "sonarr-main"]
   radarr:
     containers: ["radarr"]
     db_config_file: db_primary_postgres
     db_host: "{{ db_host_primary }}"
+    db_backup_stack: databases
     db_names: ["radarr-log", "radarr-main"]
   prowlarr:
     containers: ["prowlarr"]
     db_config_file: db_primary_postgres
     db_host: "{{ db_host_primary }}"
+    db_backup_stack: databases
     db_names: ["prowlarr-log", "prowlarr-main"]
   nextcloud:
     containers: ["nextcloud"]
     db_config_file: db_primary_mariadb
     db_host: "{{ db_host_primary }}"
+    db_backup_stack: databases
     db_names: ["nextcloud"]
   immich:
     containers: ["immich-server", "immich-machine-learning"]

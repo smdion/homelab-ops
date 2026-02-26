@@ -11,9 +11,6 @@
 #   # Test restore on CephFS-backed /opt (auto-creates CephFS dir + mounts during bootstrap)
 #   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e source_host=<role-fqdn>
 #
-#   # Restore from old hostname backups after host rename (backup_source overrides archive path)
-#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e source_host=apps.example.com -e backup_source=odyssey.example.com
-#
 #   # Test single app restore
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e restore_app=authentik
 #
@@ -29,9 +26,8 @@
 #   source_host  — inventory_hostname of source host in stack_assignments
 #
 # Optional extra vars:
-#   backup_source — hostname whose backup directory to restore from (defaults to source_host).
-#                   Useful when stack_assignments keys differ from the backup directory names
-#                   (e.g. after renaming hosts: -e source_host=apps.example.com -e backup_source=odyssey.example.com).
+#   backup_source — hostname for monolithic archive fallback (defaults to source_host).
+#                   Stack and DB archives use stack-based folders (/backup/{stack}/).
 #
 # VM lifecycle (provision_vm.yaml is idempotent):
 #   - If the VMID doesn't exist, the VM is provisioned from the cloud-init template
@@ -147,7 +143,7 @@
     # mount (e.g. via group_add: 100 for the users group on unRAID).
     - name: Find per-stack backup archives from production backups (read-only)
       ansible.builtin.shell: >
-        ls -t {% for src in _backup_sources %}{{ backup_base_dir }}/{{ src }}/backup_{{ item }}_*.tar.gz {% endfor %}2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/{{ item }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _stacks }}"
       register: _per_stack_archives
       become: false
@@ -177,7 +173,7 @@
     - name: Assert backup archives exist
       ansible.builtin.assert:
         that: _archive_files | length > 0
-        fail_msg: "No backup archives found in {{ _backup_sources | join(', ') }}"
+        fail_msg: "No backup archives found for stacks {{ _stacks | join(', ') }} (also checked monolithic in {{ _backup_sources | join(', ') }})"
 
     # ===== FIND DB SQL DUMP ARCHIVES =====
     # Load each DB vars file and capture config into explicit facts (include_vars
@@ -227,7 +223,7 @@
 
     - name: Find latest SQL dump per database — {{ item }}
       ansible.builtin.shell: >
-        ls -t {% for src in _backup_sources %}{{ backup_base_dir }}/{{ src }}/backup_{{ item }}_*.sql {{ backup_base_dir }}/{{ src }}/backup_{{ item }}_*.sql.gz {% endfor %}2>/dev/null | head -1
+        ls -t {{ backup_base_dir }}/databases/backup_{{ item }}_*.sql {{ backup_base_dir }}/databases/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
       loop: "{{ _db_postgres_all_names + _db_mariadb_all_names }}"
       register: _db_dump_results
       become: false
@@ -539,13 +535,30 @@
             dest: "/tmp/db_restore_staging/{{ item.value | basename }}"
             compress: false
             rsync_opts:
-              - "--timeout=1800"
+              - "--timeout=60"
               - "--whole-file"
           become: true
+          async: 1800
+          poll: 15
+          ignore_errors: true
+          register: _db_rsync_result
           loop: "{{ hostvars['localhost']._db_archive_map | default({}) | dict2items }}"
           loop_control:
             label: "{{ item.key }}"
           when: hostvars['localhost']._db_archive_map | default({}) | length > 0
+
+        - name: "Rsync stalled — copy DB backup via Ansible — {{ item.key }}"
+          ansible.builtin.copy:
+            src: "{{ item.value }}"
+            dest: "/tmp/db_restore_staging/{{ item.value | basename }}"
+            mode: "0644"
+          become: true
+          loop: "{{ hostvars['localhost']._db_archive_map | default({}) | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+          when:
+            - hostvars['localhost']._db_archive_map | default({}) | length > 0
+            - _db_rsync_result is failed
 
         - name: Restore postgres database — {{ _db_item }}
           include_tasks: tasks/db_restore.yaml
