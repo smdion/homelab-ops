@@ -5,25 +5,26 @@
 # Also serves as a DR recovery tool via -e dr_mode=yes.
 #
 # Usage:
-#   # Test controller's full stack (local /opt)
+#   # Test a role's stacks (resolves stack list from stack_roles)
+#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e role=apps -e dr_mode=yes
+#
+#   # Test a specific host's stacks (resolves stack list from stack_assignments)
 #   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn>
 #
-#   # Test restore on CephFS-backed /opt (auto-creates CephFS dir + mounts during bootstrap)
-#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e source_host=<role-fqdn>
-#
 #   # Test single app restore
-#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e restore_app=authentik
+#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e role=core -e restore_app=authentik
 #
 #   # Test single stack deploy
-#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqdn> -e stack=media
+#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e role=core -e stack=media
 #
 #   # DR recovery (keeps restored state, no revert)
-#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn> -e dr_mode=yes
+#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e role=core -e dr_mode=yes
 #
 # Required extra vars:
 #   vm_name      — ephemeral VM key from vm_definitions (use "test-vm" for local /opt, or
 #                  "cephfs-migrate-test" for CephFS-backed /opt). Do NOT use permanent VM keys.
-#   source_host  — inventory_hostname of source host in stack_assignments
+#   source_host  — inventory_hostname of source host in stack_assignments (OR use role instead)
+#   role         — stack role name (e.g. core, apps, dev) — alternative to source_host
 #
 # VM lifecycle (provision_vm.yaml is idempotent):
 #   - If the VMID doesn't exist, the VM is provisioned from the cloud-init template
@@ -69,14 +70,21 @@
           vm_name '{{ vm_name | default('undefined') }}' not found in vm_definitions.
           Valid names: {{ vm_definitions.keys() | list | join(', ') }}
 
+    - name: Assert source_host or role is provided
+      ansible.builtin.assert:
+        that: source_host is defined or role is defined
+        fail_msg: >-
+          Either source_host or role is required.
+          source_host: inventory_hostname in stack_assignments (e.g. apps.seandion.local).
+          role: stack role name (e.g. core, apps, dev).
+
     - name: Assert source_host exists in stack_assignments
       ansible.builtin.assert:
-        that:
-          - source_host is defined
-          - source_host in stack_assignments
+        that: source_host in stack_assignments
         fail_msg: >-
-          source_host '{{ source_host | default('undefined') }}' not found in stack_assignments.
+          source_host '{{ source_host }}' not found in stack_assignments.
           Valid hosts: {{ stack_assignments.keys() | list | join(', ') }}
+      when: source_host is defined
 
     - name: Assert MariaDB logging database is reachable
       include_tasks: tasks/assert_db_connectivity.yaml
@@ -98,6 +106,7 @@
         _vm: "{{ vm_definitions[vm_name] }}"
         _stacks: >-
           {{ [stack] if stack is defined
+             else stack_roles[role] if role is defined and source_host is not defined
              else stack_assignments[source_host] }}
 
     # ===== AUTO-CREATE CEPHFS DIR (when vm has cephfs_host_dir) =====
@@ -640,13 +649,13 @@
             discord_operation: "Restore Test"
             discord_status: "{{ 'failed' if _restore_test_failed else 'successful' }}"
             discord_detail: >-
-              {{ source_host }}{{ ' (' + restore_app + ')' if restore_app | default('') | length > 0 else '' }}
+              {{ source_host | default(role | default('unknown')) }}{{ ' (' + restore_app + ')' if restore_app | default('') | length > 0 else '' }}
             discord_color: "{{ discord_color_failure if _restore_test_failed else discord_color_success }}"
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
-              - name: "Source Host"
-                value: "{{ source_host }}"
+              - name: "Source"
+                value: "{{ source_host | default('role: ' + role | default('unknown')) }}"
                 inline: true
               - name: "Test VM"
                 value: "{{ hostvars['localhost']._vm.vm_name }}"
