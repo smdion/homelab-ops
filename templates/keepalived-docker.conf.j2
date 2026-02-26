@@ -13,11 +13,12 @@
 {% set _vip_config = docker_vips[_role] %}
 {% set _node = inventory_hostname.split('.')[0] %}
 {% set my_priority = vault_docker_vrrp_priorities[_node] | default(50) %}
-{% set max_priority = vault_docker_vrrp_priorities.values() | list | max %}
-{% set _test_vip_offsets = {'core': '200', 'apps': '201', 'dev': '202'} %}
+{% set _role_nodes = vault_vm_roles | dict2items | selectattr('value', 'equalto', _role) | map(attribute='key') | map('regex_replace', '\\..*$', '') | list %}
+{% set _role_priorities = _role_nodes | map('extract', vault_docker_vrrp_priorities) | select('defined') | list %}
+{% set max_priority = _role_priorities | max if _role_priorities | length > 0 else my_priority %}
 {% if test_vm_role is defined %}
 {% set _subnet = ansible_default_ipv4.address.rsplit('.', 1)[0] %}
-{% set _effective_vip = _subnet ~ '.' ~ _test_vip_offsets[_role] %}
+{% set _effective_vip = _subnet ~ '.' ~ docker_test_vip_offsets[_role] %}
 {% else %}
 {% set _effective_vip = _vip_config.vip %}
 {% endif %}

@@ -17,9 +17,8 @@
   ansible.builtin.set_fact:
     _effective_vip: >-
       {% set _role = vault_vm_roles[inventory_hostname] %}
-      {% set _test_vip_offsets = {'core': '200', 'apps': '201', 'dev': '202'} %}
       {% if test_vm_role is defined %}
-      {{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ _test_vip_offsets[_role] }}
+      {{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets[_role] }}
       {%- else %}
       {{ docker_vips[_role].vip }}
       {%- endif %}
@@ -45,7 +44,7 @@
       fi
 
       # --- 2. VIP on interface ---
-      if ip addr show "$interface" | grep -q "$vip"; then
+      if ip addr show "$interface" | grep -q "inet $vip/"; then
         echo "VIP: $vip present on $interface (role: $role)"
       else
         echo "FAIL: VIP $vip not found on $interface"

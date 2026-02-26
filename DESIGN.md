@@ -111,8 +111,7 @@ history, restore results, playbook runs) belongs in the database.
 │
 ├── group_vars/
 │   ├── all.yaml                    # Shared defaults: ansible_remote_tmp, ansible_python_interpreter, backup_base_dir/tmp_dir/tmp_file/dest_path/url, backup_type/update_type ("Servers"), is_postgres/is_mariadb/is_influxdb (false)
-│   ├── pikvm.yaml                  # PiKVM override: ansible_remote_tmp → /tmp/.ansible/tmp (RO filesystem; /tmp is tmpfs)
-│   └── tantiveiv.yaml              # tantive-iv override: docker_mem_limit → "10g" (12GB RAM vs 4GB default)
+│   └── pikvm.yaml                  # PiKVM override: ansible_remote_tmp → /tmp/.ansible/tmp (RO filesystem; /tmp is tmpfs)
 │
 ├── vars/
 │   ├── secrets.yaml                # AES256-encrypted vault — ALL secrets (incl. domain config, docker_* keys, pve_* keys)
@@ -125,6 +124,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (unifi_protect_api_backup_path, unifi_protect_temp_file)
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
 │   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, app_info (pre-deploy restore map), docker_* defaults
+│   ├── docker_vips.yaml             # Keepalived VRRP config for Docker VM VIPs — interface, CIDR, test VIP offsets; vault vars for VIPs + priorities
 │   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists, app_restore mapping
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
 │   ├── unraid_os.yaml               # unRAID OS backup
@@ -154,6 +154,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── db_drop_temp.yaml            # Drop a database and clean up container temp files — all engines
 │   ├── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, up)
 │   ├── provision_vm.yaml            # Provision VM on Proxmox via cloud-init template clone + API config
+│   ├── resolve_or_provision_vm.yaml # Resolve existing test VM or provision new one — shared by test/verify playbooks
 │   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS, CephFS /opt mount
 │   ├── ssh_hardening.yaml           # Passwordless sudo + SSH config hardening + service restart
 │   ├── docker_stop.yaml             # Stop Docker containers/stacks (selective, stack, or unRAID mode)
@@ -164,11 +165,14 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── backup_single_amp_instance.yaml  # Per-AMP-instance backup loop body (stop→archive→verify→fetch→start)
 │   ├── restore_single_amp_instance.yaml # Per-AMP-instance restore loop body (stop→remove→extract→start); mirrors backup_single_amp_instance
 │   ├── verify_docker_health.yaml    # Poll Docker container health until all healthy or timeout
+│   ├── assert_test_vm.yaml          # Safety gate — assert /opt CephFS mount is not a production directory before destructive writes
 │   ├── verify_docker_network.yaml   # Verify cross-stack DNS resolution and TCP connectivity on shared Docker network
+│   ├── verify_network_isolation.yaml # Verify test VLAN isolation — PVE VIP unreachable, CephFS monitors + public DNS reachable
 │   └── verify_vip.yaml             # Verify keepalived VIP is active on expected interface (skips if no role assigned)
 │
 ├── templates/
-│   └── metube.conf.j2              # Jinja2 template for yt-dlp config — rendered per profile from vars/download_<name>.yaml
+│   ├── metube.conf.j2              # Jinja2 template for yt-dlp config — rendered per profile from vars/download_<name>.yaml
+│   └── keepalived-docker.conf.j2   # Jinja2 template for keepalived VRRP — floating VIP per Docker VM role; test mode derives VIP from VM subnet
 │
 ├── backup_hosts.yaml               # Config/Appdata backups (Proxmox, PiKVM, Unifi, AMP, Docker, unRAID); integrity verification; DB dir exclusion
 ├── backup_databases.yaml           # Database backups (Postgres + MariaDB dumps, InfluxDB portable backup); integrity verification
@@ -197,6 +201,7 @@ history, restore results, playbook runs) belongs in the database.
 ├── test_backup_restore.yaml          # Test all app_info apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
 ├── migrate_appdata_to_cephfs.yaml # One-shot migration of /opt from local RBD disk to CephFS shared storage; requires -e vm_name=<key> -e confirm=yes
 ├── verify_cephfs.yaml             # Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires -e vm_name=<key>
+├── verify_isolation.yaml          # Lightweight test VLAN isolation verification — provisions bare test VM, runs network checks, then destroys
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
 ├── files/
@@ -2563,7 +2568,7 @@ The playbook:
    clean-slate behavior that PVE revert provides for local-`/opt` VMs (`test-vm`).
 3. In `dr_mode=yes` mode, keeps the restored state (no revert) for real DR recovery
 
-**Do not use permanent VM keys** (`tantiveiv`, `odyssey`, `amp`) with `test_restore.yaml` — those
+**Do not use permanent VM keys** (`core`, `apps`, `amp`) with `test_restore.yaml` — those
 are production VMs. Only `test-vm` (or a custom ephemeral key) is appropriate.
 
 ```bash
@@ -2605,11 +2610,12 @@ VM storage is two independent layers:
   `/var/lib/docker`. Provisioned by `provision_vm.yaml` exactly as today. No change.
 - **CephFS mount at `/opt`** (new) — all Docker appdata. Mounted via fstab on boot.
 
-Per-VM directories on the shared CephFS filesystem (current names — Phase 3 renames to role names):
+Per-VM directories on the shared CephFS filesystem (role-based names):
 ```
 CephFS root /
-  /tantive-iv/    →  mounted at /opt on tantive-iv VM    (Phase 3: /core/)
-  /odyssey/       →  mounted at /opt on odyssey VM       (Phase 3: /apps/, new /dev/)
+  /core/    →  mounted at /opt on core VM
+  /apps/    →  mounted at /opt on apps VM
+  /dev/     →  mounted at /opt on dev VM
 ```
 
 All existing paths (`${APPSDIR}/<app>`, `/opt/stacks/<stack>/`, `homelab.backup.paths` labels)
@@ -2628,10 +2634,11 @@ See `vars/secrets.yaml.example` for the full entry and setup reference.
 
 ### VM Eligibility
 
-`cephfs_host_dir` is defined in `vm_definitions` for eligible VMs only (Phase 3 renames these):
+`cephfs_host_dir` is defined in `vm_definitions` for eligible VMs only:
 
-- **tantiveiv** — `cephfs_host_dir: "tantive-iv"` (Phase 3: `core` → `cephfs_host_dir: "core"`)
-- **odyssey** — `cephfs_host_dir: "odyssey"` (Phase 3: `apps` → `cephfs_host_dir: "apps"`, new `dev`)
+- **core** — `cephfs_host_dir: "core"`
+- **apps** — `cephfs_host_dir: "apps"`
+- **dev** — `cephfs_host_dir: "dev"`
 - **cephfs-migrate-test** — `cephfs_host_dir: "cephfs-migrate-test"` — ephemeral test VM used by
   `test_restore.yaml -e vm_name=cephfs-migrate-test`. Draws a slot from the same `vm_test_slot_base`
   pool as `test-vm` via `resolve_test_vm_index.yaml`. Same test VLAN isolation as `test-vm` (backup
@@ -2724,13 +2731,13 @@ If CephFS becomes unavailable and `/opt` fails to mount on boot, the VM will han
 
 - **Phase 1 (complete)** — CephFS: data survives VM destruction. VMs still need their own FQDN.
   Merged Feb 2026.
-- **Phase 2 (planned)** — Docker networking + stack reorg: shared `homelab` Docker network for
+- **Phase 2 (code-complete, testing in progress)** — Docker networking + stack reorg: shared `homelab` Docker network for
   cross-stack service-name resolution; media stack moves to core (eliminates cross-host postgres);
   NFS stack deleted (replaced by CephFS direct mounts for code-server); host-IP references in
   `env.j2` templates replaced with Docker service names. See `future/HOST_INDEPENDENT_STACKS.md`.
-- **Phase 3 (planned)** — 3-VM role-based architecture (core/apps/dev) with keepalived VIPs;
+- **Phase 3 (code-complete, testing in progress)** — 3-VM role-based architecture (core/apps/dev) with keepalived VIPs;
   role-based stack assignment via `stack_roles` + `vault_vm_roles`; CephFS directories renamed to
   role names; dynamic `docker_mem_limit` replaces static group_vars. See
   `future/HOST_INDEPENDENT_STACKS.md`.
 
-Phases 2 and 3 ship as a single feature branch — one deployment, one round of troubleshooting.
+Phases 2 and 3 ship as a single feature branch (`feature/host-independent-stacks`) — one deployment, one round of troubleshooting.

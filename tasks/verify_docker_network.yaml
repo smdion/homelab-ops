@@ -1,6 +1,7 @@
 ---
 # Verify Docker network connectivity: membership, DNS resolution, and TCP reachability.
-# Auto-discovers containers on the network — no hardcoded names.
+# Tests representative consumers → DB services (not O(n^2) mesh).
+# Uses nslookup (POSIX sh compatible) instead of bash-only /dev/tcp.
 #
 # Optional:
 #   _network_name  — Docker network to verify (default: 'homelab')
@@ -25,51 +26,58 @@
       count=$(echo "$containers" | wc -w)
       echo "NETWORK: $count container(s) on '$network': $containers"
 
-      # --- 2. DNS resolution (each container resolves every peer) ---
+      # --- 2. DNS resolution (key consumers → DB services) ---
       echo ""
       echo "DNS RESOLUTION:"
-      for src in $containers; do
-        for dst in $containers; do
-          [ "$src" = "$dst" ] && continue
-          if docker exec "$src" getent hosts "$dst" >/dev/null 2>&1; then
-            ip=$(docker exec "$src" getent hosts "$dst" 2>/dev/null | awk '{print $1}')
-            echo "  OK: $src -> $dst ($ip)"
-          else
-            echo "  FAIL: $src cannot resolve '$dst'"
-            errors=$((errors + 1))
-          fi
-        done
-      done
+      db_services=""
+      echo "$containers" | grep -qw postgres && db_services="$db_services postgres"
+      echo "$containers" | grep -qw mariadb && db_services="$db_services mariadb"
 
-      # --- 3. TCP connectivity for DB services ---
+      if [ -z "$db_services" ]; then
+        echo "  SKIP: no database services on '$network' network"
+      else
+        # Pick up to 3 non-DB containers as representative consumers
+        consumers=""
+        for c in $containers; do
+          [ "$c" = "postgres" ] || [ "$c" = "mariadb" ] || [ "$c" = "adminer" ] && continue
+          consumers="$consumers $c"
+          count_c=$(echo "$consumers" | wc -w)
+          [ "$count_c" -ge 3 ] && break
+        done
+
+        for src in $consumers; do
+          for dst in $db_services; do
+            if docker exec "$src" sh -c "nslookup $dst >/dev/null 2>&1" 2>/dev/null; then
+              echo "  OK: $src -> $dst"
+            else
+              echo "  FAIL: $src cannot resolve '$dst'"
+              errors=$((errors + 1))
+            fi
+          done
+        done
+      fi
+
+      # --- 3. TCP connectivity for DB services (check via published host ports) ---
       echo ""
       echo "TCP CONNECTIVITY:"
-      # Check if postgres is on the network
       if echo "$containers" | grep -qw postgres; then
-        for src in $containers; do
-          [ "$src" = "postgres" ] && continue
-          if docker exec "$src" timeout 3 bash -c 'echo > /dev/tcp/postgres/5432' 2>/dev/null; then
-            echo "  OK: $src -> postgres:5432"
-          else
-            echo "  FAIL: $src cannot reach postgres:5432"
-            errors=$((errors + 1))
-          fi
-        done
+        if timeout 3 bash -c 'echo > /dev/tcp/127.0.0.1/5432' 2>/dev/null; then
+          echo "  OK: postgres:5432 reachable"
+        else
+          echo "  FAIL: postgres:5432 not reachable"
+          errors=$((errors + 1))
+        fi
       else
         echo "  SKIP: postgres not on '$network' network"
       fi
 
-      # Check if mariadb is on the network
       if echo "$containers" | grep -qw mariadb; then
-        for src in $containers; do
-          [ "$src" = "mariadb" ] && continue
-          if docker exec "$src" timeout 3 bash -c 'echo > /dev/tcp/mariadb/3306' 2>/dev/null; then
-            echo "  OK: $src -> mariadb:3306"
-          else
-            echo "  FAIL: $src cannot reach mariadb:3306"
-            errors=$((errors + 1))
-          fi
-        done
+        if timeout 3 bash -c 'echo > /dev/tcp/127.0.0.1/3306' 2>/dev/null; then
+          echo "  OK: mariadb:3306 reachable"
+        else
+          echo "  FAIL: mariadb:3306 not reachable"
+          errors=$((errors + 1))
+        fi
       else
         echo "  SKIP: mariadb not on '$network' network"
       fi
@@ -80,6 +88,7 @@
         exit 1
       fi
       echo "RESULT: All DNS and TCP checks passed"
+    executable: /bin/bash
   register: _network_check
   changed_when: false
   when: not ansible_check_mode

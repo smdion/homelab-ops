@@ -4,7 +4,7 @@
 # Stacks deploy in stack_assignments order — databases before auth, etc.
 #
 # Usage:
-#   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks --limit tantiveiv
+#   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks --limit core.example.com
 #
 # Optional extra vars:
 #   deploy_stack=infra    — deploy a single stack instead of all assigned stacks
@@ -14,7 +14,7 @@
 - name: Deploy Docker stacks from Git
   hosts: "{{ hosts_variable }}"
   gather_facts: true
-  gather_subset: ['!all', 'date_time']
+  gather_subset: ['!all', 'date_time', 'hardware']
   serial: 1
   vars_files:
     - vars/secrets.yaml
@@ -26,6 +26,7 @@
     maintenance_name: "Docker"
     maintenance_type: "Servers"
     maintenance_subtype: "Deploy"
+    _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
   pre_tasks:
     - name: Assert config_file is defined and non-empty
@@ -46,6 +47,15 @@
         fail_msg: >-
           {{ inventory_hostname }} is not in vault_vm_roles. Add a role mapping
           (e.g. vault_vm_roles: { {{ inventory_hostname }}: core }) before deploying.
+
+    - name: Assert role is valid (exists in stack_roles)
+      ansible.builtin.assert:
+        that:
+          - vault_vm_roles[inventory_hostname] in stack_roles
+        fail_msg: >-
+          vault_vm_roles[{{ inventory_hostname }}] = '{{ vault_vm_roles[inventory_hostname] }}'
+          which is not a valid key in stack_roles.
+          Valid roles: {{ stack_roles.keys() | list | join(', ') }}
 
     - name: Assert host has stack assignments
       ansible.builtin.assert:
