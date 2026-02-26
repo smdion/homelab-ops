@@ -33,6 +33,15 @@
         - app_info[_test_app].db_names | default([]) | length > 0
         - _cur_stack != 'databases'
 
+    - name: Reset DB passwords to match vault (restored data may differ)
+      include_tasks: tasks/reset_db_auth.yaml
+      vars:
+        _db_mariadb_password: "{{ db_password }}"
+        _db_postgres_password: "{{ docker_postgres_password }}"
+      when:
+        - app_info[_test_app].db_names | default([]) | length > 0
+        - _cur_stack != 'databases'
+
     - name: Wait for database containers to be healthy
       ansible.builtin.shell: |
         found_any=false
