@@ -438,7 +438,12 @@
             echo "=== SWAG dns-conf ==="
             ls -la /opt/swag/dns-conf/cloudflare.ini 2>&1 || echo "FILE MISSING"
             head -5 /opt/swag/dns-conf/cloudflare.ini 2>&1 || true
+          register: _debug_extraction
           changed_when: false
+
+        - name: Show extraction debug output
+          ansible.builtin.debug:
+            msg: "{{ _debug_extraction.stdout }}"
 
         # ===== DEPLOY STACKS =====
         - name: "Deploy stack — {{ _current_stack }}"
