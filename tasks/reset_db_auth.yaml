@@ -39,15 +39,35 @@
   changed_when: false
   when: _mariadb_running | bool
 
+- name: Diagnose MariaDB root auth plugins (before reset)
+  ansible.builtin.shell: |
+    docker exec mariadb mariadb -u root --skip-password -e "
+      SELECT User, Host, plugin, LENGTH(authentication_string) as auth_len
+      FROM mysql.user WHERE User='root';"
+  become: true
+  changed_when: false
+  register: _mariadb_auth_before
+  when: _mariadb_running | bool
+
+- name: Show MariaDB root auth before reset
+  ansible.builtin.debug:
+    var: _mariadb_auth_before.stdout_lines
+  when: _mariadb_running | bool
+
 - name: Reset MariaDB root password to match vault
   ansible.builtin.shell: |
+    set -ex
     # Use unix_socket auth (no password needed via docker exec as root)
+    # GRANT explicitly sets mysql_native_password plugin (ALTER USER may
+    # leave unix_socket-only auth intact on restored data)
     docker exec mariadb mariadb -u root --skip-password -e "
-      ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_PASSWORD';
+      GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost'
+        IDENTIFIED BY '$DB_PASSWORD' WITH GRANT OPTION;
       FLUSH PRIVILEGES;"
     # root@'%' may not exist — ignore errors
     docker exec mariadb mariadb -u root --skip-password -e "
-      ALTER USER 'root'@'%' IDENTIFIED BY '$DB_PASSWORD';
+      GRANT ALL PRIVILEGES ON *.* TO 'root'@'%'
+        IDENTIFIED BY '$DB_PASSWORD' WITH GRANT OPTION;
       FLUSH PRIVILEGES;" 2>/dev/null || true
   environment:
     DB_PASSWORD: "{{ _db_mariadb_password }}"
@@ -55,6 +75,21 @@
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   when: _mariadb_running | bool
   changed_when: true
+
+- name: Diagnose MariaDB root auth plugins (after reset)
+  ansible.builtin.shell: |
+    docker exec mariadb mariadb -u root --skip-password -e "
+      SELECT User, Host, plugin, LENGTH(authentication_string) as auth_len
+      FROM mysql.user WHERE User='root';"
+  become: true
+  changed_when: false
+  register: _mariadb_auth_after
+  when: _mariadb_running | bool
+
+- name: Show MariaDB root auth after reset
+  ansible.builtin.debug:
+    var: _mariadb_auth_after.stdout_lines
+  when: _mariadb_running | bool
 
 - name: Wait for Postgres to accept connections
   ansible.builtin.shell: |
