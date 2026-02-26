@@ -428,6 +428,18 @@
             _restore_extract_path: "{{ _extract_path | default('') }}"
             _restore_app_name: "{{ restore_app | default('') }}"
 
+        # ===== DEBUG: verify extraction before container start =====
+        - name: Debug — check restored appdata after extraction
+          become: true
+          ansible.builtin.shell: |
+            echo "=== /opt contents ==="
+            ls -la /opt/
+            echo ""
+            echo "=== SWAG dns-conf ==="
+            ls -la /opt/swag/dns-conf/cloudflare.ini 2>&1 || echo "FILE MISSING"
+            head -5 /opt/swag/dns-conf/cloudflare.ini 2>&1 || true
+          changed_when: false
+
         # ===== DEPLOY STACKS =====
         - name: "Deploy stack — {{ _current_stack }}"
           include_tasks: tasks/deploy_single_stack.yaml
