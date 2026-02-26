@@ -472,6 +472,8 @@
         - name: Patch SWAG site-confs for core/apps/dev layout
           include_tasks: tasks/patch_swag_confs.yaml
           vars:
+            _core_vip: >-
+              {% if test_vm_role is defined %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['core'] }}{% else %}{{ vault_core_vip }}{% endif %}
             _apps_vip: >-
               {% if test_vm_role is defined %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
             _dev_vip: >-
