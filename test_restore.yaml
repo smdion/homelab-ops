@@ -47,6 +47,7 @@
 #   restore_app   — single app name to selectively extract from archive
 #   deploy_stack  — single stack to deploy
 #   dr_mode=yes   — DR recovery mode (skip snapshot/revert, keep state)
+#   skip_dbs      — comma-separated DB names to skip restoring (e.g. -e skip_dbs=nextcloud)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Prepare: Validate, find backup, build VM if needed, snapshot
@@ -204,6 +205,14 @@
         _db_mariadb_container: "{{ db_container_name }}"
         _db_mariadb_username: "{{ db_username }}"
       when: "'databases' in _stacks"
+
+    - name: Filter skipped DBs from restore lists
+      ansible.builtin.set_fact:
+        _db_postgres_all_names: "{{ _db_postgres_all_names | difference(skip_dbs.split(',')) }}"
+        _db_mariadb_all_names: "{{ _db_mariadb_all_names | difference(skip_dbs.split(',')) }}"
+      when:
+        - skip_dbs | default('') | length > 0
+        - "'databases' in _stacks"
 
     - name: Default DB facts when databases stack absent
       ansible.builtin.set_fact:
