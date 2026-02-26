@@ -5,26 +5,30 @@
 # Also serves as a DR recovery tool via -e dr_mode=yes.
 #
 # Usage:
-#   # Test a role's stacks (resolves stack list from stack_roles)
-#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e role=apps -e dr_mode=yes
+#   # Test a role's stacks (vm_name defaults to test-vm, vm_index auto-detected)
+#   ansible-playbook test_restore.yaml -e role=apps
 #
-#   # Test a specific host's stacks (resolves stack list from stack_assignments)
-#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<controller-fqdn>
+#   # Persistent DR recovery (keeps restored state, no revert)
+#   ansible-playbook test_restore.yaml -e role=apps -e dr_mode=yes
+#
+#   # CephFS-backed test VM (explicit vm_name override)
+#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e role=core
 #
 #   # Test single app restore
-#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e role=core -e restore_app=authentik
+#   ansible-playbook test_restore.yaml -e role=core -e restore_app=authentik
 #
-#   # Test single stack deploy
-#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e role=core -e stack=media
+#   # Deploy SSH key for cross-host delegate_to (e.g. DB restores)
+#   ansible-playbook test_restore.yaml -e role=core -e deploy_ssh_key=yes
 #
-#   # DR recovery (keeps restored state, no revert)
-#   ansible-playbook test_restore.yaml -e vm_name=test-vm -e role=core -e dr_mode=yes
+#   # Test a specific host's stacks (legacy — prefer role=)
+#   ansible-playbook test_restore.yaml -e source_host=<controller-fqdn>
 #
-# Required extra vars:
-#   vm_name      — ephemeral VM key from vm_definitions (use "test-vm" for local /opt, or
-#                  "cephfs-migrate-test" for CephFS-backed /opt). Do NOT use permanent VM keys.
-#   source_host  — inventory_hostname of source host in stack_assignments (OR use role instead)
+# Extra vars:
+#   vm_name      — VM key from vm_definitions (default: test-vm). Use "cephfs-migrate-test"
+#                  for CephFS-backed /opt. Do NOT use permanent VM keys (core, apps, dev).
+#   source_host  — inventory_hostname in stack_assignments (OR use role instead)
 #   role         — stack role name (e.g. core, apps, dev) — alternative to source_host
+#   deploy_ssh_key=yes — install ansible SSH private key on VM (for cross-host operations)
 #
 # VM lifecycle (provision_vm.yaml is idempotent):
 #   - If the VMID doesn't exist, the VM is provisioned from the cloud-init template
@@ -61,13 +65,15 @@
     maintenance_subtype: "Test Restore"
 
   pre_tasks:
+    - name: Default vm_name to test-vm
+      ansible.builtin.set_fact:
+        vm_name: "{{ vm_name | default('test-vm') }}"
+
     - name: Assert vm_name exists in vm_definitions
       ansible.builtin.assert:
-        that:
-          - vm_name is defined
-          - vm_name in vm_definitions
+        that: vm_name in vm_definitions
         fail_msg: >-
-          vm_name '{{ vm_name | default('undefined') }}' not found in vm_definitions.
+          vm_name '{{ vm_name }}' not found in vm_definitions.
           Valid names: {{ vm_definitions.keys() | list | join(', ') }}
 
     - name: Assert source_host or role is provided

@@ -334,7 +334,7 @@ All user-facing `-e` vars follow a consistent naming and value pattern:
 |---|---|---|
 | **Routing** | `hosts_variable=<group>` | `hosts_variable=docker_stacks`, `hosts_variable=amp` |
 | **Safety gate** | `confirm=yes` | Required for all destructive operations (restore, rollback) — never pre-set |
-| **Opt-ins** | `with_*=yes` | `with_databases=yes` (coordinated DB restore), `with_backup=yes` (rollback + appdata + DB) |
+| **Opt-ins** | `with_*=yes` | `with_databases=yes` (coordinated DB restore), `with_backup=yes` (rollback + appdata + DB), `deploy_ssh_key=yes` |
 | **Modes** | `*_mode=<value>` | `validate_only=yes`, `dr_mode=yes` |
 | **Scope selectors** | `restore_*=`, `rollback_*=` | `restore_app=sonarr`, `restore_db=nextcloud`, `rollback_stack=vpn` |
 

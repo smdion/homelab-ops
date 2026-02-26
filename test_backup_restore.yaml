@@ -13,9 +13,10 @@
 #   source_host  — inventory_hostname of source host whose stacks to test
 #
 # Optional extra vars:
-#   vm_name      — key in vm_definitions (default: test-vm)
-#   vm_index     — test-vm slot 0..9; auto-detected (lowest non-running slot) if omitted
-#   test_apps    — comma-separated subset of app_info keys (default: all)
+#   vm_name          — key in vm_definitions (default: test-vm)
+#   vm_index         — test-vm slot 0..9; auto-detected (lowest non-running slot) if omitted
+#   test_apps        — comma-separated subset of app_info keys (default: all)
+#   deploy_ssh_key   — =yes to install ansible SSH key on VM (for cross-host delegate_to)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Validate, find backups, provision VM
@@ -41,11 +42,15 @@
         that: source_host is defined
         fail_msg: "source_host is required — pass -e source_host=<fqdn>"
 
+    - name: Default vm_name to test-vm
+      ansible.builtin.set_fact:
+        vm_name: "{{ vm_name | default('test-vm') }}"
+
     - name: Assert vm_name exists in vm_definitions
       ansible.builtin.assert:
-        that: (vm_name | default('test-vm')) in vm_definitions
+        that: vm_name in vm_definitions
         fail_msg: >-
-          vm_name '{{ vm_name | default('test-vm') }}' not found in vm_definitions.
+          vm_name '{{ vm_name }}' not found in vm_definitions.
           Valid names: {{ vm_definitions.keys() | list | join(', ') }}
 
     - name: Assert MariaDB logging database is reachable
@@ -56,17 +61,16 @@
       vars:
         log_playbook: "test_backup_restore.yaml"
         log_hostname: "{{ controller_fqdn }}"
-        log_run_vars: "{{ {'vm_name': vm_name | default('')} | to_json }}"
+        log_run_vars: "{{ {'vm_name': vm_name} | to_json }}"
 
   tasks:
     - name: Auto-detect free vm_index for test-vm pool
       include_tasks: tasks/resolve_test_vm_index.yaml
-      when: (vm_name | default('test-vm')) == 'test-vm'
+      when: vm_name == 'test-vm'
 
-    - name: Resolve VM and effective vm_name
+    - name: Resolve VM configuration
       ansible.builtin.set_fact:
-        _vm_name: "{{ vm_name | default('test-vm') }}"
-        _vm: "{{ vm_definitions[vm_name | default('test-vm')] }}"
+        _vm: "{{ vm_definitions[vm_name] }}"
 
     - name: Resolve test apps list
       ansible.builtin.set_fact:
