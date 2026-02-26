@@ -26,5 +26,7 @@
     that: not _db_connectivity.failed
     fail_msg: >-
       Cannot reach MariaDB logging database at {{ logging_db_host }}:{{ logging_db_port }} —
-      verify the database is running, credentials are correct, and PyMySQL is installed
+      verify the database is running, credentials are correct, and PyMySQL is installed.
+      Pass -e skip_db=yes to bypass during outages.
+  when: not (skip_db | default(false) | bool)
   tags: [always]

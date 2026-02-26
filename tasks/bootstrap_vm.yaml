@@ -61,6 +61,37 @@
   vars:
     _ssh_user: "{{ vm_user }}"
 
+- name: Deploy ansible SSH private key
+  when: deploy_ssh_key | default(false) | bool
+  block:
+    - name: Ensure .ssh directory exists for ansible user
+      ansible.builtin.file:
+        path: "/home/{{ vm_user }}/.ssh"
+        state: directory
+        owner: "{{ vm_user }}"
+        group: "{{ vm_user }}"
+        mode: "0700"
+
+    - name: Write SSH private key
+      ansible.builtin.copy:
+        content: "{{ ansible_user_ssh_private_key }}"
+        dest: "/home/{{ vm_user }}/.ssh/id_ed25519"
+        owner: "{{ vm_user }}"
+        group: "{{ vm_user }}"
+        mode: "0600"
+      no_log: true
+
+    - name: Write SSH client config (accept new host keys, no interactive prompts)
+      ansible.builtin.copy:
+        content: |
+          Host *
+            StrictHostKeyChecking accept-new
+            IdentityFile ~/.ssh/id_ed25519
+        dest: "/home/{{ vm_user }}/.ssh/config"
+        owner: "{{ vm_user }}"
+        group: "{{ vm_user }}"
+        mode: "0600"
+
 - name: Enable UFW with default deny incoming
   community.general.ufw:
     state: enabled
