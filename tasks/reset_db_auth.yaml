@@ -27,6 +27,18 @@
     _mariadb_running: "{{ 'mariadb=true' in _db_container_check.stdout }}"
     _postgres_running: "{{ 'postgres=true' in _db_container_check.stdout }}"
 
+- name: Wait for MariaDB to accept connections
+  ansible.builtin.shell: |
+    for i in $(seq 1 30); do
+      docker exec mariadb mysqladmin ping -h localhost >/dev/null 2>&1 && exit 0
+      sleep 2
+    done
+    echo "timeout waiting for mariadb"
+    exit 1
+  become: true
+  changed_when: false
+  when: _mariadb_running | bool
+
 - name: Reset MariaDB root password to match vault
   ansible.builtin.shell: |
     # Use unix_socket auth (no password needed via docker exec as root)
@@ -68,6 +80,10 @@
 
 - name: Verify MariaDB root auth after password reset
   ansible.builtin.shell: |
+    for i in $(seq 1 10); do
+      docker exec -e MYSQL_PWD="$DB_PASSWORD" mariadb mariadb -u root -e "SELECT 1" 2>/dev/null && exit 0
+      sleep 2
+    done
     docker exec -e MYSQL_PWD="$DB_PASSWORD" mariadb mariadb -u root -e "SELECT 1"
   environment:
     DB_PASSWORD: "{{ _db_mariadb_password }}"
