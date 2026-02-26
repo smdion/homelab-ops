@@ -40,7 +40,7 @@
         # Pick up to 3 non-DB containers as representative consumers
         consumers=""
         for c in $containers; do
-          [ "$c" = "postgres" ] || [ "$c" = "mariadb" ] || [ "$c" = "adminer" ] && continue
+          case "$c" in postgres|mariadb|adminer|dockerproxy|dozzle|dozzle-agent|beszel-agent|rickroll|cloudflareddns) continue;; esac
           consumers="$consumers $c"
           count_c=$(echo "$consumers" | wc -w)
           [ "$count_c" -ge 3 ] && break
