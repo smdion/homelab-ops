@@ -177,6 +177,75 @@
         that: _archive_files | length > 0
         fail_msg: "No backup archives found for {{ _backup_source }}"
 
+    # ===== FIND DB SQL DUMP ARCHIVES =====
+    - name: Load postgres DB config
+      ansible.builtin.include_vars:
+        file: vars/db_primary_postgres.yaml
+        name: _db_postgres_config
+      when: "'databases' in _stacks"
+
+    - name: Load mariadb DB config
+      ansible.builtin.include_vars:
+        file: vars/db_primary_mariadb.yaml
+        name: _db_mariadb_config
+      when: "'databases' in _stacks"
+
+    - name: Find latest SQL dump per database — {{ item }}
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql
+        {{ backup_base_dir }}/{{ _backup_source }}/backup_{{ item }}_*.sql.gz
+        2>/dev/null | head -1
+      loop: >-
+        {{ (_db_postgres_config.db_names | default([]))
+         + (_db_mariadb_config.db_names | default([])) }}
+      register: _db_dump_results
+      become: false
+      changed_when: false
+      check_mode: false
+      when: "'databases' in _stacks"
+
+    - name: Build DB archive map and name lists
+      ansible.builtin.set_fact:
+        _db_archive_map: >-
+          {{ dict(_db_dump_results.results | default([])
+                  | selectattr('stdout', 'defined')
+                  | selectattr('stdout', 'ne', '')
+                  | map(attribute='item') | list
+                  | zip(_db_dump_results.results | default([])
+                        | selectattr('stdout', 'defined')
+                        | selectattr('stdout', 'ne', '')
+                        | map(attribute='stdout') | list)) }}
+        _db_postgres_names: >-
+          {{ _db_dump_results.results | default([])
+             | selectattr('stdout', 'defined')
+             | selectattr('stdout', 'ne', '')
+             | map(attribute='item') | list
+             | intersect(_db_postgres_config.db_names | default([])) }}
+        _db_mariadb_names: >-
+          {{ _db_dump_results.results | default([])
+             | selectattr('stdout', 'defined')
+             | selectattr('stdout', 'ne', '')
+             | map(attribute='item') | list
+             | intersect(_db_mariadb_config.db_names | default([])) }}
+      when: "'databases' in _stacks"
+
+    - name: Default DB facts when databases stack absent
+      ansible.builtin.set_fact:
+        _db_archive_map: {}
+        _db_postgres_names: []
+        _db_mariadb_names: []
+        _db_postgres_config: {}
+        _db_mariadb_config: {}
+      when: "'databases' not in _stacks"
+
+    - name: Report DB backup discovery
+      ansible.builtin.debug:
+        msg: >-
+          DB dumps found: {{ _db_archive_map | length }}/{{ (_db_postgres_config.db_names | default([]) + _db_mariadb_config.db_names | default([])) | length }}.
+          Postgres: {{ _db_postgres_names | join(', ') | default('none') }}.
+          MariaDB: {{ _db_mariadb_names | join(', ') | default('none') }}.
+          {{ _db_archive_map | to_nice_yaml if _db_archive_map | length > 0 else '' }}
+
     - name: Verify archive integrity
       ansible.builtin.shell: gunzip -t "{{ item }}"
       loop: "{{ _archive_files }}"
@@ -453,6 +522,95 @@
             loop_var: _current_stack
           vars:
             _test_mode: true
+
+        # ===== RESTORE SQL DUMPS =====
+        - name: Wait for database containers to be healthy
+          ansible.builtin.shell: |
+            found_any=false
+            for i in $(seq 1 60); do
+              all_ready=true
+              if docker ps -q --filter "name=postgres" | grep -q .; then
+                found_any=true
+                docker exec postgres pg_isready -U postgres >/dev/null 2>&1 || all_ready=false
+              fi
+              if docker ps -q --filter "name=mariadb" | grep -q .; then
+                found_any=true
+                docker exec mariadb mysqladmin ping -h localhost >/dev/null 2>&1 || all_ready=false
+              fi
+              if $found_any && $all_ready; then
+                echo "ready"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "timeout — found_any=$found_any"
+            exit 1
+          become: true
+          changed_when: false
+          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
+
+        - name: Create DB restore staging directory on test VM
+          ansible.builtin.file:
+            path: /tmp/db_restore_staging
+            state: directory
+            mode: '0755'
+          become: true
+          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
+
+        - name: Copy production DB backup to test VM — {{ item.key }}
+          ansible.builtin.synchronize:
+            src: "{{ item.value }}"
+            dest: "/tmp/db_restore_staging/{{ item.value | basename }}"
+            compress: false
+            rsync_opts:
+              - "--timeout=1800"
+              - "--whole-file"
+          become: true
+          loop: "{{ hostvars['localhost']._db_archive_map | default({}) | dict2items }}"
+          loop_control:
+            label: "{{ item.key }}"
+          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
+
+        - name: Restore postgres database — {{ _db_item }}
+          include_tasks: tasks/db_restore.yaml
+          loop: "{{ hostvars['localhost']._db_postgres_names | default([]) }}"
+          loop_control:
+            loop_var: _db_item
+          vars:
+            _db_name: "{{ _db_item }}"
+            _db_container: "{{ hostvars['localhost']._db_postgres_config.db_container_name }}"
+            _db_username: "{{ hostvars['localhost']._db_postgres_config.db_username }}"
+            _db_password: "{{ db_password | default('') }}"
+            _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
+            _db_is_postgres: true
+            _db_is_mariadb: false
+            _db_is_influxdb: false
+            _db_tmp_dir: "/tmp/db_restore_staging"
+          when: hostvars['localhost']._db_postgres_names | default([]) | length > 0
+
+        - name: Restore mariadb database — {{ _db_item }}
+          include_tasks: tasks/db_restore.yaml
+          loop: "{{ hostvars['localhost']._db_mariadb_names | default([]) }}"
+          loop_control:
+            loop_var: _db_item
+          vars:
+            _db_name: "{{ _db_item }}"
+            _db_container: "{{ hostvars['localhost']._db_mariadb_config.db_container_name }}"
+            _db_username: "{{ hostvars['localhost']._db_mariadb_config.db_username }}"
+            _db_password: "{{ db_password | default('') }}"
+            _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
+            _db_is_postgres: false
+            _db_is_mariadb: true
+            _db_is_influxdb: false
+            _db_tmp_dir: "/tmp/db_restore_staging"
+          when: hostvars['localhost']._db_mariadb_names | default([]) | length > 0
+
+        - name: Clean up DB restore staging directory
+          ansible.builtin.file:
+            path: /tmp/db_restore_staging
+            state: absent
+          become: true
+          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
 
         # ===== HEALTH CHECK =====
         - name: Verify container health
