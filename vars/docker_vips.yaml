@@ -14,9 +14,9 @@ docker_vip_cidr: 24
 # Test VIP offsets — last octet appended to the test VM's subnet.
 # Shared between keepalived-docker.conf.j2 and verify_vip.yaml.
 docker_test_vip_offsets:
-  core: "200"
-  apps: "201"
-  dev: "202"
+  core: "50"
+  apps: "51"
+  dev: "52"
 
 docker_vips:
   core:
