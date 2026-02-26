@@ -465,7 +465,13 @@ in regular `/opt` appdata backups automatically.
 a monolithic `/opt` tar.gz. Each stack is stopped individually, archived, and restarted — minimizing
 downtime. Backup paths are discovered at runtime from `homelab.backup.paths` labels on containers
 (stopped containers retain labels); `/opt/stacks/{name}/` (compose + .env) is always appended
-automatically. Database data directories are excluded because they have dedicated SQL dump jobs.
+automatically. Database data directories (postgres, mariadb) are intentionally excluded from
+appdata archives — they do NOT carry `homelab.backup.paths` labels. Instead, databases are backed
+up via dedicated SQL dump jobs (`backup_single_db.yaml`) which produce portable `.sql`/`.sql.gz`
+files. This two-tier strategy means appdata archives are smaller and faster (no multi-GB data dirs),
+while SQL dumps provide reliable, engine-version-independent database recovery. During restore,
+database containers start with empty data dirs (postgres auto-initializes, mariadb creates defaults),
+then SQL dumps are restored separately via `db_restore.yaml`.
 Non-docker_stacks hosts (proxmox, pikvm, unraid, unifi) still use monolithic archives with
 `backup_exclude_dirs | default([])` for hosts that define exclusions.
 
