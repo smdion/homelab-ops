@@ -20,9 +20,11 @@ update_exclude_services:
 app_info:
   authentik:
     stack: auth
+    db_stack: databases
     db_names: [authentik]
   jellyseerr:
     stack: media
+    db_stack: databases
     db_names: [jellyseerr]
 
 # Role-to-stack mapping. ORDER MATTERS: databases MUST precede auth (Authentik requires Postgres).

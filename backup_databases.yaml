@@ -30,7 +30,7 @@
     - name: Assert sufficient disk space on controller
       include_tasks: tasks/assert_disk_space.yaml
       vars:
-        assert_disk_path: "{{ backup_base_dir }}/{{ inventory_hostname }}"
+        assert_disk_path: "{{ backup_base_dir }}/{{ backup_stack | default(inventory_hostname) }}"
         assert_disk_min_gb: "{{ controller_assert_disk_min_gb | default(2) }}"
         assert_disk_delegate_to: localhost
         assert_disk_become: false

@@ -113,8 +113,25 @@
         dest: "/tmp/restore_{{ _test_app }}/{{ _db_archive_map[_db_name_item] | basename }}"
         compress: false
         rsync_opts:
-          - "--timeout=1800"
+          - "--timeout=60"
           - "--whole-file"
+      become: true
+      async: 1800
+      poll: 15
+      ignore_errors: true
+      register: _db_rsync_result
+      loop: "{{ _cur_db_names | default([]) }}"
+      loop_control:
+        loop_var: _db_name_item
+      when:
+        - _cur_db_names | default([]) | length > 0
+        - not ansible_check_mode
+
+    - name: "Rsync stalled — copy DB backup via Ansible — {{ _db_name_item }}"
+      ansible.builtin.copy:
+        src: "{{ _db_archive_map[_db_name_item] }}"
+        dest: "/tmp/restore_{{ _test_app }}/{{ _db_archive_map[_db_name_item] | basename }}"
+        mode: "0644"
       become: true
       loop: "{{ _cur_db_names | default([]) }}"
       loop_control:
@@ -122,6 +139,7 @@
       when:
         - _cur_db_names | default([]) | length > 0
         - not ansible_check_mode
+        - _db_rsync_result is failed
 
     - name: Restore DB on test VM — {{ _db_name_item }}
       include_tasks: tasks/db_restore.yaml

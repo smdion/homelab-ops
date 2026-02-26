@@ -14,13 +14,23 @@
 #   _restore_detail fact for caller's logging
 
 - name: Copy archive to target
-  ansible.builtin.synchronize:
-    src: "{{ _restore_archive_path }}"
-    dest: "{{ backup_tmp_dir }}/restore_{{ _restore_mode }}.tar.gz"
-    compress: false
-    rsync_opts:
-      - "--timeout=1800"
-      - "--whole-file"
+  block:
+    - name: Copy archive via rsync
+      ansible.builtin.synchronize:
+        src: "{{ _restore_archive_path }}"
+        dest: "{{ backup_tmp_dir }}/restore_{{ _restore_mode }}.tar.gz"
+        compress: false
+        rsync_opts:
+          - "--timeout=60"
+          - "--whole-file"
+      async: 1800
+      poll: 15
+  rescue:
+    - name: "Rsync stalled — falling back to Ansible copy"
+      ansible.builtin.copy:
+        src: "{{ _restore_archive_path }}"
+        dest: "{{ backup_tmp_dir }}/restore_{{ _restore_mode }}.tar.gz"
+        mode: "0644"
   when: not ansible_check_mode
 
 # ===== STAGING MODE =====

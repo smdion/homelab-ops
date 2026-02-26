@@ -97,9 +97,16 @@
         _docker_selective_stacks: ["{{ _backup_stack }}"]
         _docker_ignore_errors: true
 
+    - name: Ensure stack backup directory on controller for {{ _backup_stack }}
+      ansible.builtin.file:
+        path: "{{ backup_base_dir }}/{{ _backup_stack }}"
+        state: directory
+      delegate_to: localhost
+      become: false
+
     - name: Delete stale archive on controller for {{ _backup_stack }}
       ansible.builtin.file:
-        path: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _stack_archive_name }}"
+        path: "{{ backup_base_dir }}/{{ _backup_stack }}/{{ _stack_archive_name }}"
         state: absent
       delegate_to: localhost
       become: false
@@ -107,7 +114,7 @@
     - name: Fetch {{ _backup_stack }} archive to controller
       ansible.builtin.fetch:
         src: "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
-        dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/{{ _stack_archive_name }}"
+        dest: "{{ backup_base_dir }}/{{ _backup_stack }}/{{ _stack_archive_name }}"
         flat: true
       become: false
 
