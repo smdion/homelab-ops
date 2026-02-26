@@ -9,6 +9,7 @@
 # Optional extra vars:
 #   deploy_stack=infra    — deploy a single stack instead of all assigned stacks
 #   validate_only=yes     — render and validate only, skip docker compose up
+#   pull_only=yes         — render, validate, and pull images, but skip docker compose up
 #   debug_no_log=yes      — show template output in logs (NEVER in production)
 
 - name: Deploy Docker stacks from Git

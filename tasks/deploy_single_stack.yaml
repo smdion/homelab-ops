@@ -95,6 +95,17 @@
     mv -f /opt/stacks/{{ _current_stack }}/docker-compose.yaml.new /opt/stacks/{{ _current_stack }}/docker-compose.yaml
   when: not ansible_check_mode
 
+- name: "Pull images — {{ _current_stack }}"
+  become: true
+  ansible.builtin.command:
+    cmd: docker compose pull
+    chdir: "/opt/stacks/{{ _current_stack }}"
+  register: _pull_result
+  changed_when: "'Pull complete' in (_pull_result.stderr | default('')) or 'Downloaded' in (_pull_result.stderr | default(''))"
+  when:
+    - not ansible_check_mode
+    - pull_only | default('') == 'yes'
+
 - name: "Start stack — {{ _current_stack }}"
   become: true
   community.docker.docker_compose_v2:
@@ -104,6 +115,7 @@
   when:
     - not ansible_check_mode
     - not (validate_only | default('') == 'yes')
+    - not (pull_only | default('') == 'yes')
 
 - name: "Discover wait ports from labels — {{ _current_stack }}"
   become: true
@@ -127,4 +139,5 @@
   when:
     - not ansible_check_mode
     - not (validate_only | default('') == 'yes')
+    - not (pull_only | default('') == 'yes')
     - _label_wait_ports.stdout_lines | default([]) | reject('eq', '') | list | length > 0
