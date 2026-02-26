@@ -44,6 +44,18 @@
   when: _mariadb_running | bool
   changed_when: true
 
+- name: Wait for Postgres to accept connections
+  ansible.builtin.shell: |
+    for i in $(seq 1 30); do
+      docker exec postgres pg_isready -U postgres >/dev/null 2>&1 && exit 0
+      sleep 2
+    done
+    echo "timeout waiting for postgres"
+    exit 1
+  become: true
+  changed_when: false
+  when: _postgres_running | bool
+
 - name: Reset Postgres superuser password to match vault
   ansible.builtin.shell: |
     docker exec postgres psql -U postgres -c "ALTER USER postgres WITH PASSWORD '$DB_PASSWORD';"
