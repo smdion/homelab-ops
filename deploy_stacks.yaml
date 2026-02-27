@@ -17,6 +17,7 @@
 #   validate_only=yes     — render and validate only, skip docker compose up
 #   pull_only=yes         — render, validate, and pull images, but skip docker compose up
 #   debug_no_log=yes      — show template output in logs (NEVER in production)
+#   patch_swag_migration=yes — patch SWAG configs: old IPs → Docker DNS/VIPs (one-time migration)
 
 - name: Deploy Docker stacks from Git
   hosts: "{{ hosts_variable }}"
@@ -141,6 +142,18 @@
           failed_when: _port_check.rc | default(0) != 0
           changed_when: false
           check_mode: false
+
+        - name: Resolve effective VIPs for SWAG migration patches
+          include_tasks: tasks/resolve_effective_vips.yaml
+          when:
+            - patch_swag_migration | default(false) | bool
+            - "'auth' in _deploy_stacks"
+
+        - name: Patch SWAG site-confs for core/apps/dev layout (migration)
+          include_tasks: tasks/patch_swag_confs.yaml
+          when:
+            - patch_swag_migration | default(false) | bool
+            - "'auth' in _deploy_stacks"
 
         - name: Deploy stacks
           include_tasks: tasks/deploy_single_stack.yaml

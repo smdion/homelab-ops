@@ -1,0 +1,19 @@
+---
+# Resolve effective VIPs for the current host.
+# Production hosts use vault VIPs. Test VMs (_role_injected) derive VIPs from their subnet.
+#
+# Requires:
+#   vars/docker_vips.yaml loaded (docker_test_vip_offsets)
+#   vault_core_vip, vault_apps_vip, vault_dev_vip (from vault)
+#
+# Sets facts:
+#   _core_vip, _apps_vip, _dev_vip
+
+- name: Resolve effective VIPs (test vs production)
+  ansible.builtin.set_fact:
+    _core_vip: >-
+      {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['core'] }}{% else %}{{ vault_core_vip }}{% endif %}
+    _apps_vip: >-
+      {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
+    _dev_vip: >-
+      {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['dev'] }}{% else %}{{ vault_dev_vip }}{% endif %}

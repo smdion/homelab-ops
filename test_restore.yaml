@@ -461,15 +461,12 @@
         # ===== PATCH SWAG SITE-CONFS FOR NEW VM LAYOUT =====
         # Restored SWAG configs reference old host IPs (tantive-iv/odyssey).
         # Patch them to use Docker service names (same-VM) and VIPs (cross-VM).
+        - name: Resolve effective VIPs for SWAG patches
+          include_tasks: tasks/resolve_effective_vips.yaml
+          when: "'auth' in hostvars['localhost']._stacks"
+
         - name: Patch SWAG site-confs for core/apps/dev layout
           include_tasks: tasks/patch_swag_confs.yaml
-          vars:
-            _core_vip: >-
-              {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['core'] }}{% else %}{{ vault_core_vip }}{% endif %}
-            _apps_vip: >-
-              {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
-            _dev_vip: >-
-              {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['dev'] }}{% else %}{{ vault_dev_vip }}{% endif %}
           when: "'auth' in hostvars['localhost']._stacks"
 
         # ===== DEPLOY DATABASES STACK FIRST =====

@@ -1,12 +1,13 @@
 ---
-# Bootstrap an Ubuntu VM with Docker, security hardening, and base packages.
+# Bootstrap an Ubuntu VM with security hardening, base packages, and optionally Docker + VIPs.
 # Extracted from build_ubuntu.yaml Play 2. Caller must set become: true.
 #
 # Expects:
-#   vm_user   — user account for Docker/sudo group membership
+#   vm_user   — user account for group membership
 # Optional:
-#   _vm       — dict from vm_definitions; enables NFS mounts and UFW rules
-#               when _vm.nfs_mounts or _vm.ufw_rules are defined
+#   _vm              — dict from vm_definitions; enables NFS mounts and UFW rules
+#                      when _vm.nfs_mounts or _vm.ufw_rules are defined
+#   _install_docker  — install Docker + keepalived (default: true)
 
 - name: Wait for cloud-init to finish
   ansible.builtin.command: cloud-init status --wait
@@ -26,10 +27,7 @@
 - name: Install base packages
   ansible.builtin.apt:
     name:
-      - docker.io
-      - docker-compose-v2
       - python3-pip
-      - python3-docker
       - nfs-common
       - curl
       - htop
@@ -38,23 +36,72 @@
       - qemu-guest-agent
     state: present
 
-- name: Enable Docker service
-  ansible.builtin.systemd:
-    name: docker
-    enabled: true
-    state: started
-
 - name: Enable qemu-guest-agent service
   ansible.builtin.systemd:
     name: qemu-guest-agent
     enabled: true
     state: started
 
-- name: Add user to docker and sudo groups
+- name: Add user to sudo group
   ansible.builtin.user:
     name: "{{ vm_user }}"
-    groups: docker,sudo
+    groups: sudo
     append: true
+
+- name: Configure Docker and VIPs
+  when: _install_docker | default(true) | bool
+  block:
+    - name: Install Docker packages
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose-v2
+          - python3-docker
+        state: present
+
+    - name: Enable Docker service
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Add user to docker group
+      ansible.builtin.user:
+        name: "{{ vm_user }}"
+        groups: docker
+        append: true
+
+    - name: Configure keepalived (VIP management)
+      when:
+        - vault_vm_roles is defined
+        - inventory_hostname in vault_vm_roles
+        - vault_vm_roles[inventory_hostname] in (docker_vips | default({}))
+      block:
+        - name: Install keepalived
+          ansible.builtin.apt:
+            name: keepalived
+            state: present
+
+        - name: Template keepalived config
+          ansible.builtin.template:
+            src: templates/keepalived-docker.conf.j2
+            dest: /etc/keepalived/keepalived.conf
+            owner: root
+            group: root
+            mode: "0640"
+          register: _keepalived_config
+
+        - name: Enable and start keepalived
+          ansible.builtin.service:
+            name: keepalived
+            state: started
+            enabled: true
+
+        - name: Restart keepalived if config changed
+          ansible.builtin.service:
+            name: keepalived
+            state: restarted
+          when: _keepalived_config.changed | default(false)
 
 - name: Harden SSH and configure passwordless sudo
   include_tasks: tasks/ssh_hardening.yaml
@@ -249,33 +296,3 @@
     label: "{{ item.mount_path }}"
   when: _vm.cephfs_extra_mounts is defined
 
-- name: Configure keepalived (VIP management)
-  when:
-    - vault_vm_roles is defined
-    - inventory_hostname in vault_vm_roles
-  block:
-    - name: Install keepalived
-      ansible.builtin.apt:
-        name: keepalived
-        state: present
-
-    - name: Template keepalived config
-      ansible.builtin.template:
-        src: templates/keepalived-docker.conf.j2
-        dest: /etc/keepalived/keepalived.conf
-        owner: root
-        group: root
-        mode: "0640"
-      register: _keepalived_config
-
-    - name: Enable and start keepalived
-      ansible.builtin.service:
-        name: keepalived
-        state: started
-        enabled: true
-
-    - name: Restart keepalived if config changed
-      ansible.builtin.service:
-        name: keepalived
-        state: restarted
-      when: _keepalived_config.changed | default(false)
