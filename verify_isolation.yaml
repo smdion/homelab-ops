@@ -89,6 +89,8 @@
     # ===== RESOLVE OR PROVISION VM =====
     - name: Resolve or provision test VM
       include_tasks: tasks/resolve_or_provision_vm.yaml
+      vars:
+        _provision_target_group: test_target
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 2 — Bootstrap (minimal — no stacks, no VIPs)
