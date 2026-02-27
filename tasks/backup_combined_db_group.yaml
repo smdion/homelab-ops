@@ -24,6 +24,10 @@
     path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
   delegate_to: "{{ db_host }}"
 
+- name: "Seed accumulator — {{ _db_config_file }}"
+  ansible.builtin.set_fact:
+    combined_results: "{{ _db_combined_results }}"
+
 - name: "Back up databases — {{ _db_config_file }}"
   include_tasks: tasks/backup_single_db.yaml
   loop: "{{ db_names }}"
@@ -31,7 +35,6 @@
     loop_var: _current_db
   vars:
     backup_tmp_dir: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
-    combined_results: "{{ _db_combined_results }}"
     _db_delegate_host: "{{ db_host }}"
 
 - name: "Sync results — {{ _db_config_file }}"
