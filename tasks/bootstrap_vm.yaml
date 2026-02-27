@@ -189,6 +189,21 @@
     - _vm.nfs_exports is defined
     - _nfs_exports.changed
 
+- name: Verify NFS server reachable — {{ item.src.split(':')[0] }}
+  ansible.builtin.wait_for:
+    host: "{{ item.src.split(':')[0] }}"
+    port: 2049
+    timeout: 10
+    state: started
+    msg: >-
+      NFS server {{ item.src.split(':')[0] }} port 2049 unreachable after 10s.
+      Verify the NFS server is running (systemctl status nfs-kernel-server)
+      and the IP is correct in vault.
+  loop: "{{ _vm.nfs_mounts }}"
+  loop_control:
+    label: "{{ item.src }}"
+  when: _vm.nfs_mounts is defined
+
 - name: Configure NFS mounts
   ansible.posix.mount:
     path: "{{ item.path }}"

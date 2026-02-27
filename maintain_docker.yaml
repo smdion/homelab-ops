@@ -31,13 +31,20 @@
         maintenance_failed: false
 
     - block:
-        - name: Prune unused Docker images and volumes
+        - name: Prune unused Docker images and volumes (Python SDK)
           become: true
           community.docker.docker_prune:
             images: true
             images_filters:
               dangling: "false"
             volumes: true
+          when: inventory_hostname in groups["docker_stacks"] | default([])
+
+        - name: Prune unused Docker images and volumes (shell fallback)
+          become: true
+          ansible.builtin.shell: docker system prune -af --volumes
+          changed_when: true
+          when: inventory_hostname not in groups["docker_stacks"] | default([])
 
         # docker system df default table output:
         #   TYPE            TOTAL  ACTIVE  SIZE    RECLAIMABLE

@@ -39,13 +39,11 @@
         pre_playbook: "backup_databases.yaml"
 
   tasks:
-    - name: Delete temp backup directory
-      become: true
-      ansible.builtin.file:
-        state: absent
-        path: "{{ backup_tmp_dir }}"
+    - name: Set run-scoped temp directory (concurrency-safe)
+      ansible.builtin.set_fact:
+        backup_tmp_dir: "{{ backup_tmp_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
 
-    - name: Create temp backup directory
+    - name: Create run-scoped temp directory
       become: true
       ansible.builtin.file:
         state: directory
@@ -111,3 +109,11 @@
             log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else 'backup_') + db_result.db_name + '_' + ansible_date_time.date + '.' + (backup_ext | default('sql')) }}"
             log_file_size: "{{ (db_result.file_size / 1024 / 1024) | round(2) if db_result.backup_rc == 0 else 0 }}"
             log_backup_level: "db"
+
+        # ===== CLEANUP RUN-SCOPED TEMP DIRECTORY =====
+        - name: Remove run-scoped temp directory
+          become: true
+          ansible.builtin.file:
+            state: absent
+            path: "{{ backup_tmp_dir }}"
+          when: "'/run_' in backup_tmp_dir"

@@ -62,13 +62,11 @@
         pre_run_vars: "{{ {'config_file': config_file | default('')} | to_json }}"
 
   tasks:
-    - name: Delete temp backup directory
-      become: true
-      ansible.builtin.file:
-        state: absent
-        path: "{{ backup_tmp_dir }}"
+    - name: Set run-scoped temp directory (concurrency-safe)
+      ansible.builtin.set_fact:
+        backup_tmp_dir: "{{ backup_tmp_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
 
-    - name: Create temp backup directory
+    - name: Create run-scoped temp directory
       become: true
       ansible.builtin.file:
         state: directory
@@ -661,3 +659,11 @@
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
             - inventory_hostname not in groups["unifi_protect"]  # TODO: file retrieval broken — silence until fixed
+
+        # ===== CLEANUP RUN-SCOPED TEMP DIRECTORY =====
+        - name: Remove run-scoped temp directory
+          become: true
+          ansible.builtin.file:
+            state: absent
+            path: "{{ backup_tmp_dir }}"
+          when: "'/run_' in backup_tmp_dir"
