@@ -48,6 +48,22 @@
     groups: sudo
     append: true
 
+- name: Install desktop environment
+  when: _vm.vm_name == 'desktop'
+  block:
+    - name: Install ubuntu-desktop-minimal and spice agent
+      ansible.builtin.apt:
+        name:
+          - ubuntu-desktop-minimal
+          - spice-vdagent
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Set graphical target as default
+      ansible.builtin.command: systemctl set-default graphical.target
+      changed_when: true
+
 - name: Configure Docker and VIPs
   when: _install_docker | default(true) | bool
   block:

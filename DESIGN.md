@@ -155,9 +155,9 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── db_count.yaml                # Count tables/measurements in a database — PostgreSQL/MariaDB/InfluxDB
 │   ├── db_drop_temp.yaml            # Drop a database and clean up container temp files — all engines
 │   ├── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, pull, up); retries transient image pull failures
-│   ├── provision_vm.yaml            # Provision VM on Proxmox via cloud-init template clone + API config
+│   ├── provision_vm.yaml            # Provision VM on Proxmox via cloud-init template clone + API config; optional QEMU args (pve_args)
 │   ├── resolve_or_provision_vm.yaml # Resolve existing test VM or provision new one — shared by test/verify playbooks
-│   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS server/client, CephFS (test VMs only)
+│   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS server/client, CephFS (test VMs only), desktop env (desktop role)
 │   ├── ssh_hardening.yaml           # Passwordless sudo + SSH config hardening + service restart
 │   ├── docker_stop.yaml             # Stop Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── docker_start.yaml            # Start Docker containers/stacks (selective, stack, or unRAID mode)
@@ -424,7 +424,7 @@ VMs, `serial: 1`) applies layered reconciliation: OS + Network (bootstrap) → D
 network) → Application (stack deployment) → Hardware (PVE resize, off by default) → Verification
 (health, network, VIP). Omit `-e role` to target all production Docker VMs in VMID order
 (core=300, apps=301, dev=302), respecting NFS dependencies. Pass `-e role=core` to target a
-single role. Per-layer skip flags (`skip_bootstrap`, `skip_stacks`, `skip_verify`) and
+single role. Basic VMs without stacks (e.g. `amp`, `desktop`) require explicit `-e role=<name>`. Per-layer skip flags (`skip_bootstrap`, `skip_stacks`, `skip_verify`) and
 `validate_only=yes` for dry-run scope resolution. Per-host role data is passed via `add_host`
 hostvars (not `hostvars['localhost']`), enabling true multi-host serial processing.
 Uses `tasks/apply_role_resolve.yaml` for per-role resolution loop body.
@@ -2799,7 +2799,7 @@ See `vars/secrets.yaml.example` for the full entry and setup reference.
 
 `cephfs_host_dir` is defined in `vm_definitions` for **test VMs only**:
 
-- **core, apps, dev** — local RBD disk (no `cephfs_host_dir`)
+- **core, apps, dev, desktop** — local RBD disk (no `cephfs_host_dir`)
 - **cephfs-migrate-test** — `cephfs_host_dir: "cephfs-migrate-test"` — ephemeral test VM used by
   `test_restore.yaml -e vm_name=cephfs-migrate-test`. Draws a slot from the same `vm_test_slot_base`
   pool as `test-vm` via `resolve_test_vm_index.yaml`. Same test VLAN isolation as `test-vm` (backup
