@@ -5,6 +5,7 @@
 #
 # Expects (set as facts by the caller):
 #   _vm                    — VM definition dict from vm_definitions
+#   _provision_target_group — inventory group name for the new VM (default: 'test_target')
 # Expects (from vars files):
 #   pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret, vm_user
 #
@@ -14,7 +15,7 @@
 #   _vm_cluster_status     — 'running', 'stopped', or 'unknown'
 # Side effects:
 #   - Provisions VM via tasks/provision_vm.yaml if it doesn't exist
-#   - Adds VM to the 'test_target' inventory group
+#   - Adds VM to the _provision_target_group inventory group
 #   - Starts the VM if it was stopped
 
 - name: Check if VM exists in cluster
@@ -42,7 +43,7 @@
 - name: Provision VM on Proxmox
   include_tasks: tasks/provision_vm.yaml
   vars:
-    _provision_target_group: test_target
+    _provision_target_group: "{{ _provision_target_group | default('test_target') }}"
   when: not _vm_exists
 
 - name: Add existing VM to inventory
@@ -50,7 +51,7 @@
     name: "{{ _vm.vm_hostname }}"
     ansible_host: "{{ _vm.vm_ip }}"
     ansible_user: "{{ vm_user }}"
-    groups: test_target
+    groups: "{{ _provision_target_group | default('test_target') }}"
     _needs_bootstrap: false
   when: _vm_exists
 
