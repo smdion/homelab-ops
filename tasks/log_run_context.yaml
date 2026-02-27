@@ -5,7 +5,7 @@
 # Required vars (pass via include_tasks vars:):
 #   log_playbook  — playbook filename (e.g. 'backup_hosts.yaml')
 #   log_hostname  — inventory_hostname (remote plays) or controller_fqdn (localhost plays)
-#   log_run_vars  — JSON string of non-sensitive extra vars; use '{}' for routine playbooks
+#   log_run_vars  — formatted extra vars string (e.g. '-e vm_name=test'); empty for routine playbooks
 
 - name: Log playbook run context to MariaDB
   become: false
@@ -24,13 +24,7 @@
     positional_args:
       - "{{ log_playbook }}"
       - "{{ log_hostname }}"
-      - >-
-          {{ (log_run_vars | from_json).items()
-             | map('join', '=')
-             | map('regex_replace', '^', '-e ')
-             | join(' ')
-             if (log_run_vars | from_json)
-             else '' }}
+      - "{{ log_run_vars }}"
   register: _log_run_result
   retries: 40
   delay: 10
