@@ -8,12 +8,12 @@
 #   _db_archive_map   — dict: db_name → db archive path (set in Play 1)
 #   _app_restore_results — list to append {app, passed, detail} entries
 # Inherits from play scope:
-#   app_info, backup_base_dir, db_password,
+#   app_definitions, backup_base_dir, db_password,
 #   semaphore_check vars (controller_fqdn, etc.)
 
 - name: Set stack for {{ _test_app }}
   ansible.builtin.set_fact:
-    _cur_stack: "{{ app_info[_test_app].stack }}"
+    _cur_stack: "{{ app_definitions[_test_app].stack }}"
 
 - block:
     - name: Ensure staging dir for {{ _test_app }}
@@ -30,7 +30,7 @@
         _current_stack: databases
         _test_mode: true
       when:
-        - app_info[_test_app].db_names | default([]) | length > 0
+        - app_definitions[_test_app].db_names | default([]) | length > 0
         - _cur_stack != 'databases'
 
     - name: Reset DB passwords to match vault (restored data may differ)
@@ -39,7 +39,7 @@
         _db_mariadb_password: "{{ db_password }}"
         _db_postgres_password: "{{ docker_postgres_password }}"
       when:
-        - app_info[_test_app].db_names | default([]) | length > 0
+        - app_definitions[_test_app].db_names | default([]) | length > 0
         - _cur_stack != 'databases'
 
     - name: Wait for database containers to be healthy
@@ -67,7 +67,7 @@
       become: true
       changed_when: false
       when:
-        - app_info[_test_app].db_names | default([]) | length > 0
+        - app_definitions[_test_app].db_names | default([]) | length > 0
         - _cur_stack != 'databases'
 
     - name: Deploy stack — {{ _cur_stack }}

@@ -123,7 +123,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), unifi_backup_retention, maintenance_url
 │   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (unifi_protect_api_backup_path, unifi_protect_temp_file)
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
-│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, app_info (pre-deploy restore map), docker_* defaults
+│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, app_definitions (pre-deploy restore map), docker_* defaults
 │   ├── docker_vips.yaml             # Keepalived VRRP config for Docker VM VIPs — interface, CIDR, test VIP offsets; vault vars for VIPs + priorities
 │   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists, app_restore mapping
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
@@ -216,7 +216,7 @@ history, restore results, playbook runs) belongs in the database.
 ├── restore_amp.yaml               # AMP instance restore — stop instance(s), replace data dir from archive, restart; per-instance or all; requires confirm=yes
 ├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert; vm_name defaults to test-vm; role can substitute for source_host
-├── test_backup_restore.yaml          # Test all app_info apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
+├── test_backup_restore.yaml          # Test all app_definitions apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
 ├── verify_cephfs.yaml             # Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires -e vm_name=<key>
 ├── verify_isolation.yaml          # Lightweight test VLAN isolation verification — provisions bare test VM, runs network checks, then destroys
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
@@ -480,7 +480,7 @@ and logs to the `restores` table (`restore_subtype: Appdata`). Accepts `-e resto
 notification on success or failure.
 
 **`test_backup_restore.yaml`** — Automated all-app restore test on a disposable VM. Provisions a
-test VM (or reuses one with `-e provision=false`), deploys all stacks, restores each `app_info`
+test VM (or reuses one with `-e provision=false`), deploys all stacks, restores each `app_definitions`
 app in sequence (DB + appdata inplace), runs HTTP health checks, and summarizes results via
 Discord. Includes OOM auto-recovery: if a restore OOM-kills the VM, saves partial results to
 localhost, doubles RAM via PVE API, reboots, and retries the OOM-failed apps. Reverts the VM to
@@ -497,7 +497,7 @@ or per-service via `-e rollback_service=<name>`. Docker Compose hosts (`docker_s
 for unRAID `docker_run` hosts, see manual rollback guidance below. Uses `tasks/log_restore.yaml`
 with `operation: rollback` (per-service). Discord notification uses yellow (16776960) to
 distinguish from green/red. Supports combined recovery via `-e with_backup=yes`: restores
-appdata from backup archives and auto-detects dependent databases from `app_info` (e.g.,
+appdata from backup archives and auto-detects dependent databases from `app_definitions` (e.g.,
 rolling back `auth` stack also restores the `authentik` database). The `with_backup` path
 stops stacks, restores appdata per stack (`tasks/rollback_restore_stack.yaml`), starts the DB
 stack, restores DB dumps (`tasks/rollback_restore_dbs.yaml`), then applies image rollback
@@ -998,6 +998,7 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 | Var | Purpose |
 |-----|---------|
 | `stack=<name>` | Target a single stack — backup, verify, restore, deploy, rollback (auto-resolves host from `stack_assignments`) |
+| `app=<name>` | Target a single app's stack — backup, verify, restore, deploy, rollback (resolves to `stack` via `app_definitions`; valid apps: apps with DB or companion container dependencies) |
 | `role=<name>` | Target a specific role — backup, verify, restore, deploy, rollback, apply_role, dr_rebuild (auto-resolves host from `host_roles`); also injects into `host_roles` for unmapped hosts (test VMs); omit for all-roles mode in `apply_role` |
 
 **Playbook-specific scope selectors (string values, omit for default/all):**
@@ -1410,7 +1411,8 @@ the `always:` logging step.
 `backup_hosts.yaml`, `verify_backups.yaml`, `restore_hosts.yaml`, `deploy_stacks.yaml`,
 `rollback_docker.yaml`, `apply_role.yaml`, and `test_restore.yaml`. Injects `role` into
 `host_roles` for hosts not already mapped (test VMs) and sets `_role_injected=true` so templates
-can derive VIPs from the VM's actual subnet. Then applies `meta: end_host` filters for `stack`
+can derive VIPs from the VM's actual subnet. Resolves `app` → `stack` via `app_definitions`
+(with assertion on invalid app names). Then applies `meta: end_host` filters for `stack`
 and `role` scope selectors. Playbooks resolve backward-compatible aliases (e.g.
 `deploy_stack → stack`, `restore_stack → stack`) before including this file.
 
@@ -2218,7 +2220,7 @@ ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostna
 ```
 
 Always use `--limit <hostname>` with `-e restore_app` since `docker_stacks`/`docker_run` are
-multi-host groups. For docker_stacks apps, `app_info` in `vars/docker_stacks.yaml` provides the
+multi-host groups. For docker_stacks apps, `app_definitions` in `vars/docker_stacks.yaml` provides the
 stack name + DB names (pre-deploy); DB config and health URLs are discovered from container labels
 at runtime. For docker_run apps, `app_restore` in `vars/docker_run.yaml` provides the container
 list, DB config file, and `db_host` for cross-host `delegate_to`.
@@ -2256,7 +2258,7 @@ was pruned by `maintain_docker.yaml`, the old version is pulled from the registr
 
 **Combined recovery (`with_backup=yes`):** When a bad upstream update also corrupted data or
 ran irreversible DB migrations, use `-e with_backup=yes` to restore appdata and databases
-alongside the image rollback. DB dependencies are auto-detected from `app_info` in
+alongside the image rollback. DB dependencies are auto-detected from `app_definitions` in
 `vars/docker_stacks.yaml` — e.g., rolling back `auth` stack auto-restores the `authentik`
 database from its latest SQL dump. The flow: stop stacks → restore appdata per stack → start
 DB containers → restore SQL dumps → apply image rollback → bring all services up.
@@ -2716,7 +2718,7 @@ ansible-playbook test_restore.yaml -e role=core -e dr_mode=yes --vault-password-
 # Explicit source_host (alternative to role — looks up stacks from stack_assignments)
 ansible-playbook test_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
 
-# Test all app_info apps on a disposable VM (per-app DB + appdata restore, health check, revert)
+# Test all app_definitions apps on a disposable VM (per-app DB + appdata restore, health check, revert)
 ansible-playbook test_backup_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
 
 # Restore a single app to production (requires confirm=yes safety gate)

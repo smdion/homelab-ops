@@ -3,7 +3,7 @@
 # Stops the stack, restores each DB, restores appdata inplace, restarts, verifies health.
 #
 # Required extra vars:
-#   restore_app    — key in app_info dict (e.g., 'authentik', 'jellyseerr')
+#   restore_app    — key in app_definitions dict (e.g., 'authentik', 'jellyseerr')
 #   restore_target — inventory_hostname of the production host to restore on
 #   confirm=yes    — required safety gate (intentional: prevents accidental production runs)
 #
@@ -35,12 +35,12 @@
           Missing required vars or safety gate not set.
           Usage: -e restore_app=<app> -e restore_target=<host> -e confirm=yes
 
-    - name: Assert restore_app exists in app_info config
+    - name: Assert restore_app exists in app_definitions config
       ansible.builtin.assert:
-        that: restore_app in app_info
+        that: restore_app in app_definitions
         fail_msg: >-
-          '{{ restore_app }}' not found in app_info.
-          Valid apps: {{ app_info.keys() | list | join(', ') }}
+          '{{ restore_app }}' not found in app_definitions.
+          Valid apps: {{ app_definitions.keys() | list | join(', ') }}
 
     - name: Run standard pre-flight assertions
       include_tasks: tasks/pre_task_assertions.yaml
@@ -52,7 +52,7 @@
   tasks:
     - name: Set app config
       ansible.builtin.set_fact:
-        _app_cfg: "{{ app_info[restore_app] }}"
+        _app_cfg: "{{ app_definitions[restore_app] }}"
 
     - name: Find latest stack archive
       ansible.builtin.shell: >

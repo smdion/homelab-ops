@@ -15,6 +15,7 @@
 #
 # Scope selectors:
 #   stack=<name>            — rollback a single stack (auto-resolves host)
+#   app=<name>              — rollback a single app's stack (resolves via app_definitions)
 #   rollback_stack=<name>   — alias for stack (backward compatibility)
 #   rollback_service=<name> — rollback a single service within a stack
 #   role=<name>             — rollback all stacks in a role (auto-resolves host)
@@ -184,10 +185,10 @@
             loop_var: _rollback_stack
           when: with_backup | default('') == 'yes'
 
-        - name: Auto-detect DB dependencies from app_info
+        - name: Auto-detect DB dependencies from app_definitions
           ansible.builtin.set_fact:
             _rollback_db_deps: >-
-              {{ app_info | default({}) | dict2items
+              {{ app_definitions | default({}) | dict2items
                  | selectattr('value.stack', 'in', _rollback_target_stacks)
                  | selectattr('value.db_names', 'defined')
                  | list }}
