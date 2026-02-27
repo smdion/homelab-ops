@@ -76,7 +76,7 @@ vm_definitions:
     vm_hostname: "{{ vault_vm_core_hostname }}"
     vm_ip: "{{ vault_vm_core_ip }}"
     vm_cores: 4
-    vm_memory_mb: 16384
+    vm_memory_mb: 24576
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_core_node }}"
     nfs_exports:                       # export /opt to dev VM for code-server workspace access
@@ -90,7 +90,7 @@ vm_definitions:
     vm_hostname: "{{ vault_vm_apps_hostname }}"
     vm_ip: "{{ vault_vm_apps_ip }}"
     vm_cores: 4
-    vm_memory_mb: 16384
+    vm_memory_mb: 24576
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_apps_node }}"
     nfs_exports:                       # export /opt to dev VM for code-server workspace access
