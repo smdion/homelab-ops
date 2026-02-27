@@ -2125,7 +2125,8 @@ pve_vm_password: "..."
 vm_cidr: "..."
 vm_gateway: "..."
 vm_dns: "..."
-vm_search_domain: "..."
+vm_search_domain: "..."          # Internal DNS domain (e.g. "homelab.local")
+ext_search_domain: "..."         # External DNS domain (e.g. "example.com"); host_roles maps both
 vm_template_memory: "..."
 vm_template_cores: "..."
 # Per-VM IPs and node assignments — one entry per VM in vars/vm_definitions.yaml:
@@ -2133,6 +2134,8 @@ vm_template_cores: "..."
 # Hostnames are derived from role name + vault_vm_search_domain (no vault_vm_<name>_hostname needed).
 # host_roles (hostname → role) and stack_roles (role → stack list) are derived dynamically
 # from vm_definitions + host_definitions — no manual vault entries needed for role mapping.
+# host_roles maps both internal (vault_vm_search_domain) and external (vault_ext_search_domain)
+# FQDNs so hosts work regardless of which domain is used in the inventory.
 
 # --- VPN stack (stacks/vpn/env.j2) ---
 vault_wg_internal_subnet: "..."  # WireGuard internal subnet (e.g. 10.x.x.0) — NOT a host IP

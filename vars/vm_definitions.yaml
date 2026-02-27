@@ -11,7 +11,8 @@
 #   vault_pve_vip              — keepalived VIP (floating management IP for cluster API calls)
 #   vault_vm_gateway           — default gateway IP for all VMs
 #   vault_vm_dns               — DNS server IP for all VMs
-#   vault_vm_search_domain     — DNS search domain (e.g. "homelab.local")
+#   vault_vm_search_domain     — internal DNS domain (e.g. "homelab.local")
+#   vault_ext_search_domain    — external DNS domain (e.g. "example.com"); host_roles maps both domains
 #   vault_pve_template_node    — PVE node where the cloud-init template config file lives
 #   vault_test_vlan_id         — VLAN ID for test VM isolation (e.g. 88)
 #   vault_test_vlan_gateway    — gateway IP on test isolation VLAN (e.g. "192.168.88.1")
@@ -224,24 +225,27 @@ stack_roles: >-
     )
   ) }}
 
-# host_roles: hostname → role (replaces vault_vm_roles).
-# All production Docker hosts — excludes test/ephemeral VMs (vm_vlan_tag set)
-# and basic VMs without stacks (e.g. amp).
-# Merges vm_definitions (Proxmox VMs) + host_definitions (VPS, NAS, legacy hosts).
-host_roles: >-
-  {{ dict(
-    (vm_definitions | dict2items
+# Helper: all host entries with stacks, excluding test VMs (vm_vlan_tag).
+# Used by host_roles below — avoids repeating the filter chain.
+_host_entries: >-
+  {{ vm_definitions | dict2items
      | rejectattr('value.vm_vlan_tag', 'defined')
      | selectattr('value.stacks', 'defined') | list
      + host_definitions | default({}) | dict2items
-     | selectattr('value.stacks', 'defined') | list)
-    | map(attribute='value.vm_hostname')
-    | zip(
-      (vm_definitions | dict2items
-       | rejectattr('value.vm_vlan_tag', 'defined')
-       | selectattr('value.stacks', 'defined') | list
-       + host_definitions | default({}) | dict2items
-       | selectattr('value.stacks', 'defined') | list)
-      | map(attribute='key')
-    )
-  ) }}
+     | selectattr('value.stacks', 'defined') | list }}
+
+# host_roles: hostname → role (replaces vault_vm_roles).
+# Maps both internal (vault_vm_search_domain) and external (vault_ext_search_domain)
+# FQDNs so hosts work regardless of which domain is used in the inventory.
+# Merges vm_definitions (Proxmox VMs) + host_definitions (VPS, NAS, legacy hosts).
+host_roles: >-
+  {{ dict(
+    _host_entries | map(attribute='key')
+    | map('regex_replace', '$', '.' ~ vault_vm_search_domain) | list
+    | zip(_host_entries | map(attribute='key') | list)
+  )
+  | combine(dict(
+    _host_entries | map(attribute='key')
+    | map('regex_replace', '$', '.' ~ (vault_ext_search_domain | default(vault_vm_search_domain))) | list
+    | zip(_host_entries | map(attribute='key') | list)
+  )) }}
