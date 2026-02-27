@@ -8,44 +8,39 @@
 #   backup_base_dir — controller backup base path
 # Inherits from playbook scope:
 #   db_password, ansible_date_time
+#
+# Vars are loaded directly (no name: prefix) because namespaced dicts
+# eagerly template all values — backup_file uses {{ item }} which is
+# undefined outside the standalone backup_databases.yaml loop.
 
 - name: "Load DB config — {{ _db_config_file }}"
   ansible.builtin.include_vars:
     file: "vars/{{ _db_config_file }}.yaml"
-    name: _dbg_vars
 
-- name: "Create temp directory on {{ _dbg_vars.db_host }} — {{ _db_config_file }}"
+- name: "Create temp directory on {{ db_host }} — {{ _db_config_file }}"
   become: true
   ansible.builtin.file:
     state: directory
     path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
-  delegate_to: "{{ _dbg_vars.db_host }}"
+  delegate_to: "{{ db_host }}"
 
 - name: "Back up databases — {{ _db_config_file }}"
   include_tasks: tasks/backup_single_db.yaml
-  loop: "{{ _dbg_vars.db_names }}"
+  loop: "{{ db_names }}"
   loop_control:
     loop_var: _current_db
   vars:
-    db_container_name: "{{ _dbg_vars.db_container_name }}"
-    db_username: "{{ _dbg_vars.db_username }}"
-    db_password: "{{ db_password }}"
-    backup_ext: "{{ _dbg_vars.backup_ext | default('sql') }}"
     backup_tmp_dir: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
-    backup_stack: "{{ _dbg_vars.backup_stack | default(omit) }}"
-    is_mariadb: "{{ _dbg_vars.is_mariadb | default(false) }}"
-    is_postgres: "{{ _dbg_vars.is_postgres | default(false) }}"
-    is_influxdb: "{{ _dbg_vars.is_influxdb | default(false) }}"
     combined_results: "{{ _db_combined_results }}"
-    _db_delegate_host: "{{ _dbg_vars.db_host }}"
+    _db_delegate_host: "{{ db_host }}"
 
 - name: "Sync results — {{ _db_config_file }}"
   ansible.builtin.set_fact:
     _db_combined_results: "{{ combined_results }}"
 
-- name: "Clean up temp directory on {{ _dbg_vars.db_host }} — {{ _db_config_file }}"
+- name: "Clean up temp directory on {{ db_host }} — {{ _db_config_file }}"
   become: true
   ansible.builtin.file:
     state: absent
     path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
-  delegate_to: "{{ _dbg_vars.db_host }}"
+  delegate_to: "{{ db_host }}"
