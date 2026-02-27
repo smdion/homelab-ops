@@ -123,7 +123,8 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), unifi_backup_retention, maintenance_url
 │   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (unifi_protect_api_backup_path, unifi_protect_temp_file)
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
-│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, app_definitions (pre-deploy restore map), docker_* defaults
+│   ├── app_definitions.yaml         # Apps with external dependencies (DB, companion containers) — restore discovery + app scope selector
+│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, docker_* defaults
 │   ├── docker_vips.yaml             # Keepalived VRRP config for Docker VM VIPs — interface, CIDR, test VIP offsets; vault vars for VIPs + priorities
 │   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists, app_restore mapping
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
