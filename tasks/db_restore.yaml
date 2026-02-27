@@ -15,7 +15,7 @@
     - name: "Restore database — {{ _db_target_name | default(_db_name) }}"
       ansible.builtin.shell: |
         set -ex
-        _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
+        {{ _gz_detect }}
         # Auto-detect compression from magic bytes (1f 8b = gzip), not extension
         if head -c2 "{{ _db_source_file }}" | od -An -tx1 | grep -q '1f 8b'; then
           _decompress="$_gz -dc"
@@ -49,7 +49,7 @@
         echo "[db_restore] Copying SQL into container..."
         docker cp /tmp/_db_restore_{{ target }}.sql {{ _db_container }}:/tmp/_db_restore.sql
         echo "[db_restore] Running mysql import (this may take a few minutes for large databases)..."
-        docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} sh -c 'mysql -u {{ _db_username }} {{ target }} < /tmp/_db_restore.sql'
+        docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} sh -c '{ echo "SET autocommit=0; SET foreign_key_checks=0; SET unique_checks=0;"; cat /tmp/_db_restore.sql; echo "COMMIT; SET foreign_key_checks=1; SET unique_checks=1;"; } | mysql -u {{ _db_username }} {{ target }}'
         echo "[db_restore] mysql complete, cleaning up..."
         docker exec {{ _db_container }} rm -f /tmp/_db_restore.sql
         rm -f /tmp/_db_restore_{{ target }}.sql

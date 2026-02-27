@@ -128,6 +128,17 @@
           when: inventory_hostname in groups["docker_stacks"] | default([])
 
         # ===== MONOLITHIC BACKUP (non-docker_stacks hosts) =====
+        # ===== CAPTURE IMAGE VERSIONS (before stop — containers must exist) =====
+        - name: Capture image versions for monolithic Docker backup
+          include_tasks: tasks/capture_image_versions.yaml
+          vars:
+            _versions_filter: ""
+            _versions_label: "{{ inventory_hostname }}"
+            _versions_dest: "{{ backup_base_dir }}/{{ inventory_hostname }}"
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname in groups["docker_run"] | default([])
+
         # ===== STOP DOCKER =====
         - include_tasks: tasks/docker_stop.yaml
           vars:
@@ -414,12 +425,14 @@
 
         - name: Create compressed backup archive
           become: true
-          community.general.archive:
-            path: "{{ _archive_paths | default(_validated_backup_paths) | default(src_raw_files) }}"
-            dest: "{{ backup_tmp_file }}"
-            format: gz
-            remove: false
-            exclude_path: "{{ backup_exclude_dirs | default([]) }}"
+          ansible.builtin.shell: |
+            {{ _gz_detect }}
+            tar -I "$_gz -1" -cf "{{ backup_tmp_file }}" \
+              {% for excl in (backup_exclude_dirs | default([])) %}
+              --exclude='{{ excl }}' \
+              {% endfor %}
+              -C / \
+              {{ (_archive_paths | default(_validated_backup_paths) | default(src_raw_files)) | map('regex_replace', '^/', '') | join(' ') }}
           timeout: 3600
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])

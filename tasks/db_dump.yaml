@@ -12,11 +12,11 @@
 - block:
     - name: "Dump database — {{ _db_name }}"
       ansible.builtin.shell: |
-        _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
+        {{ _gz_detect }}
         {% if _db_is_postgres | default(false) | bool %}
         docker exec {{ _db_container }} pg_dump {{ _db_name }} --clean --if-exists --username={{ _db_username }} | $_gz -1 > {{ _db_dest_file }}
         {% elif _db_is_mariadb | default(false) | bool %}
-        docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysqldump --user {{ _db_username }} {{ _db_name }} | $_gz -1 > {{ _db_dest_file }}
+        docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} mysqldump --opt --single-transaction --quick --user {{ _db_username }} {{ _db_name }} | $_gz -1 > {{ _db_dest_file }}
         {% elif _db_is_influxdb | default(false) | bool %}
         docker exec {{ _db_container }} influxd backup -portable -database {{ _db_name }} /tmp/backup_{{ _db_name }}
         docker cp {{ _db_container }}:/tmp/backup_{{ _db_name }} {{ _db_tmp_dir }}/backup_{{ _db_name }}

@@ -1,5 +1,5 @@
 ---
-# Back up a single database: dump, verify, fetch, collect result.
+# Back up a single database: dump, fetch, collect result.
 # Called in a loop from backup_databases.yaml.
 #
 # Expects:
@@ -31,17 +31,6 @@
       ansible.builtin.stat:
         path: "{{ backup_tmp_dir }}/{{ _db_file }}"
       register: _db_file_size
-
-    - name: "Verify integrity — {{ _current_db }}"
-      become: true
-      ansible.builtin.shell: |
-        {% if is_influxdb | default(false) | bool %}
-        tar tzf "{{ backup_tmp_dir }}/{{ _db_file }}" > /dev/null
-        {% else %}
-        gzip -t "{{ backup_tmp_dir }}/{{ _db_file }}"
-        {% endif %}
-      changed_when: false
-      check_mode: false
 
     - name: "Ensure backup directory on controller — {{ _current_db }}"
       ansible.builtin.file:

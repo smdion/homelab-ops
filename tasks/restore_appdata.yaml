@@ -30,7 +30,7 @@
 
 - name: Detect archive root (opt/ prefix or legacy flat layout)
   ansible.builtin.shell: |
-    _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
+    {{ _gz_detect }}
     first=$(tar -I "$_gz" -tf {{ backup_tmp_dir }}/restore.tar.gz | head -1)
     case "$first" in opt/*) echo "/" ;; *) echo "/opt" ;; esac
   become: true
@@ -40,7 +40,7 @@
 
 - name: Extract archive (selective)
   ansible.builtin.shell: |
-    _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
+    {{ _gz_detect }}
     tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore.tar.gz -C {{ _archive_extract_root.stdout }} "{{ _restore_extract_path }}"
   become: true
   when:
@@ -49,7 +49,7 @@
 
 - name: Extract archive (full)
   ansible.builtin.shell: |
-    _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)
+    {{ _gz_detect }}
     tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore.tar.gz -C {{ _archive_extract_root.stdout }}
   become: true
   when:
