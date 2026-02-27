@@ -7,6 +7,8 @@
 #   _db_name, _db_container, _db_username, _db_password (default ''),
 #   _db_dest_file, _db_is_postgres, _db_is_mariadb, _db_is_influxdb,
 #   _db_tmp_dir (InfluxDB only)
+# Optional:
+#   _db_delegate_host — target host (default: inventory_hostname)
 # Registers: _db_dump_result
 
 - block:
@@ -28,6 +30,7 @@
         DB_PASSWORD: "{{ _db_password | default('') }}"
       register: _db_dump_result
       become: true
+      delegate_to: "{{ _db_delegate_host | default(inventory_hostname) }}"
       no_log: "{{ not (_db_is_influxdb | default(false) | bool) and not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       changed_when: true
   rescue:
