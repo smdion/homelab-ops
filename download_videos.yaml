@@ -98,8 +98,28 @@
           check_mode: false
 
         - name: Parse downloaded video metadata
+          ansible.builtin.shell: |
+            docker exec {{ metube_container }} cat {{ metube_manifest }} 2>/dev/null | \
+              python3 -c "
+            import sys, json
+            result = []
+            for line in sys.stdin:
+                line = line.strip()
+                if line.startswith('{') and line.endswith('}'):
+                    try:
+                        result.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+            print(json.dumps(result))
+            "
+          register: _parsed_manifest
+          become: true
+          changed_when: false
+          when: manifest_raw.stdout | default('') | length > 0
+
+        - name: Set downloaded videos fact
           ansible.builtin.set_fact:
-            downloaded_videos: "{{ manifest_raw.stdout_lines | default([]) | select('match', '^\\{.*\\}$') | map('from_json') | list }}"
+            downloaded_videos: "{{ _parsed_manifest.stdout | default('[]') | from_json }}"
           when: manifest_raw.stdout | default('') | length > 0
 
         # -- Clean temp downloads --------------------------------------------
