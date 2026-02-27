@@ -36,7 +36,7 @@ visibility.
 | **Test Backup Restore** | Per-app backup integrity test on a disposable VM — deploys stacks fresh, then for each app: stops the stack, restores DB + appdata from the backup archive, restarts, and asserts HTTP health; OOM auto-recovery doubles VM RAM and retries |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
-version status per host, stale detection, health trends, and maintenance logs across 25 panels.
+version status per host, stale detection, health trends, and maintenance logs across 28 panels.
 
 ## Stack
 
