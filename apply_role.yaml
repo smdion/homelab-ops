@@ -1,0 +1,225 @@
+---
+# Idempotent VM state reconciliation — single command to make a VM match its definition.
+# Layers: OS -> Network -> Docker -> Application -> Verification.
+# Basic VMs (no stacks) get OS + Network only; Docker/Application/Verification auto-skipped.
+#
+# Play 1 (localhost): Validate inputs, look up VM definition(s), determine scope.
+# Play 2 (target VMs): Apply each layer idempotently, skip layers via flags.
+# When multiple roles are targeted, Play 2 processes them sequentially (serial: 1)
+# in VMID order (core=300, apps=301, dev=302) to respect NFS dependencies.
+#
+# Usage:
+#   ansible-playbook apply_role.yaml                          # all Docker VMs
+#   ansible-playbook apply_role.yaml -e role=core             # single role
+#   ansible-playbook apply_role.yaml -e role=core -e stack=auth
+#   ansible-playbook apply_role.yaml -e role=core -e skip_stacks=yes
+#   ansible-playbook apply_role.yaml -e validate_only=yes     # dry-run all roles
+#
+# Optional extra vars:
+#   role                 — VM role filter (core, apps, dev, amp). Omit for all Docker VMs.
+#   deploy_ssh_key=yes   — install ansible SSH key (default: from VM spec)
+#   debug_no_log=yes     — show template output in logs
+#   validate_only=yes    — dry-run: resolve scope, skip apply
+#   resize=yes           — enable Hardware layer (PVE resize + reboot)
+#   stack=<name>         — deploy only this stack (e.g. -e stack=auth)
+#   skip_bootstrap=yes   — skip OS + Network layers
+#   skip_stacks=yes      — skip Application layer
+#   skip_verify=yes      — skip Verification layer
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Resolve: validate inputs, look up VM definition(s), add targets
+# ═══════════════════════════════════════════════════════════════════
+- name: "Resolve role(s) and determine scope"
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+    - vars/docker_stacks.yaml
+    - vars/docker_vips.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "Docker"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Apply Role"
+
+  pre_tasks:
+    - name: Assert role exists in vm_definitions
+      ansible.builtin.assert:
+        that: role in vm_definitions
+        fail_msg: >-
+          role '{{ role }}' not found in vm_definitions.
+          Valid roles: {{ vm_definitions.keys() | list | join(', ') }}
+      when: role is defined
+
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "apply_role.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+        pre_run_vars: "{{ {'role': role | default('all')} | to_json }}"
+
+  tasks:
+    - name: Determine target roles
+      ansible.builtin.set_fact:
+        _target_roles: >-
+          {{ [role] if role is defined
+             else vm_definitions | dict2items
+                  | selectattr('value.stacks', 'defined')
+                  | rejectattr('value.vm_vlan_tag', 'defined')
+                  | sort(attribute='value.vm_id')
+                  | map(attribute='key') | list }}
+
+    - name: "Resolve and add target — {{ _current_role }}"
+      include_tasks: tasks/apply_role_resolve.yaml
+      loop: "{{ _target_roles }}"
+      loop_control:
+        loop_var: _current_role
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Reconcile: apply each layer idempotently (serial: 1)
+# ═══════════════════════════════════════════════════════════════════
+- name: "Reconcile {{ role | default('all roles') }}"
+  hosts: apply_target
+  serial: 1
+  become: true
+  gather_facts: true
+  gather_subset: ['!all', 'date_time', 'hardware']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+    - vars/docker_stacks.yaml
+    - vars/docker_vips.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "Docker"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Apply Role"
+    _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+  tasks:
+    - name: Set role for this host
+      ansible.builtin.set_fact:
+        role: "{{ _target_role }}"
+
+    - name: Resolve scope (role injection for unmapped hosts)
+      include_tasks: tasks/resolve_scope.yaml
+
+    - name: Inject VRRP priority for unmapped hosts (test VMs)
+      ansible.builtin.set_fact:
+        vault_docker_vrrp_priorities: >-
+          {{ vault_docker_vrrp_priorities | default({})
+             | combine({inventory_hostname.split('.')[0]: 100}) }}
+      when: _role_injected | default(false)
+
+    - name: Resolve deploy_ssh_key from target resolution
+      ansible.builtin.set_fact:
+        deploy_ssh_key: "{{ _target_deploy_ssh_key }}"
+
+    - name: Initialize reconciliation state
+      ansible.builtin.set_fact:
+        _apply_failed: false
+        _apply_detail: ""
+
+    - block:
+        # ===== OS + NETWORK LAYERS =====
+        - name: Apply OS + Network layers (bootstrap)
+          include_tasks: tasks/bootstrap_vm.yaml
+          vars:
+            _vm: "{{ _target_vm }}"
+            _install_docker: "{{ _target_is_docker_vm }}"
+          when: not (skip_bootstrap | default(false) | bool)
+
+        # ===== DOCKER LAYER =====
+        - name: Ensure shared Docker network exists
+          community.docker.docker_network:
+            name: homelab
+            state: present
+          when: _target_is_docker_vm | bool
+
+        # ===== APPLICATION LAYER =====
+        - name: "Deploy stack — {{ _current_stack }}"
+          include_tasks: tasks/deploy_single_stack.yaml
+          loop: >-
+            {{ [stack] if stack is defined
+               else _target_stacks }}
+          loop_control:
+            loop_var: _current_stack
+          when:
+            - _target_is_docker_vm | bool
+            - not (skip_stacks | default(false) | bool)
+
+        # ===== HARDWARE LAYER (off by default) =====
+        - name: Hardware resize (PVE API)
+          ansible.builtin.debug:
+            msg: "Hardware resize not yet implemented — requires PVE API drift detection."
+          when: resize | default(false) | bool
+
+        # ===== VERIFICATION LAYER =====
+        - name: Verify container health
+          include_tasks: tasks/verify_docker_health.yaml
+          when:
+            - _target_is_docker_vm | bool
+            - not (skip_verify | default(false) | bool)
+
+        - name: Verify Docker network connectivity
+          include_tasks: tasks/verify_docker_network.yaml
+          when:
+            - _target_is_docker_vm | bool
+            - not (skip_verify | default(false) | bool)
+
+        - name: Verify VIP is active
+          include_tasks: tasks/verify_vip.yaml
+          when:
+            - _target_is_docker_vm | bool
+            - not (skip_verify | default(false) | bool)
+
+        - name: Record success
+          ansible.builtin.set_fact:
+            _apply_detail: >-
+              Reconciled {{ _target_role }}:
+              {{ _target_stacks | join(', ') or 'OS+Network only' }}
+
+      rescue:
+        - name: Set apply failed flag
+          ansible.builtin.set_fact:
+            _apply_failed: true
+            _apply_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Send Discord notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Apply Role"
+            discord_status: "{{ 'failed' if _apply_failed else 'successful' }}"
+            discord_color: "{{ discord_color_failure if _apply_failed else discord_color_success }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Role"
+                value: "{{ _target_role }}"
+                inline: true
+              - name: "VM"
+                value: "{{ _target_vm.vm_name }}"
+                inline: true
+              - name: "Detail"
+                value: "{{ _apply_detail }}"
+          when: not ansible_check_mode
+
+        - name: Log to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if _apply_failed else 'success' }}"
+          when: not ansible_check_mode
+
+        - name: Fail play if apply failed
+          ansible.builtin.fail:
+            msg: "Apply role failed: {{ _apply_detail }}"
+          when: _apply_failed

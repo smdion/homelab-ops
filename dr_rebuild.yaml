@@ -68,15 +68,12 @@
       include_tasks: tasks/resolve_test_vm_index.yaml
       when: vm_name in ['test-vm', 'cephfs-migrate-test']
 
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "dr_rebuild.yaml"
-        log_hostname: "{{ controller_fqdn }}"
-        log_run_vars: "{{ {'role': role | default(''), 'vm_name': vm_name | default('')} | to_json }}"
+        pre_playbook: "dr_rebuild.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+        pre_run_vars: "{{ {'role': role | default(''), 'vm_name': vm_name | default('')} | to_json }}"
 
   tasks:
     - name: Initialize build state

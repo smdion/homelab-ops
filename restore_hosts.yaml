@@ -30,14 +30,12 @@
   serial: 1
   vars_files:
     - vars/secrets.yaml
+    - vars/vm_definitions.yaml
     - vars/{{ config_file }}.yaml
   vars:
     config_file: "{{ hosts_variable }}"
 
   pre_tasks:
-    - name: Assert config_file is defined and non-empty
-      include_tasks: tasks/assert_config_file.yaml
-
     - name: Resolve restore_stack → stack alias
       ansible.builtin.set_fact:
         stack: "{{ restore_stack }}"
@@ -66,22 +64,18 @@
         assert_disk_path: "/"
         assert_disk_min_gb: "{{ backup_assert_disk_min_gb | default(2) }}"
 
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "restore_hosts.yaml"
-        log_hostname: "{{ inventory_hostname }}"
-        log_run_vars: "{{ {'config_file': config_file | default('')} | to_json }}"
+        pre_assert_config_file: true
+        pre_playbook: "restore_hosts.yaml"
+        pre_run_vars: "{{ {'config_file': config_file | default('')} | to_json }}"
 
     - name: Put PiKVM in RW mode
       raw: rw
       when:
         - inventory_hostname in groups["pikvm"]
         - not ansible_check_mode
-      tags: [always]
 
   tasks:
     - name: Initialize restore state
@@ -95,7 +89,6 @@
              else (stack_assignments[inventory_hostname] | default([])) if role is defined
              else (stack_assignments[inventory_hostname] | default([])) if inventory_hostname in groups['docker_stacks'] | default([])
              else [] }}
-      tags: [always]
 
     - name: Compute restore path
       ansible.builtin.set_fact:
@@ -103,7 +96,6 @@
           {{ 'stack' if _target_stacks | length > 0
              else 'app' if restore_app | default('') | length > 0
              else 'monolithic' }}
-      tags: [always]
 
     - block:
         # ===== PER-STACK PATH (docker_stacks — single stack or role) =====
@@ -135,7 +127,7 @@
         - include_tasks: tasks/docker_start.yaml
           vars:
             _docker_ignore_errors: true
-          tags: [docker]
+          when: inventory_hostname in groups["docker_stacks"] | default([]) or inventory_hostname in groups["docker_run"] | default([])
 
       always:
         # ===== REPORTING (per-stack) =====
@@ -148,7 +140,6 @@
                {"name": "{{ ('❌ ' if r.failed else '✅ ') + r.stack }}", "value": "{{ 'FAILED' if r.failed else (r.archive | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2})\\.tar\\.gz$', '\\1')) }}", "inline": true}
                {% endfor %}]
           when: _restore_path == 'stack'
-          tags: [always]
 
         - name: Send per-stack Discord notification
           include_tasks: tasks/notify.yaml
@@ -167,7 +158,6 @@
             discord_url: "{{ backup_url }}"
             discord_fields: "{{ _stack_restore_discord_fields }}"
           when: _restore_path == 'stack'
-          tags: [always]
 
         - name: Log per-stack restores to MariaDB
           include_tasks: tasks/log_restore.yaml
@@ -186,7 +176,6 @@
               {{ 'restore failed — check Semaphore logs' if _stack_result.failed
                  else 'restore of ' + _stack_result.stack }}
           when: _restore_path == 'stack'
-          tags: [always]
 
         # ===== REPORTING (single result — app / monolithic) =====
         - name: Send Discord notification
@@ -205,7 +194,6 @@
               - name: "Detail"
                 value: "{{ _restore_detail | default('check Semaphore logs') }}"
           when: _restore_path != 'stack'
-          tags: [always]
 
         - name: Log restore to MariaDB
           include_tasks: tasks/log_restore.yaml
@@ -219,11 +207,9 @@
             restore_status: "{{ 'failed' if restore_failed else 'success' }}"
             restore_detail: "{{ _restore_detail | default('check Semaphore logs') }}"
           when: _restore_path != 'stack'
-          tags: [always]
 
         - name: Put PiKVM back in RO mode
           raw: ro
           when:
             - inventory_hostname in groups["pikvm"]
             - not ansible_check_mode
-          tags: [always]

@@ -33,16 +33,12 @@
         fail_msg: >-
           Missing required vars or safety gate not set.
           Usage: -e restore_target=<host> -e confirm=yes [-e amp_instance_filter=<instance>]
-
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "restore_amp.yaml"
-        log_hostname: "{{ controller_fqdn }}"
-        log_run_vars: "{{ {'restore_target': restore_target | default('')} | to_json }}"
+        pre_playbook: "restore_amp.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+        pre_run_vars: "{{ {'restore_target': restore_target | default('')} | to_json }}"
 
   tasks:
     - name: Discover instances with backups on controller

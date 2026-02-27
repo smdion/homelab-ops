@@ -19,15 +19,10 @@
     maintenance_description: "Restart Unifi Network service"
 
   pre_tasks:
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "maintain_unifi.yaml"
-        log_hostname: "{{ inventory_hostname }}"
-        log_run_vars: "{}"
+        pre_playbook: "maintain_unifi.yaml"
 
   tasks:
     - name: Initialize maintenance state

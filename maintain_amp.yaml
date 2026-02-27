@@ -4,8 +4,11 @@
 #
 # Usage:
 #   ansible-playbook maintain_amp.yaml
-#   ansible-playbook maintain_amp.yaml --tags versions      # only AMP versions
+#   ansible-playbook maintain_amp.yaml -e amp_scope=versions
 #   ansible-playbook maintain_amp.yaml -e amp_versions_keep=3
+#
+# Optional extra vars:
+#   amp_scope=versions|cleanup|coredumps|prune|journal  — run only this scope (default: all)
 #
 # Schedule with Semaphore to run weekly.
 
@@ -25,21 +28,15 @@
     maintenance_description: "AMP game server maintenance (versions, core dumps, Docker prune, journal, tmp)"
 
   pre_tasks:
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "maintain_amp.yaml"
-        log_hostname: "{{ inventory_hostname }}"
-        log_run_vars: "{}"
+        pre_playbook: "maintain_amp.yaml"
 
   tasks:
     - name: Initialize maintenance state
       ansible.builtin.set_fact:
         maintenance_failed: false
-      tags: [always]
 
     - block:
         # ── AMP Old Versions ──────────────────────────────────────────────
@@ -49,25 +46,26 @@
           register: _amp_versions
           changed_when: false
           check_mode: false
-          tags: [versions]
+          when: amp_scope is not defined or amp_scope == 'versions'
 
         - name: Identify old AMP versions to remove
           ansible.builtin.set_fact:
             amp_versions_to_remove: "{{ _amp_versions.stdout_lines[amp_versions_keep:] }}"
-          tags: [versions]
+          when: amp_scope is not defined or amp_scope == 'versions'
 
         - name: Display versions to remove
           ansible.builtin.debug:
             msg: "Removing {{ amp_versions_to_remove | length }} old version(s): {{ amp_versions_to_remove | join(', ') }}"
-          when: amp_versions_to_remove | length > 0
-          tags: [versions]
+          when:
+            - amp_scope is not defined or amp_scope == 'versions'
+            - amp_versions_to_remove | length > 0
 
         - name: Remove old AMP versions
           ansible.builtin.file:
             path: "{{ amp_versions_dir }}/{{ item }}"
             state: absent
           loop: "{{ amp_versions_to_remove }}"
-          tags: [versions]
+          when: amp_scope is not defined or amp_scope == 'versions'
 
         # ── instances.json .bak rotation ─────────────────────────────────
         - name: Find old instances.json .bak files
@@ -76,15 +74,16 @@
             patterns: "instances.json-*.bak"
             file_type: file
           register: _amp_bak_files
-          tags: [cleanup]
+          when: amp_scope is not defined or amp_scope == 'cleanup'
 
         - name: Remove old instances.json .bak files (keep {{ amp_versions_keep }} newest)
           ansible.builtin.file:
             path: "{{ item.path }}"
             state: absent
           loop: "{{ (_amp_bak_files.files | sort(attribute='mtime') | reverse | list)[amp_versions_keep:] }}"
-          when: _amp_bak_files.matched > amp_versions_keep
-          tags: [cleanup]
+          when:
+            - amp_scope is not defined or amp_scope == 'cleanup'
+            - _amp_bak_files.matched > amp_versions_keep
 
         # ── Crash Core Dumps ──────────────────────────────────────────────
         - name: Find core dump files in AMP instances
@@ -94,15 +93,16 @@
             file_type: file
             recurse: true
           register: _core_dumps
-          tags: [coredumps]
+          when: amp_scope is not defined or amp_scope == 'coredumps'
 
         - name: Remove core dump files
           ansible.builtin.file:
             path: "{{ item.path }}"
             state: absent
           loop: "{{ _core_dumps.files }}"
-          when: _core_dumps.matched > 0
-          tags: [coredumps]
+          when:
+            - amp_scope is not defined or amp_scope == 'coredumps'
+            - _core_dumps.matched > 0
 
         # ── Instance Log Rotation ─────────────────────────────────────────
         - name: Find old AMP instance log files (older than 30 days)
@@ -113,15 +113,16 @@
             recurse: true
             age: 30d
           register: _amp_logs
-          tags: [cleanup]
+          when: amp_scope is not defined or amp_scope == 'cleanup'
 
         - name: Remove old AMP instance log files
           ansible.builtin.file:
             path: "{{ item.path }}"
             state: absent
           loop: "{{ _amp_logs.files }}"
-          when: _amp_logs.matched > 0
-          tags: [cleanup]
+          when:
+            - amp_scope is not defined or amp_scope == 'cleanup'
+            - _amp_logs.matched > 0
 
         # ── Docker Cleanup ────────────────────────────────────────────────
         - name: Prune unused Docker images
@@ -130,7 +131,7 @@
             images_filters:
               dangling: "false"
           ignore_errors: true
-          tags: [prune]
+          when: amp_scope is not defined or amp_scope == 'prune'
 
         # ── Journal Logs ──────────────────────────────────────────────────
         - name: Vacuum old journal logs
@@ -138,7 +139,7 @@
             cmd: journalctl --vacuum-time={{ amp_journal_max_age }}
           register: journal_result
           changed_when: "'freed' in journal_result.stderr and 'freed 0B' not in journal_result.stderr"
-          tags: [journal]
+          when: amp_scope is not defined or amp_scope == 'journal'
 
         # ── Temp Backup Cleanup ───────────────────────────────────────────
         - name: Remove stale backup files from /tmp
@@ -147,21 +148,21 @@
             patterns: "*.tar.gz"
             age: 1d
           register: _tmp_backups
-          tags: [cleanup]
+          when: amp_scope is not defined or amp_scope == 'cleanup'
 
         - name: Delete stale /tmp backups
           ansible.builtin.file:
             path: "{{ item.path }}"
             state: absent
           loop: "{{ _tmp_backups.files }}"
-          when: _tmp_backups.matched > 0
-          tags: [cleanup]
+          when:
+            - amp_scope is not defined or amp_scope == 'cleanup'
+            - _tmp_backups.matched > 0
 
       rescue:
         - name: Set maintenance failed
           ansible.builtin.set_fact:
             maintenance_failed: true
-          tags: [always]
 
       always:
         - name: Send Discord alert on failure

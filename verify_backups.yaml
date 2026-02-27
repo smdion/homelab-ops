@@ -23,26 +23,20 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
+    - vars/vm_definitions.yaml
     - vars/{{ config_file }}.yaml
   vars:
     config_file: "{{ hosts_variable }}"
 
   pre_tasks:
-    - name: Assert config_file is defined and non-empty
-      include_tasks: tasks/assert_config_file.yaml
-
     - name: Resolve scope (role injection + stack/role filtering)
       include_tasks: tasks/resolve_scope.yaml
 
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "verify_backups.yaml"
-        log_hostname: "{{ inventory_hostname }}"
-        log_run_vars: "{}"
+        pre_assert_config_file: true
+        pre_playbook: "verify_backups.yaml"
 
   tasks:
     - name: Initialize verify state
@@ -53,7 +47,6 @@
         _target_stacks: >-
           {{ [stack] if stack is defined
              else stack_assignments[inventory_hostname] | default([]) }}
-      tags: [always]
 
     - block:
         # ===== DATABASE VERIFICATION =====
@@ -66,7 +59,6 @@
           changed_when: false
           check_mode: false
           when: _is_db_verify | bool
-          tags: [always]
 
         - name: Assert backup files exist
           ansible.builtin.assert:
@@ -76,7 +68,6 @@
           loop_control:
             index_var: idx
           when: _is_db_verify | bool
-          tags: [always]
 
         - name: Copy backup files to target host
           ansible.builtin.copy:
@@ -87,7 +78,6 @@
             index_var: idx
           become: true
           when: _is_db_verify | bool
-          tags: [always]
 
         - name: Create temp verification databases and restore
           include_tasks: tasks/db_restore.yaml
@@ -106,7 +96,6 @@
           when:
             - _is_db_verify | bool
             - not ansible_check_mode
-          tags: [always]
 
         - name: Count tables/measurements in temp databases
           include_tasks: tasks/db_count.yaml
@@ -122,7 +111,6 @@
           when:
             - _is_db_verify | bool
             - not ansible_check_mode
-          tags: [always]
 
         - name: Drop temp verification databases
           include_tasks: tasks/db_drop_temp.yaml
@@ -138,7 +126,6 @@
           when:
             - _is_db_verify | bool
             - not ansible_check_mode
-          tags: [always]
 
         - name: Clean up temp backup files on target
           ansible.builtin.file:
@@ -147,7 +134,6 @@
           loop: "{{ db_names }}"
           become: true
           when: _is_db_verify | bool
-          tags: [always]
 
         - name: Collect database verification results
           ansible.builtin.set_fact:
@@ -166,7 +152,6 @@
           when:
             - _is_db_verify | bool
             - not ansible_check_mode
-          tags: [always]
 
         # ===== PER-STACK CONFIG VERIFICATION (docker_stacks hosts) =====
         - name: Find per-stack backup archives on controller
@@ -180,7 +165,6 @@
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Build valid stack archive list
           ansible.builtin.set_fact:
@@ -188,7 +172,6 @@
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Assert at least one per-stack archive exists
           ansible.builtin.assert:
@@ -197,7 +180,6 @@
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Verify per-stack archive integrity
           ansible.builtin.shell: gunzip -t "{{ item.stdout }}"
@@ -209,7 +191,6 @@
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Create per-stack staging directories
           ansible.builtin.file:
@@ -222,7 +203,6 @@
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
             - not ansible_check_mode
-          tags: [always]
 
         - name: Extract per-stack archives to staging
           ansible.builtin.shell: tar xzf "{{ item.stdout }}" -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_{{ item.item }}"
@@ -235,7 +215,6 @@
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
             - not ansible_check_mode
-          tags: [always]
 
         - name: Count per-stack extracted files
           ansible.builtin.shell: find "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_{{ item.item }}" -type f | wc -l
@@ -248,7 +227,6 @@
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
             - not ansible_check_mode
-          tags: [always]
 
         - name: Clean up per-stack staging directories
           ansible.builtin.file:
@@ -260,7 +238,6 @@
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Collect per-stack verification results
           ansible.builtin.set_fact:
@@ -280,7 +257,6 @@
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
             - not ansible_check_mode
-          tags: [always]
 
         # ===== AMP PER-INSTANCE CONFIG VERIFICATION (amp hosts) =====
         - name: Discover AMP instances for verification
@@ -293,7 +269,6 @@
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Set AMP instance list for verification
           ansible.builtin.set_fact:
@@ -304,7 +279,6 @@
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Find latest AMP instance archive on controller
           ansible.builtin.shell: >
@@ -319,7 +293,6 @@
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Build valid AMP archive list
           ansible.builtin.set_fact:
@@ -328,7 +301,6 @@
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Assert at least one AMP instance archive exists
           ansible.builtin.assert:
@@ -337,7 +309,6 @@
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Verify AMP instance archive integrity
           ansible.builtin.shell: gunzip -t "{{ item.stdout }}"
@@ -349,7 +320,6 @@
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Create per-instance AMP staging directories
           ansible.builtin.file:
@@ -362,7 +332,6 @@
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
             - not ansible_check_mode
-          tags: [always]
 
         - name: Extract AMP instance archives to staging
           ansible.builtin.shell: >
@@ -379,7 +348,6 @@
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
             - not ansible_check_mode
-          tags: [always]
 
         - name: Count per-instance AMP extracted files
           ansible.builtin.shell: >
@@ -394,7 +362,6 @@
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
             - not ansible_check_mode
-          tags: [always]
 
         - name: Clean up per-instance AMP staging directories
           ansible.builtin.file:
@@ -406,7 +373,6 @@
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Collect AMP instance verification results
           ansible.builtin.set_fact:
@@ -426,7 +392,6 @@
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
             - not ansible_check_mode
-          tags: [always]
 
         # ===== MONOLITHIC CONFIG VERIFICATION (non-docker_stacks hosts) =====
         - name: Find latest config backup on controller
@@ -440,7 +405,6 @@
             - src_raw_files is defined
             - not (_is_db_verify | bool)
             - inventory_hostname not in groups["docker_stacks"] | default([])
-          tags: [always]
 
         - name: Assert config backup file exists
           ansible.builtin.assert:
@@ -450,7 +414,6 @@
             - src_raw_files is defined
             - not (_is_db_verify | bool)
             - inventory_hostname not in groups["docker_stacks"] | default([])
-          tags: [always]
 
         - name: Verify config backup integrity
           ansible.builtin.shell: gunzip -t "{{ _config_backup_file.stdout }}"
@@ -462,7 +425,6 @@
             - src_raw_files is defined
             - not (_is_db_verify | bool)
             - inventory_hostname not in groups["docker_stacks"] | default([])
-          tags: [always]
 
         - name: Create staging directory on controller
           ansible.builtin.file:
@@ -475,7 +437,6 @@
             - not (_is_db_verify | bool)
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - not ansible_check_mode
-          tags: [always]
 
         - name: Extract backup to staging directory
           ansible.builtin.shell: tar xzf "{{ _config_backup_file.stdout }}" -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
@@ -488,7 +449,6 @@
             - not (_is_db_verify | bool)
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - not ansible_check_mode
-          tags: [always]
 
         - name: Count extracted files
           ansible.builtin.shell: find "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}" -type f | wc -l
@@ -501,7 +461,6 @@
             - not (_is_db_verify | bool)
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - not ansible_check_mode
-          tags: [always]
 
         - name: Clean up staging directory
           ansible.builtin.file:
@@ -513,7 +472,6 @@
             - src_raw_files is defined
             - not (_is_db_verify | bool)
             - inventory_hostname not in groups["docker_stacks"] | default([])
-          tags: [always]
 
         - name: Collect config verification results
           ansible.builtin.set_fact:
@@ -531,7 +489,6 @@
             - not (_is_db_verify | bool)
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - not ansible_check_mode
-          tags: [always]
 
       rescue:
         - name: Set verify failed flag
@@ -552,7 +509,6 @@
             _db_influx_source_name: "{{ item }}"
           ignore_errors: true
           when: _is_db_verify | bool
-          tags: [always]
 
         - name: Clean up per-stack staging directories on failure
           ansible.builtin.shell: rm -rf "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_"*
@@ -562,7 +518,6 @@
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Clean up per-instance AMP staging directories on failure
           ansible.builtin.shell: rm -rf "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_"*
@@ -572,7 +527,6 @@
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
-          tags: [always]
 
         - name: Clean up staging directory on failure
           ansible.builtin.file:
@@ -585,7 +539,6 @@
             - src_raw_files is defined
             - not (_is_db_verify | bool)
             - inventory_hostname not in groups["docker_stacks"] | default([])
-          tags: [always]
 
       always:
         - name: Send Discord notification for each result
@@ -605,7 +558,6 @@
                 value: "{{ verify_result.source_file | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1') }}"
               - name: "Detail"
                 value: "{{ verify_result.table_count }} {{ 'measurements' if is_influxdb | default(false) | bool else 'tables' if is_postgres | default(false) | bool or is_mariadb | default(false) | bool else 'files' }} verified"
-          tags: [always]
 
         - name: Send Discord notification for unhandled block error
           include_tasks: tasks/notify.yaml
@@ -617,7 +569,6 @@
             discord_detail: "check Semaphore logs"
             discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
-          tags: [always]
 
         - name: Log verification results to MariaDB
           include_tasks: tasks/log_mariadb.yaml
@@ -631,7 +582,6 @@
             log_type: "{{ backup_type }}"
             log_subtype: "Verify"
             log_status: "{{ 'failed' if verify_failed else 'success' }}"
-          tags: [always]
 
         - name: Log unhandled failure to MariaDB
           include_tasks: tasks/log_mariadb.yaml
@@ -643,4 +593,3 @@
             log_type: "{{ backup_type }}"
             log_subtype: "Verify"
             log_status: "failed"
-          tags: [always]

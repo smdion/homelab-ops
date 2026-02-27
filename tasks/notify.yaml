@@ -91,7 +91,6 @@
     - discord_webhook_id is defined
     - discord_webhook_token is defined
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-  tags: [always]
 
 # --- Apprise notifications (optional) ---
 # Both tasks are silent if their respective vars are not set in secrets.yaml.
@@ -122,7 +121,6 @@
     - apprise_urls is defined
     - apprise_urls | length > 0
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-  tags: [always]
 
 - name: Send Apprise notification (API)
   vars:
@@ -156,4 +154,3 @@
     - apprise_api_url is defined
     - apprise_api_url | length > 0
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-  tags: [always]

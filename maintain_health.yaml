@@ -53,15 +53,11 @@
     maintenance_description: "Scheduled health monitoring checks"
 
   pre_tasks:
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "maintain_health.yaml"
-        log_hostname: "{{ controller_fqdn }}"
-        log_run_vars: "{}"
+        pre_playbook: "maintain_health.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
 
   tasks:
 

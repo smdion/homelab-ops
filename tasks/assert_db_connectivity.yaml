@@ -19,7 +19,6 @@
   changed_when: false
   check_mode: false
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-  tags: [always]
 
 - name: Assert MariaDB logging database is reachable
   ansible.builtin.assert:
@@ -29,4 +28,3 @@
       verify the database is running, credentials are correct, and PyMySQL is installed.
       Pass -e skip_db=yes to bypass during outages.
   when: not (skip_db | default(false) | bool)
-  tags: [always]
