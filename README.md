@@ -21,7 +21,7 @@ visibility.
 
 | Category | What it does |
 |---|---|
-| **Backup** | Config/appdata archives and database dumps (Postgres, MariaDB, InfluxDB), with offline rsync to NAS |
+| **Backup** | Config/appdata archives and database dumps (Postgres, MariaDB, InfluxDB), with offline rsync to NAS and offsite sync to Backblaze B2 |
 | **Verify** | Restores each database to a temp instance and validates config archives — proves backups work before you need them |
 | **Restore** | Safety-gated database and appdata restore with pre-restore snapshots, selective per-app targeting, and coordinated cross-host recovery |
 | **Rollback** | Revert Docker containers to previous image versions — fast local re-tag or registry pull; safety-gated with per-service targeting |
@@ -118,6 +118,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `maintain_amp.yaml` | [AMP](https://cubecoders.com/AMP) game server | Version checks, journal pruning, dump cleanup |
 | `maintain_unifi.yaml` | Unifi Network (UDMP) | Service restart |
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | Wake Synology via WOL, rsync backup data from unRAID to Synology, verify shutdown |
+| `backup_offsite.yaml` | Backblaze B2 | Sync `/backup/` to B2 via rclone; runs on localhost; supports `dry_run=yes` and `bwlimit=` |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
@@ -405,6 +406,17 @@ ansible-playbook backup_hosts.yaml \
   -i inventory.yaml \
   -e hosts_variable=amp \
   -e amp_instance_filter=Minecraft01 \
+  --vault-password-file ~/.vault_pass
+
+# Sync all backups to Backblaze B2
+ansible-playbook backup_offsite.yaml \
+  -i inventory.yaml \
+  --vault-password-file ~/.vault_pass
+
+# Dry run (preview only, no uploads)
+ansible-playbook backup_offsite.yaml \
+  -i inventory.yaml \
+  -e dry_run=yes \
   --vault-password-file ~/.vault_pass
 
 # Update AMP (all instances)
