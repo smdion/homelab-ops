@@ -39,6 +39,24 @@
     group: root
     mode: "0644"
 
+- name: "Check for custom-cont-init.d — {{ _current_stack }}"
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/stacks/{{ _current_stack }}/custom-cont-init.d"
+  delegate_to: localhost
+  become: false
+  register: _custom_init_stat
+  changed_when: false
+
+- name: "Sync custom-cont-init.d scripts — {{ _current_stack }}"
+  become: true
+  ansible.builtin.copy:
+    src: "stacks/{{ _current_stack }}/custom-cont-init.d/"
+    dest: "/opt/stacks/{{ _current_stack }}/custom-cont-init.d/"
+    owner: root
+    group: root
+    mode: "0755"
+  when: _custom_init_stat.stat.exists | default(false)
+
 - name: "Check for docker-compose.override.j2 — {{ _current_stack }}"
   ansible.builtin.stat:
     path: "{{ playbook_dir }}/stacks/{{ _current_stack }}/docker-compose.override.j2"

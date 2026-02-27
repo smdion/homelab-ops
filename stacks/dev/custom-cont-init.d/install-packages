@@ -1,0 +1,46 @@
+#!/usr/bin/with-contenv bash
+# Install development tools for Claude Code / Ansible workflow.
+# Runs at container startup via LSIO custom-cont-init.d.
+# Cached via hash marker — subsequent restarts skip if script unchanged.
+
+set -e
+
+MARKER="/config/.packages-installed"
+SCRIPT_HASH=$(md5sum "$0" | cut -d' ' -f1)
+
+if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$SCRIPT_HASH" ]; then
+  echo "[custom-init] Packages already installed, skipping"
+  exit 0
+fi
+
+echo "[custom-init] Installing development packages..."
+
+apt-get update -qq
+
+apt-get install -y --no-install-recommends \
+  python3 \
+  python3-pip \
+  python3-venv \
+  nodejs \
+  npm \
+  shellcheck \
+  yamllint \
+  rsync \
+  unzip \
+  zip \
+  make \
+  wget
+
+# yq — YAML processor (single static binary)
+YQ_VERSION="v4.44.6"
+ARCH=$(dpkg --print-architecture)
+wget -qO /usr/local/bin/yq \
+  "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}"
+chmod +x /usr/local/bin/yq
+
+# Clean up apt cache
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+
+echo "$SCRIPT_HASH" > "$MARKER"
+echo "[custom-init] Development packages installed successfully"
