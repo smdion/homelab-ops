@@ -30,7 +30,6 @@
         _db_is_mariadb: "{{ is_mariadb | default(false) }}"
         _db_is_influxdb: "{{ is_influxdb | default(false) }}"
         _db_tmp_dir: "{{ backup_tmp_dir }}"
-        _db_delegate_host: "{{ _db_delegate_host | default(inventory_hostname) }}"
 
     - name: "Get file size — {{ _current_db }}"
       ansible.builtin.stat:
