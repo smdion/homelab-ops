@@ -129,7 +129,8 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
 │   ├── unraid_os.yaml               # unRAID OS backup
 │   ├── synology.yaml                # Synology NAS sync
-│   ├── vm_definitions.yaml          # Consolidated VM spec — VMID/IP/resources/stacks/deploy_ssh_key per role; derives stack_roles + vm_roles dynamically
+│   ├── vm_definitions.yaml          # Consolidated VM spec — VMID/IP/resources/stacks/deploy_ssh_key per role; derives stack_roles + host_roles dynamically
+│   ├── host_definitions.yaml       # Non-Proxmox managed hosts (VPS, legacy, NAS) — merged into host_roles/stack_roles
 │   ├── db_primary_postgres.yaml     # Primary host Postgres DB backup + db_container_deps for restore
 │   ├── db_primary_mariadb.yaml      # Primary host MariaDB backup + db_container_deps for restore
 │   ├── db_primary_influxdb.yaml     # Primary host InfluxDB backup + db_container_deps for restore
@@ -379,7 +380,7 @@ corrupts state). Thin orchestrator dispatching to three task files based on rest
 `tasks/restore_single_stack.yaml` (per-stack, loopable), `tasks/restore_selective_app.yaml`
 (single app + optional cross-host DB), and `tasks/restore_monolithic.yaml` (full host). Supports
 `stack=<name>` and `role=<name>` scope selectors for docker_stacks hosts — auto-resolves target
-host via `stack_assignments`/`vm_roles` (no `--limit` needed). Supports selective app
+host via `stack_assignments`/`host_roles` (no `--limit` needed). Supports selective app
 restore via `-e restore_app=sonarr` (convention-based: app name maps to subdirectory under
 `src_raw_files[0]`). Supports coordinated DB+appdata restore via `-e with_databases=yes` — loads
 DB vars into a `_db_vars` namespace (avoiding collision with play-level Docker vars) and uses
@@ -997,7 +998,7 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 | Var | Purpose |
 |-----|---------|
 | `stack=<name>` | Target a single stack — backup, verify, restore, deploy, rollback (auto-resolves host from `stack_assignments`) |
-| `role=<name>` | Target a specific role — backup, verify, restore, deploy, rollback, apply_role, dr_rebuild (auto-resolves host from `vm_roles`); also injects into `vm_roles` for unmapped hosts (test VMs); omit for all-roles mode in `apply_role` |
+| `role=<name>` | Target a specific role — backup, verify, restore, deploy, rollback, apply_role, dr_rebuild (auto-resolves host from `host_roles`); also injects into `host_roles` for unmapped hosts (test VMs); omit for all-roles mode in `apply_role` |
 
 **Playbook-specific scope selectors (string values, omit for default/all):**
 | Var | Purpose |
@@ -1408,7 +1409,7 @@ the `always:` logging step.
 **`tasks/resolve_scope.yaml`** — Shared scope resolution included in `pre_tasks` of
 `backup_hosts.yaml`, `verify_backups.yaml`, `restore_hosts.yaml`, `deploy_stacks.yaml`,
 `rollback_docker.yaml`, `apply_role.yaml`, and `test_restore.yaml`. Injects `role` into
-`vm_roles` for hosts not already mapped (test VMs) and sets `_role_injected=true` so templates
+`host_roles` for hosts not already mapped (test VMs) and sets `_role_injected=true` so templates
 can derive VIPs from the VM's actual subnet. Then applies `meta: end_host` filters for `stack`
 and `role` scope selectors. Playbooks resolve backward-compatible aliases (e.g.
 `deploy_stack → stack`, `restore_stack → stack`) before including this file.
@@ -2127,8 +2128,8 @@ vm_template_cores: "..."
 # Per-VM IPs and node assignments — one entry per VM in vars/vm_definitions.yaml:
 # vault_vm_<name>_ip: "..."      vault_vm_<name>_node: "..."
 # Hostnames are derived from role name + vault_vm_search_domain (no vault_vm_<name>_hostname needed).
-# vm_roles (hostname → role) and stack_roles (role → stack list) are derived dynamically
-# from vm_definitions — no manual vault entries needed for role mapping.
+# host_roles (hostname → role) and stack_roles (role → stack list) are derived dynamically
+# from vm_definitions + host_definitions — no manual vault entries needed for role mapping.
 
 # --- VPN stack (stacks/vpn/env.j2) ---
 vault_wg_internal_subnet: "..."  # WireGuard internal subnet (e.g. 10.x.x.0) — NOT a host IP
@@ -2834,7 +2835,7 @@ and recreate the test VM.
   NFS stack deleted (code-server uses NFS from core/apps); host-IP references in `env.j2` templates
   replaced with Docker service names.
 - **Phase 3 (complete)** — 3-VM role-based architecture (core/apps/dev) with keepalived VIPs;
-  role-based stack assignment via `stack_roles` + `vm_roles`; NFS exports on core/apps for
+  role-based stack assignment via `stack_roles` + `host_roles`; NFS exports on core/apps for
   dev VM workspace access; dynamic `docker_mem_limit` replaces static group_vars.
 
 Phases 2 and 3 ship as a single feature branch (`feature/host-independent-stacks`) — one deployment, one round of troubleshooting.

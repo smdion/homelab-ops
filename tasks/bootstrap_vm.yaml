@@ -73,9 +73,9 @@
 
     - name: Configure keepalived (VIP management)
       when:
-        - vm_roles is defined
-        - inventory_hostname in vm_roles
-        - vm_roles[inventory_hostname] in (docker_vips | default({}))
+        - host_roles is defined
+        - inventory_hostname in host_roles
+        - host_roles[inventory_hostname] in (docker_vips | default({}))
       block:
         - name: Install keepalived
           ansible.builtin.apt:

@@ -1,6 +1,7 @@
 # VM provisioning definitions and role derivations.
 # Each entry maps vm_name → VM spec for Proxmox API.
-# stack_roles and vm_roles are derived dynamically from vm_definitions (see bottom of file).
+# stack_roles and host_roles are derived dynamically from vm_definitions + host_definitions
+# (see bottom of file). Non-VM hosts live in vars/host_definitions.yaml.
 
 # Proxmox infrastructure defaults — shared across all VMs.
 # pve_api_user, pve_api_token_id, pve_api_token_secret, pve_vm_password
@@ -129,39 +130,6 @@ vm_definitions:
     vm_disk_gb: 100
     pve_target_node: "{{ vault_vm_amp_node }}"
 
-  tantiveiv:
-    vm_id: 101
-    vm_name: tantiveiv
-    vm_mac: "DA:7F:6B:40:F9:A5"       # static MAC — stable Unifi device identity across rebuilds
-    vm_hostname: "tantiveiv.{{ vault_vm_search_domain }}"
-    vm_ip: 10.10.10.15
-    vm_cores: 4
-    vm_memory_mb: 16384
-    vm_disk_gb: 64
-    pve_target_node: independence
-  
-  odyssey:
-    vm_id: 102
-    vm_name: odyssey
-    vm_mac: "0A:E1:E4:ED:EE:B7"       # static MAC — stable Unifi device identity across rebuilds
-    vm_hostname: "odyssey.{{ vault_vm_search_domain }}"
-    vm_ip: 10.10.10.18
-    vm_cores: 4
-    vm_memory_mb: 16384
-    vm_disk_gb: 64
-    pve_target_node: independence
-  
-  vps:
-    vm_id:
-    vm_name: vps
-    vm_mac:
-    vm_hostname: "vps.{{ vault_vm_search_domain }}"
-    vm_ip: 10.253.100.1
-    vm_cores:
-    vm_memory_mb:
-    vm_disk_gb:
-    pve_target_node:
-
   # VM for testing restore on CephFS-backed /opt (test_restore.yaml -e vm_name=cephfs-migrate-test).
   # Draws a slot from the same test-vm pool via resolve_test_vm_index.yaml (no fixed VMID).
   # Same test VLAN isolation as test-vm — CephFS monitor access via "Allow Test to Ceph" zone policy
@@ -233,36 +201,47 @@ vm_definitions:
 #                                        # must be non-empty list or absent entirely (no stacks: [])
 #   deploy_ssh_key: true                 # install ansible SSH key during bootstrap (default: false)
 
-# Derived from vm_definitions — replaces static dicts that were maintained separately.
-# These are evaluated lazily by Ansible when accessed.
+# Derived from vm_definitions + host_definitions — replaces static dicts that were
+# maintained separately. Evaluated lazily by Ansible when accessed.
+# host_definitions | default({}) allows playbooks that don't load host_definitions.yaml
+# to still use these derivations (they produce VM-only results).
 
-# stack_roles: role → ordered stack list (replaces static dict formerly in docker_stacks.yaml).
-# Only VMs with a stacks key are included.
+# stack_roles: role → ordered stack list.
+# Includes all entries with a stacks key from both vm_definitions and host_definitions.
 stack_roles: >-
   {{ dict(
-    vm_definitions | dict2items
-    | selectattr('value.stacks', 'defined')
+    (vm_definitions | dict2items
+     | selectattr('value.stacks', 'defined') | list
+     + host_definitions | default({}) | dict2items
+     | selectattr('value.stacks', 'defined') | list)
     | map(attribute='key')
     | zip(
-      vm_definitions | dict2items
-      | selectattr('value.stacks', 'defined')
+      (vm_definitions | dict2items
+       | selectattr('value.stacks', 'defined') | list
+       + host_definitions | default({}) | dict2items
+       | selectattr('value.stacks', 'defined') | list)
       | map(attribute='value.stacks')
     )
   ) }}
 
-# vm_roles: hostname → role (replaces vault_vm_roles).
-# Production Docker VMs only — excludes test/ephemeral VMs (vm_vlan_tag set)
+# host_roles: hostname → role (replaces vault_vm_roles).
+# All production Docker hosts — excludes test/ephemeral VMs (vm_vlan_tag set)
 # and basic VMs without stacks (e.g. amp).
-vm_roles: >-
+# Merges vm_definitions (Proxmox VMs) + host_definitions (VPS, NAS, legacy hosts).
+host_roles: >-
   {{ dict(
-    vm_definitions | dict2items
-    | rejectattr('value.vm_vlan_tag', 'defined')
-    | selectattr('value.stacks', 'defined')
+    (vm_definitions | dict2items
+     | rejectattr('value.vm_vlan_tag', 'defined')
+     | selectattr('value.stacks', 'defined') | list
+     + host_definitions | default({}) | dict2items
+     | selectattr('value.stacks', 'defined') | list)
     | map(attribute='value.vm_hostname')
     | zip(
-      vm_definitions | dict2items
-      | rejectattr('value.vm_vlan_tag', 'defined')
-      | selectattr('value.stacks', 'defined')
+      (vm_definitions | dict2items
+       | rejectattr('value.vm_vlan_tag', 'defined')
+       | selectattr('value.stacks', 'defined') | list
+       + host_definitions | default({}) | dict2items
+       | selectattr('value.stacks', 'defined') | list)
       | map(attribute='key')
     )
   ) }}
