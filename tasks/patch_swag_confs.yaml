@@ -25,6 +25,16 @@
 - name: Define SWAG site-conf patches
   ansible.builtin.set_fact:
     _swag_conf_dir: "{{ docker_appsdir }}/swag/nginx/site-confs"
+    _swag_nginx_dir: "{{ docker_appsdir }}/swag/nginx"
+    # Authentik forward-auth includes (nginx/ root, not site-confs/)
+    # The outpost config references old host IP — must use Docker service name + container port.
+    _swag_include_patches:
+      - file: authentik-server.conf
+        replacements:
+          - old: "set $upstream_authentik 10.10.10.15"
+            new: "set $upstream_authentik authentik"
+          - old: "$upstream_authentik:9001"
+            new: "$upstream_authentik:9000"
     # Same VM as SWAG (core) — old IP → Docker service name, host port → container port
     _swag_core_patches:
       - file: auth.conf
@@ -113,11 +123,28 @@
   failed_when: false
   register: _swag_patch_results
 
+- name: Patch SWAG nginx includes (authentik forward-auth)
+  ansible.builtin.replace:
+    path: "{{ _swag_nginx_dir }}/{{ _patch_item.0.file }}"
+    regexp: "{{ _patch_item.1.old | regex_escape() }}"
+    replace: "{{ _patch_item.1.new }}"
+  loop: "{{ _swag_include_patches | subelements('replacements') }}"
+  loop_control:
+    loop_var: _patch_item
+    label: "{{ _patch_item.0.file }}: {{ _patch_item.1.old }} → {{ _patch_item.1.new }}"
+  become: true
+  failed_when: false
+  register: _swag_include_patch_results
+
 - name: Report SWAG patches applied
   ansible.builtin.debug:
     msg: >-
       SWAG patches: {{ _swag_patch_results.results
+        | selectattr('changed', 'equalto', true) | list | length }} +
+      {{ _swag_include_patch_results.results
         | selectattr('changed', 'equalto', true) | list | length }} applied,
       {{ _swag_patch_results.results
+        | selectattr('changed', 'equalto', false) | list | length }} +
+      {{ _swag_include_patch_results.results
         | selectattr('changed', 'equalto', false) | list | length }} skipped
       (already patched or file missing)
