@@ -18,9 +18,24 @@
 - name: Assert MariaDB logging database is reachable
   include_tasks: tasks/assert_db_connectivity.yaml
 
+- name: Format run vars as CLI flags
+  ansible.builtin.set_fact:
+    _formatted_run_vars: >-
+      {{ (pre_run_vars | default('{}') | from_json).items()
+         | map('join', '=')
+         | map('regex_replace', '^', '-e ')
+         | join(' ')
+         if (pre_run_vars | default('{}') | from_json)
+         else '' }}
+
+- name: Display run context
+  ansible.builtin.debug:
+    msg: "{{ pre_playbook }} on {{ pre_hostname | default(inventory_hostname) }} {{ _formatted_run_vars }}"
+  when: _formatted_run_vars | length > 0
+
 - name: Log playbook run context to MariaDB
   include_tasks: tasks/log_run_context.yaml
   vars:
     log_playbook: "{{ pre_playbook }}"
     log_hostname: "{{ pre_hostname | default(inventory_hostname) }}"
-    log_run_vars: "{{ pre_run_vars | default('{}') }}"
+    log_run_vars: "{{ _formatted_run_vars }}"
