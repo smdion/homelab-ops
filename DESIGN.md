@@ -152,7 +152,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── db_restore.yaml              # Restore a single DB from backup — verify (temp DB) or production overwrite, all engines
 │   ├── db_count.yaml                # Count tables/measurements in a database — PostgreSQL/MariaDB/InfluxDB
 │   ├── db_drop_temp.yaml            # Drop a database and clean up container temp files — all engines
-│   ├── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, up)
+│   ├── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, pull, up); retries transient image pull failures
 │   ├── provision_vm.yaml            # Provision VM on Proxmox via cloud-init template clone + API config
 │   ├── resolve_or_provision_vm.yaml # Resolve existing test VM or provision new one — shared by test/verify playbooks
 │   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS server/client, CephFS (test VMs only)
@@ -168,7 +168,8 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── verify_app_http.yaml         # Per-app HTTP endpoint verification (used by restore_app.yaml and test_backup_restore.yaml)
 │   ├── backup_single_amp_instance.yaml  # Per-AMP-instance backup loop body (stop→archive→verify→fetch→start)
 │   ├── restore_single_amp_instance.yaml # Per-AMP-instance restore loop body (stop→remove→extract→start); mirrors backup_single_amp_instance
-│   ├── rollback_images.yaml         # Shared image rollback — re-tag local or pull from registry (no compose up)
+│   ├── patch_swag_confs.yaml        # Patch SWAG nginx configs after restore — old IPs → Docker DNS (same-VM) / VIPs (cross-VM) + authentik outpost
+│   ├── rollback_images.yaml         # Shared image rollback — re-tag local or pull from registry; retries transient pull failures (no compose up)
 │   ├── rollback_restore_stack.yaml  # Per-stack appdata restore during rollback with_backup (find→verify→extract→clean)
 │   ├── rollback_restore_dbs.yaml    # Per-app DB restore during rollback with_backup (load config→find dumps→restore→clean)
 │   ├── verify_docker_health.yaml    # Poll Docker container health until all healthy or timeout
@@ -204,7 +205,7 @@ history, restore results, playbook runs) belongs in the database.
 ├── build_ubuntu.yaml              # Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH config
 ├── restore_amp.yaml               # AMP instance restore — stop instance(s), replace data dir from archive, restart; per-instance or all; requires confirm=yes
 ├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
-├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert; vm_name=cephfs-migrate-test tests CephFS-backed /opt
+├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert; vm_name defaults to test-vm; role can substitute for source_host
 ├── test_backup_restore.yaml          # Test all app_info apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
 ├── migrate_appdata_to_cephfs.yaml # One-shot migration of /opt from local RBD disk to CephFS shared storage; requires -e vm_name=<key> -e confirm=yes
 ├── verify_cephfs.yaml             # Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires -e vm_name=<key>
@@ -2630,11 +2631,14 @@ The playbook:
 are production VMs. Only `test-vm` (or a custom ephemeral key) is appropriate.
 
 ```bash
-# Test any host's full restore cycle (disposable VM, auto-reverts on completion)
-ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
+# Test a role's full restore cycle (vm_name defaults to test-vm; role resolves stack list)
+ansible-playbook test_restore.yaml -e role=core --vault-password-file ~/.vault_pass
 
-# DR mode — same playbook, keeps the VM running after restore (no revert)
-ansible-playbook test_restore.yaml -e vm_name=test-vm -e source_host=<source-fqdn> -e dr_mode=yes --vault-password-file ~/.vault_pass
+# DR mode — keeps the VM running after restore (no revert)
+ansible-playbook test_restore.yaml -e role=core -e dr_mode=yes --vault-password-file ~/.vault_pass
+
+# Explicit source_host (alternative to role — looks up stacks from stack_assignments)
+ansible-playbook test_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
 
 # Test all app_info apps on a disposable VM (per-app DB + appdata restore, health check, revert)
 ansible-playbook test_backup_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass

@@ -122,7 +122,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
 | `maintain_pve.yaml` | Proxmox + PBS | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; VM snapshot staleness check (>14d Discord warning); PBS backup task error check (last 2 days via `proxmox-backup-manager`); Discord + MariaDB logging |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
-| `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, verifies health, reverts to snapshot; DR mode (`dr_mode=yes`) keeps restored state; `vm_name=cephfs-migrate-test` tests CephFS-backed `/opt`. CephFS-backed test VMs get explicit appdata cleanup before each run (PVE snapshot revert alone does not clean CephFS state) |
+| `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, patches SWAG configs, verifies health, reverts to snapshot; `vm_name` defaults to `test-vm`; `role` can substitute for `source_host`; DR mode (`dr_mode=yes`) keeps restored state. CephFS-backed test VMs get explicit appdata cleanup before each run (PVE snapshot revert alone does not clean CephFS state) |
 | `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_info` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope. CephFS-backed test VMs get explicit appdata cleanup before each run |
 | `migrate_appdata_to_cephfs.yaml` | Proxmox + CephFS | One-shot migration of `/opt` from local RBD to CephFS — PVE snapshot safety net, rsync, remount, auto-rollback on failure; requires `-e vm_name=<key> -e confirm=yes` |
 | `verify_cephfs.yaml` | Proxmox + CephFS | Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires `-e vm_name=<key>` |
@@ -202,7 +202,7 @@ for platforms you don't have are automatically skipped.
 ├── download_videos.yaml         # MeTube/yt-dlp automation
 ├── deploy_stacks.yaml           # Docker stack deploy from Git — .env templating, compose copy, validate, start
 ├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
-├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks); vm_name=cephfs-migrate-test tests CephFS-backed /opt
+├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks); vm_name defaults to test-vm; role can substitute for source_host
 ├── test_backup_restore.yaml        # Test all app_info apps on disposable VM — per-app restore from backup archives, OOM recovery, Discord summary
 ├── migrate_appdata_to_cephfs.yaml  # One-shot /opt migration to CephFS with PVE snapshot safety net
 ├── verify_cephfs.yaml           # Verify CephFS mount — checks mount source, writes/reads marker file
@@ -603,35 +603,30 @@ ansible-playbook test_backup_restore.yaml \
 > external connections are live. See `DESIGN.md` for the VLAN isolation setup (`setup_test_network.yaml`).
 
 ```bash
-# Full restore test — provisions or reuses a disposable VM, restores all stacks, verifies health
+# Full restore test by role (vm_name defaults to test-vm)
 ansible-playbook test_restore.yaml \
   -i inventory.yaml \
-  -e vm_name=test-vm \
-  -e source_host=myhost.home.local \
+  -e role=core \
   --vault-password-file ~/.vault_pass
 
-# Restore a single app only
+# Same thing with explicit source_host (alternative to role)
 ansible-playbook test_restore.yaml \
   -i inventory.yaml \
-  -e vm_name=test-vm \
   -e source_host=myhost.home.local \
-  -e restore_app=authentik \
-  --vault-password-file ~/.vault_pass
-
-# Restore a single stack only
-ansible-playbook test_restore.yaml \
-  -i inventory.yaml \
-  -e vm_name=test-vm \
-  -e source_host=myhost.home.local \
-  -e deploy_stack=auth \
   --vault-password-file ~/.vault_pass
 
 # DR recovery mode — restore and keep state (no snapshot revert at end)
 ansible-playbook test_restore.yaml \
   -i inventory.yaml \
-  -e vm_name=test-vm \
-  -e source_host=myhost.home.local \
+  -e role=core \
   -e dr_mode=yes \
+  --vault-password-file ~/.vault_pass
+
+# Restore a single stack only
+ansible-playbook test_restore.yaml \
+  -i inventory.yaml \
+  -e source_host=myhost.home.local \
+  -e deploy_stack=auth \
   --vault-password-file ~/.vault_pass
 
 ```
