@@ -806,7 +806,7 @@ Templates are organized into views (tabs in the Semaphore UI) by verb:
 | Updates | 6 | `Update —` |
 | Maintenance | 7 | `Maintain —` |
 | Downloads | 2 | `Download —` |
-| Verify | 10 | `Verify —` |
+| Verify | 11 | `Verify —` |
 | Restore | 14 | `Restore —`, `Rollback —`, `Test —` |
 | Deploy | 8 | `Deploy —`, `Build —`, `Apply —`, `DR —` |
 | Setup | 3 | `Setup —` |
@@ -923,21 +923,22 @@ schedule are ad-hoc only — document that intent in a comment if intentional.
 <details>
 <summary>Weekly schedule at a glance</summary>
 
-**Every day (not shown in table):** Secondary PG Backup + Unifi Restart @ 1am · Docker Cache Flush @ 5am · Health Check @ 7am & 7pm · Download Videos every 4h
+**Every day (not shown in table):** Secondary PG Backup + Unifi Restart @ 1am · Docker Prune + Cache Flush @ 5am · Health Check @ 7am & 7pm · Download Videos every 4h
 
 | Time | Sun | Mon | Tue | Wed | Thu | Fri | Sat |
 |------|-----|-----|-----|-----|-----|-----|-----|
-| 1am  | Docker Stacks Bkp | Verify Proxmox | — | — | unRAID Bkp | — | MariaDB Bkp |
-| 2am  | Maintain PVE | — | — | — | — | — | — |
+| 1am  | Docker Stacks Bkp | Verify Proxmox | — | — | unRAID Bkp | — | — |
+| 2am  | Maintain PVE | — | — | — | — | — | MariaDB Bkp |
 | 3am  | Docker Run Bkp | Proxmox Update | Docker Run Update | Ubuntu Update | AMP Bkp · PiKVM Update | Unifi Net Bkp | PG Primary Bkp · AMP Update |
 | 4am  | Verify Docker Stacks | Verify Sec PG | Docker Stacks Update | — | Verify unRAID | Unifi Protect Bkp | Verify MariaDB |
+| 5am  | — | — | — | — | Verify AMP | — | — |
 | 6am  | Verify Docker Run | — | — | — | — | — | Verify PG Primary |
 | 8am  | — | AMP Cleanup | — | — | — | — | — |
 | 11pm | Proxmox Bkp | PiKVM Bkp | — | — | — | — | — |
 
-**Monthly (1st):** unRAID tree index @ 2am · Docker Cleanup @ 3am · Logging DB Cleanup @ 5am
+**Monthly (1st):** unRAID tree index @ 2am · Logging DB Cleanup @ 5am
 
-**Intentionally unscheduled:** Restore · Rollback · Deploy · Build · Setup · Test · Download [On Demand] · Semaphore Cleanup *(manual — preserve failed job logs)* · InfluxDB templates *(paused — OOM)*
+**Intentionally unscheduled:** Restore · Rollback · Deploy · Build · Apply · DR · Setup · Test · Download [On Demand] · Semaphore Cleanup *(manual — preserve failed job logs)* · InfluxDB templates *(paused — OOM)*
 
 </details>
 
