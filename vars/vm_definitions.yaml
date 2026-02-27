@@ -130,6 +130,23 @@ vm_definitions:
     vm_disk_gb: 100
     pve_target_node: "{{ vault_vm_amp_node }}"
 
+  # Native graphical desktop VM — ubuntu-desktop-minimal installed during bootstrap.
+  # Access via Proxmox VNC (pve_args) through Guacamole + Authentik groups.
+  # No stacks — basic VM (OS + Network layers only via apply_role).
+  # Vault secrets required before provisioning: vault_vm_desktop_ip, vault_vm_desktop_node
+  desktop:
+    vm_id: 303
+    vm_name: desktop
+    vm_mac: "02:00:00:00:01:07"       # static MAC — stable Unifi device identity across rebuilds
+    vm_hostname: "desktop.{{ vault_vm_search_domain }}"
+    vm_ip: "{{ vault_vm_desktop_ip }}"
+    vm_cores: 4
+    vm_memory_mb: 8192
+    vm_disk_gb: 64
+    pve_target_node: "{{ vault_vm_desktop_node }}"
+    deploy_ssh_key: true
+    pve_args: "-vnc 0.0.0.0:XX"       # set display number before provisioning (e.g. :78 = port 5978)
+
   # VM for testing restore on CephFS-backed /opt (test_restore.yaml -e vm_name=cephfs-migrate-test).
   # Draws a slot from the same test-vm pool via resolve_test_vm_index.yaml (no fixed VMID).
   # Same test VLAN isolation as test-vm — CephFS monitor access via "Allow Test to Ceph" zone policy
@@ -196,6 +213,8 @@ vm_definitions:
 #   vm_gateway: "192.0.2.1"             # overrides global vm_gateway (used in cloud-init ipconfig0)
 #   vm_dns: "8.8.8.8,8.8.4.4"          # overrides global vm_dns (comma-separated, no spaces)
 #   vm_vlan_tag: 88                      # if defined, sets VLAN tag on net0 via PVE API
+#   pve_args: "-vnc 0.0.0.0:77"         # QEMU args — applied via PVE API during provisioning
+#                                        # e.g. VNC listener for Guacamole access (display :77 = port 5977)
 #
 #   stacks: [infra, databases, auth]     # ordered stack list — defines this VM as a Docker VM
 #                                        # must be non-empty list or absent entirely (no stacks: [])

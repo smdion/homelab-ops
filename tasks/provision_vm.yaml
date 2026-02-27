@@ -237,6 +237,20 @@
       when: (_vm.vm_mac is defined or _vm.vm_vlan_tag is defined) and not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
+    # Configure QEMU args (e.g. VNC listener for Guacamole access)
+    - name: Configure VM QEMU args
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
+        method: PUT
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        body_format: form-urlencoded
+        body:
+          args: "{{ _vm.pve_args }}"
+        validate_certs: false
+      when: _vm.pve_args is defined and not ansible_check_mode
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
     # Start VM
     - name: Start VM
       community.general.proxmox_kvm:
