@@ -129,6 +129,28 @@ vm_definitions:
     vm_disk_gb: 100
     pve_target_node: "{{ vault_vm_amp_node }}"
 
+  tantiveiv:
+    vm_id: 101
+    vm_name: tantiveiv
+    vm_mac: "DA:7F:6B:40:F9:A5"       # static MAC — stable Unifi device identity across rebuilds
+    vm_hostname: "tantiveiv.{{ vault_vm_search_domain }}"
+    vm_ip: 10.10.10.15
+    vm_cores: 4
+    vm_memory_mb: 16384
+    vm_disk_gb: 64
+    pve_target_node: independence
+  
+  odyssey:
+    vm_id: 102
+    vm_name: odyssey
+    vm_mac: "0A:E1:E4:ED:EE:B7"       # static MAC — stable Unifi device identity across rebuilds
+    vm_hostname: "odyssey.{{ vault_vm_search_domain }}"
+    vm_ip: 10.10.10.18
+    vm_cores: 4
+    vm_memory_mb: 16384
+    vm_disk_gb: 64
+    pve_target_node: independence
+
   # VM for testing restore on CephFS-backed /opt (test_restore.yaml -e vm_name=cephfs-migrate-test).
   # Draws a slot from the same test-vm pool via resolve_test_vm_index.yaml (no fixed VMID).
   # Same test VLAN isolation as test-vm — CephFS monitor access via "Allow Test to Ceph" zone policy
