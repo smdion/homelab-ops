@@ -548,10 +548,12 @@ deletes the temp archive regardless of outcome — containers are always brought
 the backup fails. Integrity verification is deferred to `verify_backups.yaml`.
 
 **`tasks/backup_single_db.yaml`** — Per-database backup loop body called by `backup_databases.yaml`
-(standalone) and `backup_hosts.yaml` (combined mode via `with_databases=yes`, using `delegate_to`
-to run on the DB host). Loop var: `_current_db`. Delegates to `db_dump.yaml`, fetches the dump to
-the controller, and appends a success/failure record to `combined_results`. Inherits engine flags
-(`is_postgres`, `is_mariadb`, `is_influxdb`), credentials, and paths from the caller's scope.
+(standalone) and `backup_hosts.yaml` (combined mode via `with_databases=yes`). Loop var:
+`_current_db`. Calls `db_dump.yaml`, fetches the dump to the controller, and appends a
+success/failure record to `combined_results`. Combined mode passes `_db_delegate_host` to
+run dump/stat/fetch on the DB host; standalone mode omits it (defaults to `inventory_hostname`).
+Inherits engine flags (`is_postgres`, `is_mariadb`, `is_influxdb`), credentials, and paths from
+the caller's scope.
 
 **`tasks/db_dump.yaml`** — Single-database dump engine abstraction. Accepts `_db_name`,
 `_db_container`, `_db_username`, `_db_password`, `_db_dest_file`, and engine flags

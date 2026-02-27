@@ -600,7 +600,7 @@
                 is_postgres: false
                 is_influxdb: false
                 combined_results: "{{ _db_combined_results }}"
-              delegate_to: "{{ groups['db_primary_mariadb'][0] }}"
+                _db_delegate_host: "{{ groups['db_primary_mariadb'][0] }}"
 
             # --- Postgres dumps ---
             - name: Back up Postgres databases
@@ -619,7 +619,7 @@
                 is_postgres: true
                 is_influxdb: false
                 combined_results: "{{ _db_combined_results }}"
-              delegate_to: "{{ groups['db_primary_postgres'][0] }}"
+                _db_delegate_host: "{{ groups['db_primary_postgres'][0] }}"
 
             # --- Sync accumulated results back ---
             - name: Capture combined DB results
