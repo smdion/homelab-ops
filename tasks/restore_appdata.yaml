@@ -10,9 +10,9 @@
 # Sets:
 #   _restore_detail fact for caller's logging
 
-- name: Copy archive to target
+- name: Copy restore archive to target host
   block:
-    - name: Copy archive via rsync
+    - name: Copy restore archive via rsync
       ansible.builtin.synchronize:
         src: "{{ _restore_archive_path }}"
         dest: "{{ backup_tmp_dir }}/restore.tar.gz"
@@ -38,7 +38,7 @@
   changed_when: false
   when: not ansible_check_mode
 
-- name: Extract archive (selective)
+- name: Extract {{ _restore_extract_path | default('') }} from archive (selective)
   ansible.builtin.shell: |
     {{ _gz_detect }}
     tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore.tar.gz -C {{ _archive_extract_root.stdout }} "{{ _restore_extract_path }}"
@@ -47,7 +47,7 @@
     - _restore_extract_path | default('') | length > 0
     - not ansible_check_mode
 
-- name: Extract archive (full)
+- name: Extract full appdata archive
   ansible.builtin.shell: |
     {{ _gz_detect }}
     tar -I "$_gz" -xf {{ backup_tmp_dir }}/restore.tar.gz -C {{ _archive_extract_root.stdout }}
@@ -56,7 +56,7 @@
     - _restore_extract_path | default('') | length == 0
     - not ansible_check_mode
 
-- name: Set restore detail
+- name: Record appdata restore completion detail
   ansible.builtin.set_fact:
     _restore_detail: "{{ _restore_app_name | default('full') }} restored"
   when: not ansible_check_mode

@@ -10,14 +10,14 @@
 # Requires (unRAID mode):
 #   _docker_containers — register from docker_stop.yaml
 
-- name: Start containers (selective)
+- name: Start named containers (selective)
   become: true
   ansible.builtin.command:
     argv: "{{ ['docker', 'start'] + _docker_selective_containers }}"
   when: _docker_selective_containers is defined
   ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
 
-- name: Start Docker stacks (selective)
+- name: Start Docker compose stacks (selective)
   become: true
   community.docker.docker_compose_v2:
     project_src: "/opt/stacks/{{ item }}"
@@ -33,7 +33,7 @@
   until: _docker_start_selective is not failed
   ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
 
-- name: Start Docker stacks (all)
+- name: Start all Docker compose stacks on {{ inventory_hostname }}
   become: true
   community.docker.docker_compose_v2:
     project_src: "/opt/stacks/{{ item }}"
@@ -50,7 +50,7 @@
   until: _docker_start_stacks is not failed
   ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
 
-- name: Start Docker containers (unRAID)
+- name: Start Docker containers on unRAID
   become: true
   ansible.builtin.command:
     argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"

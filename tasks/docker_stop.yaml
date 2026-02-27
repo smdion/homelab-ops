@@ -9,13 +9,13 @@
 # Registers:
 #   _docker_containers — unRAID container list (referenced by docker_start.yaml)
 
-- name: Stop containers (selective)
+- name: Stop named containers (selective)
   become: true
   ansible.builtin.command:
     argv: "{{ ['docker', 'stop'] + _docker_selective_containers }}"
   when: _docker_selective_containers is defined
 
-- name: Stop Docker stacks (selective)
+- name: Stop Docker compose stacks (selective)
   become: true
   community.docker.docker_compose_v2:
     project_src: "/opt/stacks/{{ item }}"
@@ -26,7 +26,7 @@
     - _docker_selective_stacks is defined
     - inventory_hostname in groups["docker_stacks"] | default([])
 
-- name: Stop Docker stacks (all)
+- name: Stop all Docker compose stacks on {{ inventory_hostname }}
   become: true
   community.docker.docker_compose_v2:
     project_src: "/opt/stacks/{{ item }}"
@@ -38,7 +38,7 @@
     - inventory_hostname in groups["docker_stacks"] | default([])
     - inventory_hostname in (stack_assignments | default({}))
 
-- name: Get running containers (unRAID)
+- name: Get running Docker containers on unRAID
   become: true
   ansible.builtin.shell: |
     docker ps --format {% raw %}'{{.Names}}'{% endraw %}{% if _docker_exclude_containers | default([]) | length > 0 %} | grep -viE '({{ _docker_exclude_containers | join("|") }})'{% endif %}
@@ -51,7 +51,7 @@
   changed_when: false
   check_mode: false
 
-- name: Stop Docker containers (unRAID)
+- name: Stop Docker containers on unRAID
   become: true
   ansible.builtin.command:
     argv: "{{ ['docker', 'stop'] + _docker_containers.stdout_lines }}"
