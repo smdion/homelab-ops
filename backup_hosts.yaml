@@ -544,20 +544,28 @@
             - inventory_hostname in groups["docker_stacks"] | default([]) or
               inventory_hostname in groups["docker_run"] | default([])
 
-        - name: Run combined database backups (once across all serial batches)
-          when:
-            - with_databases | default('') == 'yes'
-            - inventory_hostname in groups["docker_stacks"] | default([]) or
-              inventory_hostname in groups["docker_run"] | default([])
-            - not (hostvars['localhost']['_combined_db_done'] | default(false))
-            - not ansible_check_mode
-          block:
-            - name: Mark combined DB backup as started
-              ansible.builtin.set_fact:
-                _combined_db_done: true
-              delegate_to: localhost
-              delegate_facts: true
+        # Evaluate the guard once as a local fact. Block when: is re-evaluated
+        # per task — if the flag-set were inside the block, subsequent tasks
+        # would see _combined_db_done=true and skip.
+        - name: Check if combined DB backup should run on this batch
+          ansible.builtin.set_fact:
+            _should_run_combined_db: >-
+              {{ with_databases | default('') == 'yes'
+                 and (inventory_hostname in groups["docker_stacks"] | default([])
+                      or inventory_hostname in groups["docker_run"] | default([]))
+                 and not (hostvars['localhost']['_combined_db_done'] | default(false))
+                 and not ansible_check_mode }}
 
+        - name: Mark combined DB backup as started
+          ansible.builtin.set_fact:
+            _combined_db_done: true
+          delegate_to: localhost
+          delegate_facts: true
+          when: _should_run_combined_db | bool
+
+        - name: Run combined database backups
+          when: _should_run_combined_db | bool
+          block:
             - name: Load MariaDB config vars
               ansible.builtin.include_vars:
                 file: vars/db_primary_mariadb.yaml
