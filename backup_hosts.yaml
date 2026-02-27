@@ -113,6 +113,7 @@
         backup_failed: false
         _stack_backup_results: []
         _amp_backup_results: []
+        _original_backup_name: "{{ backup_name }}"
         _target_stacks: >-
           {{ [stack] if stack is defined
              else backup_stack_order[inventory_hostname]
@@ -605,7 +606,7 @@
         - name: Send per-stack Discord notification
           include_tasks: tasks/notify.yaml
           vars:
-            discord_name: "{{ backup_name }}"
+            discord_name: "{{ _original_backup_name }}"
             discord_operation: "Backup"
             discord_status: >-
               {{ 'successful' if not (backup_failed | bool)
@@ -675,7 +676,7 @@
             - (_docker_start_stacks is defined and _docker_start_stacks is failed) or
               (_docker_start_containers is defined and _docker_start_containers is failed)
           vars:
-            discord_name: "{{ backup_name }}"
+            discord_name: "{{ _original_backup_name }}"
             discord_operation: "Backup"
             discord_status: "failed"
             discord_detail: "containers could not be restarted"
