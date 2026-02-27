@@ -30,7 +30,8 @@ visibility.
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
 | **Deploy** | Docker stacks from Git — templates `.env` from vault, copies compose files, validates, and starts stacks in dependency order; Grafana dashboard + datasource via API with automatic threshold syncing |
 | **Build** | Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH hardening, UFW firewall; create, destroy, snapshot, or revert |
-| **CephFS Migration** | Move Docker appdata from local RBD disk to CephFS shared storage — data survives VM destruction; PVE snapshot safety net with auto-rollback on failure |
+| **Apply Role** | Idempotent VM reconciliation — make a VM match its `vm_definitions` spec across OS, network, Docker, stacks, and verification layers; all-roles or single-role targeting |
+| **DR Rebuild** | Disaster recovery rebuild — provision VM → bootstrap → restore backups → deploy stacks → health check; sequential multi-role via `scripts/dr_rebuild_all.sh` |
 | **Test Restore** | End-to-end DR simulation on a disposable Proxmox VM — restores a source host's full appdata, deploys all stacks, verifies container health, reverts to clean state; `dr_mode=yes` keeps the restored state for real DR recovery |
 | **Test Backup Restore** | Per-app backup integrity test on a disposable VM — deploys stacks fresh, then for each app: stops the stack, restores DB + appdata from the backup archive, restarts, and asserts HTTP health; OOM auto-recovery doubles VM RAM and retries |
 
@@ -120,6 +121,8 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
+| `setup_test_network.yaml` | Unifi UDM | One-time test VLAN creation for VM isolation; prints zone policy settings for manual firewall step |
+| `verify_isolation.yaml` | Proxmox + Unifi | Verify test VLAN isolation — provisions a bare VM, runs network checks (production blocked, CephFS + internet allowed), destroys VM |
 | `maintain_pve.yaml` | Proxmox + PBS | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; VM snapshot staleness check (>14d Discord warning); PBS backup task error check (last 2 days via `proxmox-backup-manager`); Discord + MariaDB logging |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW, optional QEMU args (`pve_args`) and desktop env; supports create, destroy, snapshot, and revert |
 | `dr_rebuild.yaml` | Proxmox + `docker_stacks` | DR rebuild — provision VM → bootstrap → restore backups → deploy stacks → health check; `-e role=core\|apps\|dev`; `scripts/dr_rebuild_all.sh` for multi-role sequential execution |
@@ -168,59 +171,82 @@ for platforms you don't have are automatically skipped.
 
 ```
 ├── group_vars/
-│   └── all.yaml                  # Shared defaults (remote_tmp, python interpreter)
+│   ├── all.yaml                  # Shared defaults (remote_tmp, python interpreter)
+│   └── pikvm.yaml                # PiKVM group vars
 ├── vars/
-│   ├── secrets.yaml             # Vault-encrypted secrets (not committed unencrypted)
+│   ├── secrets.yaml              # Vault-encrypted secrets (not committed unencrypted)
 │   ├── secrets.yaml.example      # Template — copy and fill in your values
 │   ├── example.yaml              # Template — copy for new platform vars files
 │   ├── semaphore_check.yaml      # Health thresholds, controller config, retention
-│   └── <platform>.yaml           # One per platform (proxmox, docker_stacks, etc.)
-├── tasks/                       # Shared task files (Discord notifications, DB logging, assertions, DB engine abstraction, per-stack/per-DB backup orchestration, VM provisioning, Docker management)
-├── sql/
-│   └── init.sql                 # Database schema — run once to create all tables
-├── grafana/
-│   └── grafana.json             # Grafana dashboard (deployed via deploy_grafana.yaml or manual import)
-├── files/
-│   ├── get_push_epoch.sh       # Helper script for Docker image age checks
-│   ├── grafana.png             # Grafana dashboard screenshot
-│   ├── semaphore.png           # Semaphore Task Templates screenshot
-│   └── alert_*.svg             # Discord notification mockups for README
-├── stacks/                      # Docker stack definitions — one subdirectory per functional group
-│   ├── <stack>/docker-compose.yaml  # Plain YAML compose file, committed to Git
-│   └── <stack>/env.j2               # Jinja2 template rendered to .env at deploy time from vault
+│   ├── vm_definitions.yaml       # Consolidated VM specs (stacks, VIPs, deploy config)
+│   ├── host_definitions.yaml     # NAS/appliance definitions (unRAID, Synology)
+│   ├── app_definitions.yaml      # Per-app metadata (DB mappings, health endpoints)
+│   ├── docker_stacks.yaml        # Docker stack host config (backup paths, display names)
+│   ├── docker_vips.yaml          # VIP-to-role mapping for keepalived
+│   └── <platform>.yaml           # One per platform (proxmox, amp, unraid_os, etc.)
+├── tasks/                        # 47 shared task files — assertions, DB ops, backup/restore
+│                                 #   orchestration, VM provisioning, Docker management, notifications
+├── stacks/                       # Docker stack definitions
+│   ├── apps/                     # Application services (Nextcloud, Jellyfin, etc.)
+│   ├── auth/                     # Authentication (Authentik)
+│   ├── databases/                # Database engines (MariaDB, Postgres)
+│   ├── dev/                      # Development tools
+│   ├── infra/                    # Infrastructure (SWAG, Semaphore, Apprise)
+│   ├── media/                    # Media management (Sonarr, Radarr, etc.)
+│   ├── monitoring/               # Monitoring (Grafana, Uptime Kuma)
+│   └── vpn/                      # VPN services
 ├── templates/
-│   └── metube.conf.j2           # yt-dlp config template (download_videos only)
-├── backup_*.yaml                # Backup playbooks
-├── verify_backups.yaml          # On-demand backup verification (DB + config)
-├── restore_databases.yaml       # Database restore from backups (safety-gated)
-├── restore_hosts.yaml           # Config/appdata restore — per-stack, selective app, or monolithic (safety-gated)
-├── restore_amp.yaml             # AMP game server instance restore — per-instance or all (safety-gated)
-├── restore_app.yaml             # Production single-app restore — stop stack, restore DB + appdata, restart, health check (safety-gated)
-├── rollback_docker.yaml         # Docker container rollback — revert to previous versions; with_backup=yes for combined recovery (safety-gated)
-├── update_*.yaml                # Update playbook (saves rollback snapshot before Docker updates)
-├── maintain_*.yaml              # Maintenance + health playbooks
-├── download_videos.yaml         # MeTube/yt-dlp automation
-├── deploy_stacks.yaml           # Docker stack deploy from Git — .env templating, compose copy, validate, start
-├── apply_role.yaml              # Idempotent VM reconciliation — OS/network/Docker/stacks/verification layers; all-roles or single
-├── dr_rebuild.yaml              # DR rebuild — provision VM → bootstrap → restore → deploy → health check
-├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
-├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks); vm_name defaults to test-vm; role can substitute for source_host
-├── test_backup_restore.yaml        # Test all app_definitions apps on disposable VM — per-app restore from backup archives, OOM recovery, Discord summary
-├── verify_cephfs.yaml           # Verify CephFS mount — checks mount source, writes/reads marker file
-├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
-├── setup_ansible_user.yaml      # One-time user setup utility
-├── setup_pve_vip.yaml           # One-time keepalived VIP setup on PVE nodes
+│   ├── keepalived.conf.j2        # Keepalived VRRP config for VMs
+│   ├── keepalived-docker.conf.j2 # Keepalived config for Docker VIP
+│   ├── metube.conf.j2            # yt-dlp config (download_videos only)
+│   └── netplan-loopback-aliases.j2 # Loopback alias netplan config
+├── sql/
+│   └── init.sql                  # Database schema — run once to create all 8 tables
+├── grafana/
+│   └── grafana.json              # Grafana dashboard (deployed via deploy_grafana.yaml)
+├── files/
+│   ├── get_push_epoch.sh         # Helper script for Docker image age checks
+│   ├── grafana.png               # Grafana dashboard screenshot
+│   ├── semaphore.png             # Semaphore Task Templates screenshot
+│   └── alert_*.svg               # Discord notification mockups
 ├── scripts/
-│   └── dr_rebuild_all.sh        # Shell wrapper for sequential multi-role DR rebuild (core,apps,dev)
-├── requirements.txt             # Python pip dependencies (PyMySQL, proxmoxer)
-├── requirements.yaml            # Ansible Galaxy collection dependencies
-├── inventory.example.yaml       # Example inventory with expected group structure
-├── DESIGN.md                    # Full architecture, patterns, and design decisions
-└── CONTRIBUTING.md              # Contribution guide
+│   └── dr_rebuild_all.sh         # Shell wrapper for sequential multi-role DR rebuild
+│
+│── # ── Playbooks (31) ──────────────────────────────────────────────
+├── backup_*.yaml                 # Backup: hosts, databases, offline NAS-to-NAS
+├── verify_backups.yaml           # Backup verification (DB + config archives)
+├── restore_databases.yaml        # Database restore (safety-gated)
+├── restore_hosts.yaml            # Appdata restore — per-stack, selective, or monolithic (safety-gated)
+├── restore_amp.yaml              # AMP instance restore (safety-gated)
+├── restore_app.yaml              # Production single-app restore (safety-gated)
+├── rollback_docker.yaml          # Docker rollback — revert images; with_backup=yes for combined recovery
+├── update_systems.yaml           # OS + Docker updates with version tracking
+├── maintain_*.yaml               # Maintenance: docker, health, semaphore, logging_db, pve, amp, unifi
+├── check_logging_db.yaml         # Weekly ansible_logging summary — row counts, missing backups, failures
+├── download_videos.yaml          # MeTube/yt-dlp automation
+├── deploy_stacks.yaml            # Docker stack deploy from Git — .env templating, compose, validate, start
+├── deploy_grafana.yaml           # Grafana dashboard + datasource deploy via API
+├── apply_role.yaml               # Idempotent VM reconciliation — all layers or single role
+├── dr_rebuild.yaml               # DR rebuild — provision → bootstrap → restore → deploy → health check
+├── build_ubuntu.yaml             # Provision Ubuntu VMs on Proxmox
+├── test_restore.yaml             # End-to-end restore test on a disposable VM
+├── test_backup_restore.yaml      # Per-app backup integrity test on a disposable VM
+├── verify_cephfs.yaml            # Verify CephFS mount on a target VM
+├── verify_isolation.yaml         # Test VLAN isolation verification — provision, check, destroy
+├── setup_ansible_user.yaml       # One-time ansible user setup (PVE/PBS/unRAID)
+├── setup_pve_vip.yaml            # One-time keepalived VIP setup on PVE nodes
+├── setup_test_network.yaml       # One-time test VLAN creation on Unifi UDM
+│
+│── # ── Config ──────────────────────────────────────────────────────
+├── requirements.txt              # Python pip dependencies (PyMySQL, proxmoxer)
+├── requirements.yaml             # Ansible Galaxy collection dependencies
+├── inventory.example.yaml        # Example inventory with expected group structure
+├── DESIGN.md                     # Full architecture, patterns, and design decisions
+└── CONTRIBUTING.md               # Contribution guide
 ```
 
-Inventory lives in Semaphore's UI/database. `inventory.yaml` is also committed here,
-vault-encrypted via ansible-vault — it is **not** in `.gitignore`. See
+Inventory lives in Semaphore's UI/database. `inventory.yaml` is committed here,
+vault-encrypted as a local reference copy. See
 [`inventory.example.yaml`](inventory.example.yaml) for the expected group structure.
 
 ## Setup

@@ -252,26 +252,12 @@ history, restore results, playbook runs) belongs in the database.
 
 ### Key files explained
 
-**`group_vars/all.yaml`** — Shared Ansible defaults applied to all hosts. Loaded automatically by
-Ansible when the inventory is in the same directory. Contains:
-- `ansible_remote_tmp: ~/.ansible/tmp` — uses home directory instead of `/tmp` to avoid
-  world-readable temporary files that could leak module arguments
-- `ansible_python_interpreter: auto_silent` — suppresses Python discovery warnings
-- `_gz_detect` — shell snippet for runtime compression tool detection; prefers `pigz` (parallel gzip)
-  with `gzip` fallback. Used by all backup, restore, and verify tasks via `{{ _gz_detect }}` in shell
-  commands, which sets `$_gz` for the rest of the script. Single source of truth — change once to
-  switch compression tool project-wide.
-- `backup_base_dir`, `backup_tmp_dir`, `backup_tmp_file`, `backup_dest_path`, `backup_url` —
-  centralized backup path defaults; `backup_base_dir` is the controller's backup root directory
-  (used in `backup_dest_path` and the disk space pre-task assertion). `backup_tmp_dir` defaults
-  to `"/backup"` — override in `vars/*.yaml` only for hosts that use a different staging path
-  (e.g., `"/tmp/backup"` for AMP/Unifi Protect, `"/mnt/user/Backup/ansibletemp/"` for unRAID).
-  `backup_url` overrides in `unifi_network.yaml`, `synology.yaml`, database vars, and `ubuntu_os.yaml`
-- `backup_type: "Servers"` — default category for Grafana filtering; override to `"Appliances"`
-  in vars files for purpose-built gear (proxmox, pikvm, unifi_network, unifi_protect)
-- `update_type: "Servers"` — same convention as `backup_type` for the updates table
-- `is_postgres: false`, `is_mariadb: false`, `is_influxdb: false` — database engine flags; all
-  default false so each `db_*.yaml` vars file only needs to set the one flag that is `true`
+**`group_vars/all.yaml`** — Shared Ansible defaults for all hosts. Key contents:
+`ansible_remote_tmp` (home dir to avoid world-readable `/tmp`), `_gz_detect` (pigz/gzip
+auto-detection snippet), centralized backup path defaults (`backup_base_dir`, `backup_tmp_dir`,
+`backup_dest_path`, `backup_url`), type defaults (`backup_type: "Servers"`, `update_type:
+"Servers"` — override to `"Appliances"` for purpose-built gear), and DB engine flags
+(`is_postgres`/`is_mariadb`/`is_influxdb`, all default `false`).
 
 **`ansible.cfg`** — Ansible configuration: disables `.retry` files and sets `stdout_callback: yaml`
 for human-readable output.
@@ -292,41 +278,17 @@ update variables with comments explaining each field. Copy to `vars/<platform>.y
 a new platform.
 
 **`sql/init.sql`** — Standalone database schema file. Creates the `ansible_logging` database and
-all six tables (`backups`, `updates`, `maintenance`, `restores`, `health_checks`, `health_check_state`).
+all eight tables (`backups`, `updates`, `maintenance`, `health_checks`, `health_check_state`, `restores`, `docker_sizes`, `playbook_runs`).
 Run once with `mysql -u root -p < sql/init.sql`. Uses `CREATE TABLE IF NOT EXISTS` so re-running
 is safe.
 
 **`tasks/notify.yaml`** — Shared notification task (Discord + optional Apprise). Called via
-`include_tasks` with `vars:` block providing required vars (`discord_title`, `discord_color`,
-`discord_fields`) and optional vars. **All notification channels are optional** — each fires only
-if its credentials are present in the vault; unconfigured channels are silently skipped.
-
-**Apprise support** — set `apprise_urls` (space-separated Apprise service URLs; requires
-`pip install apprise` on the controller) and/or `apprise_api_url` + `apprise_api_key` (self-hosted
-[Apprise API](https://github.com/caronc/apprise-api) Docker container). Both can be active
-simultaneously alongside Discord. Title and body are derived from the same `discord_name`,
-`discord_operation`, and `discord_status` vars — no extra vars needed in callers.
-
-Discord embed dict is built dynamically — optional fields are only included when set, so Discord
-embeds stay clean. Optional vars and their usage:
-
-- `discord_description` — embed body text (all playbooks on failure; `download_videos` per-video)
-- `discord_url` — clickable link on title (backup/update/maintenance playbooks)
-- `discord_footer` — dict with `text` and optional `icon_url` keys (`download_videos` per-video)
-- `discord_timestamp` — ISO timestamp (defaults to `ansible_date_time.iso8601`)
-- `discord_author` — override author name; defaults to `inventory_hostname`. Playbooks on
-  `localhost` pass `discord_author: "{{ controller_fqdn }}"` (`maintain_health`)
-- `discord_author_icon` — override author icon; defaults to Semaphore PNG (`download_videos` per-video uses platform icon)
-- `discord_author_url` — clickable link on author name (`download_videos` per-video links to channel URL)
-- `discord_username` — override webhook bot name; defaults to "Ansible Bot" (`download_videos` per-video uses "{uploader} - MeTube Bot")
-- `discord_avatar` — override webhook bot avatar; defaults to Semaphore PNG (`download_videos` per-video uses MeTube icon)
-- `discord_thumbnail` — override small thumbnail; defaults to unRAID notify PNG
-- `discord_image` — large embed image (`download_videos` per-video uses video thumbnail)
-
-Webhook credentials (`discord_webhook_id`, `discord_webhook_token`) are inherited from the
-play-level `vars_files: vars/secrets.yaml`. Playbooks that need a different webhook (e.g.,
-`download_videos` routes per-video notifications to a separate MeTube channel) override these
-via `vars:` on the `include_tasks` call using `discord_download_webhook_id`/`discord_download_webhook_token`.
+`include_tasks` with `vars:` block. Required: `discord_title`, `discord_color`, `discord_fields`.
+All notification channels are optional — unconfigured channels are silently skipped. Discord
+embed is built dynamically; optional vars (`discord_description`, `discord_url`, `discord_author`,
+`discord_footer`, `discord_image`, etc.) are only included when set. Webhook credentials are
+inherited from vault; `download_videos` overrides to a separate MeTube channel. Apprise support
+adds `apprise_urls` or `apprise_api_url` + `apprise_api_key` alongside Discord.
 
 **`templates/metube.conf.j2`** — Jinja2 template for yt-dlp configuration, rendered per download
 profile from `vars/{{ config_file }}.yaml`. Profile-specific settings (quality, paths, batch
@@ -438,35 +400,13 @@ and runs health/network/VIP verification. Supports `-e role=core|apps|dev`, with
 defaulting to role. Test VMs override with `-e vm_name=test-vm`. Multi-role sequential execution
 via `scripts/dr_rebuild_all.sh` shell wrapper (NFS ordering: core before dev).
 
-**`build_ubuntu.yaml`** — Two-play playbook for Proxmox VM lifecycle management via cloud-init
-template cloning. Supports four `vm_state` values: `present` (default), `absent`, `snapshot`, and
-`revert`. **Play 1** (localhost) manages the VM via the Proxmox API. On **create**, it first
-ensures a cloud-init template exists on Ceph shared storage (one-time per cluster — SSHes to the
-PVE node via `delegate_to`, downloads the Ubuntu Noble cloud image, and converts it to a Proxmox
-template with `qm` commands). It then clones the template to the target node using cross-node
-cloning (`node` = template source, `target` = destination — works because Ceph storage is shared),
-configures cloud-init (user, SSH key from vault, static IP, DNS), resizes the disk via the
-Proxmox REST API, starts the VM, and waits for SSH. **Destroy** stops and removes the VM.
-**Snapshot** creates a named disk-only snapshot via the Proxmox REST API (no RAM state — fast and
-lightweight on Ceph). **Revert** stops the VM, rolls back to a named snapshot, restarts, and waits
-for SSH — ideal for iterative testing (e.g., snapshot after bootstrap, test restores, revert,
-repeat). **CephFS caveat**: PVE snapshots only revert the RBD disk. For CephFS-backed VMs, appdata
-on CephFS is not reverted — test playbooks explicitly clean CephFS state between runs
-(`find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +`). AMP (local RBD disk, no CephFS) is
-unaffected. Snapshot and revert require `-e snapshot_name=<name>`. VM definitions (VMID, IP, cores,
-memory, disk, target node) come from `vars/vm_definitions.yaml`, selected by `-e vm_name=<key>`.
-`pve_api_host` should be the cluster VIP (set by `setup_pve_vip.yaml`) — provisioning uses the
-cluster resources API to resolve which node the VM actually landed on, so node assignment is
-VIP-safe regardless of which PVE node is currently MASTER. `tasks/provision_vm.yaml` (shared with
-`test_restore.yaml`) is idempotent: it checks the cluster for an existing VMID before cloning, so
-re-running after a partial failure resumes from where it left off rather than failing on a duplicate
-VMID. **Play 2** (the new VM, added
-to in-memory `build_target` group — only runs on create) bootstraps Ubuntu: waits for cloud-init
-to finish and apt locks to release, runs dist-upgrade, installs Docker and base packages, enables
-Docker service, adds user to docker/sudo groups, configures passwordless sudo, hardens SSH
-(matching `setup_ansible_user.yaml` — prohibit root password, disable password auth, allow ssh-rsa
-for Guacamole), and configures UFW (default deny + allow SSH). Deploy stacks separately via
-`deploy_stacks.yaml` after provisioning.
+**`build_ubuntu.yaml`** — Proxmox VM lifecycle management via cloud-init template cloning. Two
+plays: Play 1 (localhost) manages VM via Proxmox API; Play 2 (new VM) bootstraps Ubuntu with
+Docker, SSH hardening, UFW. Supports four `vm_state` values: `present` (default — clone template,
+cloud-init config, resize disk, start), `absent` (destroy), `snapshot` (disk-only), `revert`
+(rollback + restart). VM specs from `vars/vm_definitions.yaml` via `-e vm_name=<key>`.
+`tasks/provision_vm.yaml` is idempotent — resumes from partial failures. CephFS caveat: PVE
+snapshots only revert RBD disk, not CephFS data.
 
 **`restore_amp.yaml`** — AMP game server instance restore. Safety-gated with `confirm=yes`. Stops
 each instance, removes the existing data directory, extracts the latest archive from the
@@ -477,7 +417,9 @@ restore. Per-instance results logged to the `restores` table; partial success su
 instances succeed, others fail). Uses `tasks/restore_single_amp_instance.yaml` (loop var: `_amp_instance`).
 Semaphore template: `Restore — AMP [Instance]` (id=76). Required extra vars: `-e restore_target=<host> -e confirm=yes`.
 
-**`maintain_amp.yaml`** — AMP game server maintenance. Runs on `amp` hosts. Cleans up old AMP version binaries (keeps `amp_versions_keep` newest under `Versions/Mainline/`), rotates `instances.json` `.bak` files (same keep count), removes crash core dump files (`core*`) from all instance directories, purges instance log files older than 30 days, prunes unused Docker images (non-dangling), and vacuums journal logs older than `amp_journal_max_age`. Stale `.tar.gz` files in `/tmp/backup` older than 1 day are also removed. Uses `block`/`rescue`/`always` — sends Discord alert on failure; logs to `maintenance` table (`type: Servers`, `subtype: Maintenance`) regardless. Supports `-e amp_scope=versions` to run only the version-prune step; `-e amp_versions_keep=<n>` overrides the keep count. Semaphore template: `Maintain — AMP [Cleanup]` (id=38). Scheduled weekly.
+**`maintain_amp.yaml`** — AMP game server maintenance: prune old version binaries, rotate backup
+files, remove crash dumps, purge old logs, prune Docker images, vacuum journal. Supports
+`-e amp_scope=versions|cleanup|coredumps|prune|journal` to target a single operation.
 
 **`restore_app.yaml`** — Production single-app restore. Safety-gated with `confirm=yes`. Stops
 the target stack, restores DB(s) + appdata inplace, restarts the stack, runs HTTP health checks,
@@ -533,11 +475,10 @@ then SQL dumps are restored separately via `db_restore.yaml`.
 Non-docker_stacks hosts (proxmox, pikvm, unraid, unifi) still use monolithic archives with
 `backup_exclude_dirs | default([])` for hosts that define exclusions.
 
-**Per-instance AMP backup architecture:** AMP hosts use per-instance backup archives, mirroring the per-stack pattern used for Docker hosts. `backup_hosts.yaml` discovers instance names from `{{ amp_home }}/.ampdata/instances/` (one subdirectory per instance), saves the `instances.json` registry and an instance inventory JSON to the controller, then loops over instances via `tasks/backup_single_amp_instance.yaml`. Supports single-instance targeting with `-e amp_instance_filter=<instance>`. The `Backups/` and `Versions/` subdirectories are excluded from each instance archive to keep archive sizes manageable (these directories hold AMP's own internal backups, not the game world data). Results are accumulated in `_amp_backup_results`; a non-empty failed list sets `backup_failed: true` for Discord/DB reporting.
-
-**`tasks/backup_single_amp_instance.yaml`** — Per-instance AMP backup loop body called by `backup_hosts.yaml` (loop var: `_amp_instance`). Stops the instance via the AMP management script, creates a `.tar.gz` of the instance data directory (excluding `Backups/` and `Versions/`), fetches the archive to the controller, then restarts the instance. The `always:` block restarts the instance regardless of outcome — instances are always brought back up even on backup failure. Results appended to `_amp_backup_results`. Integrity verification is deferred to `verify_backups.yaml`.
-
-**`tasks/restore_single_amp_instance.yaml`** — Per-instance AMP restore loop body called by `restore_amp.yaml` (loop var: `_amp_instance`). Stops the instance, removes the existing data directory, extracts the latest archive from the controller, and restarts the instance if it was running before the restore. Logs per-instance result to the `restores` table. Mirrors the backup task's structure — stop, act, restart in `always:`.
+**Per-instance AMP backup architecture:** AMP hosts use per-instance archives (excludes `Backups/`
+and `Versions/` subdirs). Loop tasks: `backup_single_amp_instance.yaml` (stop → archive → fetch →
+restart) and `restore_single_amp_instance.yaml` (stop → remove → extract → restart). Both always
+restart instances in `always:` block regardless of outcome.
 
 **`tasks/backup_single_stack.yaml`** — Per-stack backup loop body called by `backup_hosts.yaml`
 (loop var: `_backup_stack`). Stops the named stack via `docker_stop.yaml`, captures container image
@@ -563,43 +504,22 @@ vars file via namespaced `include_vars`, creates a run-scoped temp dir on `db_ho
 `_db_combined_results`, and cleans up the temp dir. Adding a new DB tier requires only adding a
 line to the loop list and creating the vars file with `db_host`.
 
-**`tasks/db_dump.yaml`** — Single-database dump engine abstraction. Accepts `_db_name`,
-`_db_container`, `_db_username`, `_db_password`, `_db_dest_file`, and engine flags
-(`_db_is_postgres`, `_db_is_mariadb`, `_db_is_influxdb`). For PostgreSQL: `pg_dump --clean
---if-exists | pigz`. For MariaDB: `mysqldump --opt --single-transaction --quick | pigz`
-(password via `MYSQL_PWD` env var, never on the command line; `--opt` batches INSERTs,
-`--single-transaction` for consistent InnoDB snapshot, `--quick` for row streaming).
-For InfluxDB: `influxd backup -portable` → `docker cp` → `tar czf`. All compression uses
-`{{ _gz_detect }}` from `group_vars/all.yaml`. Used by `backup_single_db.yaml` and
-`verify_backups.yaml` (for the restore-test flow).
+**`tasks/db_dump.yaml`** — Single-database dump with engine abstraction (PostgreSQL `pg_dump`,
+MariaDB `mysqldump`, InfluxDB `influxd backup -portable`). All use `{{ _gz_detect }}` compression.
+MariaDB passwords passed via `MYSQL_PWD` env var, never on the command line.
 
-**`tasks/db_restore.yaml`** — Single-database restore engine abstraction. Accepts the same engine
-flags plus `_db_source_file` and optional `_db_target_name` (when set, creates the target DB first
-rather than overwriting the source — used by `verify_backups.yaml` to restore to a temp DB without
-touching production). For PostgreSQL: `pigz -dc | psql --single-transaction`. For MariaDB: wraps
-import with session-level `SET autocommit=0; SET foreign_key_checks=0; SET unique_checks=0` for
-faster bulk import, then `COMMIT` and re-enables checks. For InfluxDB: `tar -I pigz -xf` →
-`docker cp` → `influxd restore -portable`. All decompression uses `{{ _gz_detect }}`. Used by
-both `verify_backups.yaml` (temp restore) and `restore_databases.yaml` (production restore).
+**`tasks/db_restore.yaml`** — Single-database restore with engine abstraction. Optional
+`_db_target_name` restores to a temp DB (for verification) without touching production.
 
-**`tasks/capture_image_versions.yaml`** — Captures Docker container image versions at backup time.
-Records container name, compose image reference (`.Config.Image`), and resolved digest (`.Image`
-sha256) via `docker inspect`. Saves a `.versions.txt` manifest alongside the backup archive on
-the controller. Called from `backup_single_stack.yaml` (per-stack, filtered by compose project
-label) and `backup_hosts.yaml` (monolithic Docker hosts, all containers). Complements the
-update-time `.rollback_snapshot.json` with backup-time provenance.
+**`tasks/capture_image_versions.yaml`** — Records container image versions (`.versions.txt`
+manifest) alongside backup archives via `docker inspect`. Complements the update-time
+`.rollback_snapshot.json`.
 
-**`tasks/db_count.yaml`** — Count tables or measurements in a database for verification.
-For PostgreSQL: queries `information_schema.tables WHERE table_schema = 'public'`. For MariaDB:
-queries `information_schema.tables WHERE table_schema = '<db>'`. For InfluxDB: `SHOW MEASUREMENTS`
-piped through `wc -l`. Accumulates results in `_db_count_results` dict (keyed by `_db_name`).
-Used by `verify_backups.yaml` to confirm a restored backup is non-empty.
+**`tasks/db_count.yaml`** — Count tables/measurements in a database for verification. Used by
+`verify_backups.yaml` to confirm restored backups are non-empty.
 
-**`tasks/db_drop_temp.yaml`** — Drop a database and clean up container temp files. For
-PostgreSQL: `DROP DATABASE IF EXISTS` on the `postgres` maintenance DB. For MariaDB:
-`DROP DATABASE IF EXISTS`. For InfluxDB: `DROP DATABASE` + container temp directory cleanup.
-Accepts optional `_db_influx_source_name` for InfluxDB temp path cleanup. Used by
-`verify_backups.yaml` after counting tables in a temp restore DB.
+**`tasks/db_drop_temp.yaml`** — Drop a temp database and clean up container files. Used by
+`verify_backups.yaml` after verification.
 
 **`tasks/log_restore.yaml`** — Shared MariaDB logging for the `restores` table. Uses
 `community.mysql.mysql_query` with parameterized queries. Separate from `log_mariadb.yaml` because
@@ -628,64 +548,37 @@ and `assert_disk_min_gb`. Uses `df --output=avail` + `ansible.builtin.assert`. H
 **`tasks/assert_db_connectivity.yaml`** — Shared pre-task assertion that the MariaDB logging
 database is reachable. Runs `SELECT 1` via `community.mysql.mysql_query`. Inherits `logging_db_*`
 vars from playbook scope. Has `check_mode: false` so it validates connectivity during `--check`.
-Used by all 18 operational playbooks that log to MariaDB (every playbook except `download_videos.yaml`
-and `setup_ansible_user.yaml`).
+Used by all 26 playbooks that log to MariaDB (every playbook except `download_videos.yaml`,
+`setup_ansible_user.yaml`, `setup_pve_vip.yaml`, `setup_test_network.yaml`, and `verify_isolation.yaml`).
 
 **`maintain_health.yaml` — check notes:**
-- **Host groups:** Play 2 and Play 3 target hosts defined by `health_check_groups` in
-  `vars/semaphore_check.yaml`. Adding a new group to that list is all that's needed to include
-  it in health monitoring — no hardcoded host patterns in the playbook itself.
-- **State management:** Last check timestamp stored in `health_check_state` table (single-row
-  MariaDB table), not in a file. Survives container restarts. Read at Play 1 start, written at
-  Play 3 end via `INSERT ... ON DUPLICATE KEY UPDATE`.
-- **Timestamp comparison:** Play 1 Check 1 (Semaphore failed tasks) normalizes API timestamps by
-  replacing `+00:00` suffix with `Z` before comparison, ensuring consistent lexicographic ordering
-  regardless of Semaphore's timezone format.
-- **Security:** The Semaphore API URI task has `no_log: true` to prevent the API token from
-  appearing in registered variables or verbose output. The vault variable `semaphore_api_token`
-  is referenced directly — no alias variables that could leak in debug output.
-- `smart_health`: auto-installs `smartmontools` via apt on ubuntu/pve/pbs hosts before scanning.
-  unRAID includes `smartctl` by default. Empty stdout (e.g. sudo unavailable) is treated as
-  `not checked` / status `ok` rather than a false positive.
-- `pve_cluster` / `ceph_health`: PVE nodes only (`when: "'pve' in group_names"`). Both require
-  `become: true` — `pvecm` and `ceph` require root.
-- `ssl_cert`: scans `/etc/letsencrypt/live/*/cert.pem`. Hosts with no certs log `no certs` / ok.
-- `stale_maintenance`: mirrors the stale_backup query pattern — alerts if any host has no
-  successful maintenance run within `health_maintenance_stale_days` (default: 3 days).
-- `backup_size_anomaly`: flags the latest backup for any `application + hostname` pair whose
-  file size is below `health_backup_size_min_pct`% (default: 50%) of its own 30-day rolling
-  average (minimum 3 prior entries). Use `health_backup_size_exclude` (list in
-  `vars/semaphore_check.yaml`) to suppress specific application names — e.g. after an
-  architectural change that intentionally reduces individual backup file sizes (splitting a
-  monolithic archive into per-stack archives, moving DB dumps out of a Docker archive, etc.).
-  Add the app names, run one health check, then remove them once the 30-day baseline resets.
-- `mariadb_health`: checks connection count vs `max_connections` and scans `information_schema`
-  for crashed tables. Warning at `health_db_connections_warn_pct`% (default: 80).
-- `wan_connectivity`: simple HTTP GET to `health_wan_url` (default: Cloudflare CDN trace).
-  Critical on any failure — indicates outbound internet is down.
-- `ntp_sync`: uses `timedatectl` on systemd hosts, `ntpq` on unRAID. Reports sync status or
-  offset in milliseconds. Warning if not synced or offset exceeds `health_ntp_max_offset_ms`.
-- `dns_resolution`: `getent hosts` against `health_dns_hostname`. Critical on failure.
-- `unraid_array`: unRAID only — `mdcmd status` for array state, plus `disks.ini` for disabled
-  disk count. Counts two failure modes: `DISK_DSBL` (present but disabled = real problem) and
-  `DISK_NP_DSBL` with a non-empty `id` (configured disk went missing = real problem). Ignores
-  `DISK_NP_DSBL` with empty `id` (unassigned slot like unused parity2). The `id` field in
-  `disks.ini` holds the disk serial from `super.dat` — empty means never assigned.
-  Critical if state is not `STARTED` or any configured disks are disabled/missing.
-- `pbs_datastore`: PBS only — `proxmox-backup-manager datastore list` to verify datastores
-  are present and accessible. Warning if no datastores found.
-- `zfs_pool`: runs on all hosts — `zpool list -H -o name,health` detects degraded/faulted pools.
-  Skips gracefully if `zpool` not installed or no pools exist. DEGRADED = warning,
-  FAULTED/OFFLINE/REMOVED/UNAVAIL = critical.
-- `btrfs_health`: runs on all hosts — `btrfs device stats` on each BTRFS mount (discovered via
-  `findmnt -t btrfs`). Skips gracefully if `btrfs` not installed or no BTRFS filesystems exist.
-  Any non-zero error counter (write_io_errs, read_io_errs, corruption_errs, etc.) = critical.
-- `docker_http`: per-host Docker container HTTP endpoint checks. Configured via
-  `docker_health_endpoints` variable (list of `{name, url, status_code, validate_certs}` dicts).
-  Hosts without endpoints defined are skipped. Critical if any endpoint fails to respond.
-- `host_reachable`: Play 3 detects hosts where `host_reachable` was never set (unreachable during
-  Play 2 due to `ignore_unreachable: true`). Sends a single Discord alert listing all unreachable
-  hosts and logs each with `check_name: 'host_reachable'`, `status: 'critical'` to the DB.
+- **Host groups:** Defined by `health_check_groups` in `vars/semaphore_check.yaml` — add a group
+  to include it in monitoring.
+- **State management:** Last check timestamp in `health_check_state` table (single-row, survives
+  container restarts). Read at Play 1 start, written at Play 3 end.
+- **Security:** Semaphore API URI task has `no_log: true` to protect the API token.
+
+<details>
+<summary>Health check details (26 checks)</summary>
+
+- `smart_health`: auto-installs `smartmontools` on ubuntu/pve/pbs; unRAID has it built-in
+- `pve_cluster` / `ceph_health`: PVE nodes only, requires `become: true`
+- `ssl_cert`: scans `/etc/letsencrypt/live/*/cert.pem`; hosts with no certs log ok
+- `stale_maintenance`: alerts if no successful maintenance within `health_maintenance_stale_days`
+- `backup_size_anomaly`: flags backups below `health_backup_size_min_pct`% of 30-day rolling avg;
+  use `health_backup_size_exclude` list to suppress during architectural changes
+- `mariadb_health`: connection count vs `max_connections` + crashed table scan
+- `wan_connectivity`: HTTP GET to `health_wan_url`; critical on any failure
+- `ntp_sync`: `timedatectl` (systemd) or `ntpq` (unRAID); warning if offset exceeds threshold
+- `dns_resolution`: `getent hosts` against `health_dns_hostname`; critical on failure
+- `unraid_array`: array state + `disks.ini` disabled disk count (ignores unassigned slots)
+- `pbs_datastore`: `proxmox-backup-manager datastore list`; warning if no datastores
+- `zfs_pool`: `zpool list` health; DEGRADED=warning, FAULTED/OFFLINE=critical; skips if no zpool
+- `btrfs_health`: `btrfs device stats` on all BTRFS mounts; any non-zero error=critical
+- `docker_http`: per-host HTTP endpoint checks via `docker_health_endpoints` variable
+- `host_reachable`: Play 3 detects unreachable hosts (from `ignore_unreachable: true` in Play 2)
+
+</details>
 
 ---
 
@@ -732,8 +625,9 @@ root, which a FUSE-mounted backup share (using `default_permissions`) may block.
 ### Inventories
 
 Inventories are stored in **Semaphore's database**, not in this repository. `inventory.yaml` is
-gitignored — it exists on the host running Semaphore as a local reference but is not committed.
-To update an inventory, edit it directly in the Semaphore UI or via its database.
+committed vault-encrypted as a local reference — but Semaphore reads inventories from its own
+database, not from this file. To update an inventory, edit it in the Semaphore UI or via its
+database.
 
 Semaphore inventories are organized by **authentication method** — each inventory groups hosts
 that share the same SSH key or login password. Within each inventory, hosts belong to
@@ -743,14 +637,16 @@ playbook to the correct functional group.
 
 | Inventory | Credential (Key Store) | Covers |
 |-----------|----------------------|--------|
-| `ansible-user-ssh` | ansible SSH key (id=8) | Ubuntu, Docker, Proxmox, unRAID, controller, amp, vps; maintain_health (all SSH hosts + localhost) |
-| `root` | root login_password (id=13) | Synology, NAS host only |
-| `pikvm` | PiKVM login_password (id=11) | pikvm |
-| `unifi_network` | root login_password (id=13) | udmp |
-| `unifi_protect` | unifi_protect login_password (id=29) | unvr |
+| `ansible-user-ssh` | ansible SSH key | Ubuntu, Docker, Proxmox, unRAID, controller, amp, vps; maintain_health (all SSH hosts + localhost) |
+| `root` | root login_password | Synology, NAS host only |
+| `pikvm` | PiKVM login_password | pikvm |
+| `unifi_network` | root login_password | udmp |
+| `unifi_protect` | unifi_protect login_password | unvr |
 | `local` | — | localhost only (no templates currently use this inventory) |
 
-> **Rule:** Use `ansible-user-ssh` (id=3) for all recurring/scheduled templates — Ubuntu, Proxmox, PBS, unRAID, AMP, VPS. The `root` inventory (id=12) is reserved for Synology/NAS targets only; do not assign it to Proxmox or other SSH-key hosts even as a convenience shortcut.
+> **Rule:** Use `ansible-user-ssh` for all recurring/scheduled templates. The `root` inventory is reserved for Synology/NAS targets only.
+>
+> See `future/CLAUDE_REFERENCE.md` for instance-specific Semaphore IDs (inventory, key store, template IDs).
 
 ### Variable Groups
 
@@ -781,19 +677,8 @@ backup templates for the same target — do not create separate environments.
 
 ### Key Store
 
-6 entries. **Do not delete any of these.**
-
-| ID | Name | Type | Purpose |
-|----|------|------|---------|
-| 4 | GitHubSSH | SSH | Semaphore → GitHub repo access |
-| 8 | ansible | SSH | ansible-user SSH key; `ansible-user-ssh` inventory |
-| 11 | PiKVM | login_password | PiKVM inventory |
-| 13 | root | login_password | `root` and `unifi_network` inventories |
-| 29 | unifi_protect | login_password | Unifi Protect inventory |
-| 30 | ansible-vault | login_password | Vault decryption password |
-
-SSH/login credentials are attached to **inventories** and injected by Semaphore at runtime.
-They are not Ansible variables and are not in `vars/` files.
+6 entries — SSH keys and login credentials attached to inventories, injected by Semaphore at
+runtime. They are not Ansible variables and are not in `vars/` files. **Do not delete any.**
 
 ### Template naming convention
 
@@ -834,7 +719,7 @@ Templates are organized into views (tabs in the Semaphore UI) by verb:
 
 | View | Templates | Verb prefix |
 |------|-----------|-------------|
-| Backups | 13 | `Backup —` |
+| Backups | 14 | `Backup —` |
 | Updates | 6 | `Update —` |
 | Maintenance | 7 | `Maintain —` |
 | Downloads | 2 | `Download —` |
@@ -847,132 +732,14 @@ When adding a new template, assign it to the matching view. Views are stored in 
 `project__view` table; templates reference views via the `view_id` column in
 `project__template`.
 
-### Managing templates via SQL (Adminer)
+### Managing templates and schedules
 
-Semaphore stores templates, environments, and vault associations in MariaDB (MySQL syntax —
-use `LIKE` not `ILIKE`, backtick-quoted identifiers). When creating a new template
-programmatically (e.g., for a new download profile), four tables are involved:
+Templates and schedules can be managed via the Semaphore UI or directly via SQL (Adminer).
+Every new template needs a cron schedule (or explicit documentation that it's ad-hoc only).
+Always set `allow_override_args_in_task = 1` and `allow_override_branch_in_task = 1`.
 
-| Table | Purpose |
-|-------|---------|
-| `project__environment` | Variable groups — extra vars passed to the playbook |
-| `project__template` | Template definitions — playbook, inventory, environment, view, settings |
-| `project__template_vault` | Links a template to a vault decryption key |
-| `project__view` | UI views (tabs) — templates must reference a `view_id` to appear in filtered views |
-
-Run all three statements together in Adminer — subqueries resolve IDs automatically so no
-manual lookup is needed. Replace the `<placeholders>` with actual values:
-
-```sql
--- 1. Create environment (variable group with extra vars as JSON)
-INSERT INTO project__environment (project_id, name, json, password, env)
-VALUES (1, '<env_name>', '{"var_name": "value"}', '', '{}');
-
--- 2. Create template (subqueries resolve repository_id, environment_id, and view_id)
---    IMPORTANT: view_id must be set or the template won't appear in filtered views.
---    Use the subquery below to resolve view_id by view title (e.g., 'Deploy', 'Backups').
-INSERT INTO project__template
-  (project_id, inventory_id, repository_id, environment_id, view_id,
-   playbook, name, type, app,
-   suppress_success_alerts, arguments, allow_override_args_in_task,
-   allow_override_branch_in_task, allow_parallel_tasks, autorun, tasks)
-VALUES
-  (1, <inventory_id>,
-   (SELECT id FROM project__repository WHERE project_id = 1 AND git_branch = '<branch_name>'),
-   (SELECT id FROM project__environment WHERE project_id = 1 AND name = '<env_name>'),
-   (SELECT id FROM project__view WHERE project_id = 1 AND title = '<View Title>'),
-   '<path/to/playbook.yaml>', '<Template Name>', '',
-   'ansible', 1, '[]', 1, 1, 0, 0, 0);
-
--- 3. Link vault key (subquery resolves template_id)
-INSERT INTO project__template_vault (project_id, template_id, vault_key_id, type)
-VALUES (1,
-  (SELECT id FROM project__template WHERE project_id = 1 AND name = '<Template Name>'),
-  30, 'password');
-```
-
-Common `inventory_id` values: 3 (`ansible-user-ssh`), 12 (`root`). See [Inventories](#inventories)
-for the full list. `vault_key_id = 30` is `ansible-vault` — the vault decryption password.
-See [Key Store](#key-store). The `git_branch` subquery resolves the repository by branch name —
-use `'main'` for production templates or the feature branch name for testing.
-`allow_override_args_in_task = 1` and `allow_override_branch_in_task = 1` enable the CLI args
-and Branch prompts when running from the Semaphore UI — always set both to `1` so operators
-can target specific hosts and override the git branch per run.
-
-**View titles** match the verb prefix: `Backups`, `Updates`, `Maintenance`, `Downloads`,
-`Verify`, `Restore`, `Deploy`, `Setup`. See [Template views](#template-views) for the full list.
-
-**Verify the result:**
-
-```sql
-SELECT t.id, t.name, t.playbook, t.inventory_id, t.environment_id,
-       t.view_id, vw.title AS view_name, v.vault_key_id
-FROM project__template t
-LEFT JOIN project__template_vault v ON v.template_id = t.id
-LEFT JOIN project__view vw ON t.view_id = vw.id AND t.project_id = vw.project_id
-WHERE t.project_id = 1 AND t.name = '<Template Name>';
-```
-
-> **Note:** All `project_id = 1` references, `inventory_id` values (3, 12, 30), and numeric IDs
-> in the SQL above are specific to one Semaphore instance. Replace them with actual IDs from your
-> deployment — use the verify query above to confirm IDs after insertion.
-
-> **Warning — duplicate environment names:** If two environments share the same `name`, any
-> subquery using `WHERE name = '...'` will return multiple rows and the `INSERT` will fail silently
-> (0 rows affected, no error in Adminer). Before inserting a template, run:
-> `SELECT id, name, json FROM project__environment WHERE project_id = 1 AND name = '<env_name>';`
-> If duplicates exist, use the correct `id` directly as a literal in the template INSERT instead
-> of the subquery. Clean up the orphan with `DELETE FROM project__environment WHERE id = <orphan_id>;`.
-
-### Managing schedules via SQL (Adminer)
-
-Schedules are stored in `project__schedule`. Add a schedule whenever a new template is created
-or when a template gains a new operational mode (e.g., a monthly extra-vars variant).
-
-```sql
--- Add a schedule to an existing template (run in semaphore database)
-INSERT INTO project__schedule (project_id, template_id, name, cron_format, active)
-VALUES (
-  1,
-  (SELECT id FROM project__template WHERE project_id = 1 AND name = '<Template Name>'),
-  '<Schedule Label>',
-  '<cron expression>',
-  1
-);
-
--- Audit all templates and their schedules
-SELECT t.id, t.name, s.cron_format, s.active
-FROM project__template t
-LEFT JOIN project__schedule s ON s.template_id = t.id
-WHERE t.project_id = 1
-ORDER BY t.name;
-```
-
-**Rule:** Every time a new template is created or an existing template gains a new
-operational mode, review schedules and add the appropriate cron entry. Templates with no
-schedule are ad-hoc only — document that intent in a comment if intentional.
-
-<details>
-<summary>Weekly schedule at a glance</summary>
-
-**Every day (not shown in table):** Secondary PG Backup + Unifi Restart @ 1am · Docker Prune + Cache Flush @ 5am · Health Check @ 7am & 7pm · Download Videos every 4h
-
-| Time | Sun | Mon | Tue | Wed | Thu | Fri | Sat |
-|------|-----|-----|-----|-----|-----|-----|-----|
-| 1am  | Docker Stacks Bkp | Verify Proxmox | — | — | unRAID Bkp | — | — |
-| 2am  | Maintain PVE | — | — | — | — | — | MariaDB Bkp |
-| 3am  | Docker Run Bkp | Proxmox Update | Docker Run Update | Ubuntu Update | AMP Bkp · PiKVM Update | Unifi Net Bkp | PG Primary Bkp · AMP Update |
-| 4am  | Verify Docker Stacks | Verify Sec PG | Docker Stacks Update | — | Verify unRAID | Unifi Protect Bkp | Verify MariaDB |
-| 5am  | — | — | — | — | Verify AMP | — | — |
-| 6am  | Verify Docker Run | — | — | — | — | — | Verify PG Primary |
-| 8am  | — | AMP Cleanup | — | — | — | — | — |
-| 11pm | Proxmox Bkp | PiKVM Bkp | — | — | — | — | — |
-
-**Monthly (1st):** unRAID tree index @ 2am · Logging DB Cleanup @ 5am
-
-**Intentionally unscheduled:** Restore · Rollback · Deploy · Build · Apply · DR · Setup · Test · Download [On Demand] · Semaphore Cleanup *(manual — preserve failed job logs)* · InfluxDB templates *(paused — OOM)*
-
-</details>
+> See `future/CLAUDE_REFERENCE.md` for SQL INSERT patterns, schedule management, weekly
+> schedule grid, and full template listing with IDs.
 
 ---
 
@@ -1165,7 +932,7 @@ or Host fields.
 
 > **Shared task review:** When modifying playbooks, check whether any inline task blocks are
 > duplicated across multiple playbooks. If so, they are a candidate for extraction into `tasks/`.
-> The current 26 shared task files cover notifications, logging, assertions, provisioning,
+> The current 47 shared task files cover notifications, logging, assertions, provisioning,
 > bootstrapping, Docker management, appdata restore, health checks, per-stack/per-DB backup
 > orchestration, and DB engine abstraction. Inline cleanup patterns or host-type detection logic
 > may have accumulated in individual playbooks and could be worth consolidating if the same
@@ -1173,33 +940,10 @@ or Host fields.
 
 ### Roles vs. flat tasks/ structure
 
-Ansible roles bundle tasks, defaults, handlers, templates, and files into a named unit. They are
-the right choice when a component needs its own defaults, handlers, templates, or test isolation.
-
-**Current state — tasks are the right fit:**
-
-The project has 26 shared task files and no handlers or templates. The `tasks/` files are thin
-glue code (send a Discord embed, run an INSERT, assert a precondition, dump/restore a database).
-At this scale, promoting them to roles would add directory structure without gaining any
-role-specific features.
-
-**When to add roles:**
-
-- A component needs **handlers** — e.g., a restart-service handler that deduplicates across multiple task calls
-- A component needs **role-level templates** — e.g., a config file rendered from a Jinja2 template
-- You want **Molecule testing** — Molecule is designed around roles and works most naturally with them
-- You want to publish or reuse this automation across multiple separate projects
-- The shared task files grow beyond ~5 files and grouping them by domain becomes valuable
-
-The decision should be pragmatic — use roles when they provide concrete benefits, stick with
-flat tasks when they don't.
-
-**If roles are needed later:**
-
-1. Create `roles/<name>/tasks/main.yaml` for each shared task file
-2. Replace `include_tasks: tasks/<name>.yaml` with `include_role: name: <name>` in each playbook
-3. Move any role-specific defaults into `roles/<name>/defaults/main.yaml` (keep `vars/*.yaml` for host config)
-4. Update `ansible.cfg` or `roles_path` if roles live outside the standard location
+The project uses 47 shared task files (thin glue code — Discord, DB logging, assertions,
+dump/restore) with no handlers or role-level templates. Flat `tasks/` is the right fit at this
+scale. Add roles when a component needs handlers, role-level templates, Molecule testing, or
+cross-project reuse.
 
 ### Coding conventions
 
@@ -1365,42 +1109,10 @@ files so all callers are automatically protected.
 `community.docker.docker_compose_v2`, `community.docker.docker_prune`). These modules
 report "would have changed" in check mode without taking action.
 
-#### How to run a dry run in Semaphore
-
-When launching a task manually in Semaphore, enter `--check` in the **CLI Args** field. Semaphore
-passes it directly to `ansible-playbook`. All state-gathering tasks still execute, but no changes
-are made, no Discord notifications fire, and no DB logging happens.
-
-For recurring dry runs, create a duplicate template with `--check` set permanently in CLI Args
-and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
-
-#### Playbook-specific behavior in check mode
-
-| Playbook | Check mode behavior |
-|---|---|
-| `maintain_health.yaml` | All 26 health checks run and evaluate. Discord alerts and DB logging suppressed. State timestamp not updated in DB. |
-| `update_systems.yaml` | Cluster quorum pre-check runs. Version queries run. Actual upgrade simulated. PiKVM RW/RO skipped. |
-| `backup_hosts.yaml` | Disk space pre-checks run. Docker container list gathered. Archive/fetch simulated. UNVR API call skipped. Combined DB backup (`with_databases=yes`) skipped. |
-| `backup_databases.yaml` | Disk space and DB connectivity pre-checks run. Dump simulated (shell skipped). |
-| `backup_offline.yaml` | Ping check runs. WoL, Synology shutdown and verification skipped. Rsync simulated. |
-| `maintain_amp.yaml` | AMP version list gathered. File deletions simulated. |
-| `setup_test_network.yaml` | All GETs and prereq assertions run. POSTs skipped. Prints what would be created and the derived Semaphore IP + prod LAN CIDR. |
-| `maintain_docker.yaml` | Docker prune simulated. Cache drop simulated. |
-| `maintain_semaphore.yaml` | DB cleanup and retention pruning simulated. |
-| `maintain_unifi.yaml` | Service restart simulated. |
-| `download_videos.yaml` | Config deploy simulated. yt-dlp execution skipped. Manifest read runs (empty). Temp file discovery runs; deletions simulated. |
-| `verify_backups.yaml` | Backup file search runs. Integrity checks run. No temp databases created. No archives extracted. Discord/DB suppressed. |
-| `restore_databases.yaml` | Backup file search runs. Safety backup skipped. No restore performed. No container management. Discord/DB suppressed. |
-| `restore_hosts.yaml` | Backup file search runs. Archive integrity verified. No extraction or container management. Discord/DB suppressed. |
-| `restore_app.yaml` | Backup file search runs. Safety gate skipped. No stack stop/start. No DB or appdata restore. Discord/DB suppressed. |
-| `restore_amp.yaml` | AMP archive discovery runs. Safety gate skipped. No instance stop/start or data replacement. Discord/DB suppressed. |
-| `rollback_docker.yaml` | Snapshot read and parsed. Safety gate skipped. No image re-tag/pull or container recreation. Discord/DB suppressed. |
-| `maintain_pve.yaml` | keepalived + ansible user + SSH config tasks simulated. VIP reachability check skipped. Snapshot API queries run (read-only GET). PBS task list query runs (read-only shell, `check_mode: false`). Discord/DB suppressed. |
-| `maintain_logging_db.yaml` | DB purge queries simulated. Discord/DB suppressed. |
-| `deploy_grafana.yaml` | Dashboard JSON read and parsed. All API calls skipped (datasource check, create, dashboard import). Discord/DB suppressed. |
-| `test_backup_restore.yaml` | VM provisioned. Stacks deployed. No app restores performed (restore and health check steps skipped). Discord/DB suppressed. |
-| `build_ubuntu.yaml` | VM state assertion and cluster resource query run. VM clone/configure/destroy simulated (proxmox_kvm). URI PUT resize and VLAN config skipped. wait_for SSH skipped. Snapshot POST and rollback POST skipped. Discord/DB suppressed. |
-| `setup_pve_vip.yaml` | keepalived install and config tasks simulated. VRRP election pause and VIP reachability check skipped. |
+**Running dry runs:** In Semaphore, enter `--check` in the **CLI Args** field. All
+state-gathering tasks still execute, but no changes are made, no Discord notifications fire,
+and no DB logging happens. General pattern: pre-checks and queries run, mutations are
+simulated, Discord/DB suppressed.
 
 ### Pre-task validations
 
@@ -1524,7 +1236,7 @@ output is masked, directing the operator to the correct debugging step.
   `backup_tmp_dir` (default `"/backup"`), and DB engine flags (`is_postgres`/`is_mariadb`/`is_influxdb`,
   all default `false`). Override these in `vars/*.yaml` only when needed.
 - **`group_vars/<group>.yaml`** — per-group overrides for a specific inventory group (e.g.,
-  `group_vars/tantiveiv.yaml` for `docker_mem_limit`; `group_vars/pikvm.yaml` for `ansible_remote_tmp`)
+  `group_vars/pikvm.yaml` for `ansible_remote_tmp`)
 - **`vars/*.yaml`** — per-platform configs loaded explicitly via `vars_files:` in playbooks; use for
   operational variables (backup paths, task names, feature flags) that vary by platform
 - **`host_vars/<hostname>.yaml`** — reserved for truly host-specific overrides that don't fit a group
@@ -1672,7 +1384,7 @@ tasks) checks the publish date with a three-tier fallback:
 
 ### Database: `ansible_logging`
 
-Seven tables (six operational + one state). All columns are set by Ansible — no DB-side triggers,
+Eight tables (seven operational + one state). All columns are set by Ansible — no DB-side triggers,
 functions, or computed columns. Run `mysql -u root -p < sql/init.sql` to create the database and
 all tables. The init script uses `CREATE TABLE IF NOT EXISTS` so re-running is safe.
 
@@ -1692,21 +1404,13 @@ timezone to UTC — other databases on the same MariaDB instance depend on the c
 | **Discord** | Embed `timestamp` field accepts ISO 8601 UTC; Discord auto-converts to viewer local | No configuration — `ansible_date_time.iso8601` and `now(utc=true)` already produce UTC |
 | **Discord (inline text)** | Stale backup alert uses `CONVERT_TZ` with `display_timezone` variable | `display_timezone` in `vars/semaphore_check.yaml` (default: `America/Chicago`); requires MariaDB timezone tables loaded |
 
-**Grafana table panels** do not use `DATE_FORMAT()` in SQL — timestamps are returned as raw
-`DATETIME` values and formatted by Grafana's built-in time column handling. This allows Grafana
-to respect the dashboard/user timezone setting. The dashboard `timezone` field is `""` (browser
-default), so each viewer sees times in their own timezone.
+**Grafana panels** return raw `DATETIME` or `UNIX_TIMESTAMP()` — Grafana handles timezone
+conversion via the dashboard setting (`""` = browser default).
 
-**Grafana time series panels** use `UNIX_TIMESTAMP()` to produce epoch values — Grafana handles
-timezone conversion for axis labels and tooltips via the dashboard timezone setting.
-
-**MariaDB timezone tables** are required for `CONVERT_TZ` with named timezones (e.g.
-`'America/Chicago'`). Load them once on the MariaDB container (root password required):
+**MariaDB timezone tables** required for `CONVERT_TZ` with named timezones. Load once:
 ```bash
 docker exec mariadb bash -c "mariadb-tzinfo-to-sql /usr/share/zoneinfo | mariadb -u root -p'PASSWORD' mysql"
 ```
-If the password contains `!`, disable bash history expansion first: `set +H` (re-enable with
-`set -H`). Without timezone tables, `CONVERT_TZ` with named timezones returns `NULL`.
 
 ```sql
 CREATE DATABASE IF NOT EXISTS ansible_logging
@@ -1727,10 +1431,12 @@ CREATE TABLE backups (
   timestamp DATETIME,             -- UTC_TIMESTAMP() — always UTC regardless of server timezone
   backup_type VARCHAR(50),        -- Set by vars/*.yaml (e.g., 'Appliances', 'Servers')
   backup_subtype VARCHAR(50),     -- Set by vars/*.yaml (e.g., 'Config', 'Appdata', 'Database')
+  backup_level VARCHAR(20) NOT NULL DEFAULT 'host',  -- 'host' or 'stack' — granularity of the backup
   INDEX idx_hostname (hostname),
   INDEX idx_timestamp (timestamp),
   INDEX idx_backup_type (backup_type),
-  INDEX idx_backup_subtype (backup_subtype)
+  INDEX idx_backup_subtype (backup_subtype),
+  INDEX idx_backup_level (backup_level)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 ```
 
@@ -2103,73 +1809,18 @@ it at runtime using the password stored in Key Store id=30 (`ansible-vault`).
 
 ### Current vault contents
 
-```yaml
-# --- Required: used by all playbooks ---
-discord_webhook_id: "..."
-discord_webhook_token: "..."
-logging_db_host: "..."
-logging_db_port: "..."
-logging_db_user: "..."
-logging_db_password: "..."
-logging_db_name: "..."
-domain_local: "..."         # e.g. "home.local" — internal domain suffix
-domain_ext: "..."           # e.g. "example.com" — external domain suffix for URLs
-semaphore_api_token: "..."
-semaphore_host_url: "..."           # internal IP URL, e.g. "http://10.0.0.1:3000"
-semaphore_controller_hostname: "..."          # short hostname of Semaphore controller (builds controller_fqdn)
-db_host_primary: "..."              # inventory_hostname of primary DB host (restore cross-host delegate_to)
-db_host_secondary: "..."            # inventory_hostname of secondary DB host (restore cross-host delegate_to)
+The vault contains ~50 variables organized into groups:
 
-# --- Optional: only needed for specific playbooks ---
-discord_download_webhook_id: "..."            # MeTube Discord channel — per-video download notifications (download_videos.yaml)
-discord_download_webhook_token: "..."         # MeTube Discord channel — per-video download notifications (download_videos.yaml)
-unvr_api_key: "..."                 # Unifi Protect UNVR API key (backup_hosts.yaml)
-unifi_network_api_key: "..."        # Unifi Network API key for device inventory export (backup_hosts.yaml via vars/unifi_network.yaml)
-docker_trusted_proxy_cidrs: "..."   # CIDR(s) of reverse proxy — trusted proxy header (stacks/auth/env.j2, Authentik)
-ansible_user_ssh_pubkey: "..."      # SSH public key for ansible user (setup_ansible_user.yaml, maintain_pve.yaml)
-synology_ip: "..."                  # Synology NAS IP address (backup_offline.yaml via vars/synology.yaml)
-synology_mac: "..."                 # Synology NAS MAC for WOL (backup_offline.yaml via vars/synology.yaml)
-synology_name: "..."                # Synology NAS mount name (backup_offline.yaml via vars/synology.yaml)
-db_password: "..."                  # Database password for Docker container DB dumps (backup/restore/verify playbooks)
-grafana_url: "..."                  # Grafana base URL, e.g. "http://grafana-host:3000" (deploy_grafana.yaml)
-grafana_service_account_token: "..." # Grafana service account token with Editor role (deploy_grafana.yaml)
-vps_fqdn: "..."                    # VPS hostname for WireGuard config extraction (backup_hosts.yaml via vars/unifi_network.yaml)
+- **Required** (all playbooks): Discord webhooks, logging DB credentials, domain suffixes,
+  Semaphore API token/URL, controller hostname, DB host identifiers
+- **Optional** (specific playbooks): download webhooks, appliance API keys, Synology NAS
+  config, Grafana credentials, SSH public key, VPS hostname, trusted proxy CIDRs
+- **PVE cluster**: API credentials, template node/VMID, storage pool, network bridge, VIP
+  config, VRRP priorities, test VM IP pool, VM credentials (user/password/CIDR/gateway/DNS)
+- **Per-VM**: `vault_vm_<name>_ip` and `vault_vm_<name>_node` for each VM in `vm_definitions.yaml`
+- **VPN**: WireGuard internal subnet
 
-# --- PVE cluster (setup_pve_vip.yaml, maintain_pve.yaml, provision_vm.yaml, build_ubuntu.yaml) ---
-pve_api_host: "..."              # Floating VIP — updated to vault_pve_vip after setup_pve_vip.yaml runs
-pve_api_user: "..."
-pve_api_token_id: "..."
-pve_api_token_secret: "..."
-pve_template_node: "..."         # Short name of the node that holds the cloud-init template
-pve_template_vmid: "..."
-pve_template_name: "..."
-pve_storage: "..."               # Ceph/local storage pool name
-pve_bridge: "..."                # VM network bridge (e.g. vmbr0)
-pve_cloud_image_url: "..."
-vault_pve_vip: "..."             # Floating management VIP (10.x.x.x, unused host in /24)
-vault_pve_vrrp_password: "..."
-vault_pve_vrrp_priorities: {}    # Dict: short node name → integer priority (highest = MASTER)
-vault_test_vm_ip_prefix: "..."   # e.g. "10.10.10." — prefix for test-vm pool
-vault_test_vm_ip_offset: "..."   # e.g. 90 — first slot; slots 0–9 = offset .. offset+9
-vm_user: "..."
-pve_vm_password: "..."
-vm_cidr: "..."
-vm_gateway: "..."
-vm_dns: "..."
-vm_search_domain: "..."
-vm_template_memory: "..."
-vm_template_cores: "..."
-# Per-VM IPs and node assignments — one entry per VM in vars/vm_definitions.yaml:
-# vault_vm_<name>_ip: "..."      vault_vm_<name>_node: "..."
-# Hostnames are derived from role name + vault_vm_search_domain (no vault_vm_<name>_hostname needed).
-# host_roles (hostname → role) and stack_roles (role → stack list) are derived dynamically
-# from vm_definitions + host_definitions — no manual vault entries needed for role mapping.
-# host_roles maps both internal (domain_local) and external (domain_ext) FQDNs
-# so hosts work regardless of which domain is used in the inventory.
-
-# --- VPN stack (stacks/vpn/env.j2) ---
-vault_wg_internal_subnet: "..."  # WireGuard internal subnet (e.g. 10.x.x.0) — NOT a host IP
-```
+> See `future/CLAUDE_REFERENCE.md` for the complete vault variable listing with comments.
 
 ### What must be in the vault (public repo rules)
 
@@ -2327,59 +1978,8 @@ Pool membership is derived at runtime from each VM's live `net0` VLAN tag — no
 
 ### Useful DB queries
 
-```sql
--- All backup hosts
-SELECT DISTINCT hostname FROM backups ORDER BY hostname;
-
--- All update hosts
-SELECT DISTINCT hostname FROM updates ORDER BY hostname;
-
--- Recent maintenance runs
-SELECT application, hostname, subtype, status, timestamp FROM maintenance
-ORDER BY timestamp DESC LIMIT 20;
-
--- Unexpected hostnames (should be empty — all rows come from inventory_hostname now)
--- Replace %.home.local and %.example.com with your actual domain suffixes
-SELECT CONCAT(hostname, ' (', tbl, ')') FROM (
-  SELECT hostname, 'backups' AS tbl FROM backups
-  WHERE hostname NOT LIKE '%.home.local' AND hostname NOT LIKE '%.example.com'
-  UNION
-  SELECT hostname, 'updates' FROM updates
-  WHERE hostname NOT LIKE '%.home.local' AND hostname NOT LIKE '%.example.com'
-  UNION
-  SELECT hostname, 'maintenance' FROM maintenance
-  WHERE hostname NOT LIKE '%.home.local' AND hostname NOT LIKE '%.example.com'
-  UNION
-  SELECT hostname, 'restores' FROM restores
-  WHERE hostname NOT LIKE '%.home.local' AND hostname NOT LIKE '%.example.com'
-) AS bad ORDER BY hostname;
-
--- Recent backups
-SELECT application, hostname, file_name, file_size, timestamp FROM backups
-ORDER BY timestamp DESC LIMIT 20;
-
--- Version history for a host
-SELECT application, hostname, version, timestamp FROM updates
-WHERE hostname LIKE 'myhost%' ORDER BY timestamp DESC;
-
--- Failed maintenance runs
-SELECT application, hostname, subtype, timestamp FROM maintenance
-WHERE status = 'failed' ORDER BY timestamp DESC;
-
--- Recent health check results (latest run)
-SELECT hostname, check_name, check_status, check_value FROM health_checks
-ORDER BY timestamp DESC LIMIT 30;
-
--- Hosts with non-ok health (latest run per host/check)
-SELECT hostname, check_name, check_status, check_value, check_detail, timestamp
-FROM health_checks WHERE check_status != 'ok'
-ORDER BY timestamp DESC LIMIT 20;
-
--- Disk usage trend for a host
-SELECT hostname, check_value, timestamp FROM health_checks
-WHERE check_name = 'disk_space' AND hostname LIKE 'myhost%'
-ORDER BY timestamp DESC LIMIT 30;
-```
+> See `future/CLAUDE_REFERENCE.md` for diagnostic SQL queries against both `ansible_logging`
+> and `semaphore` databases.
 
 ### Grafana dashboard
 
@@ -2697,20 +2297,9 @@ Idempotent — safe to re-run.
 #### Loopback IP Aliases
 
 Test VMs get persistent loopback aliases for production host IPs (via
-`/etc/netplan/60-loopback-aliases.yaml`). When a restored container tries to reach a
-production service by IP, it hits the loopback alias and connects to the local Docker
-service on the test VM instead. Aliases are baked into the `pre-test-restore` snapshot
-and survive OOM recovery reboots (netplan is filesystem-persistent).
-
-#### Verification
-
-After setup:
-1. `build_ubuntu.yaml -e vm_name=test-vm` — Proxmox shows `VLAN Tag: <vault_test_vlan_id>` on net0; VM gets IP in isolated subnet
-2. From test VM SSH:
-   - `ping <prod_host_ip>` → times out ✓
-   - `curl https://hub.docker.com` → 200 OK ✓
-   - `ip addr show lo` → prod host IPs listed as /32 aliases ✓
-3. `test_backup_restore.yaml -e source_host=<fqdn>` → all apps restore + health checks pass with no prod connections
+`/etc/netplan/60-loopback-aliases.yaml`). Restored containers reaching prod IPs hit the
+loopback alias and connect to local Docker services instead. Baked into `pre-test-restore`
+snapshot — survives reboots.
 
 ### Test Restore (automated)
 
@@ -2749,20 +2338,14 @@ The playbook:
 are production VMs. Only `test-vm` (or a custom ephemeral key) is appropriate.
 
 ```bash
-# Test a role's full restore cycle (vm_name defaults to test-vm; role resolves stack list)
-ansible-playbook test_restore.yaml -e role=core --vault-password-file ~/.vault_pass
+# Test a role's restore cycle (vm_name defaults to test-vm)
+ansible-playbook test_restore.yaml -e role=core
 
-# DR mode — keeps the VM running after restore (no revert)
-ansible-playbook test_restore.yaml -e role=core -e dr_mode=yes --vault-password-file ~/.vault_pass
+# DR mode — keeps restored state (no revert)
+ansible-playbook test_restore.yaml -e role=core -e dr_mode=yes
 
-# Explicit source_host (alternative to role — looks up stacks from stack_assignments)
-ansible-playbook test_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
-
-# Test all app_definitions apps on a disposable VM (per-app DB + appdata restore, health check, revert)
-ansible-playbook test_backup_restore.yaml -e source_host=<source-fqdn> --vault-password-file ~/.vault_pass
-
-# Restore a single app to production (requires confirm=yes safety gate)
-ansible-playbook restore_app.yaml -e restore_app=authentik -e restore_target=<host-fqdn> -e confirm=yes --vault-password-file ~/.vault_pass
+# All app_definitions — per-app DB+appdata restore + health check
+ansible-playbook test_backup_restore.yaml -e source_host=<fqdn>
 ```
 
 **Per-stack health check timeouts** — Timeouts are discovered at runtime from `homelab.health_timeout`
@@ -2778,106 +2361,26 @@ reboots the VM, and retries only the OOM-failed apps with the new memory ceiling
 
 ## CephFS (Test VMs Only)
 
-CephFS is used **only for test VMs** (`cephfs-migrate-test`). Production VMs (core, apps, dev) use
-local Ceph RBD disk for `/opt` — CephFS proved too slow for production workloads. Cross-VM workspace
-access for code-server on dev uses NFS mounts from core/apps instead.
+CephFS is used **only for test VMs** (`cephfs-migrate-test`). Production VMs use local Ceph RBD
+disk — CephFS proved too slow for production workloads. Dev VM uses NFS mounts from core/apps
+for code-server workspace access.
 
-### Architecture
+### Storage Architecture
 
-Production VM storage is a single layer:
+| VM type | `/opt` storage | Notes |
+|---------|---------------|-------|
+| Production (core, apps, dev) | Ceph RBD disk | Standard local storage |
+| Dev VM extras | NFS from core/apps (`/mnt/nfs/core`, `/mnt/nfs/apps`) | Read-only workspace access |
+| `cephfs-migrate-test` | CephFS mount | Test-only; `cephfs_host_dir` defined in `vm_definitions` |
+| `test-vm`, `amp`, `desktop` | Ceph RBD disk | No CephFS (snapshot revert / I/O sensitivity) |
 
-- **Ceph RBD disk** (`replicated` pool) — VM OS, Docker engine, container images in
-  `/var/lib/docker`, and all Docker appdata under `/opt`. Provisioned by `provision_vm.yaml`.
+**Vault variables** for CephFS test VMs: `vault_ceph_mons` (monitor IPs) and
+`vault_ceph_vm_appdata_key` (client key).
 
-Dev VM additionally mounts core and apps `/opt` via NFS (read-only) for code-server workspace access:
-```
-core:/opt   →  /mnt/nfs/core on dev VM (NFS, read-only)
-apps:/opt   →  /mnt/nfs/apps on dev VM (NFS, read-only)
-```
+### How It Works
 
-### Vault Variables
-
-Two secrets required for CephFS test VMs (`cephfs_host_dir` defined):
-
-| Variable | Description |
-|---|---|
-| `vault_ceph_mons` | Comma-separated Ceph monitor IPs (no spaces) |
-| `vault_ceph_vm_appdata_key` | Key from `ceph auth print-key client.vm-appdata` |
-
-See `vars/secrets.yaml.example` for the full entry and setup reference.
-
-### VM Eligibility
-
-`cephfs_host_dir` is defined in `vm_definitions` for **test VMs only**:
-
-- **core, apps, dev, desktop** — local RBD disk (no `cephfs_host_dir`)
-- **cephfs-migrate-test** — `cephfs_host_dir: "cephfs-migrate-test"` — ephemeral test VM used by
-  `test_restore.yaml -e vm_name=cephfs-migrate-test`. Draws a slot from the same `vm_test_slot_base`
-  pool as `test-vm` via `resolve_test_vm_index.yaml`. Same test VLAN isolation as `test-vm` (backup
-  data stays off prod network); CephFS monitor access allowed via "Allow Test to Ceph" zone policy.
-  Bootstrap mounts CephFS at `/opt`; restore archives land directly on CephFS. `test_restore.yaml`
-  auto-creates the CephFS dir if missing.
-- **amp** — excluded: game server I/O sensitivity; AMP instance data stays on local disk
-- **test-vm** — excluded: snapshots only revert the RBD disk, not CephFS. `test-vm` uses local `/opt`
-  so snapshot revert produces a clean state for each test run.
-
-### Bootstrap
-
-`tasks/bootstrap_vm.yaml` handles CephFS automatically when `_vm.cephfs_host_dir` is defined
-(test VMs only). For production VMs, `/opt` is the default local RBD disk — no special setup needed.
-
-NFS server support: when `_vm.nfs_exports` is defined (core, apps), bootstrap installs
-`nfs-kernel-server` and writes `/etc/exports`. NFS client mounts (`_vm.nfs_mounts`) are configured
-for dev VM to access core/apps workspaces.
-
-### CephFS Restore Test
-
-`test_restore.yaml -e vm_name=cephfs-migrate-test` validates backup/restore on CephFS-backed `/opt`.
-Uses the same `test_restore.yaml` flow as regular restore testing — the only differences are:
-
-- `cephfs-migrate-test` VM definition has `cephfs_host_dir`, so `bootstrap_vm.yaml` mounts CephFS
-  at `/opt` automatically. Archives restore directly onto CephFS.
-- `test_restore.yaml` auto-creates the CephFS directory on the root filesystem (via PVE delegation)
-  when `_vm.cephfs_host_dir` is defined — no manual prerequisite.
-- Snapshot revert restores the RBD disk (OS, Docker, fstab); CephFS data persists. Test playbooks
-  explicitly wipe CephFS appdata before each run (`find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +`)
-  — overwriting alone can leave orphaned files from a previous run that the new restore doesn't touch.
-
-### Verification
-
-`verify_cephfs.yaml` checks that CephFS is correctly mounted and functional on a target VM:
-
-1. Assert `vm_name` has `cephfs_host_dir` defined
-2. Check `/opt` is mounted as CephFS (`findmnt -t ceph /opt`)
-3. Verify mount source contains the expected host directory name
-4. Write a marker file to `/opt/.cephfs-verify`, read it back
-5. Report whether `/opt/stacks` exists (informational)
-6. Log to MariaDB (`maintenance` table, subtype `CephFS Verify`) + Discord notification
-
-Usage: `-e vm_name=<key>` (must have `cephfs_host_dir` defined). Run after migration or bootstrap
-to confirm CephFS is working, or on a schedule as a health check.
-
-### Backup / DR
-
-Backup strategy is unchanged. `backup_single_stack.yaml` discovers paths via `homelab.backup.paths`
-labels — those paths resolve to `/opt/<app>` on local RBD disk. Tar archives remain disaster recovery.
-
-### Recovery if CephFS Goes Down (test VMs only)
-
-If CephFS becomes unavailable, test VMs with `cephfs_host_dir` will hang at boot. Production VMs
-are unaffected — they use local RBD disk. For test VMs, restore CephFS availability or destroy
-and recreate the test VM.
-
-### Phase Roadmap
-
-- **Phase 1 (reverted)** — CephFS for production VMs proved too slow. Production VMs reverted to
-  local RBD disk. CephFS retained for test VMs only. Feb 2026.
-- **Phase 2 (complete)** — Docker networking + stack reorg: shared `homelab` Docker network for
-  cross-stack service-name resolution; media stack moves to core (eliminates cross-host postgres);
-  NFS stack deleted (code-server uses NFS from core/apps); host-IP references in `env.j2` templates
-  replaced with Docker service names.
-- **Phase 3 (complete)** — 3-VM role-based architecture (core/apps/dev) with keepalived VIPs;
-  role-based stack assignment via `stack_roles` + `host_roles`; NFS exports on core/apps for
-  dev VM workspace access; dynamic `docker_mem_limit` replaces static group_vars.
-
-Phases 2 and 3 ship as a single feature branch (`feature/host-independent-stacks`) — one deployment, one round of troubleshooting.
+- `bootstrap_vm.yaml` auto-mounts CephFS at `/opt` when `_vm.cephfs_host_dir` is defined
+- `test_restore.yaml -e vm_name=cephfs-migrate-test` validates backup/restore on CephFS
+  - Auto-creates CephFS dir, wipes appdata before each run, restores archives onto CephFS
+- `verify_cephfs.yaml` checks mount status, read/write, and logs to MariaDB + Discord
+- If CephFS goes down, test VMs hang at boot; production VMs are unaffected
