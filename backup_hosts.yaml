@@ -118,6 +118,17 @@
              else backup_stack_order[inventory_hostname]
                   | default(stack_assignments[inventory_hostname] | default([]) | reverse | list) }}
 
+    - name: "DEBUG — stack assignment diagnostics"
+      ansible.builtin.debug:
+        msg:
+          _target_stacks: "{{ _target_stacks }}"
+          stack_assignments_for_host: "{{ stack_assignments[inventory_hostname] | default('UNDEFINED') }}"
+          backup_stack_order_for_host: "{{ backup_stack_order[inventory_hostname] | default('UNDEFINED') }}"
+          host_roles_for_host: "{{ host_roles[inventory_hostname] | default('UNDEFINED') }}"
+          host_roles_keys: "{{ host_roles | default({}) | dict2items | map(attribute='key') | list }}"
+          stack_roles_keys: "{{ stack_roles | default({}) | dict2items | map(attribute='key') | list }}"
+      when: inventory_hostname in groups["docker_stacks"] | default([])
+
     - block:
         # ===== PER-STACK BACKUP (docker_stacks hosts) =====
         - name: Back up per-stack archives
@@ -690,6 +701,7 @@
           vars:
             discord_name: "Database"
             discord_operation: "Backup"
+            discord_author: "Databases"
             discord_status: >-
               {{ 'successful' if (_db_combined_results | selectattr('backup_rc', 'ne', 0) | list | length == 0)
                  else ('failed' if (_db_combined_results | selectattr('backup_rc', 'eq', 0) | list | length == 0)
