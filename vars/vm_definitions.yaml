@@ -150,6 +150,17 @@ vm_definitions:
     vm_memory_mb: 16384
     vm_disk_gb: 64
     pve_target_node: independence
+  
+  vps:
+    vm_id:
+    vm_name: vps
+    vm_mac:
+    vm_hostname: "vps.{{ vault_vm_search_domain }}"
+    vm_ip: 10.253.100.1
+    vm_cores:
+    vm_memory_mb:
+    vm_disk_gb:
+    pve_target_node:
 
   # VM for testing restore on CephFS-backed /opt (test_restore.yaml -e vm_name=cephfs-migrate-test).
   # Draws a slot from the same test-vm pool via resolve_test_vm_index.yaml (no fixed VMID).
