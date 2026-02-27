@@ -5,14 +5,14 @@
 # See vars/vm_definitions.yaml for the derivation formulas.
 #
 # Required fields:
-#   vm_hostname    — FQDN for cloud-init/DNS. Use vault_ext_search_domain for
-#                    internet-facing hosts, vault_vm_search_domain for LAN hosts.
+#   vm_hostname    — FQDN for cloud-init/DNS. Use domain_ext for internet-facing
+#                    hosts, vault_vm_search_domain for LAN hosts.
 #                    host_roles automatically maps both domains for all hosts.
 #   stacks         — ordered stack list (same as vm_definitions stacks key)
 
 host_definitions:
   vps:
-    vm_hostname: "vps.{{ vault_ext_search_domain | default(vault_vm_search_domain) }}"
+    vm_hostname: "vps.{{ domain_ext }}"
     stacks: [vpn]
 
   # Legacy hosts — remove after migration to core/apps/dev VMs is complete.
