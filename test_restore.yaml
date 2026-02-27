@@ -92,7 +92,7 @@
           Valid hosts: {{ stack_assignments.keys() | list | join(', ') }}
       when: source_host is defined
 
-    - name: Run standard pre-flight assertions
+    - name: Run standard pre-flight assertions for test_restore
       include_tasks: tasks/pre_task_assertions.yaml
       vars:
         pre_playbook: "test_restore.yaml"
@@ -104,7 +104,7 @@
       include_tasks: tasks/resolve_test_vm_index.yaml
       when: vm_name in ['test-vm', 'cephfs-migrate-test']
 
-    - name: Resolve VM and stack configuration
+    - name: Resolve test VM and target stack configuration
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
         _stacks: >-
@@ -169,24 +169,24 @@
     # Load each DB vars file and capture config into explicit facts (include_vars
     # with name: has scoping issues where the namespaced dict is empty in
     # subsequent loop expressions).
-    - name: Load postgres DB config
+    - name: Load postgres DB config from vars
       ansible.builtin.include_vars:
         file: vars/db_primary_postgres.yaml
       when: "'databases' in _stacks"
 
-    - name: Save postgres DB config
+    - name: Save postgres DB config to Ansible facts
       ansible.builtin.set_fact:
         _db_postgres_all_names: "{{ db_names }}"
         _db_postgres_container: "{{ db_container_name }}"
         _db_postgres_username: "{{ db_username }}"
       when: "'databases' in _stacks"
 
-    - name: Load mariadb DB config
+    - name: Load mariadb DB config from vars
       ansible.builtin.include_vars:
         file: vars/db_primary_mariadb.yaml
       when: "'databases' in _stacks"
 
-    - name: Save mariadb DB config
+    - name: Save mariadb DB config to Ansible facts
       ansible.builtin.set_fact:
         _db_mariadb_all_names: "{{ db_names }}"
         _db_mariadb_container: "{{ db_container_name }}"
@@ -281,15 +281,15 @@
     - vars/docker_vips.yaml
 
   tasks:
-    - name: Wait for system boot to complete
+    - name: Wait for test VM system boot to complete
       ansible.builtin.wait_for_connection:
         delay: 5
         timeout: 300
 
-    - name: Gather facts
+    - name: Gather Ansible facts for test VM
       ansible.builtin.setup:
 
-    - name: Resolve scope (role injection)
+    - name: Resolve Docker stack scope via role injection
       include_tasks: tasks/resolve_scope.yaml
 
     - name: Inject VRRP priority for unmapped hosts (test VMs)
@@ -299,7 +299,7 @@
              | combine({inventory_hostname.split('.')[0]: 100}) }}
       when: _role_injected | default(false)
 
-    - name: Check if Docker is installed
+    - name: Check if Docker is installed on test VM
       ansible.builtin.command: docker --version
       register: _docker_check
       failed_when: false
@@ -323,7 +323,7 @@
     - vars/vm_definitions.yaml
 
   tasks:
-    - name: Get existing snapshots
+    - name: Get existing Proxmox snapshots for test VM
       ansible.builtin.uri:
         url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
         method: GET
@@ -400,7 +400,7 @@
     - name: Assert /opt is not production CephFS (safety gate)
       include_tasks: tasks/assert_test_vm.yaml
 
-    - name: Resolve scope (role injection)
+    - name: Resolve Docker stack scope via role injection
       include_tasks: tasks/resolve_scope.yaml
 
     - name: Inject VRRP priority for unmapped hosts (test VMs)
@@ -410,7 +410,7 @@
              | combine({inventory_hostname.split('.')[0]: 100}) }}
       when: _role_injected | default(false)
 
-    - name: Initialize restore state
+    - name: Initialize test restore state variables
       ansible.builtin.set_fact:
         _restore_test_failed: false
         _restore_test_detail: ""
@@ -429,7 +429,7 @@
       when:
         - hostvars['localhost']._vm.cephfs_host_dir is defined
 
-    - name: Ensure shared Docker network exists
+    - name: Ensure shared Docker network exists on test VM
       community.docker.docker_network:
         name: homelab
         state: present
@@ -444,7 +444,7 @@
             mode: '0755'
           become: true
 
-        - name: Compute selective extract path
+        - name: Compute selective extract path for {{ restore_app | default('') }}
           ansible.builtin.set_fact:
             _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
           when: restore_app | default('') | length > 0
@@ -609,13 +609,13 @@
               {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
 
         # ===== HEALTH CHECK =====
-        - name: Verify container health
+        - name: Verify container health on test VM
           include_tasks: tasks/verify_docker_health.yaml
           vars:
             _test_mode: true
 
         # ===== NETWORK VERIFICATION =====
-        - name: Verify Docker network connectivity
+        - name: Verify Docker network connectivity on test VM
           include_tasks: tasks/verify_docker_network.yaml
 
         # ===== NETWORK ISOLATION VERIFICATION =====
@@ -625,28 +625,28 @@
             _vm: "{{ hostvars['localhost']._vm }}"
 
         # ===== VIP VERIFICATION =====
-        - name: Verify VIP is active
+        - name: Verify VIP is active for test VM role
           include_tasks: tasks/verify_vip.yaml
 
-        - name: Record success detail
+        - name: Record test restore success detail
           ansible.builtin.set_fact:
             _restore_test_detail: >-
               {{ restore_app | default('full') }} restore verified
               — {{ hostvars['localhost']._stacks | join(', ') }} stack(s)
 
       rescue:
-        - name: Set restore test failed flag
+        - name: Set restore test failed flag (rescue)
           ansible.builtin.set_fact:
             _restore_test_failed: true
             _restore_test_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}{{ (' | ' + ansible_failed_result.stdout | trim) if ansible_failed_result.stdout | default('') | trim | length > 0 else '' }}"
 
       always:
-        - name: Clean up temp archive
+        - name: Clean up temp restore archive on test VM
           ansible.builtin.file:
             path: "/tmp/restore_inplace.tar.gz"
             state: absent
 
-        - name: Send Discord notification
+        - name: Send test restore Discord notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
@@ -695,9 +695,9 @@
         msg: "DR mode — keeping restored state on {{ vm_definitions[vm_name].vm_name }}"
       when: dr_mode | default('') == 'yes'
 
-    - name: Revert VM to pre-test snapshot
+    - name: Revert test VM to pre-test snapshot
       block:
-        - name: Stop VM
+        - name: Stop test VM
           community.general.proxmox_kvm:
             api_host: "{{ pve_api_host }}"
             api_user: "{{ pve_api_user }}"
@@ -719,7 +719,7 @@
             validate_certs: false
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-        - name: Wait for rollback to complete
+        - name: Wait for test VM snapshot rollback to complete
           ansible.builtin.pause:
             seconds: 20
 

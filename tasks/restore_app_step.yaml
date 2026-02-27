@@ -11,12 +11,12 @@
 #   app_definitions, backup_base_dir, db_password,
 #   semaphore_check vars (controller_fqdn, etc.)
 
-- name: Set stack for {{ _test_app }}
+- name: Resolve stack assignment for {{ _test_app }}
   ansible.builtin.set_fact:
     _cur_stack: "{{ app_definitions[_test_app].stack }}"
 
 - block:
-    - name: Ensure staging dir for {{ _test_app }}
+    - name: Create restore staging directory for {{ _test_app }}
       ansible.builtin.file:
         path: "/tmp/restore_{{ _test_app }}"
         state: directory
@@ -70,7 +70,7 @@
         - app_definitions[_test_app].db_names | default([]) | length > 0
         - _cur_stack != 'databases'
 
-    - name: Deploy stack — {{ _cur_stack }}
+    - name: Deploy {{ _cur_stack }} stack for {{ _test_app }} restore
       include_tasks: tasks/deploy_single_stack.yaml
       vars:
         _current_stack: "{{ _cur_stack }}"
@@ -102,7 +102,7 @@
         file: "vars/{{ _cur_db_config }}.yaml"
       when: _cur_db_config | default('') | length > 0
 
-    - name: Stop stack — {{ _cur_stack }}
+    - name: Stop {{ _cur_stack }} stack before restore
       include_tasks: tasks/docker_stop.yaml
       vars:
         _docker_selective_stacks: ["{{ _cur_stack }}"]
@@ -165,7 +165,7 @@
         _restore_archive_path: "{{ _stack_archive_map[_test_app] }}"
         _restore_app_name: "{{ _test_app }}"
 
-    - name: Start stack — {{ _cur_stack }}
+    - name: Start {{ _cur_stack }} stack after restore
       include_tasks: tasks/docker_start.yaml
       vars:
         _docker_selective_stacks: ["{{ _cur_stack }}"]
@@ -186,7 +186,7 @@
         - _cur_health_url | default('') | length > 0
         - not ansible_check_mode
 
-    - name: Record success — {{ _test_app }}
+    - name: Record successful restore for {{ _test_app }}
       ansible.builtin.set_fact:
         _app_restore_results: >-
           {{ _app_restore_results + [{'app': _test_app, 'passed': true,
@@ -200,7 +200,7 @@
       changed_when: false
       become: true
 
-    - name: Record failure — {{ _test_app }}
+    - name: Record failed restore for {{ _test_app }}
       ansible.builtin.set_fact:
         _app_restore_results: >-
           {{ _app_restore_results + [{'app': _test_app, 'passed': false,
@@ -214,7 +214,7 @@
         _docker_ignore_errors: true
 
   always:
-    - name: Cleanup staging dir — {{ _test_app }}
+    - name: Clean up restore staging directory for {{ _test_app }}
       ansible.builtin.file:
         path: "/tmp/restore_{{ _test_app }}"
         state: absent

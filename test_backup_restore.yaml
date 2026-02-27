@@ -54,7 +54,7 @@
           vm_name '{{ vm_name }}' not found in vm_definitions.
           Valid names: {{ vm_definitions.keys() | list | join(', ') }}
 
-    - name: Run standard pre-flight assertions
+    - name: Run standard pre-flight assertions for test_backup_restore
       include_tasks: tasks/pre_task_assertions.yaml
       vars:
         pre_playbook: "test_backup_restore.yaml"
@@ -66,7 +66,7 @@
       include_tasks: tasks/resolve_test_vm_index.yaml
       when: vm_name == 'test-vm'
 
-    - name: Resolve VM configuration
+    - name: Resolve VM configuration from vm_definitions[{{ vm_name }}]
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
 
@@ -156,15 +156,15 @@
     - vars/docker_vips.yaml
 
   tasks:
-    - name: Wait for system boot to complete
+    - name: Wait for test VM system boot to complete
       ansible.builtin.wait_for_connection:
         delay: 5
         timeout: 300
 
-    - name: Gather facts
+    - name: Gather Ansible facts for test VM
       ansible.builtin.setup:
 
-    - name: Check if Docker is installed
+    - name: Check if Docker is installed on test VM
       ansible.builtin.command: docker --version
       register: _docker_check
       failed_when: false
@@ -187,7 +187,7 @@
     - vars/secrets.yaml
 
   tasks:
-    - name: Get existing snapshots
+    - name: Get existing Proxmox snapshots for test VM
       ansible.builtin.uri:
         url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot"
         method: GET
@@ -280,7 +280,7 @@
         state: present
       become: true
 
-    - name: Initialize app restore results
+    - name: Initialize test app restore results list
       ansible.builtin.set_fact:
         _app_restore_results: []
 
@@ -320,12 +320,12 @@
     maintenance_subtype: "Test Backup Restore"
 
   tasks:
-    - name: Collect app restore results
+    - name: Collect app restore results from test VM
       ansible.builtin.set_fact:
         _all_results: >-
           {{ hostvars[hostvars['localhost']._vm.vm_hostname]._app_restore_results | default([]) }}
 
-    - name: Set overall pass/fail and summary
+    - name: Set test restore overall pass/fail and summary
       ansible.builtin.set_fact:
         _any_failed: >-
           {{ _all_results | selectattr('passed', 'equalto', false) | list | length > 0 }}
@@ -334,7 +334,7 @@
              | zip(_all_results | map(attribute='passed') | map('ternary', 'PASS', 'FAIL'))
              | list | map('join', ': ') | list | join(' | ') }}
 
-    - name: Build per-app Discord fields
+    - name: Build per-app Discord fields for test restore results
       ansible.builtin.set_fact:
         _app_discord_fields: >-
           [
@@ -343,7 +343,7 @@
            {"name": "{{ ('❌ ' if not r.passed else '✅ ') + r.app }}", "value": "{{ r.detail if not r.passed else 'OK' }}", "inline": true}
            {% endfor %}]
 
-    - name: Send Discord summary
+    - name: Send test restore Discord summary
       include_tasks: tasks/notify.yaml
       vars:
         discord_name: "{{ maintenance_name }}"
@@ -365,9 +365,9 @@
         log_subtype: "{{ maintenance_subtype }}"
         log_status: "{{ 'failed' if _any_failed else 'success' }}"
 
-    - name: Revert VM to pre-test snapshot
+    - name: Revert test VM to pre-test snapshot
       block:
-        - name: Stop VM
+        - name: Stop test VM
           community.general.proxmox_kvm:
             api_host: "{{ pve_api_host }}"
             api_user: "{{ pve_api_user }}"
@@ -389,7 +389,7 @@
             validate_certs: false
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-        - name: Wait for rollback to complete
+        - name: Wait for test VM snapshot rollback to complete
           ansible.builtin.pause:
             seconds: 20
 
