@@ -281,9 +281,17 @@
         groups: "{{ _provision_target_group | default('build_target') }}"
         _needs_bootstrap: true
 
-    - name: Add VM to test pool
+    - name: Derive PVE pool from VLAN tag
+      ansible.builtin.set_fact:
+        _provision_pool: >-
+          {{ pve_pool_test if (_vm.vm_vlan_tag | default('') | string) == (vault_test_vlan_id | default('') | string)
+             else pve_pool_hosted if (_vm.vm_vlan_tag | default('') | string) == (pve_pool_hosted_vlan | default('') | string)
+             else pve_pool_production if _vm.vm_vlan_tag is not defined
+             else '' }}
+
+    - name: Add VM to {{ _provision_pool }} pool
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_test }}"
+        url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ _provision_pool }}"
         method: PUT
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -295,7 +303,7 @@
       failed_when: >-
         _pool_add_result.status | default(0) not in [200] and
         'already a pool member' not in (_pool_add_result.json.message | default(''))
-      when: pve_pool_test is defined and not ansible_check_mode
+      when: _provision_pool | length > 0 and not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
   rescue:
