@@ -1,6 +1,6 @@
-# VM provisioning definitions for build_ubuntu.yaml
+# VM provisioning definitions and role derivations.
 # Each entry maps vm_name → VM spec for Proxmox API.
-# Stack assignments derived from stack_assignments in vars/docker_stacks.yaml (single source of truth).
+# stack_roles and vm_roles are derived dynamically from vm_definitions (see bottom of file).
 
 # Proxmox infrastructure defaults — shared across all VMs.
 # pve_api_user, pve_api_token_id, pve_api_token_secret, pve_vm_password
@@ -57,9 +57,8 @@ vm_template_cores: 2
 vm_test_slot_base: 500
 vm_test_slot_count: 10
 
-# vm_definitions: keyed by role name (used as vm_name arg and for stack_assignments derivation).
-# Per-VM sensitive values (hostname, IP, PVE target node) come from vault:
-#   vault_vm_<role>_hostname  — FQDN for cloud-init hostname and Ansible inventory
+# vm_definitions: keyed by role name (used as vm_name arg and for stack/role derivation).
+# Hostnames are derived: <role>.{{ vault_vm_search_domain }}. Per-VM secrets from vault:
 #   vault_vm_<role>_ip        — static IP for cloud-init network config
 #   vault_vm_<role>_node      — PVE node to place this VM on
 #
@@ -73,51 +72,57 @@ vm_definitions:
     vm_id: 300
     vm_name: core
     vm_mac: "02:00:00:00:01:04"       # static MAC — stable Unifi device identity across rebuilds
-    vm_hostname: "{{ vault_vm_core_hostname }}"
+    vm_hostname: "core.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_core_ip }}"
     vm_cores: 4
     vm_memory_mb: 24576
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_core_node }}"
+    deploy_ssh_key: true
     nfs_exports:                       # export /opt to dev VM for code-server workspace access
       - path: /opt
         clients: "{{ vault_vm_dev_ip }}(ro,no_subtree_check,no_root_squash)"
+    stacks: [infra, databases, auth, media]
 
   apps:
     vm_id: 301
     vm_name: apps
     vm_mac: "02:00:00:00:01:05"       # static MAC — stable Unifi device identity across rebuilds
-    vm_hostname: "{{ vault_vm_apps_hostname }}"
+    vm_hostname: "apps.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_apps_ip }}"
     vm_cores: 4
     vm_memory_mb: 24576
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_apps_node }}"
+    deploy_ssh_key: true
     nfs_exports:                       # export /opt to dev VM for code-server workspace access
       - path: /opt
         clients: "{{ vault_vm_dev_ip }}(ro,no_subtree_check,no_root_squash)"
+    stacks: [infra, apps, monitoring]
 
   dev:
     vm_id: 302
     vm_name: dev
     vm_mac: "02:00:00:00:01:06"       # static MAC — stable Unifi device identity across rebuilds
-    vm_hostname: "{{ vault_vm_dev_hostname }}"
+    vm_hostname: "dev.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_dev_ip }}"
     vm_cores: 2
     vm_memory_mb: 8192
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_dev_node }}"
+    deploy_ssh_key: true
     nfs_mounts:                        # NFS mounts from core/apps for code-server workspace access
       - src: "{{ vault_vm_core_ip }}:/opt"
         path: "/mnt/nfs/core"
       - src: "{{ vault_vm_apps_ip }}:/opt"
         path: "/mnt/nfs/apps"
+    stacks: [infra, dev]
 
   amp:
     vm_id: 110
     vm_name: amp
     vm_mac: "02:00:00:00:01:10"       # static MAC — stable Unifi device identity across rebuilds
-    vm_hostname: "{{ vault_vm_amp_hostname }}"
+    vm_hostname: "amp.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_amp_ip }}"
     vm_cores: 4
     vm_memory_mb: 8192
@@ -190,3 +195,41 @@ vm_definitions:
 #   vm_gateway: "192.0.2.1"             # overrides global vm_gateway (used in cloud-init ipconfig0)
 #   vm_dns: "8.8.8.8,8.8.4.4"          # overrides global vm_dns (comma-separated, no spaces)
 #   vm_vlan_tag: 88                      # if defined, sets VLAN tag on net0 via PVE API
+#
+#   stacks: [infra, databases, auth]     # ordered stack list — defines this VM as a Docker VM
+#                                        # must be non-empty list or absent entirely (no stacks: [])
+#   deploy_ssh_key: true                 # install ansible SSH key during bootstrap (default: false)
+
+# Derived from vm_definitions — replaces static dicts that were maintained separately.
+# These are evaluated lazily by Ansible when accessed.
+
+# stack_roles: role → ordered stack list (replaces static dict formerly in docker_stacks.yaml).
+# Only VMs with a stacks key are included.
+stack_roles: >-
+  {{ dict(
+    vm_definitions | dict2items
+    | selectattr('value.stacks', 'defined')
+    | map(attribute='key')
+    | zip(
+      vm_definitions | dict2items
+      | selectattr('value.stacks', 'defined')
+      | map(attribute='value.stacks')
+    )
+  ) }}
+
+# vm_roles: hostname → role (replaces vault_vm_roles).
+# Production Docker VMs only — excludes test/ephemeral VMs (vm_vlan_tag set)
+# and basic VMs without stacks (e.g. amp).
+vm_roles: >-
+  {{ dict(
+    vm_definitions | dict2items
+    | rejectattr('value.vm_vlan_tag', 'defined')
+    | selectattr('value.stacks', 'defined')
+    | map(attribute='value.vm_hostname')
+    | zip(
+      vm_definitions | dict2items
+      | rejectattr('value.vm_vlan_tag', 'defined')
+      | selectattr('value.stacks', 'defined')
+      | map(attribute='key')
+    )
+  ) }}

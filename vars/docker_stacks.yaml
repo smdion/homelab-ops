@@ -29,23 +29,13 @@ app_info:
     db_config: db_primary_postgres
     db_names: [jellyseerr]
 
-# Role-to-stack mapping. ORDER MATTERS: databases MUST precede auth (Authentik requires Postgres).
-# stack_assignments and backup_stack_order are derived dynamically from this + vault_vm_roles.
-stack_roles:
-  core: [infra, databases, auth, media]
-  apps: [infra, apps, monitoring]
-  dev:  [infra, dev]
-  # Legacy (pre-migration) — remove after migration to core/apps/dev is complete
-  tantiveiv: [infra, databases, auth, monitoring, dev]
-  odyssey:   [infra, media, apps]
-
 # Stack assignments: host → ordered list of stack names.
-# Derived from stack_roles (above) + vault_vm_roles (vault: hostname → role mapping).
+# Derived from vm_roles + stack_roles (both from vars/vm_definitions.yaml).
 stack_assignments: >-
   {{ dict(
-    vault_vm_roles | dict2items | map(attribute='key') | list
+    vm_roles | dict2items | map(attribute='key') | list
     | zip(
-      vault_vm_roles | dict2items | map(attribute='value')
+      vm_roles | dict2items | map(attribute='value')
       | map('extract', stack_roles) | list
     )
   ) }}
@@ -54,9 +44,9 @@ stack_assignments: >-
 # Derived as reverse of stack_assignments per role.
 backup_stack_order: >-
   {{ dict(
-    vault_vm_roles | dict2items | map(attribute='key') | list
+    vm_roles | dict2items | map(attribute='key') | list
     | zip(
-      vault_vm_roles | dict2items | map(attribute='value')
+      vm_roles | dict2items | map(attribute='value')
       | map('extract', stack_roles)
       | map('reverse') | map('list') | list
     )

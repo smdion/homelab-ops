@@ -32,9 +32,6 @@
     pre_backup: "{{ pre_backup | default('yes') }}"
 
   pre_tasks:
-    - name: Assert config_file is defined and non-empty
-      include_tasks: tasks/assert_config_file.yaml
-
     - name: Assert confirm is set
       ansible.builtin.assert:
         that: confirm | default('no') == 'yes'
@@ -48,15 +45,11 @@
         assert_disk_path: "{{ backup_tmp_dir }}"
         assert_disk_min_gb: "{{ backup_assert_disk_min_gb | default(2) }}"
 
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "restore_databases.yaml"
-        log_hostname: "{{ inventory_hostname }}"
-        log_run_vars: "{}"
+        pre_assert_config_file: true
+        pre_playbook: "restore_databases.yaml"
 
   tasks:
     - name: Initialize restore state
@@ -64,7 +57,6 @@
         restore_failed: false
         combined_results: []
         _restore_db_list: "{{ [restore_db] if restore_db | default('') | length > 0 else db_names }}"
-      tags: [always]
 
     - block:
         - name: Find backup files on controller
@@ -76,7 +68,6 @@
           become: false
           changed_when: false
           check_mode: false
-          tags: [always]
 
         - name: Assert backup files exist
           ansible.builtin.assert:
@@ -85,7 +76,6 @@
           loop: "{{ _restore_db_list }}"
           loop_control:
             index_var: idx
-          tags: [always]
 
         - name: Create pre-restore safety backup
           include_tasks: tasks/db_dump.yaml
@@ -103,7 +93,6 @@
           when:
             - pre_backup | bool
             - not ansible_check_mode
-          tags: [always]
 
         - name: Copy backup files to target host
           ansible.builtin.copy:
@@ -114,7 +103,6 @@
             index_var: idx
           become: true
           when: not ansible_check_mode
-          tags: [always]
 
         # NOTE: Multi-DB restores are not atomic. If restore fails mid-list,
         # earlier DBs are already restored. Pre-restore backups exist for manual recovery.
@@ -128,7 +116,6 @@
             - db_container_deps is defined
             - db_container_deps[item] | default([]) | length > 0
             - not ansible_check_mode
-          tags: [always]
 
         - name: Restore databases
           include_tasks: tasks/db_restore.yaml
@@ -144,7 +131,6 @@
             _db_is_influxdb: "{{ is_influxdb | default(false) }}"
             _db_tmp_dir: "{{ backup_tmp_dir }}"
           when: not ansible_check_mode
-          tags: [always]
 
         - name: Validate restored databases
           include_tasks: tasks/db_count.yaml
@@ -158,7 +144,6 @@
             _db_is_mariadb: "{{ is_mariadb | default(false) }}"
             _db_is_influxdb: "{{ is_influxdb | default(false) }}"
           when: not ansible_check_mode
-          tags: [always]
 
         - name: Start dependent containers
           ansible.builtin.command:
@@ -169,7 +154,6 @@
             - db_container_deps is defined
             - db_container_deps[item] | default([]) | length > 0
             - not ansible_check_mode
-          tags: [always]
 
         - name: Clean up temp files on target
           ansible.builtin.file:
@@ -177,7 +161,6 @@
             state: absent
           loop: "{{ _restore_db_list }}"
           become: true
-          tags: [always]
 
         - name: Collect restore results
           ansible.builtin.set_fact:
@@ -194,7 +177,6 @@
           loop_control:
             loop_var: idx
           when: not ansible_check_mode
-          tags: [always]
 
       rescue:
         - name: Set restore failed flag
@@ -210,7 +192,6 @@
           when:
             - db_container_deps is defined
             - db_container_deps[item] | default([]) | length > 0
-          tags: [always]
 
       always:
         - name: Send Discord notification for each result
@@ -230,7 +211,6 @@
                 value: "{{ restore_result.source_file | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1') }}"
               - name: "{{ 'Measurements' if is_influxdb | default(false) | bool else 'Tables' }}"
                 value: "{{ restore_result.table_count }}"
-          tags: [always]
 
         - name: Send Discord notification for unhandled block error
           include_tasks: tasks/notify.yaml
@@ -242,7 +222,6 @@
             discord_detail: "check Semaphore logs"
             discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
-          tags: [always]
 
         - name: Log restore results to MariaDB
           include_tasks: tasks/log_restore.yaml
@@ -258,7 +237,6 @@
             restore_operation: "restore"
             restore_status: "{{ 'failed' if restore_failed else 'success' }}"
             restore_detail: "{{ restore_result.table_count }} {{ 'measurements' if is_influxdb | default(false) | bool else 'tables' }} restored"
-          tags: [always]
 
         - name: Log unhandled failure to MariaDB
           include_tasks: tasks/log_restore.yaml
@@ -272,4 +250,3 @@
             restore_operation: "restore"
             restore_status: "failed"
             restore_detail: "Restore failed — check Semaphore logs"
-          tags: [always]

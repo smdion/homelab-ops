@@ -1,0 +1,26 @@
+---
+# Common pre-flight assertions included by most playbooks.
+# Validates database connectivity and logs the playbook run context.
+# Optionally asserts config_file is defined.
+#
+# Required vars:
+#   pre_playbook           — playbook filename for audit log (e.g. "backup_hosts.yaml")
+#
+# Optional vars:
+#   pre_assert_config_file — include assert_config_file check (default: false)
+#   pre_hostname           — hostname for audit log (default: inventory_hostname)
+#   pre_run_vars           — JSON extra-vars for audit log (default: "{}")
+
+- name: Assert config_file is defined and non-empty
+  include_tasks: tasks/assert_config_file.yaml
+  when: pre_assert_config_file | default(false) | bool
+
+- name: Assert MariaDB logging database is reachable
+  include_tasks: tasks/assert_db_connectivity.yaml
+
+- name: Log playbook run context to MariaDB
+  include_tasks: tasks/log_run_context.yaml
+  vars:
+    log_playbook: "{{ pre_playbook }}"
+    log_hostname: "{{ pre_hostname | default(inventory_hostname) }}"
+    log_run_vars: "{{ pre_run_vars | default('{}') }}"

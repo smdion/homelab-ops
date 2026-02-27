@@ -89,4 +89,3 @@
   until: _log_mariadb_result is succeeded
   when: not (skip_db | default(false) | bool) and not ansible_check_mode
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-  tags: [always]

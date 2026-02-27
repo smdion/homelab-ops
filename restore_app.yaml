@@ -19,6 +19,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
+    - vars/vm_definitions.yaml
     - vars/docker_stacks.yaml
     - vars/semaphore_check.yaml
 
@@ -40,15 +41,12 @@
           '{{ restore_app }}' not found in app_info.
           Valid apps: {{ app_info.keys() | list | join(', ') }}
 
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "restore_app.yaml"
-        log_hostname: "{{ controller_fqdn }}"
-        log_run_vars: "{{ {'restore_app': restore_app, 'restore_target': restore_target} | to_json }}"
+        pre_playbook: "restore_app.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+        pre_run_vars: "{{ {'restore_app': restore_app, 'restore_target': restore_target} | to_json }}"
 
   tasks:
     - name: Set app config
@@ -103,6 +101,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
+    - vars/vm_definitions.yaml
     - vars/docker_stacks.yaml
     - vars/semaphore_check.yaml
   vars:

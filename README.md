@@ -94,7 +94,7 @@ and go.
 | `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller; `docker_stacks` hosts use per-stack archives (stop → archive → restart each stack individually to minimize downtime); backup paths discovered from `homelab.backup.paths` container labels; auto-handles PiKVM RW/RO filesystem | `vars/<platform>.yaml` with `backup_*` vars |
 | `backup_databases.yaml` | Dump Postgres/MariaDB/InfluxDB databases from Docker containers | `vars/db_<role>_<engine>.yaml` with `db_names`, `db_container_name` |
 | `update_systems.yaml` | OS packages + Docker container updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers` | `vars/<platform>.yaml` with `update_*` vars |
-| `maintain_docker.yaml` | Prune unused Docker images | Needs `[docker]` group (children of `docker_stacks` + `docker_run`) |
+| `maintain_docker.yaml` | Prune unused Docker images + drop Linux page cache (Ubuntu/unRAID); logs disk metrics to MariaDB | Needs `[docker]` group + `[ubuntu]`/`[unraid]` for cache |
 | `maintain_semaphore.yaml` | Clean stopped Semaphore tasks, prune old download tasks (`download_task_retention_days`), and prune `ansible_logging` rows (`retention_days`) | Runs on localhost |
 | `maintain_logging_db.yaml` | Purge failed/warning records from `ansible_logging` — failed updates, failed maintenance, zero-size backups, warning/critical health checks | Runs on localhost |
 | `check_logging_db.yaml` | Weekly `ansible_logging` summary — 7-day row counts per table, hosts with no recent backup, failure counts — sends an informational Discord embed; logs to MariaDB | Runs on localhost |
@@ -105,7 +105,8 @@ and go.
 | `restore_amp.yaml` | Restore AMP game server instance(s) from backup; safety-gated with `confirm=yes`; pass `restore_target`; optionally `amp_instance_filter` for a single instance | `vars/amp.yaml` |
 | `restore_app.yaml` | Restore a single app (appdata + all DBs) to a production host; safety-gated with `confirm=yes`; pass `restore_app`, `restore_target`, optionally `restore_source_host` | `vars/docker_stacks.yaml` `app_info` dict + runtime config from container labels |
 | `rollback_docker.yaml` | Revert Docker containers to previous images; `with_backup=yes` for combined image+appdata+DB recovery; `stack=`/`role=` scope; safety-gated with `confirm=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
-| `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy | `vars/docker_stacks.yaml` with `stack_assignments` |
+| `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy; `role=`/`stack=` scope selectors; `serial: 1` for multi-host ordering | `vars/docker_stacks.yaml` with `stack_assignments` |
+| `apply_role.yaml` | Idempotent VM reconciliation — make a VM match its definition across OS/network/Docker/stacks/verification layers; omit `-e role` for all Docker VMs (`serial: 1`, VMID order); `-e role=core` to target one; per-layer skip flags | `vars/vm_definitions.yaml` with consolidated VM spec |
 
 ### Platform-specific playbooks
 
@@ -115,16 +116,15 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 |---|---|---|
 | `maintain_amp.yaml` | [AMP](https://cubecoders.com/AMP) game server | Version checks, journal pruning, dump cleanup |
 | `maintain_unifi.yaml` | Unifi Network (UDMP) | Service restart |
-| `maintain_cache.yaml` | Ubuntu / unRAID | Drop Linux page cache |
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | Wake Synology via WOL, rsync backup data from unRAID to Synology, verify shutdown |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
 | `maintain_pve.yaml` | Proxmox + PBS | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; VM snapshot staleness check (>14d Discord warning); PBS backup task error check (last 2 days via `proxmox-backup-manager`); Discord + MariaDB logging |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
+| `dr_rebuild.yaml` | Proxmox + `docker_stacks` | DR rebuild — provision VM → bootstrap → restore backups → deploy stacks → health check; `-e role=core\|apps\|dev`; `scripts/dr_rebuild_all.sh` for multi-role sequential execution |
 | `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, patches SWAG configs, verifies health, reverts to snapshot; `vm_name` defaults to `test-vm`; `role` can substitute for `source_host`; DR mode (`dr_mode=yes`) keeps restored state. CephFS-backed test VMs get explicit appdata cleanup before each run (PVE snapshot revert alone does not clean CephFS state) |
 | `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_info` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope. CephFS-backed test VMs get explicit appdata cleanup before each run |
-| `migrate_appdata_to_cephfs.yaml` | Proxmox + CephFS | One-shot migration of `/opt` from local RBD to CephFS — PVE snapshot safety net, rsync, remount, auto-rollback on failure; requires `-e vm_name=<key> -e confirm=yes` |
 | `verify_cephfs.yaml` | Proxmox + CephFS | Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires `-e vm_name=<key>` |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
@@ -201,14 +201,17 @@ for platforms you don't have are automatically skipped.
 ├── maintain_*.yaml              # Maintenance + health playbooks
 ├── download_videos.yaml         # MeTube/yt-dlp automation
 ├── deploy_stacks.yaml           # Docker stack deploy from Git — .env templating, compose copy, validate, start
+├── apply_role.yaml              # Idempotent VM reconciliation — OS/network/Docker/stacks/verification layers; all-roles or single
+├── dr_rebuild.yaml              # DR rebuild — provision VM → bootstrap → restore → deploy → health check
 ├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
 ├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks); vm_name defaults to test-vm; role can substitute for source_host
 ├── test_backup_restore.yaml        # Test all app_info apps on disposable VM — per-app restore from backup archives, OOM recovery, Discord summary
-├── migrate_appdata_to_cephfs.yaml  # One-shot /opt migration to CephFS with PVE snapshot safety net
 ├── verify_cephfs.yaml           # Verify CephFS mount — checks mount source, writes/reads marker file
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
 ├── setup_ansible_user.yaml      # One-time user setup utility
 ├── setup_pve_vip.yaml           # One-time keepalived VIP setup on PVE nodes
+├── scripts/
+│   └── dr_rebuild_all.sh        # Shell wrapper for sequential multi-role DR rebuild (core,apps,dev)
 ├── requirements.txt             # Python pip dependencies (PyMySQL, proxmoxer)
 ├── requirements.yaml            # Ansible Galaxy collection dependencies
 ├── inventory.example.yaml       # Example inventory with expected group structure

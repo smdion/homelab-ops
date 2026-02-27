@@ -1,7 +1,9 @@
 ---
-# Prune unused Docker images and volumes across all Docker hosts.
-# Captures post-prune disk usage (images, volumes, containers) and logs
-# metrics to the docker_sizes table for Grafana trend monitoring.
+# Docker prune + page cache maintenance.
+# Play 1: Prune unused Docker images and volumes across all Docker hosts.
+#          Captures post-prune disk usage (images, volumes, containers) and logs
+#          metrics to the docker_sizes table for Grafana trend monitoring.
+# Play 2: Clear Linux page cache on Ubuntu and unRAID hosts.
 # Schedule with Semaphore to run weekly.
 
 - name: Prune unused Docker images
@@ -18,15 +20,10 @@
     maintenance_description: "Prune unused Docker images across all Docker hosts"
 
   pre_tasks:
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "maintain_docker.yaml"
-        log_hostname: "{{ inventory_hostname }}"
-        log_run_vars: "{}"
+        pre_playbook: "maintain_docker.yaml"
 
   tasks:
     - name: Initialize maintenance state
@@ -112,3 +109,62 @@
             log_volumes_count: "{{ _docker_volumes_count | default(0) }}"
             log_volumes_mb:    "{{ _docker_volumes_mb | default(0) }}"
             log_containers_mb: "{{ _docker_containers_mb | default(0) }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Clear Linux page cache
+# ═══════════════════════════════════════════════════════════════════
+- name: Clear Linux page cache
+  hosts: "ubuntu:unraid"
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+  vars:
+    maintenance_name: "{{ 'unRAID' if 'unraid' in group_names else 'Ubuntu' }}"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Cache"
+    maintenance_url: ""
+    maintenance_description: "Drop Linux page cache (echo 3 > /proc/sys/vm/drop_caches)"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "maintain_docker.yaml"
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+
+    - block:
+        - name: Drop Linux page cache
+          become: true
+          ansible.builtin.shell: echo 3 > /proc/sys/vm/drop_caches
+          changed_when: true
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send Discord alert on failure
+          include_tasks: tasks/notify.yaml
+          when: maintenance_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Maintenance"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: "maintenance"
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"

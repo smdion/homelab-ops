@@ -53,14 +53,12 @@
   gather_facts: true
   vars_files:
     - vars/secrets.yaml
+    - vars/vm_definitions.yaml
     - "vars/{{ config_file }}.yaml"
   vars:
     config_file: "{{ hosts_variable }}"
 
   pre_tasks:
-    - name: Assert config_file is defined
-      include_tasks: tasks/assert_config_file.yaml
-
     - name: Resolve rollback_stack → stack alias
       ansible.builtin.set_fact:
         stack: "{{ rollback_stack }}"
@@ -71,8 +69,12 @@
     - name: Resolve scope (role injection + stack/role filtering)
       include_tasks: tasks/resolve_scope.yaml
 
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
+
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_assert_config_file: true
+        pre_playbook: "rollback_docker.yaml"
 
     - name: Assert Docker Compose host
       ansible.builtin.assert:
@@ -155,13 +157,6 @@
           Safety gate: pass -e confirm=yes to proceed.
           Omit it to dry-run (shows snapshot contents without rolling back).
       when: not ansible_check_mode
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
-      vars:
-        log_playbook: "rollback_docker.yaml"
-        log_hostname: "{{ inventory_hostname }}"
-        log_run_vars: "{}"
 
   tasks:
     - name: Initialize rollback state

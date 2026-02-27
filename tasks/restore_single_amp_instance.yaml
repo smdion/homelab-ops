@@ -19,7 +19,6 @@
   ansible.builtin.set_fact:
     _amp_restore_archive: "{{ _restore_archive_map[_amp_instance] }}"
     _amp_restore_tmp: "/tmp/restore_amp_{{ _amp_instance }}"
-  tags: [always]
 
 - name: Check if AMP instance {{ _amp_instance }} is running before restore
   become: true

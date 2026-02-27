@@ -129,7 +129,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
 │   ├── unraid_os.yaml               # unRAID OS backup
 │   ├── synology.yaml                # Synology NAS sync
-│   ├── vm_definitions.yaml          # Proxmox VM provisioning — VMID/IP/resource definitions for build_ubuntu.yaml
+│   ├── vm_definitions.yaml          # Consolidated VM spec — VMID/IP/resources/stacks/deploy_ssh_key per role; derives stack_roles + vm_roles dynamically
 │   ├── db_primary_postgres.yaml     # Primary host Postgres DB backup + db_container_deps for restore
 │   ├── db_primary_mariadb.yaml      # Primary host MariaDB backup + db_container_deps for restore
 │   ├── db_primary_influxdb.yaml     # Primary host InfluxDB backup + db_container_deps for restore
@@ -176,7 +176,15 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── assert_test_vm.yaml          # Safety gate — assert /opt CephFS mount is not a production directory before destructive writes
 │   ├── verify_docker_network.yaml   # Verify cross-stack DNS resolution and TCP connectivity on shared Docker network
 │   ├── verify_network_isolation.yaml # Verify test VLAN isolation — PVE VIP unreachable, CephFS monitors + public DNS reachable
-│   └── verify_vip.yaml             # Verify keepalived VIP is active on expected interface (skips if no role assigned)
+│   ├── verify_vip.yaml             # Verify keepalived VIP is active on expected interface (skips if no role assigned)
+│   ├── pre_task_assertions.yaml    # Pre-task bundle: assert_config_file (optional) → assert_db_connectivity → log_run_context; used by 26 playbooks
+│   ├── apply_role_resolve.yaml     # Per-role resolution loop body: resolve VM definition, display scope, add target to inventory
+│   ├── resolve_effective_vips.yaml # Shared VIP resolution — test VIP offsets vs vault VIPs
+│   ├── resolve_test_vm_index.yaml  # Auto-detect free test-vm slot from vm_test_slot_base pool
+│   └── reset_db_auth.yaml         # Force-reset MariaDB/Postgres passwords via socket auth after backup restore
+│
+├── scripts/
+│   └── dr_rebuild_all.sh           # Shell wrapper: run dr_rebuild.yaml for multiple roles sequentially (core,apps,dev)
 │
 ├── templates/
 │   ├── metube.conf.j2              # Jinja2 template for yt-dlp config — rendered per profile from vars/download_<name>.yaml
@@ -193,21 +201,21 @@ history, restore results, playbook runs) belongs in the database.
 ├── maintain_amp.yaml               # AMP game server maintenance (versions, dumps, prune, journal)
 ├── maintain_semaphore.yaml         # Delete stopped/error + old download tasks from Semaphore DB + prune ansible_logging retention (runs on localhost)
 ├── maintain_logging_db.yaml        # Purge failed/warning records from ansible_logging (failed updates, maintenance, zero-size backups, warning/critical health checks) — runs on localhost
-├── maintain_docker.yaml            # Prune unused Docker images across all Docker hosts
-├── maintain_cache.yaml             # Drop Linux page cache on Ubuntu and unRAID hosts
+├── maintain_docker.yaml            # Prune unused Docker images + drop Linux page cache (Ubuntu/unRAID); logs metrics to docker_sizes table
 ├── maintain_unifi.yaml             # Restart Unifi Network service
 ├── maintain_health.yaml            # Scheduled health monitoring — 26 checks across all SSH hosts + DB/API; Uptime Kuma dead man's switch
 ├── maintain_pve.yaml               # Idempotent Proxmox node config (keepalived VIP, ansible user, SSH hardening); stale snapshot check (>14d alert); PBS task error check (last 2d via proxmox-backup-manager); Discord + MariaDB logging
 ├── download_videos.yaml            # MeTube yt-dlp downloads — per-video Discord notifications + temp file cleanup; parameterized on config_file; hosts via hosts_variable
 ├── setup_ansible_user.yaml         # One-time utility: create ansible user on PVE/PBS/unRAID hosts (SSH key from vault, ansible_remote_tmp dir, validation assertions)
 ├── setup_pve_vip.yaml              # One-time VIP setup: install and configure keepalived on PVE nodes; verifies VIP reachable on port 22
-├── deploy_stacks.yaml             # Deploy Docker stacks from Git — templates .env from vault, copies compose, starts stacks
+├── deploy_stacks.yaml             # Deploy Docker stacks from Git — templates .env from vault, copies compose, starts stacks; serial:1; role=/stack= scope
+├── apply_role.yaml                # Idempotent VM reconciliation — OS/network/Docker/stacks/verification layers; serial:1 all-roles mode; -e role= filter
+├── dr_rebuild.yaml                # DR rebuild — provision VM → bootstrap → restore backups → deploy stacks → health check; -e role=core|apps|dev
 ├── build_ubuntu.yaml              # Provision Ubuntu VMs on Proxmox via API — cloud-init, Docker install, SSH config
 ├── restore_amp.yaml               # AMP instance restore — stop instance(s), replace data dir from archive, restart; per-instance or all; requires confirm=yes
 ├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert; vm_name defaults to test-vm; role can substitute for source_host
 ├── test_backup_restore.yaml          # Test all app_info apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
-├── migrate_appdata_to_cephfs.yaml # One-shot migration of /opt from local RBD disk to CephFS shared storage; requires -e vm_name=<key> -e confirm=yes
 ├── verify_cephfs.yaml             # Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires -e vm_name=<key>
 ├── verify_isolation.yaml          # Lightweight test VLAN isolation verification — provisions bare test VM, runs network checks, then destroys
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
@@ -371,7 +379,7 @@ corrupts state). Thin orchestrator dispatching to three task files based on rest
 `tasks/restore_single_stack.yaml` (per-stack, loopable), `tasks/restore_selective_app.yaml`
 (single app + optional cross-host DB), and `tasks/restore_monolithic.yaml` (full host). Supports
 `stack=<name>` and `role=<name>` scope selectors for docker_stacks hosts — auto-resolves target
-host via `stack_assignments`/`vault_vm_roles` (no `--limit` needed). Supports selective app
+host via `stack_assignments`/`vm_roles` (no `--limit` needed). Supports selective app
 restore via `-e restore_app=sonarr` (convention-based: app name maps to subdirectory under
 `src_raw_files[0]`). Supports coordinated DB+appdata restore via `-e with_databases=yes` — loads
 DB vars into a `_db_vars` namespace (avoiding collision with play-level Docker vars) and uses
@@ -402,6 +410,26 @@ includes a port-wait step (3306, 5432) before proceeding. Pre-tasks assert the h
 `stack_assignments` entry, sufficient disk space, and DB connectivity. Supports single-stack
 deploy via `-e stack=<name>` (or legacy `-e deploy_stack=<name>`), render-only mode via `-e validate_only=yes`, and debug
 output via `-e debug_no_log=yes`. Runs `serial: 1` to avoid parallel deploy issues.
+
+**`apply_role.yaml`** — Idempotent VM state reconciliation. Two-play structure: Play 1 (localhost)
+resolves VM definitions and adds targets to the `apply_target` inventory group; Play 2 (target
+VMs, `serial: 1`) applies layered reconciliation: OS + Network (bootstrap) → Docker (shared
+network) → Application (stack deployment) → Hardware (PVE resize, off by default) → Verification
+(health, network, VIP). Omit `-e role` to target all production Docker VMs in VMID order
+(core=300, apps=301, dev=302), respecting NFS dependencies. Pass `-e role=core` to target a
+single role. Per-layer skip flags (`skip_bootstrap`, `skip_stacks`, `skip_verify`) and
+`validate_only=yes` for dry-run scope resolution. Per-host role data is passed via `add_host`
+hostvars (not `hostvars['localhost']`), enabling true multi-host serial processing.
+Uses `tasks/apply_role_resolve.yaml` for per-role resolution loop body.
+
+**`dr_rebuild.yaml`** — DR rebuild / production migration. Three-play structure: Play 1 (localhost)
+validates inputs, discovers per-stack backup archives and DB dumps, provisions or detects
+pre-built VM, adds to `dr_target`. Play 2 (new VM) bootstraps with Docker, keepalived, and
+security hardening. Play 3 (new VM) restores appdata from archives, patches SWAG configs,
+deploys databases stack first (with password reset), restores SQL dumps, deploys remaining stacks,
+and runs health/network/VIP verification. Supports `-e role=core|apps|dev`, with `vm_name`
+defaulting to role. Test VMs override with `-e vm_name=test-vm`. Multi-role sequential execution
+via `scripts/dr_rebuild_all.sh` shell wrapper (NFS ordering: core before dev).
 
 **`build_ubuntu.yaml`** — Two-play playbook for Proxmox VM lifecycle management via cloud-init
 template cloning. Supports four `vm_state` values: `present` (default), `absent`, `snapshot`, and
@@ -442,7 +470,7 @@ restore. Per-instance results logged to the `restores` table; partial success su
 instances succeed, others fail). Uses `tasks/restore_single_amp_instance.yaml` (loop var: `_amp_instance`).
 Semaphore template: `Restore — AMP [Instance]` (id=76). Required extra vars: `-e restore_target=<host> -e confirm=yes`.
 
-**`maintain_amp.yaml`** — AMP game server maintenance. Runs on `amp` hosts. Cleans up old AMP version binaries (keeps `amp_versions_keep` newest under `Versions/Mainline/`), rotates `instances.json` `.bak` files (same keep count), removes crash core dump files (`core*`) from all instance directories, purges instance log files older than 30 days, prunes unused Docker images (non-dangling), and vacuums journal logs older than `amp_journal_max_age`. Stale `.tar.gz` files in `/tmp/backup` older than 1 day are also removed. Uses `block`/`rescue`/`always` — sends Discord alert on failure; logs to `maintenance` table (`type: Servers`, `subtype: Maintenance`) regardless. Supports `--tags versions` to run only the version-prune step; `-e amp_versions_keep=<n>` overrides the keep count. Semaphore template: `Maintain — AMP [Cleanup]` (id=38). Scheduled weekly.
+**`maintain_amp.yaml`** — AMP game server maintenance. Runs on `amp` hosts. Cleans up old AMP version binaries (keeps `amp_versions_keep` newest under `Versions/Mainline/`), rotates `instances.json` `.bak` files (same keep count), removes crash core dump files (`core*`) from all instance directories, purges instance log files older than 30 days, prunes unused Docker images (non-dangling), and vacuums journal logs older than `amp_journal_max_age`. Stale `.tar.gz` files in `/tmp/backup` older than 1 day are also removed. Uses `block`/`rescue`/`always` — sends Discord alert on failure; logs to `maintenance` table (`type: Servers`, `subtype: Maintenance`) regardless. Supports `-e amp_scope=versions` to run only the version-prune step; `-e amp_versions_keep=<n>` overrides the keep count. Semaphore template: `Maintain — AMP [Cleanup]` (id=38). Scheduled weekly.
 
 **`restore_app.yaml`** — Production single-app restore. Safety-gated with `confirm=yes`. Stops
 the target stack, restores DB(s) + appdata inplace, restarts the stack, runs HTTP health checks,
@@ -747,8 +775,9 @@ Semaphore template (task) names follow `Verb — Target [Subtype]`:
 | `Build — {Target} [{Subtype}]` | `Build — Ubuntu [VM]`, `Build — Ubuntu [VM] (CephFS)` |
 | `Deploy — {Target} [{Subtype}]` | `Deploy — Docker Stacks`, `Deploy — Grafana [Dashboard]` |
 | `Download — {Target} [{Subtype}]` | `Download — Videos [Channels]`, `Download — Videos [On Demand]` |
-| `Maintain — {Target} [{Subtype}]` | `Maintain — AMP [Cleanup]`, `Maintain — Cache [Flush]`, `Maintain — Docker [Cleanup]`, `Maintain — Health [Check]` |
-| `Migrate — {Target} [{Subtype}]` | `Migrate — Appdata [CephFS]` |
+| `Maintain — {Target} [{Subtype}]` | `Maintain — AMP [Cleanup]`, `Maintain — Docker [Cleanup]`, `Maintain — Health [Check]` |
+| `Apply — {Target} [{Subtype}]` | `Apply — Role [All]`, `Apply — Role [Core]` |
+| `DR — {Target} [{Subtype}]` | `DR — Rebuild [Core]`, `DR — Rebuild [All]` |
 | `Restore — {Target} [{Subtype}]` | `Restore — Database [Primary PostgreSQL]`, `Restore — Docker Run [Appdata]` |
 | `Rollback — {Target} [{Subtype}]` | `Rollback — Docker [Containers]` |
 | `Test — {Target} [{Subtype}]` | `Test — Restore [VM]`, `Test — Backup Restore [VM]`, `Test — Restore [CephFS VM]` |
@@ -955,16 +984,19 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 |-----|---------|
 | `with_databases=yes` | Include coordinated DB restore alongside appdata restore (`restore_hosts`) |
 | `with_backup=yes` | Combined recovery: restore appdata + auto-detected DBs alongside image rollback (`rollback_docker`) |
-| `validate_only=yes` | Render and validate only, skip `docker compose up` (`deploy_stacks`) |
+| `validate_only=yes` | Render and validate only, skip `docker compose up` (`deploy_stacks`); dry-run scope resolution (`apply_role`) |
 | `dr_mode=yes` | DR recovery mode — skip snapshot/revert, keep state (`test_restore`) |
-| `deploy_ssh_key=yes` | Install ansible SSH private key on VM for cross-host operations (`build_ubuntu`, `test_restore`, `test_backup_restore`) |
+| `deploy_ssh_key=yes` | Install ansible SSH private key on VM for cross-host operations (`build_ubuntu`, `apply_role`, `dr_rebuild`, `test_restore`, `test_backup_restore`); also auto-set from VM spec `deploy_ssh_key: true` |
 | `debug_no_log=yes` | Reveal output normally hidden by `no_log` (any playbook; see [no_log pattern](#no_log-pattern)) |
+| `resize=yes` | Enable Hardware layer — PVE API drift detection + reboot (`apply_role`; not yet implemented) |
+| `pull_only=yes` | Render, validate, and pull images, but skip `docker compose up` (`deploy_stacks`) |
+| `patch_swag_migration=yes` | One-time SWAG nginx config patches: old IPs → Docker DNS / VIPs (`deploy_stacks`; remove after migration) |
 
 **Cross-cutting scope selectors (auto-resolve target host, omit for all):**
 | Var | Purpose |
 |-----|---------|
 | `stack=<name>` | Target a single stack — backup, verify, restore, deploy, rollback (auto-resolves host from `stack_assignments`) |
-| `role=<name>` | Target all stacks in a role — backup, verify, restore, deploy, rollback (auto-resolves host from `vault_vm_roles`); also injects into `vault_vm_roles` for unmapped hosts (test VMs) |
+| `role=<name>` | Target a specific role — backup, verify, restore, deploy, rollback, apply_role, dr_rebuild (auto-resolves host from `vm_roles`); also injects into `vm_roles` for unmapped hosts (test VMs); omit for all-roles mode in `apply_role` |
 
 **Playbook-specific scope selectors (string values, omit for default/all):**
 | Var | Purpose |
@@ -979,6 +1011,16 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 | `rollback_service=<name>` | Rollback a single service |
 | `amp_instance_filter=<name>` | Target a single AMP instance by name (`backup_hosts`, `restore_amp`) |
 | `vm_name=<key>` | VM definition key from `vars/vm_definitions.yaml` |
+| `update_scope=os\|docker\|software` | Target a specific update layer (`update_systems`); omit for all layers |
+| `amp_scope=versions\|cleanup\|coredumps\|prune\|journal` | Target a specific maintenance operation (`maintain_amp`); omit for all |
+| `skip_dbs=<comma-list>` | DB names to exclude from restore (`dr_rebuild`, e.g. `-e skip_dbs=nextcloud`) |
+
+**Skip flags (`=yes` to skip a layer, omit to include — `apply_role` only):**
+| Var | Purpose |
+|-----|---------|
+| `skip_bootstrap=yes` | Skip OS + Network layers |
+| `skip_stacks=yes` | Skip Application layer (stack deployment) |
+| `skip_verify=yes` | Skip Verification layer (health, network, VIP checks) |
 
 **Value rules:**
 - Boolean triggers always use `=yes` — never `=true`, `=false`, or `=no` on the CLI
@@ -1308,8 +1350,7 @@ and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
 | `backup_offline.yaml` | Ping check runs. WoL, Synology shutdown and verification skipped. Rsync simulated. |
 | `maintain_amp.yaml` | AMP version list gathered. File deletions simulated. |
 | `setup_test_network.yaml` | All GETs and prereq assertions run. POSTs skipped. Prints what would be created and the derived Semaphore IP + prod LAN CIDR. |
-| `maintain_cache.yaml` | Cache drop simulated. |
-| `maintain_docker.yaml` | Docker prune simulated. |
+| `maintain_docker.yaml` | Docker prune simulated. Cache drop simulated. |
 | `maintain_semaphore.yaml` | DB cleanup and retention pruning simulated. |
 | `maintain_unifi.yaml` | Service restart simulated. |
 | `download_videos.yaml` | Config deploy simulated. yt-dlp execution skipped. Manifest read runs (empty). Temp file discovery runs; deletions simulated. |
@@ -1337,24 +1378,48 @@ any work starts. Two shared assertion task files are available:
 `update_systems.yaml` (root filesystem `/`), `restore_databases.yaml` (`backup_tmp_dir`), and
 `restore_hosts.yaml` (root filesystem `/`).
 
+**`tasks/pre_task_assertions.yaml`** — Consolidated pre-task bundle used by 26 playbooks.
+Combines the three universal pre-flight steps into a single `include_tasks` call:
+1. `assert_config_file` (optional, gated by `pre_assert_config_file`)
+2. `assert_db_connectivity` (always)
+3. `log_run_context` (always — logs playbook name + hostname + extra vars to MariaDB)
+
+Required var: `pre_playbook` (playbook filename for audit trail).
+Optional vars: `pre_assert_config_file` (default: false), `pre_hostname` (default:
+`inventory_hostname`), `pre_run_vars` (default: `{}`).
+
+```yaml
+pre_tasks:
+  - name: Run standard pre-flight assertions
+    include_tasks: tasks/pre_task_assertions.yaml
+    vars:
+      pre_assert_config_file: true          # only for playbooks that use config_file
+      pre_playbook: "backup_hosts.yaml"
+      pre_run_vars: "{{ {'config_file': config_file | default('')} | to_json }}"
+```
+
 **`tasks/assert_db_connectivity.yaml`** — Verifies the MariaDB logging database is reachable
-via `SELECT 1`. Used by all 18 operational playbooks that call `tasks/log_mariadb.yaml` or
-`tasks/log_restore.yaml` in their `always:` block (every playbook except `download_videos.yaml`
-and `setup_ansible_user.yaml`). Catches MariaDB outages early — before any backup, update, or
-maintenance work starts — rather than failing silently in the `always:` logging step.
+via `SELECT 1`. Included by `tasks/pre_task_assertions.yaml` (26 playbooks) and directly
+by lightweight plays that don't need the full bundle (e.g. `maintain_pve.yaml` health checks).
+Catches MariaDB outages early — before any work starts — rather than failing silently in
+the `always:` logging step.
 
 **`tasks/resolve_scope.yaml`** — Shared scope resolution included in `pre_tasks` of
 `backup_hosts.yaml`, `verify_backups.yaml`, `restore_hosts.yaml`, `deploy_stacks.yaml`,
-`rollback_docker.yaml`, and `test_restore.yaml`. Injects `role` into `vault_vm_roles` for hosts
-not already mapped (test VMs) and sets `_role_injected=true` so templates can derive VIPs from
-the VM's actual subnet. Then applies `meta: end_host` filters for `stack` and `role` scope
-selectors. Playbooks resolve backward-compatible aliases (e.g. `deploy_stack → stack`,
-`restore_stack → stack`) before including this file.
+`rollback_docker.yaml`, `apply_role.yaml`, and `test_restore.yaml`. Injects `role` into
+`vm_roles` for hosts not already mapped (test VMs) and sets `_role_injected=true` so templates
+can derive VIPs from the VM's actual subnet. Then applies `meta: end_host` filters for `stack`
+and `role` scope selectors. Playbooks resolve backward-compatible aliases (e.g.
+`deploy_stack → stack`, `restore_stack → stack`) before including this file.
 
 **`tasks/assert_config_file.yaml`** — Asserts `config_file` is defined and non-empty, catching
-misconfigured Semaphore variable groups before work starts. Used by `backup_hosts.yaml`,
-`backup_databases.yaml`, `update_systems.yaml`, `backup_offline.yaml`, `download_videos.yaml`,
-`verify_backups.yaml`, `restore_databases.yaml`, and `restore_hosts.yaml`.
+misconfigured Semaphore variable groups before work starts. Now included via the
+`pre_task_assertions.yaml` bundle (gated by `pre_assert_config_file: true`).
+
+**`tasks/apply_role_resolve.yaml`** — Per-role resolution loop body for `apply_role.yaml`.
+Resolves a single VM definition, displays reconciliation scope, and adds the target host to
+the `apply_target` inventory group with role-specific hostvars. Skips `add_host` when
+`validate_only=yes` (dry-run mode).
 
 The `assert_disk_space` and `assert_db_connectivity` tasks have `check_mode: false` on their
 shell/query pre-steps so they validate during `--check`. `assert_config_file` uses
@@ -1497,8 +1562,9 @@ The state is read at the start of Play 1 and written at the end of Play 3 via
 
 ### Version detection pattern (`update_systems.yaml`)
 
-Version commands for each host type live in two play-level dicts — one for OS versions (`[os]` tag),
-one for software versions (`[software]` tag). Each dict key matches an inventory group name:
+Version commands for each host type live in two play-level dicts — one for OS versions
+(`update_scope=os`), one for software versions (`update_scope=software`). Each dict key matches
+an inventory group name:
 
 ```yaml
 vars:
@@ -1518,14 +1584,16 @@ Two tasks per dict handle all host types:
   ansible.builtin.shell: "{{ _os_version_commands[group_names | select('in', _os_version_commands) | first] }}"
   register: _version_raw_os
   changed_when: false
-  when: group_names | select('in', _os_version_commands) | list | length > 0
-  tags: [os]
+  when:
+    - group_names | select('in', _os_version_commands) | list | length > 0
+    - update_scope is not defined or update_scope == 'os'
 
 - name: Set current_version
   ansible.builtin.set_fact:
     current_version: "{{ _version_raw_os.stdout | trim }}"
-  when: group_names | select('in', _os_version_commands) | list | length > 0
-  tags: [os]
+  when:
+    - group_names | select('in', _os_version_commands) | list | length > 0
+    - update_scope is not defined or update_scope == 'os'
 ```
 
 `group_names | select('in', _os_version_commands)` returns the intersection of the current host's
@@ -1940,8 +2008,8 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | playbook | application | type | subtype |
 |---|---|---|---|
 | `maintain_semaphore.yaml` | Semaphore | Local | Cleanup |
-| `maintain_docker.yaml` | Docker | Servers | Prune |
-| `maintain_cache.yaml` | Ubuntu / unRAID | Servers | Cache |
+| `maintain_docker.yaml` (Play 1) | Docker | Servers | Prune |
+| `maintain_docker.yaml` (Play 2) | Ubuntu / unRAID | Servers | Cache |
 | `maintain_unifi.yaml` | Unifi | Appliances | Restart |
 | `maintain_amp.yaml` | AMP | Servers | Maintenance |
 | `maintain_health.yaml` | Semaphore | Local | Health Check |
@@ -1955,7 +2023,8 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `build_ubuntu.yaml` | Ubuntu | Servers | Build |
 | `test_restore.yaml` | Docker | Servers | Test Restore |
 | `test_backup_restore.yaml` | Docker | Servers | Test Backup Restore |
-| `migrate_appdata_to_cephfs.yaml` | (vm_name) | Servers | CephFS Migration |
+| `apply_role.yaml` | Docker | Servers | Apply Role |
+| `dr_rebuild.yaml` | Docker | Servers | DR Rebuild |
 | `verify_cephfs.yaml` | (vm_name) | Servers | CephFS Verify |
 
 **Restores** (type/subtype reuse the backup vars file values):
@@ -2055,7 +2124,10 @@ vm_search_domain: "..."
 vm_template_memory: "..."
 vm_template_cores: "..."
 # Per-VM IPs and node assignments — one entry per VM in vars/vm_definitions.yaml:
-# vault_vm_<name>_ip: "..."      vault_vm_<name>_hostname: "..."    vault_vm_<name>_node: "..."
+# vault_vm_<name>_ip: "..."      vault_vm_<name>_node: "..."
+# Hostnames are derived from role name + vault_vm_search_domain (no vault_vm_<name>_hostname needed).
+# vm_roles (hostname → role) and stack_roles (role → stack list) are derived dynamically
+# from vm_definitions — no manual vault entries needed for role mapping.
 
 # --- VPN stack (stacks/vpn/env.j2) ---
 vault_wg_internal_subnet: "..."  # WireGuard internal subnet (e.g. 10.x.x.0) — NOT a host IP
@@ -2488,6 +2560,8 @@ For a single stack: replace `-e role=core` with `-e stack=auth` (auto-resolves h
 | Stack deployment | Yes | `deploy_stacks.yaml` |
 | Database restore | Yes | `restore_databases.yaml` |
 | Appdata restore | Yes | `restore_hosts.yaml` |
+| Idempotent VM reconciliation | Yes | `apply_role.yaml` — all layers in one command; all-roles or single |
+| Full DR rebuild | Yes | `dr_rebuild.yaml` — provision + bootstrap + restore + deploy; `scripts/dr_rebuild_all.sh` for multi-role |
 | PVE node OS config (keepalived, ansible user, SSH) | Yes | `maintain_pve.yaml` — idempotent; also restores ansible user + SSH hardening |
 | PVE cluster VIP only (no logging) | Yes | `setup_pve_vip.yaml` — lightweight alternative when MariaDB not yet available |
 | DNS records (internal) | No | DHCP reservation with hostname — network layer |
@@ -2759,7 +2833,7 @@ and recreate the test VM.
   NFS stack deleted (code-server uses NFS from core/apps); host-IP references in `env.j2` templates
   replaced with Docker service names.
 - **Phase 3 (complete)** — 3-VM role-based architecture (core/apps/dev) with keepalived VIPs;
-  role-based stack assignment via `stack_roles` + `vault_vm_roles`; NFS exports on core/apps for
+  role-based stack assignment via `stack_roles` + `vm_roles`; NFS exports on core/apps for
   dev VM workspace access; dynamic `docker_mem_limit` replaces static group_vars.
 
 Phases 2 and 3 ship as a single feature branch (`feature/host-independent-stacks`) — one deployment, one round of troubleshooting.

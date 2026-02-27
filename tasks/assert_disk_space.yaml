@@ -17,7 +17,6 @@
   check_mode: false
   delegate_to: "{{ assert_disk_delegate_to | default(omit) }}"
   become: "{{ assert_disk_become | default(omit) }}"
-  tags: [always]
 
 - name: Assert sufficient disk space on {{ assert_disk_path }}
   ansible.builtin.assert:
@@ -27,4 +26,3 @@
       ({{ (_disk_avail_kb.stdout | int / 1048576) | round(2) }} GB available) — aborting
   delegate_to: "{{ assert_disk_delegate_to | default(omit) }}"
   become: "{{ assert_disk_become | default(omit) }}"
-  tags: [always]

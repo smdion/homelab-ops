@@ -12,4 +12,3 @@
       - config_file is defined
       - config_file | length > 0
     fail_msg: "config_file is undefined or empty — check hosts_variable in the Semaphore variable group"
-  tags: [always]

@@ -20,18 +20,15 @@
       become: false
       changed_when: false
       check_mode: false
-      tags: [always]
 
     - name: Assert backup archive exists
       ansible.builtin.assert:
         that: _archive_file.stdout | length > 0
         fail_msg: "No backup archive found for {{ inventory_hostname }}"
-      tags: [always]
 
     - name: Set source file fact
       ansible.builtin.set_fact:
         _restore_source_file: "{{ _archive_file.stdout | basename }}"
-      tags: [always]
 
     - name: Verify archive integrity
       ansible.builtin.shell: gunzip -t "{{ _archive_file.stdout }}"
@@ -39,23 +36,19 @@
       become: false
       changed_when: false
       check_mode: false
-      tags: [always]
 
     # ===== STOP DOCKER =====
     - include_tasks: tasks/docker_stop.yaml
       when: not ansible_check_mode
-      tags: [docker]
 
     # ===== RESTORE APPDATA =====
     - include_tasks: tasks/restore_appdata.yaml
       vars:
         _restore_archive_path: "{{ _archive_file.stdout }}"
-      tags: [always]
 
     # ===== START DOCKER =====
     - include_tasks: tasks/docker_start.yaml
       when: not ansible_check_mode
-      tags: [docker]
 
     # ===== CLEANUP =====
     - name: Clean up temp archive
@@ -63,7 +56,6 @@
         path: "{{ backup_tmp_dir }}/restore.tar.gz"
         state: absent
       become: true
-      tags: [always]
 
   rescue:
     - name: Set restore failed flag
@@ -73,4 +65,3 @@
     - include_tasks: tasks/docker_start.yaml
       vars:
         _docker_ignore_errors: true
-      tags: [docker]

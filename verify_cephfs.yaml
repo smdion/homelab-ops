@@ -1,7 +1,7 @@
 ---
 # Verify CephFS appdata mount on a target VM.
 # Checks /opt is mounted from CephFS, writes a marker file, reads it back.
-# Used to verify bootstrap_vm.yaml and migrate_appdata_to_cephfs.yaml.
+# Used to verify bootstrap_vm.yaml CephFS mount configuration.
 #
 # Portability proof: run before VM destroy, then again after reprovision —
 # marker file persists on CephFS through the rebuild.

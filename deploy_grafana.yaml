@@ -29,15 +29,11 @@
     maintenance_subtype: "Deploy"
 
   pre_tasks:
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "deploy_grafana.yaml"
-        log_hostname: "{{ controller_fqdn }}"
-        log_run_vars: "{}"
+        pre_playbook: "deploy_grafana.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
 
   tasks:
     - name: Initialize deploy state

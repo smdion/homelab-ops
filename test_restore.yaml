@@ -92,15 +92,12 @@
           Valid hosts: {{ stack_assignments.keys() | list | join(', ') }}
       when: source_host is defined
 
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "test_restore.yaml"
-        log_hostname: "{{ controller_fqdn }}"
-        log_run_vars: "{{ {'vm_name': vm_name | default('')} | to_json }}"
+        pre_playbook: "test_restore.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+        pre_run_vars: "{{ {'vm_name': vm_name | default('')} | to_json }}"
 
   tasks:
     - name: Auto-detect free vm_index for test-vm pool

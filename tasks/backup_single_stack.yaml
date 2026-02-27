@@ -17,7 +17,6 @@
 - name: Set archive filename for {{ _backup_stack }}
   ansible.builtin.set_fact:
     _stack_archive_name: "backup_{{ _backup_stack }}_{{ ansible_date_time.date }}.tar.gz"
-  tags: [always]
 
 - block:
     - name: Stop {{ _backup_stack }} stack

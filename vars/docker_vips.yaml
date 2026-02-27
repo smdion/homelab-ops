@@ -7,7 +7,7 @@
 #   vault_dev_vip                — floating VIP for dev role VM
 #   vault_docker_vrrp_password   — shared VRRP auth password
 #   vault_docker_vrrp_priorities — dict: short hostname → integer priority (highest = MASTER)
-#   vault_vm_roles               — dict: FQDN → role (core, apps, dev)
+#   vm_roles                     — dict: FQDN → role (derived from vm_definitions)
 docker_vrrp_interface: "eth0"
 docker_vip_cidr: 24
 

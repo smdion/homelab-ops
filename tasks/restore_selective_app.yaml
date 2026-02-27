@@ -23,18 +23,15 @@
       become: false
       changed_when: false
       check_mode: false
-      tags: [always]
 
     - name: Assert backup archive exists
       ansible.builtin.assert:
         that: _archive_file.stdout | length > 0
         fail_msg: "No backup archive found for {{ inventory_hostname }}"
-      tags: [always]
 
     - name: Set source file fact
       ansible.builtin.set_fact:
         _restore_source_file: "{{ _archive_file.stdout | basename }}"
-      tags: [always]
 
     - name: Verify archive integrity
       ansible.builtin.shell: gunzip -t "{{ _archive_file.stdout }}"
@@ -42,12 +39,10 @@
       become: false
       changed_when: false
       check_mode: false
-      tags: [always]
 
     - name: Compute extract path for selective app restore
       ansible.builtin.set_fact:
         _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
-      tags: [always]
 
     - name: Verify app directory exists in archive
       ansible.builtin.shell: tar tzf "{{ _archive_file.stdout }}" | grep -q "^{{ _extract_path }}/"
@@ -55,7 +50,6 @@
       become: false
       changed_when: false
       check_mode: false
-      tags: [always]
 
     # ===== STOP CONTAINERS =====
     - include_tasks: tasks/docker_stop.yaml
@@ -65,7 +59,6 @@
         - app_restore is defined
         - app_restore[restore_app] is defined
         - not ansible_check_mode
-      tags: [always]
 
     # ===== COORDINATED DB RESTORE (cross-host via delegate_to) =====
     - name: Load DB vars into namespace
@@ -76,7 +69,6 @@
         - with_databases | default('') == 'yes'
         - app_restore is defined
         - app_restore[restore_app] is defined
-      tags: [always]
 
     - name: Find DB backup files on controller
       ansible.builtin.shell: >
@@ -92,7 +84,6 @@
         - with_databases | default('') == 'yes'
         - app_restore is defined
         - app_restore[restore_app] is defined
-      tags: [always]
 
     - name: Assert DB backup files exist
       ansible.builtin.assert:
@@ -105,7 +96,6 @@
         - with_databases | default('') == 'yes'
         - app_restore is defined
         - app_restore[restore_app] is defined
-      tags: [always]
 
     - name: Copy DB backup files to DB host
       ansible.builtin.copy:
@@ -121,7 +111,6 @@
         - app_restore is defined
         - app_restore[restore_app] is defined
         - not ansible_check_mode
-      tags: [always]
 
     - name: Restore databases on DB host
       include_tasks: tasks/db_restore.yaml
@@ -142,7 +131,6 @@
         - app_restore is defined
         - app_restore[restore_app] is defined
         - not ansible_check_mode
-      tags: [always]
 
     - name: Validate restored databases on DB host
       include_tasks: tasks/db_count.yaml
@@ -161,7 +149,6 @@
         - app_restore is defined
         - app_restore[restore_app] is defined
         - not ansible_check_mode
-      tags: [always]
 
     - name: Clean up DB temp files on DB host
       ansible.builtin.file:
@@ -174,7 +161,6 @@
         - with_databases | default('') == 'yes'
         - app_restore is defined
         - app_restore[restore_app] is defined
-      tags: [always]
 
     # ===== RESTORE APPDATA =====
     - include_tasks: tasks/restore_appdata.yaml
@@ -182,7 +168,6 @@
         _restore_archive_path: "{{ _archive_file.stdout }}"
         _restore_extract_path: "{{ _extract_path }}"
         _restore_app_name: "{{ restore_app }}"
-      tags: [always]
 
     - name: Append DB restore detail
       ansible.builtin.set_fact:
@@ -194,7 +179,6 @@
         - app_restore is defined
         - app_restore[restore_app] is defined
         - not ansible_check_mode
-      tags: [always]
 
     # ===== START CONTAINERS =====
     - include_tasks: tasks/docker_start.yaml
@@ -204,7 +188,6 @@
         - app_restore is defined
         - app_restore[restore_app] is defined
         - not ansible_check_mode
-      tags: [always]
 
     # ===== CLEANUP =====
     - name: Clean up temp archive
@@ -212,7 +195,6 @@
         path: "{{ backup_tmp_dir }}/restore.tar.gz"
         state: absent
       become: true
-      tags: [always]
 
   rescue:
     - name: Set restore failed flag
@@ -226,4 +208,3 @@
       when:
         - app_restore is defined
         - app_restore[restore_app] is defined
-      tags: [always]
