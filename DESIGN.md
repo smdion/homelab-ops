@@ -192,9 +192,8 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── metube.conf.j2              # Jinja2 template for yt-dlp config — rendered per profile from vars/download_<name>.yaml
 │   └── keepalived-docker.conf.j2   # Jinja2 template for keepalived VRRP — floating VIP per Docker VM role; test mode derives VIP from VM subnet
 │
-├── backup_hosts.yaml               # Config/Appdata backups (Proxmox, PiKVM, Unifi, AMP, Docker, unRAID); integrity verification; DB dir exclusion
-├── backup_databases.yaml           # Database backups (Postgres + MariaDB dumps, InfluxDB portable backup); integrity verification
-├── backup_stacks.yaml             # Unified stack backup — imports backup_hosts.yaml (appdata) + backup_databases.yaml (MariaDB, Postgres); role=/stack= scope for appdata, all DBs always
+├── backup_hosts.yaml               # Config/Appdata backups (Proxmox, PiKVM, Unifi, AMP, Docker, unRAID); with_databases=yes for combined appdata + DB backup
+├── backup_databases.yaml           # Database backups (Postgres + MariaDB dumps, InfluxDB portable backup); integrity verification; standalone scheduling
 ├── backup_offline.yaml             # unRAID → Synology offline sync (WOL + rsync); shutdown verification; logs both successful and failed syncs; hosts via hosts_variable
 ├── verify_backups.yaml             # On-demand backup verification — DB backups restored to temp DB; config archives integrity-checked and staged
 ├── restore_databases.yaml          # Database restore from backup dumps — safety-gated; supports single-DB restore on shared instances
@@ -549,9 +548,10 @@ deletes the temp archive regardless of outcome — containers are always brought
 the backup fails. Integrity verification is deferred to `verify_backups.yaml`.
 
 **`tasks/backup_single_db.yaml`** — Per-database backup loop body called by `backup_databases.yaml`
-(loop var: `_current_db`). Delegates to `db_dump.yaml`, fetches the dump to the controller, and appends a success/failure
-record to `combined_results`. Inherits engine flags (`is_postgres`, `is_mariadb`, `is_influxdb`),
-credentials, and paths from the caller's scope.
+(standalone) and `backup_hosts.yaml` (combined mode via `with_databases=yes`, using `delegate_to`
+to run on the DB host). Loop var: `_current_db`. Delegates to `db_dump.yaml`, fetches the dump to
+the controller, and appends a success/failure record to `combined_results`. Inherits engine flags
+(`is_postgres`, `is_mariadb`, `is_influxdb`), credentials, and paths from the caller's scope.
 
 **`tasks/db_dump.yaml`** — Single-database dump engine abstraction. Accepts `_db_name`,
 `_db_container`, `_db_username`, `_db_password`, `_db_dest_file`, and engine flags
@@ -1005,7 +1005,7 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 **Opt-in behaviours (`=yes` to enable, omit to skip):**
 | Var | Purpose |
 |-----|---------|
-| `with_databases=yes` | Include coordinated DB restore alongside appdata restore (`restore_hosts`) |
+| `with_databases=yes` | Include coordinated DB backup/restore alongside appdata (`backup_hosts`, `restore_hosts`) |
 | `with_backup=yes` | Combined recovery: restore appdata + auto-detected DBs alongside image rollback (`rollback_docker`) |
 | `validate_only=yes` | Render and validate only, skip `docker compose up` (`deploy_stacks`); dry-run scope resolution (`apply_role`) |
 | `dr_mode=yes` | DR recovery mode — skip snapshot/revert, keep state (`test_restore`) |
@@ -1115,7 +1115,8 @@ rather than the full filename.
 | Category | `discord_url` source | Fields | Fires on |
 |----------|---------------------|--------|----------|
 | **Backup** (`backup_hosts`) | `backup_url` | Backup Name, Backup Size | Always |
-| **Backup — DB** (`backup_databases`) | `backup_url` | Date, Backup Size | Always |
+| **Backup — DB** (`backup_databases`) | `backup_url` | Date, Backup Size | Always (standalone) |
+| **Backup — DB (combined)** (`backup_hosts`) | `backup_url` | Per-DB ✅/❌ fields (inline) | `with_databases=yes` |
 | **Sync** (`backup_offline`) | `backup_url` | Share, Size Transferred | Always |
 | **Verify** (`verify_backups`) | `backup_url` | Source File (date), Detail | Always |
 | **Restore — DB** (`restore_databases`) | `backup_url` | Source File (date), Tables/Measurements | Always |
@@ -1369,7 +1370,7 @@ and name it with a `[Dry Run]` suffix (e.g., `Maintain — Health [Dry Run]`).
 |---|---|
 | `maintain_health.yaml` | All 26 health checks run and evaluate. Discord alerts and DB logging suppressed. State timestamp not updated in DB. |
 | `update_systems.yaml` | Cluster quorum pre-check runs. Version queries run. Actual upgrade simulated. PiKVM RW/RO skipped. |
-| `backup_hosts.yaml` | Disk space pre-checks run. Docker container list gathered. Archive/fetch simulated. UNVR API call skipped. |
+| `backup_hosts.yaml` | Disk space pre-checks run. Docker container list gathered. Archive/fetch simulated. UNVR API call skipped. Combined DB backup (`with_databases=yes`) skipped. |
 | `backup_databases.yaml` | Disk space and DB connectivity pre-checks run. Dump simulated (shell skipped). |
 | `backup_offline.yaml` | Ping check runs. WoL, Synology shutdown and verification skipped. Rsync simulated. |
 | `maintain_amp.yaml` | AMP version list gathered. File deletions simulated. |

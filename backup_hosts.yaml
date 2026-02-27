@@ -9,12 +9,19 @@
 #   app=<name>    — back up a single app's stack (resolves via app_definitions)
 #   role=<name>   — back up all stacks in a role (auto-resolves host)
 #
+# Combined mode (docker_stacks / docker_run only):
+#   with_databases=yes — also dump MariaDB + Postgres after appdata backup
+#   DB backups always run ALL databases (no role/stack/app scoping).
+#   Replaces the old backup_stacks.yaml wrapper.
+#
 # Usage:
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=proxmox
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks -e stack=auth
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks -e app=authentik
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks -e role=core
+#   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks -e with_databases=yes
+#   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks -e with_databases=yes -e role=core
 
 - name: Back up host configurations and appdata
   gather_facts: true
@@ -527,6 +534,123 @@
           check_mode: false
           ignore_errors: true
 
+        # ===== COMBINED DB BACKUP (when with_databases=yes) =====
+        - name: Initialize combined DB backup state
+          ansible.builtin.set_fact:
+            _db_combined_results: []
+            _combined_db_failed: false
+          when:
+            - with_databases | default('') == 'yes'
+            - inventory_hostname in groups["docker_stacks"] | default([]) or
+              inventory_hostname in groups["docker_run"] | default([])
+
+        - name: Run combined database backups (once across all serial batches)
+          when:
+            - with_databases | default('') == 'yes'
+            - inventory_hostname in groups["docker_stacks"] | default([]) or
+              inventory_hostname in groups["docker_run"] | default([])
+            - not (hostvars['localhost']['_combined_db_done'] | default(false))
+            - not ansible_check_mode
+          block:
+            - name: Mark combined DB backup as started
+              ansible.builtin.set_fact:
+                _combined_db_done: true
+              delegate_to: localhost
+              delegate_facts: true
+
+            - name: Load MariaDB config vars
+              ansible.builtin.include_vars:
+                file: vars/db_primary_mariadb.yaml
+                name: _mariadb_vars
+
+            - name: Load Postgres config vars
+              ansible.builtin.include_vars:
+                file: vars/db_primary_postgres.yaml
+                name: _postgres_vars
+
+            # --- temp dirs on DB hosts ---
+            - name: Create run-scoped temp directory on MariaDB host
+              become: true
+              ansible.builtin.file:
+                state: directory
+                path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
+              delegate_to: "{{ groups['db_primary_mariadb'][0] }}"
+
+            - name: Create run-scoped temp directory on Postgres host
+              become: true
+              ansible.builtin.file:
+                state: directory
+                path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
+              delegate_to: "{{ groups['db_primary_postgres'][0] }}"
+
+            # --- MariaDB dumps ---
+            - name: Back up MariaDB databases
+              include_tasks: tasks/backup_single_db.yaml
+              loop: "{{ _mariadb_vars.db_names }}"
+              loop_control:
+                loop_var: _current_db
+              vars:
+                db_container_name: "{{ _mariadb_vars.db_container_name }}"
+                db_username: "{{ _mariadb_vars.db_username }}"
+                db_password: "{{ db_password }}"
+                backup_ext: "{{ _mariadb_vars.backup_ext | default('sql') }}"
+                backup_tmp_dir: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
+                backup_stack: "{{ _mariadb_vars.backup_stack | default(omit) }}"
+                is_mariadb: true
+                is_postgres: false
+                is_influxdb: false
+                combined_results: "{{ _db_combined_results }}"
+              delegate_to: "{{ groups['db_primary_mariadb'][0] }}"
+
+            # --- Postgres dumps ---
+            - name: Back up Postgres databases
+              include_tasks: tasks/backup_single_db.yaml
+              loop: "{{ _postgres_vars.db_names }}"
+              loop_control:
+                loop_var: _current_db
+              vars:
+                db_container_name: "{{ _postgres_vars.db_container_name }}"
+                db_username: "{{ _postgres_vars.db_username }}"
+                db_password: "{{ db_password }}"
+                backup_ext: "{{ _postgres_vars.backup_ext | default('sql') }}"
+                backup_tmp_dir: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
+                backup_stack: "{{ _postgres_vars.backup_stack | default(omit) }}"
+                is_mariadb: false
+                is_postgres: true
+                is_influxdb: false
+                combined_results: "{{ _db_combined_results }}"
+              delegate_to: "{{ groups['db_primary_postgres'][0] }}"
+
+            # --- Sync accumulated results back ---
+            - name: Capture combined DB results
+              ansible.builtin.set_fact:
+                _db_combined_results: "{{ combined_results }}"
+
+          rescue:
+            - name: Set combined DB backup failed flag
+              ansible.builtin.set_fact:
+                _combined_db_failed: true
+
+        - name: Clean up MariaDB run-scoped temp directory
+          become: true
+          ansible.builtin.file:
+            state: absent
+            path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
+          delegate_to: "{{ groups['db_primary_mariadb'][0] }}"
+          when:
+            - with_databases | default('') == 'yes'
+            - _db_combined_results | default([]) | length > 0 or (_combined_db_failed | default(false))
+
+        - name: Clean up Postgres run-scoped temp directory
+          become: true
+          ansible.builtin.file:
+            state: absent
+            path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
+          delegate_to: "{{ groups['db_primary_postgres'][0] }}"
+          when:
+            - with_databases | default('') == 'yes'
+            - _db_combined_results | default([]) | length > 0 or (_combined_db_failed | default(false))
+
         # ===== REPORTING (per-stack) =====
         - name: Build per-stack Discord fields
           ansible.builtin.set_fact:
@@ -621,6 +745,47 @@
               - name: "Docker Recovery"
                 value: "Manual intervention required"
 
+        # ===== REPORTING (combined DB) =====
+        - name: Build combined DB Discord fields
+          ansible.builtin.set_fact:
+            _db_discord_fields: >-
+              [
+               {% for r in _db_combined_results %}
+               {% if not loop.first %},{% endif %}
+               {"name": "{{ ('❌ ' if r.backup_rc != 0 else '✅ ') + r.db_name }}", "value": "{{ 'FAILED' if r.backup_rc != 0 else ((r.file_size / 1024 / 1024) | round(2) | string + ' MB') }}", "inline": true}
+               {% endfor %}]
+          when: _db_combined_results | default([]) | length > 0
+
+        - name: Send combined DB Discord notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "Database"
+            discord_operation: "Backup"
+            discord_status: >-
+              {{ 'successful' if (_db_combined_results | selectattr('backup_rc', 'ne', 0) | list | length == 0)
+                 else ('failed' if (_db_combined_results | selectattr('backup_rc', 'eq', 0) | list | length == 0)
+                       else 'partial') }}
+            discord_color: >-
+              {{ discord_color_success if (_db_combined_results | selectattr('backup_rc', 'ne', 0) | list | length == 0)
+                 else (discord_color_failure if (_db_combined_results | selectattr('backup_rc', 'eq', 0) | list | length == 0)
+                       else discord_color_warning) }}
+            discord_url: "https://sql.{{ domain_ext }}"
+            discord_fields: "{{ _db_discord_fields }}"
+          when: _db_combined_results | default([]) | length > 0
+
+        - name: Send combined DB unhandled failure notification
+          include_tasks: tasks/notify.yaml
+          when:
+            - _combined_db_failed | default(false)
+            - _db_combined_results | default([]) | length == 0
+          vars:
+            discord_name: "Database"
+            discord_operation: "Backup"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "https://sql.{{ domain_ext }}"
+
         - name: Clean up UNVR temp backup file
           ansible.builtin.file:
             path: "{{ unifi_protect_temp_file }}"
@@ -672,6 +837,21 @@
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
             - inventory_hostname not in groups["unifi_protect"]  # TODO: file retrieval broken — silence until fixed
+
+        # ===== MARIADB LOGGING (combined DB — one row per database) =====
+        - name: Log combined DB backup results to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          loop: "{{ _db_combined_results | default([]) }}"
+          loop_control:
+            loop_var: db_result
+          vars:
+            log_table: backups
+            log_application: "{{ db_result.db_name }}-db"
+            log_hostname: "{{ groups['db_primary_mariadb'][0] if (db_result.db_name in (_mariadb_vars.db_names | default([]))) else groups['db_primary_postgres'][0] }}"
+            log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else 'backup_') + db_result.db_name + '_' + ansible_date_time.date + '.sql' }}"
+            log_file_size: "{{ (db_result.file_size / 1024 / 1024) | round(2) if db_result.backup_rc == 0 else 0 }}"
+            log_backup_level: "db"
+          when: _db_combined_results | default([]) | length > 0
 
         # ===== CLEANUP RUN-SCOPED TEMP DIRECTORY =====
         - name: Remove run-scoped temp directory
