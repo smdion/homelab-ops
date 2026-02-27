@@ -74,15 +74,15 @@ vm_definitions:
     vm_name: core
     vm_mac: "02:00:00:00:01:04"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "core.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_vm_core_ip }}"
+    vm_ip: "{{ vault_vm_core_ip | default('') }}"
     vm_cores: 4
     vm_memory_mb: 24576
     vm_disk_gb: 64
-    pve_target_node: "{{ vault_vm_core_node }}"
+    pve_target_node: "{{ vault_vm_core_node | default('') }}"
     deploy_ssh_key: true
     nfs_exports:                       # export /opt to dev VM for code-server workspace access
       - path: /opt
-        clients: "{{ vault_vm_dev_ip }}(ro,no_subtree_check,no_root_squash)"
+        clients: "{{ vault_vm_dev_ip | default('') }}(ro,no_subtree_check,no_root_squash)"
     stacks: [infra, databases, auth, media]
 
   apps:
@@ -90,15 +90,15 @@ vm_definitions:
     vm_name: apps
     vm_mac: "02:00:00:00:01:05"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "apps.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_vm_apps_ip }}"
+    vm_ip: "{{ vault_vm_apps_ip | default('') }}"
     vm_cores: 4
     vm_memory_mb: 24576
     vm_disk_gb: 64
-    pve_target_node: "{{ vault_vm_apps_node }}"
+    pve_target_node: "{{ vault_vm_apps_node | default('') }}"
     deploy_ssh_key: true
     nfs_exports:                       # export /opt to dev VM for code-server workspace access
       - path: /opt
-        clients: "{{ vault_vm_dev_ip }}(ro,no_subtree_check,no_root_squash)"
+        clients: "{{ vault_vm_dev_ip | default('') }}(ro,no_subtree_check,no_root_squash)"
     stacks: [infra, apps, monitoring]
 
   dev:
@@ -106,16 +106,16 @@ vm_definitions:
     vm_name: dev
     vm_mac: "02:00:00:00:01:06"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "dev.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_vm_dev_ip }}"
+    vm_ip: "{{ vault_vm_dev_ip | default('') }}"
     vm_cores: 2
     vm_memory_mb: 8192
     vm_disk_gb: 64
-    pve_target_node: "{{ vault_vm_dev_node }}"
+    pve_target_node: "{{ vault_vm_dev_node | default('') }}"
     deploy_ssh_key: true
     nfs_mounts:                        # NFS mounts from core/apps for code-server workspace access
-      - src: "{{ vault_vm_core_ip }}:/opt"
+      - src: "{{ vault_vm_core_ip | default('') }}:/opt"
         path: "/mnt/nfs/core"
-      - src: "{{ vault_vm_apps_ip }}:/opt"
+      - src: "{{ vault_vm_apps_ip | default('') }}:/opt"
         path: "/mnt/nfs/apps"
     stacks: [infra, dev]
 
@@ -124,11 +124,11 @@ vm_definitions:
     vm_name: amp
     vm_mac: "02:00:00:00:01:10"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "amp.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_vm_amp_ip }}"
+    vm_ip: "{{ vault_vm_amp_ip | default('') }}"
     vm_cores: 4
     vm_memory_mb: 8192
     vm_disk_gb: 100
-    pve_target_node: "{{ vault_vm_amp_node }}"
+    pve_target_node: "{{ vault_vm_amp_node | default('') }}"
 
   # Native graphical desktop VM — ubuntu-desktop-minimal installed during bootstrap.
   # Access via Proxmox VNC (pve_args) through Guacamole + Authentik groups.
@@ -139,11 +139,11 @@ vm_definitions:
     vm_name: desktop
     vm_mac: "02:00:00:00:01:07"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "desktop.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_vm_desktop_ip }}"
+    vm_ip: "{{ vault_vm_desktop_ip | default('') }}"
     vm_cores: 4
     vm_memory_mb: 8192
     vm_disk_gb: 64
-    pve_target_node: "{{ vault_vm_desktop_node }}"
+    pve_target_node: "{{ vault_vm_desktop_node | default('') }}"
     deploy_ssh_key: true
     pve_args: "-vnc 0.0.0.0:XX"       # set display number before provisioning (e.g. :78 = port 5978)
 
@@ -156,28 +156,28 @@ vm_definitions:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
     vm_mac: "02:00:00:00:05:{{ '%02d' | format(vm_index | default(0) | int) }}"
     vm_name: "cephfs-migrate-test{{ vm_index | default(0) | int }}"
-    vm_hostname: "cephfs-migrate-test{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
+    vm_hostname: "cephfs-migrate-test{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain | default('') }}"
+    vm_ip: "{{ vault_test_vm_ip_prefix | default('') }}{{ (vault_test_vm_ip_offset | default(0) | int) + (vm_index | default(0) | int) }}"
     vm_cores: 4
     vm_memory_mb: 24576
     vm_disk_gb: 50
     pve_target_node: "{{ vm_node | default(pve_template_node) }}"
-    vm_gateway: "{{ vault_test_vlan_gateway }}"   # isolated VLAN gateway (overrides global vm_gateway)
-    vm_vlan_tag: "{{ vault_test_vlan_id }}"       # same test isolation as test-vm
+    vm_gateway: "{{ vault_test_vlan_gateway | default('') }}"   # isolated VLAN gateway (overrides global vm_gateway)
+    vm_vlan_tag: "{{ vault_test_vlan_id | default('') }}"       # same test isolation as test-vm
     cephfs_host_dir: "cephfs-migrate-test{{ vm_index | default(0) | int }}"  # per-slot — auto-created by test_restore.yaml if missing
 
   test-vm:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
     vm_mac: "02:00:00:00:05:{{ '%02d' | format(vm_index | default(0) | int) }}"
     vm_name: "test-vm{{ vm_index | default(0) | int }}"
-    vm_hostname: "test-vm{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_test_vm_ip_prefix }}{{ vault_test_vm_ip_offset | int + (vm_index | default(0) | int) }}"
+    vm_hostname: "test-vm{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain | default('') }}"
+    vm_ip: "{{ vault_test_vm_ip_prefix | default('') }}{{ (vault_test_vm_ip_offset | default(0) | int) + (vm_index | default(0) | int) }}"
     vm_cores: 2
     vm_memory_mb: 4096
     vm_disk_gb: 20
     pve_target_node: "{{ vm_node | default(pve_template_node) }}"
-    vm_gateway: "{{ vault_test_vlan_gateway }}"   # isolated VLAN gateway (overrides global vm_gateway)
-    vm_vlan_tag: "{{ vault_test_vlan_id }}"       # triggers VLAN tag on net0 in provision_vm.yaml
+    vm_gateway: "{{ vault_test_vlan_gateway | default('') }}"   # isolated VLAN gateway (overrides global vm_gateway)
+    vm_vlan_tag: "{{ vault_test_vlan_id | default('') }}"       # triggers VLAN tag on net0 in provision_vm.yaml
     # No ip_aliases — keepalived assigns role-specific test VIP on eth0 (docker_test_vip_offsets).
     # Cross-VM routing handled by SWAG config patching (tasks/patch_swag_confs.yaml).
 
