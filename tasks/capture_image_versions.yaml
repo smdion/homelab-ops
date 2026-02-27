@@ -1,0 +1,31 @@
+---
+# Capture Docker container image versions and save a manifest to the controller.
+# Records container name, compose image reference, and resolved digest (sha256).
+# Complements .rollback_snapshot.json (update-time) with backup-time versions.
+#
+# Expects:
+#   _versions_filter  — docker ps filter (e.g. label=com.docker.compose.project=auth, or empty for all)
+#   _versions_label   — identifier for the manifest filename (e.g. stack name or hostname)
+#   _versions_dest    — controller directory for the .versions.txt file
+#   ansible_date_time — gathered fact
+
+- name: "Capture container image versions — {{ _versions_label }}"
+  become: true
+  ansible.builtin.shell: |
+    ids=$(docker ps -a -q {{ _versions_filter | default('') }})
+    [ -z "$ids" ] && exit 0
+    echo "$ids" | xargs docker inspect \
+      --format '{% raw %}{{ .Name }} {{ .Config.Image }} {{ .Image }}{% endraw %}' \
+      | sed 's|^/||' | sort
+  register: _image_versions
+  changed_when: false
+  check_mode: false
+
+- name: "Save image versions manifest — {{ _versions_label }}"
+  ansible.builtin.copy:
+    content: "{{ _image_versions.stdout }}\n"
+    dest: "{{ _versions_dest }}/backup_{{ _versions_label }}_{{ ansible_date_time.date }}.versions.txt"
+    mode: "0644"
+  delegate_to: localhost
+  become: false
+  when: _image_versions.stdout | default('') | length > 0

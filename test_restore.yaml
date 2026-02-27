@@ -254,7 +254,9 @@
           {{ _db_archive_map | to_nice_yaml if _db_archive_map | length > 0 else '' }}
 
     - name: Verify archive integrity
-      ansible.builtin.shell: gunzip -t "{{ item }}"
+      ansible.builtin.shell: |
+        {{ _gz_detect }}
+        $_gz -t "{{ item }}"
       loop: "{{ _archive_files }}"
       become: false
       changed_when: false

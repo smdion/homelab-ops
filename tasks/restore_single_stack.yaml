@@ -29,7 +29,9 @@
         fail_msg: "No backup archive found for stack '{{ _restore_stack_item }}'"
 
     - name: Verify archive integrity for {{ _restore_stack_item }}
-      ansible.builtin.shell: gunzip -t "{{ _stack_archive_file.stdout }}"
+      ansible.builtin.shell: |
+        {{ _gz_detect }}
+        $_gz -t "{{ _stack_archive_file.stdout }}"
       delegate_to: localhost
       become: false
       changed_when: false

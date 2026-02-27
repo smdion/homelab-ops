@@ -24,6 +24,13 @@
       vars:
         _docker_selective_stacks: ["{{ _backup_stack }}"]
 
+    - name: Capture image versions for {{ _backup_stack }}
+      include_tasks: tasks/capture_image_versions.yaml
+      vars:
+        _versions_filter: '--filter "label=com.docker.compose.project={{ _backup_stack }}"'
+        _versions_label: "{{ _backup_stack }}"
+        _versions_dest: "{{ backup_base_dir }}/{{ _backup_stack }}"
+
     - name: Discover backup paths from container labels for {{ _backup_stack }}
       become: true
       ansible.builtin.shell: |
@@ -75,7 +82,7 @@
     - name: Create compressed archive for {{ _backup_stack }}
       become: true
       ansible.builtin.shell: >
-        _gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip);
+        {{ _gz_detect }};
         tar -I "$_gz -1" -cf "{{ backup_tmp_dir }}/{{ _stack_archive_name }}"
         {% for excl in (_label_backup_excludes.stdout_lines | default([]) | reject('eq', '') | list) %}
         --exclude='{{ excl }}'

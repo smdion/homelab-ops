@@ -194,6 +194,7 @@ history, restore results, playbook runs) belongs in the database.
 │
 ├── backup_hosts.yaml               # Config/Appdata backups (Proxmox, PiKVM, Unifi, AMP, Docker, unRAID); integrity verification; DB dir exclusion
 ├── backup_databases.yaml           # Database backups (Postgres + MariaDB dumps, InfluxDB portable backup); integrity verification
+├── backup_stacks.yaml             # Unified stack backup — imports backup_hosts.yaml (appdata) + backup_databases.yaml (MariaDB, Postgres); role=/stack= scope for appdata, all DBs always
 ├── backup_offline.yaml             # unRAID → Synology offline sync (WOL + rsync); shutdown verification; logs both successful and failed syncs; hosts via hosts_variable
 ├── verify_backups.yaml             # On-demand backup verification — DB backups restored to temp DB; config archives integrity-checked and staged
 ├── restore_databases.yaml          # Database restore from backup dumps — safety-gated; supports single-DB restore on shared instances
@@ -256,6 +257,10 @@ Ansible when the inventory is in the same directory. Contains:
 - `ansible_remote_tmp: ~/.ansible/tmp` — uses home directory instead of `/tmp` to avoid
   world-readable temporary files that could leak module arguments
 - `ansible_python_interpreter: auto_silent` — suppresses Python discovery warnings
+- `_gz_detect` — shell snippet for runtime compression tool detection; prefers `pigz` (parallel gzip)
+  with `gzip` fallback. Used by all backup, restore, and verify tasks via `{{ _gz_detect }}` in shell
+  commands, which sets `$_gz` for the rest of the script. Single source of truth — change once to
+  switch compression tool project-wide.
 - `backup_base_dir`, `backup_tmp_dir`, `backup_tmp_file`, `backup_dest_path`, `backup_url` —
   centralized backup path defaults; `backup_base_dir` is the controller's backup root directory
   (used in `backup_dest_path` and the disk space pre-task assertion). `backup_tmp_dir` defaults
@@ -509,7 +514,10 @@ update playbook captures a `.rollback_snapshot.json` per stack in `/opt/stacks/<
 the timestamp, image name, full image ID (`sha256:...`), and version label for every target
 service. Uses the same 3-tier label detection as the update comparison. Each update overwrites
 the previous snapshot — only the last pre-update state is kept. The snapshot files are included
-in regular `/opt` appdata backups automatically.
+in regular `/opt` appdata backups automatically. Separately, `tasks/capture_image_versions.yaml`
+records a `.versions.txt` manifest at **backup time** (container name, compose image ref, resolved
+`sha256` digest) alongside each backup archive. The rollback snapshot captures update-time state;
+the versions manifest captures backup-time state — together they provide full image provenance.
 
 **Per-stack backup architecture:** Docker stacks hosts use per-stack backup archives instead of
 a monolithic `/opt` tar.gz. Each stack is stopped individually, archived, and restarted — minimizing
@@ -527,37 +535,49 @@ Non-docker_stacks hosts (proxmox, pikvm, unraid, unifi) still use monolithic arc
 
 **Per-instance AMP backup architecture:** AMP hosts use per-instance backup archives, mirroring the per-stack pattern used for Docker hosts. `backup_hosts.yaml` discovers instance names from `{{ amp_home }}/.ampdata/instances/` (one subdirectory per instance), saves the `instances.json` registry and an instance inventory JSON to the controller, then loops over instances via `tasks/backup_single_amp_instance.yaml`. Supports single-instance targeting with `-e amp_instance_filter=<instance>`. The `Backups/` and `Versions/` subdirectories are excluded from each instance archive to keep archive sizes manageable (these directories hold AMP's own internal backups, not the game world data). Results are accumulated in `_amp_backup_results`; a non-empty failed list sets `backup_failed: true` for Discord/DB reporting.
 
-**`tasks/backup_single_amp_instance.yaml`** — Per-instance AMP backup loop body called by `backup_hosts.yaml` (loop var: `_amp_instance`). Stops the instance via the AMP management script, creates a `.tar.gz` of the instance data directory (excluding `Backups/` and `Versions/`), verifies integrity with `gunzip -t`, fetches the archive to the controller, then restarts the instance. The `always:` block restarts the instance regardless of outcome — instances are always brought back up even on backup failure. Results appended to `_amp_backup_results`.
+**`tasks/backup_single_amp_instance.yaml`** — Per-instance AMP backup loop body called by `backup_hosts.yaml` (loop var: `_amp_instance`). Stops the instance via the AMP management script, creates a `.tar.gz` of the instance data directory (excluding `Backups/` and `Versions/`), fetches the archive to the controller, then restarts the instance. The `always:` block restarts the instance regardless of outcome — instances are always brought back up even on backup failure. Results appended to `_amp_backup_results`. Integrity verification is deferred to `verify_backups.yaml`.
 
 **`tasks/restore_single_amp_instance.yaml`** — Per-instance AMP restore loop body called by `restore_amp.yaml` (loop var: `_amp_instance`). Stops the instance, removes the existing data directory, extracts the latest archive from the controller, and restarts the instance if it was running before the restore. Logs per-instance result to the `restores` table. Mirrors the backup task's structure — stop, act, restart in `always:`.
 
 **`tasks/backup_single_stack.yaml`** — Per-stack backup loop body called by `backup_hosts.yaml`
-(loop var: `_backup_stack`). Stops the named stack via `docker_stop.yaml`, discovers backup paths
-from `homelab.backup.paths` container labels, appends `/opt/stacks/<stack>/`, filters to paths
-that exist (via `stat`), creates a `.tar.gz` archive, verifies integrity with `gunzip -t`, fetches
-to the controller, and records success/failure in `_stack_backup_results`. The `always:` block
-restarts the stack and deletes the temp archive regardless of outcome — containers are always
-brought back up even when the backup fails.
+(loop var: `_backup_stack`). Stops the named stack via `docker_stop.yaml`, captures container image
+versions via `tasks/capture_image_versions.yaml` (`.versions.txt` manifest saved alongside archive),
+discovers backup paths from `homelab.backup.paths` container labels, appends `/opt/stacks/<stack>/`,
+filters to paths that exist (via `stat`), creates a `.tar.gz` archive, fetches to the controller,
+and records success/failure in `_stack_backup_results`. The `always:` block restarts the stack and
+deletes the temp archive regardless of outcome — containers are always brought back up even when
+the backup fails. Integrity verification is deferred to `verify_backups.yaml`.
 
 **`tasks/backup_single_db.yaml`** — Per-database backup loop body called by `backup_databases.yaml`
-(loop var: `_current_db`). Delegates to `db_dump.yaml`, verifies integrity (`gzip -t` for SQL
-dumps, `tar tzf` for InfluxDB), fetches the dump to the controller, and appends a success/failure
+(loop var: `_current_db`). Delegates to `db_dump.yaml`, fetches the dump to the controller, and appends a success/failure
 record to `combined_results`. Inherits engine flags (`is_postgres`, `is_mariadb`, `is_influxdb`),
 credentials, and paths from the caller's scope.
 
 **`tasks/db_dump.yaml`** — Single-database dump engine abstraction. Accepts `_db_name`,
 `_db_container`, `_db_username`, `_db_password`, `_db_dest_file`, and engine flags
-(`_db_is_postgres`, `_db_is_mariadb`, `_db_is_influxdb`). For PostgreSQL: `pg_dump | gzip`.
-For MariaDB: `mysqldump | gzip` (password via `MYSQL_PWD` env var, never on the command line).
-For InfluxDB: `influxd backup -portable` → `docker cp` → `tar czf`. Used by `backup_single_db.yaml`
-and `verify_backups.yaml` (for the restore-test flow).
+(`_db_is_postgres`, `_db_is_mariadb`, `_db_is_influxdb`). For PostgreSQL: `pg_dump --clean
+--if-exists | pigz`. For MariaDB: `mysqldump --opt --single-transaction --quick | pigz`
+(password via `MYSQL_PWD` env var, never on the command line; `--opt` batches INSERTs,
+`--single-transaction` for consistent InnoDB snapshot, `--quick` for row streaming).
+For InfluxDB: `influxd backup -portable` → `docker cp` → `tar czf`. All compression uses
+`{{ _gz_detect }}` from `group_vars/all.yaml`. Used by `backup_single_db.yaml` and
+`verify_backups.yaml` (for the restore-test flow).
 
 **`tasks/db_restore.yaml`** — Single-database restore engine abstraction. Accepts the same engine
 flags plus `_db_source_file` and optional `_db_target_name` (when set, creates the target DB first
 rather than overwriting the source — used by `verify_backups.yaml` to restore to a temp DB without
-touching production). For PostgreSQL: `gunzip -cf | psql`. For MariaDB: `gunzip -cf | mysql`.
-For InfluxDB: `tar xzf` → `docker cp` → `influxd restore -portable`. Used by both
-`verify_backups.yaml` (temp restore) and `restore_databases.yaml` (production restore).
+touching production). For PostgreSQL: `pigz -dc | psql --single-transaction`. For MariaDB: wraps
+import with session-level `SET autocommit=0; SET foreign_key_checks=0; SET unique_checks=0` for
+faster bulk import, then `COMMIT` and re-enables checks. For InfluxDB: `tar -I pigz -xf` →
+`docker cp` → `influxd restore -portable`. All decompression uses `{{ _gz_detect }}`. Used by
+both `verify_backups.yaml` (temp restore) and `restore_databases.yaml` (production restore).
+
+**`tasks/capture_image_versions.yaml`** — Captures Docker container image versions at backup time.
+Records container name, compose image reference (`.Config.Image`), and resolved digest (`.Image`
+sha256) via `docker inspect`. Saves a `.versions.txt` manifest alongside the backup archive on
+the controller. Called from `backup_single_stack.yaml` (per-stack, filtered by compose project
+label) and `backup_hosts.yaml` (monolithic Docker hosts, all containers). Complements the
+update-time `.rollback_snapshot.json` with backup-time provenance.
 
 **`tasks/db_count.yaml`** — Count tables or measurements in a database for verification.
 For PostgreSQL: queries `information_schema.tables WHERE table_schema = 'public'`. For MariaDB:
@@ -2473,21 +2493,27 @@ All backup archives follow the pattern `backup_<identifier>_<date>.<ext>`, where
 | unRAID boot | `<hostname>_boot` | `.tar.gz` | `backup_unraid_boot_2026-02-25.tar.gz` | `vars/unraid_os.yaml` |
 | Unifi Network config | `network_config` | `.tar.gz` | `backup_network_config_2026-02-25.tar.gz` | `vars/unifi_network.yaml` |
 | Unifi Protect config | `protect_config` | `.unf` | `backup_protect_config_2026-02-25.unf` | `vars/unifi_protect.yaml` |
+| Image versions manifest | `<stackname>` or `<hostname>` | `.versions.txt` | `backup_auth_2026-02-25.versions.txt` | `tasks/capture_image_versions.yaml` |
 
 On failure, the MariaDB log column records `FAILED_` prefixed to the filename (e.g. `FAILED_backup_auth_2026-02-25.tar.gz`).
 Archives are stored on the controller at `{{ backup_base_dir }}/{{ inventory_hostname }}/<filename>`.
 
 ### Backup integrity verification
 
-- **Gzip archives** (`backup_hosts.yaml`): `gunzip -t` validates archive integrity after creation,
-  before the file is fetched to the controller. Corrupted archives trigger the rescue block.
+All integrity validation is centralized in `verify_backups.yaml` — backup playbooks do **not**
+perform inline integrity checks (avoids duplicate work and speeds up backup runs). Archives are
+date-stamped so a corrupt backup does not overwrite the previous day's good copy.
+
+All compression and decompression uses `{{ _gz_detect }}` from `group_vars/all.yaml`, which
+detects `pigz` (parallel gzip) at runtime with `gzip` fallback.
+
+- **Gzip archives** (`verify_backups.yaml`): `$_gz -t` validates archive integrity; extraction
+  via `tar -I "$_gz" -xf` to staging directory; file counts verify non-empty content.
   UNVR `.unf` files (not gzipped) are skipped.
-- **PostgreSQL dumps** (`backup_databases.yaml`): `gzip -t` validates each gzipped dump file
-  (loops over `db_names`).
-- **MariaDB dumps** (`backup_databases.yaml`): `gzip -t` validates each gzipped dump
-  (matching PostgreSQL pattern; loops over `db_names`).
-- **InfluxDB backups** (`backup_databases.yaml`): `tar tzf` validates each tar.gz archive
-  (InfluxDB portable backups are directory-based, tar+gzipped before transfer).
+- **PostgreSQL/MariaDB dumps** (`verify_backups.yaml`): restored to a temp database via
+  `db_restore.yaml`, table counts verified via `db_count.yaml`, temp database dropped.
+- **InfluxDB backups** (`verify_backups.yaml`): restored to a temp database, measurement
+  counts verified, temp database dropped.
 
 ## Disaster Recovery
 

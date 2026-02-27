@@ -31,7 +31,9 @@
         _restore_source_file: "{{ _archive_file.stdout | basename }}"
 
     - name: Verify archive integrity
-      ansible.builtin.shell: gunzip -t "{{ _archive_file.stdout }}"
+      ansible.builtin.shell: |
+        {{ _gz_detect }}
+        $_gz -t "{{ _archive_file.stdout }}"
       delegate_to: localhost
       become: false
       changed_when: false

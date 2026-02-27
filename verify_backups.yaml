@@ -185,7 +185,9 @@
             - not (_is_db_verify | bool)
 
         - name: Verify per-stack archive integrity
-          ansible.builtin.shell: gunzip -t "{{ item.stdout }}"
+          ansible.builtin.shell: |
+            {{ _gz_detect }}
+            $_gz -t "{{ item.stdout }}"
           loop: "{{ _valid_stack_archives }}"
           delegate_to: localhost
           become: false
@@ -208,7 +210,9 @@
             - not ansible_check_mode
 
         - name: Extract per-stack archives to staging
-          ansible.builtin.shell: tar xzf "{{ item.stdout }}" -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_{{ item.item }}"
+          ansible.builtin.shell: |
+            {{ _gz_detect }}
+            tar -I "$_gz" -xf "{{ item.stdout }}" -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_{{ item.item }}"
           loop: "{{ _valid_stack_archives }}"
           register: _stack_tar_extract
           delegate_to: localhost
@@ -314,7 +318,9 @@
             - not (_is_db_verify | bool)
 
         - name: Verify AMP instance archive integrity
-          ansible.builtin.shell: gunzip -t "{{ item.stdout }}"
+          ansible.builtin.shell: |
+            {{ _gz_detect }}
+            $_gz -t "{{ item.stdout }}"
           loop: "{{ _valid_amp_archives }}"
           delegate_to: localhost
           become: false
@@ -337,9 +343,9 @@
             - not ansible_check_mode
 
         - name: Extract AMP instance archives to staging
-          ansible.builtin.shell: >
-            tar xzf "{{ item.stdout }}"
-            -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_{{ item.item }}"
+          ansible.builtin.shell: |
+            {{ _gz_detect }}
+            tar -I "$_gz" -xf "{{ item.stdout }}" -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_{{ item.item }}"
           loop: "{{ _valid_amp_archives }}"
           register: _amp_tar_extract
           delegate_to: localhost
@@ -419,7 +425,9 @@
             - inventory_hostname not in groups["docker_stacks"] | default([])
 
         - name: Verify config backup integrity
-          ansible.builtin.shell: gunzip -t "{{ _config_backup_file.stdout }}"
+          ansible.builtin.shell: |
+            {{ _gz_detect }}
+            $_gz -t "{{ _config_backup_file.stdout }}"
           delegate_to: localhost
           become: false
           changed_when: false
@@ -442,7 +450,9 @@
             - not ansible_check_mode
 
         - name: Extract backup to staging directory
-          ansible.builtin.shell: tar xzf "{{ _config_backup_file.stdout }}" -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
+          ansible.builtin.shell: |
+            {{ _gz_detect }}
+            tar -I "$_gz" -xf "{{ _config_backup_file.stdout }}" -C "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}"
           register: _tar_extract
           delegate_to: localhost
           become: false
