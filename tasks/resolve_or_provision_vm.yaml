@@ -42,8 +42,6 @@
 
 - name: Provision VM on Proxmox
   include_tasks: tasks/provision_vm.yaml
-  vars:
-    _provision_target_group: "{{ _provision_target_group | default('test_target') }}"
   when: not _vm_exists
 
 - name: Add existing VM to inventory
