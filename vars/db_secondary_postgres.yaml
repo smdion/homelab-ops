@@ -1,6 +1,8 @@
 # db_password is in vars/secrets.yaml (vault)
 # config_file: "db_secondary_postgres" must be set in Semaphore variable group JSON
 # (hosts_variable is the host group which doesn't match this filename)
+db_host: "{{ db_host_secondary }}"
+backup_stack: databases
 backup_name: "Database"
 backup_url: "https://sql.{{ domain_ext }}"
 backup_description: "Automatic Database Backup"

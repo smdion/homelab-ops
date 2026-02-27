@@ -150,6 +150,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── assert_db_connectivity.yaml  # Shared pre-task: assert MariaDB logging DB is reachable
 │   ├── backup_single_stack.yaml     # Per-stack backup loop body (stop stack, archive appdata, verify, fetch, restart, record result)
 │   ├── backup_single_db.yaml        # Per-DB backup loop body (dump, verify integrity, fetch to controller, record result)
+│   ├── backup_combined_db_group.yaml # Per-config-file DB backup (load vars, create temp dir, loop backup_single_db, cleanup)
 │   ├── db_dump.yaml                 # Dump a single DB from a Docker container — PostgreSQL/MariaDB/InfluxDB engine abstraction
 │   ├── db_restore.yaml              # Restore a single DB from backup — verify (temp DB) or production overwrite, all engines
 │   ├── db_count.yaml                # Count tables/measurements in a database — PostgreSQL/MariaDB/InfluxDB
@@ -550,10 +551,17 @@ the backup fails. Integrity verification is deferred to `verify_backups.yaml`.
 **`tasks/backup_single_db.yaml`** — Per-database backup loop body called by `backup_databases.yaml`
 (standalone) and `backup_hosts.yaml` (combined mode via `with_databases=yes`). Loop var:
 `_current_db`. Calls `db_dump.yaml`, fetches the dump to the controller, and appends a
-success/failure record to `combined_results`. Combined mode passes `_db_delegate_host` to
-run dump/stat/fetch on the DB host; standalone mode omits it (defaults to `inventory_hostname`).
-Inherits engine flags (`is_postgres`, `is_mariadb`, `is_influxdb`), credentials, and paths from
-the caller's scope.
+success/failure record to `combined_results` (keys: `db_name`, `backup_rc`, `file_size`,
+`db_host`). Combined mode passes `_db_delegate_host` to run dump/stat/fetch on the DB host;
+standalone mode omits it (defaults to `inventory_hostname`). Inherits engine flags (`is_postgres`,
+`is_mariadb`, `is_influxdb`), credentials, and paths from the caller's scope.
+
+**`tasks/backup_combined_db_group.yaml`** — Per-config-file DB backup helper called in a loop from
+`backup_hosts.yaml` combined mode. Takes `_db_config_file` (e.g., `db_primary_mariadb`), loads the
+vars file via namespaced `include_vars`, creates a run-scoped temp dir on `db_host`, loops over
+`db_names` calling `backup_single_db.yaml` with `_db_delegate_host`, syncs results back to
+`_db_combined_results`, and cleans up the temp dir. Adding a new DB tier requires only adding a
+line to the loop list and creating the vars file with `db_host`.
 
 **`tasks/db_dump.yaml`** — Single-database dump engine abstraction. Accepts `_db_name`,
 `_db_container`, `_db_username`, `_db_password`, `_db_dest_file`, and engine flags

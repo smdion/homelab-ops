@@ -1,4 +1,5 @@
 # db_password is in vars/secrets.yaml (vault)
+db_host: "{{ db_host_primary }}"
 backup_stack: databases
 backup_name: "Database"
 backup_url: "https://sql.{{ domain_ext }}"

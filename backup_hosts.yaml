@@ -566,98 +566,19 @@
         - name: Run combined database backups
           when: _should_run_combined_db | bool
           block:
-            - name: Load MariaDB config vars
-              ansible.builtin.include_vars:
-                file: vars/db_primary_mariadb.yaml
-                name: _mariadb_vars
-
-            - name: Load Postgres config vars
-              ansible.builtin.include_vars:
-                file: vars/db_primary_postgres.yaml
-                name: _postgres_vars
-
-            # --- temp dirs on DB hosts ---
-            - name: Create run-scoped temp directory on MariaDB host
-              become: true
-              ansible.builtin.file:
-                state: directory
-                path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
-              delegate_to: "{{ groups['db_primary_mariadb'][0] }}"
-
-            - name: Create run-scoped temp directory on Postgres host
-              become: true
-              ansible.builtin.file:
-                state: directory
-                path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
-              delegate_to: "{{ groups['db_primary_postgres'][0] }}"
-
-            # --- MariaDB dumps ---
-            - name: Back up MariaDB databases
-              include_tasks: tasks/backup_single_db.yaml
-              loop: "{{ _mariadb_vars.db_names }}"
+            - name: Back up all database groups
+              include_tasks: tasks/backup_combined_db_group.yaml
+              loop:
+                - db_primary_mariadb
+                - db_primary_postgres
+                - db_secondary_postgres
               loop_control:
-                loop_var: _current_db
-              vars:
-                db_container_name: "{{ _mariadb_vars.db_container_name }}"
-                db_username: "{{ _mariadb_vars.db_username }}"
-                db_password: "{{ db_password }}"
-                backup_ext: "{{ _mariadb_vars.backup_ext | default('sql') }}"
-                backup_tmp_dir: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
-                backup_stack: "{{ _mariadb_vars.backup_stack | default(omit) }}"
-                is_mariadb: true
-                is_postgres: false
-                is_influxdb: false
-                combined_results: "{{ _db_combined_results }}"
-                _db_delegate_host: "{{ groups['db_primary_mariadb'][0] }}"
-
-            # --- Postgres dumps ---
-            - name: Back up Postgres databases
-              include_tasks: tasks/backup_single_db.yaml
-              loop: "{{ _postgres_vars.db_names }}"
-              loop_control:
-                loop_var: _current_db
-              vars:
-                db_container_name: "{{ _postgres_vars.db_container_name }}"
-                db_username: "{{ _postgres_vars.db_username }}"
-                db_password: "{{ db_password }}"
-                backup_ext: "{{ _postgres_vars.backup_ext | default('sql') }}"
-                backup_tmp_dir: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
-                backup_stack: "{{ _postgres_vars.backup_stack | default(omit) }}"
-                is_mariadb: false
-                is_postgres: true
-                is_influxdb: false
-                combined_results: "{{ _db_combined_results }}"
-                _db_delegate_host: "{{ groups['db_primary_postgres'][0] }}"
-
-            # --- Sync accumulated results back ---
-            - name: Capture combined DB results
-              ansible.builtin.set_fact:
-                _db_combined_results: "{{ combined_results }}"
+                loop_var: _db_config_file
 
           rescue:
             - name: Set combined DB backup failed flag
               ansible.builtin.set_fact:
                 _combined_db_failed: true
-
-        - name: Clean up MariaDB run-scoped temp directory
-          become: true
-          ansible.builtin.file:
-            state: absent
-            path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
-          delegate_to: "{{ groups['db_primary_mariadb'][0] }}"
-          when:
-            - with_databases | default('') == 'yes'
-            - _db_combined_results | default([]) | length > 0 or (_combined_db_failed | default(false))
-
-        - name: Clean up Postgres run-scoped temp directory
-          become: true
-          ansible.builtin.file:
-            state: absent
-            path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
-          delegate_to: "{{ groups['db_primary_postgres'][0] }}"
-          when:
-            - with_databases | default('') == 'yes'
-            - _db_combined_results | default([]) | length > 0 or (_combined_db_failed | default(false))
 
         # ===== REPORTING (per-stack) =====
         - name: Build per-stack Discord fields
@@ -855,7 +776,7 @@
           vars:
             log_table: backups
             log_application: "{{ db_result.db_name }}-db"
-            log_hostname: "{{ groups['db_primary_mariadb'][0] if (db_result.db_name in (_mariadb_vars.db_names | default([]))) else groups['db_primary_postgres'][0] }}"
+            log_hostname: "{{ db_result.db_host }}"
             log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else 'backup_') + db_result.db_name + '_' + ansible_date_time.date + '.sql' }}"
             log_file_size: "{{ (db_result.file_size / 1024 / 1024) | round(2) if db_result.backup_rc == 0 else 0 }}"
             log_backup_level: "db"
