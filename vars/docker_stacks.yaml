@@ -30,12 +30,12 @@ app_info:
     db_names: [jellyseerr]
 
 # Stack assignments: host → ordered list of stack names.
-# Derived from vm_roles + stack_roles (both from vars/vm_definitions.yaml).
+# Derived from host_roles + stack_roles (both from vars/vm_definitions.yaml).
 stack_assignments: >-
   {{ dict(
-    vm_roles | dict2items | map(attribute='key') | list
+    host_roles | dict2items | map(attribute='key') | list
     | zip(
-      vm_roles | dict2items | map(attribute='value')
+      host_roles | dict2items | map(attribute='value')
       | map('extract', stack_roles) | list
     )
   ) }}
@@ -44,9 +44,9 @@ stack_assignments: >-
 # Derived as reverse of stack_assignments per role.
 backup_stack_order: >-
   {{ dict(
-    vm_roles | dict2items | map(attribute='key') | list
+    host_roles | dict2items | map(attribute='key') | list
     | zip(
-      vm_roles | dict2items | map(attribute='value')
+      host_roles | dict2items | map(attribute='value')
       | map('extract', stack_roles)
       | map('reverse') | map('list') | list
     )

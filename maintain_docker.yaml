@@ -70,6 +70,7 @@
             _docker_volumes_count: "{{ _docker_df.stdout_lines[2] | int }}"
             _docker_volumes_mb:    "{{ _docker_df.stdout_lines[3] | float | round(2) }}"
             _docker_containers_mb: "{{ _docker_df.stdout_lines[4] | float | round(2) }}"
+          when: _docker_df.stdout_lines | length >= 5
 
       rescue:
         - name: Set maintenance failed

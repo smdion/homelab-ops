@@ -27,6 +27,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/host_definitions.yaml
     - vars/{{ config_file }}.yaml
     - vars/docker_vips.yaml
     - vars/semaphore_check.yaml
@@ -58,17 +59,17 @@
     - name: Assert host has a role assignment
       ansible.builtin.assert:
         that:
-          - inventory_hostname in vm_roles
+          - inventory_hostname in host_roles
         fail_msg: >-
-          {{ inventory_hostname }} is not in vm_roles (derived from vm_definitions).
-          Add a vm_definitions entry with stacks defined for this host's role.
+          {{ inventory_hostname }} is not in host_roles (derived from vm_definitions + host_definitions).
+          Add a definitions entry with stacks defined for this host's role.
 
     - name: Assert role is valid (exists in stack_roles)
       ansible.builtin.assert:
         that:
-          - vm_roles[inventory_hostname] in stack_roles
+          - host_roles[inventory_hostname] in stack_roles
         fail_msg: >-
-          vm_roles[{{ inventory_hostname }}] = '{{ vm_roles[inventory_hostname] }}'
+          host_roles[{{ inventory_hostname }}] = '{{ host_roles[inventory_hostname] }}'
           which is not a valid key in stack_roles.
           Valid roles: {{ stack_roles.keys() | list | join(', ') }}
 
@@ -77,7 +78,7 @@
         that: inventory_hostname in stack_assignments
         fail_msg: >-
           No stack_assignments entry for {{ inventory_hostname }}.
-          Check vm_roles and stack_roles in vars/vm_definitions.yaml.
+          Check host_roles and stack_roles in vars/vm_definitions.yaml.
       when: stack is not defined
 
     - name: Assert sufficient disk space on target

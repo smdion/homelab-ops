@@ -5,18 +5,21 @@
 #
 # Requires:
 #   vars/docker_vips.yaml loaded (docker_vips, docker_vrrp_interface)
-#   vm_roles — dict: FQDN → role
+#   host_roles — dict: FQDN → role
 # Sets:
 #   _vip_summary — human-readable verification result for logging
 
 - name: Check if host has a VIP role
   ansible.builtin.set_fact:
-    _has_vip_role: "{{ (vm_roles is defined) and (inventory_hostname in vm_roles) }}"
+    _has_vip_role: >-
+      {{ (host_roles is defined)
+         and (inventory_hostname in host_roles)
+         and (host_roles[inventory_hostname] in (docker_vips | default({}))) }}
 
 - name: Derive effective VIP (test mode uses VM subnet, prod uses vault VIP)
   ansible.builtin.set_fact:
     _effective_vip: >-
-      {% set _role = vm_roles[inventory_hostname] %}
+      {% set _role = host_roles[inventory_hostname] %}
       {% if _role_injected | default(false) %}
       {{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets[_role] }}
       {%- else %}
@@ -31,7 +34,7 @@
       set -e
       errors=0
 
-      role="{{ vm_roles[inventory_hostname] }}"
+      role="{{ host_roles[inventory_hostname] }}"
       interface="{{ docker_vrrp_interface }}"
       vip="{{ _effective_vip | trim }}"
 

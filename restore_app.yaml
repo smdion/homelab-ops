@@ -20,6 +20,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/host_definitions.yaml
     - vars/docker_stacks.yaml
     - vars/semaphore_check.yaml
 
@@ -102,6 +103,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/host_definitions.yaml
     - vars/docker_stacks.yaml
     - vars/semaphore_check.yaml
   vars:

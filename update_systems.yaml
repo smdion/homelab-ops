@@ -19,6 +19,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/host_definitions.yaml
     - vars/{{ config_file }}.yaml
   vars:
     config_file: "{{ hosts_variable }}"

@@ -1,0 +1,22 @@
+---
+# Host definitions — managed machines that aren't Proxmox VMs.
+# Cloud servers, physical hardware, legacy VMs, NAS boxes.
+# Merged into host_roles / stack_roles derivations via vm_definitions.yaml.
+# See vars/vm_definitions.yaml for the derivation formulas.
+#
+# Required fields:
+#   vm_hostname    — FQDN for host_roles derivation (hostname → role mapping)
+#   stacks         — ordered stack list (same as vm_definitions stacks key)
+
+host_definitions:
+  vps:
+    vm_hostname: "vps.{{ vault_vm_search_domain }}"
+    stacks: [vpn]
+
+  # Legacy hosts — remove after migration to core/apps/dev VMs is complete.
+  tantiveiv:
+    vm_hostname: "tantiveiv.{{ vault_vm_search_domain }}"
+    stacks: [infra, databases, auth, monitoring, dev]
+  odyssey:
+    vm_hostname: "odyssey.{{ vault_vm_search_domain }}"
+    stacks: [infra, apps, media]

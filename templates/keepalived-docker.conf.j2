@@ -4,16 +4,16 @@
 # All other nodes are BACKUP and take over in priority order on failure.
 # With a single VM per role today, each VM is always MASTER.
 #
-# Test mode: when _role_injected (host not in vm_roles), derives VIP from
+# Test mode: when _role_injected (host not in host_roles), derives VIP from
 # VM's actual subnet (test VMs are on an isolated VLAN — production VIPs would collide).
 #
 # To check status: keepalived -t  (config test)  or  ip addr show {{ docker_vrrp_interface }}
 # To see current state: journalctl -u keepalived -f
-{% set _role = vm_roles[inventory_hostname] %}
+{% set _role = host_roles[inventory_hostname] %}
 {% set _vip_config = docker_vips[_role] %}
 {% set _node = inventory_hostname.split('.')[0] %}
 {% set my_priority = vault_docker_vrrp_priorities[_node] | default(50) %}
-{% set _role_nodes = vm_roles | dict2items | selectattr('value', 'equalto', _role) | map(attribute='key') | map('regex_replace', '\\..*$', '') | list %}
+{% set _role_nodes = host_roles | dict2items | selectattr('value', 'equalto', _role) | map(attribute='key') | map('regex_replace', '\\..*$', '') | list %}
 {% set _role_priorities = _role_nodes | map('extract', vault_docker_vrrp_priorities) | select('defined') | list %}
 {% set max_priority = _role_priorities | max if _role_priorities | length > 0 else my_priority %}
 {% if _role_injected | default(false) %}
