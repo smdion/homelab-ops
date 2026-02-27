@@ -37,6 +37,7 @@
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
     - vars/host_definitions.yaml
+    - vars/app_definitions.yaml
     - vars/docker_stacks.yaml
     - vars/docker_vips.yaml
     - vars/semaphore_check.yaml
@@ -91,6 +92,7 @@
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
     - vars/host_definitions.yaml
+    - vars/app_definitions.yaml
     - vars/docker_stacks.yaml
     - vars/docker_vips.yaml
     - vars/semaphore_check.yaml

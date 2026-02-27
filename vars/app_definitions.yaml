@@ -1,0 +1,26 @@
+---
+# App definitions — apps with external dependencies (DB, companion containers).
+# Used by restore_app.yaml (production), test_backup_restore.yaml (test), and
+# resolve_scope.yaml (app → stack scope selector). Only contains what must be
+# known BEFORE containers run (archive discovery on controller).
+# All runtime restore config (DB engine, health URLs) lives in container labels.
+#
+# Required fields:
+#   stack      — compose stack this app lives in (used for archive discovery + scope resolution)
+#
+# Optional fields (apps with external DB dependencies):
+#   db_stack   — stack containing the database containers (e.g., databases)
+#   db_config  — vars file to load for DB engine config (e.g., db_primary_postgres)
+#   db_names   — list of database names to back up / restore
+
+app_definitions:
+  authentik:
+    stack: auth
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_names: [authentik]
+  jellyseerr:
+    stack: media
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_names: [jellyseerr]

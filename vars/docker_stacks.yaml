@@ -14,23 +14,6 @@ update_delay_days: 3
 update_exclude_services:
   - semaphore
 
-# App definitions — apps with external dependencies (DB, companion containers).
-# Used by restore_app.yaml (production), test_backup_restore.yaml (test), and
-# resolve_scope.yaml (app → stack scope selector). Only contains what must be
-# known BEFORE containers run (archive discovery on controller).
-# All runtime restore config (DB engine, health URLs) lives in container labels.
-app_definitions:
-  authentik:
-    stack: auth
-    db_stack: databases
-    db_config: db_primary_postgres
-    db_names: [authentik]
-  jellyseerr:
-    stack: media
-    db_stack: databases
-    db_config: db_primary_postgres
-    db_names: [jellyseerr]
-
 # Stack assignments: host → ordered list of stack names.
 # Derived from host_roles + stack_roles (both from vars/vm_definitions.yaml).
 stack_assignments: >-
