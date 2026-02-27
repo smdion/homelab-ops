@@ -196,6 +196,7 @@ history, restore results, playbook runs) belongs in the database.
 ├── backup_hosts.yaml               # Config/Appdata backups (Proxmox, PiKVM, Unifi, AMP, Docker, unRAID); with_databases=yes for combined appdata + DB backup
 ├── backup_databases.yaml           # Database backups (Postgres + MariaDB dumps, InfluxDB portable backup); integrity verification; standalone scheduling
 ├── backup_offline.yaml             # unRAID → Synology offline sync (WOL + rsync); shutdown verification; logs both successful and failed syncs; hosts via hosts_variable
+├── backup_offsite.yaml             # Backblaze B2 offsite sync — rclone sync /backup/ to B2 bucket; runs on localhost; dry_run/bwlimit support
 ├── verify_backups.yaml             # On-demand backup verification — DB backups restored to temp DB; config archives integrity-checked and staged
 ├── restore_databases.yaml          # Database restore from backup dumps — safety-gated; supports single-DB restore on shared instances
 ├── restore_hosts.yaml              # Config/appdata restore — per-stack, selective app, or monolithic; stack=/role= scope selectors; coordinated cross-host DB restore
@@ -719,7 +720,7 @@ Templates are organized into views (tabs in the Semaphore UI) by verb:
 
 | View | Templates | Verb prefix |
 |------|-----------|-------------|
-| Backups | 14 | `Backup —` |
+| Backups | 15 | `Backup —` |
 | Updates | 6 | `Update —` |
 | Maintenance | 7 | `Maintain —` |
 | Downloads | 2 | `Download —` |
@@ -1723,6 +1724,7 @@ No SQL changes needed.
 | `vars/docker_run.yaml` | Docker | Servers | Appdata |
 | `vars/unraid_os.yaml` | unRAID | Servers | Config |
 | `vars/synology.yaml` | unRAID | Servers | Offline |
+| `backup_offsite.yaml` (inline) | B2 | Servers | Offsite |
 | `vars/db_*.yaml` | (individual db name)-db | Servers | Database |
 
 Database vars files also set `backup_ext` (`"sql"` for PostgreSQL/MariaDB, `"tar.gz"` for InfluxDB)
@@ -1814,7 +1816,7 @@ The vault contains ~50 variables organized into groups:
 - **Required** (all playbooks): Discord webhooks, logging DB credentials, domain suffixes,
   Semaphore API token/URL, controller hostname, DB host identifiers
 - **Optional** (specific playbooks): download webhooks, appliance API keys, Synology NAS
-  config, Grafana credentials, SSH public key, VPS hostname, trusted proxy CIDRs
+  config, B2 offsite backup credentials, Grafana credentials, SSH public key, VPS hostname, trusted proxy CIDRs
 - **PVE cluster**: API credentials, template node/VMID, storage pool, network bridge, VIP
   config, VRRP priorities, test VM IP pool, VM credentials (user/password/CIDR/gateway/DNS)
 - **Per-VM**: `vault_vm_<name>_ip` and `vault_vm_<name>_node` for each VM in `vm_definitions.yaml`
@@ -2169,6 +2171,13 @@ ansible-playbook deploy_stacks.yaml --limit <controller-fqdn> --ask-vault-pass
 # 8. Semaphore is back — use UI for remaining hosts
 ```
 
+If local backups in `/backup/` are lost, restore from B2 first:
+
+```bash
+# Restore all backups from B2 (set RCLONE_B2_ACCOUNT and RCLONE_B2_KEY env vars)
+rclone sync :b2:<bucket-name> /backup/ --transfers 4 --progress
+```
+
 **Prerequisites:**
 - A working machine with Ansible installed and the repo cloned
 - The vault password (stored securely outside the infrastructure)
@@ -2210,6 +2219,7 @@ For a single stack: replace `-e role=core` with `-e stack=auth` (auto-resolves h
 | PVE cluster VIP only (no logging) | Yes | `setup_pve_vip.yaml` — lightweight alternative when MariaDB not yet available |
 | DNS records (internal) | No | DHCP reservation with hostname — network layer |
 | DNS records (external) | No | Static IP, managed by `cloudflareddns` container |
+| Offsite backup (B2) | Yes | `backup_offsite.yaml` — rclone sync to Backblaze B2; restore via `rclone sync :b2:<bucket> /backup/` |
 | Reverse proxy config | Yes | SWAG/NPM config in appdata (restored from backup) |
 | SSL certificates | Yes | Let's Encrypt certs in appdata (restored from backup) |
 
