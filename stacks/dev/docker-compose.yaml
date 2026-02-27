@@ -32,6 +32,7 @@ services:
     - dev:/workspace/dev
     - vps:/workspace/vps
     - ${APPSDIR}/code-server:/config
+    - ./custom-cont-init.d:/custom-cont-init.d:ro
     healthcheck:
       test: ["CMD-SHELL", "ls /workspace/core /workspace/apps /workspace/dev /workspace/vps > /dev/null 2>&1 || exit 1"]
       interval: 30s
