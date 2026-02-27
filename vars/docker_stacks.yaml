@@ -14,10 +14,12 @@ update_delay_days: 3
 update_exclude_services:
   - semaphore
 
-# Minimal mapping shared by restore_app.yaml (production) and test_backup_restore.yaml (test).
-# Only contains what must be known BEFORE containers run (archive discovery on controller).
+# App definitions — apps with external dependencies (DB, companion containers).
+# Used by restore_app.yaml (production), test_backup_restore.yaml (test), and
+# resolve_scope.yaml (app → stack scope selector). Only contains what must be
+# known BEFORE containers run (archive discovery on controller).
 # All runtime restore config (DB engine, health URLs) lives in container labels.
-app_info:
+app_definitions:
   authentik:
     stack: auth
     db_stack: databases

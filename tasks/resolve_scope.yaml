@@ -14,6 +14,26 @@
 #   role          — target all stacks in a role; also injects into host_roles
 #                   for hosts not already mapped
 #   stack         — target a single stack (canonical scope selector)
+#   app           — target a single app (resolves to stack via app_definitions)
+
+# --- resolve app → stack alias ---
+- name: Resolve app → stack alias
+  ansible.builtin.set_fact:
+    stack: "{{ app_definitions[app].stack }}"
+  when:
+    - app is defined
+    - stack is not defined
+    - app in (app_definitions | default({}))
+
+- name: Assert app exists in app_definitions
+  ansible.builtin.assert:
+    that: app in (app_definitions | default({}))
+    fail_msg: >-
+      '{{ app }}' not found in app_definitions.
+      Valid apps: {{ (app_definitions | default({})).keys() | list | join(', ') }}
+  when:
+    - app is defined
+    - stack is not defined
 
 # --- inject role for unmapped hosts (test VMs) ---
 - name: Inject role into host_roles (host not already mapped)

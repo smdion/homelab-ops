@@ -1,10 +1,10 @@
 ---
 # Restore databases for a single app during rollback with_backup.
 # Called in a loop from rollback_docker.yaml with loop_var: _db_dep.
-# _db_dep is a dict2items entry from app_info: {key: app_name, value: {stack, db_stack, db_config, db_names}}.
+# _db_dep is a dict2items entry from app_definitions: {key: app_name, value: {stack, db_stack, db_config, db_names}}.
 #
 # Required (from caller scope):
-#   _db_dep            — app_info entry (key=app_name, value={db_stack, db_config, db_names})
+#   _db_dep            — app_definitions entry (key=app_name, value={db_stack, db_config, db_names})
 #   backup_base_dir    — controller-side backup root
 #   backup_tmp_dir     — temp directory on target host
 

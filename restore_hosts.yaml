@@ -8,6 +8,7 @@
 #
 # Scope selectors (docker_stacks only):
 #   stack=<name>  — restore a single stack (auto-resolves host)
+#   app=<name>    — restore a single app's stack (resolves via app_definitions)
 #   role=<name>   — restore all stacks in a role (auto-resolves host)
 #
 # Usage:

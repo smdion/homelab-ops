@@ -7,6 +7,7 @@
 #
 # Scope selectors (docker_stacks only):
 #   stack=<name>  — verify a single stack's archive
+#   app=<name>    — verify a single app's stack archive (resolves via app_definitions)
 #   role=<name>   — verify all stacks in a role
 #
 # Usage:

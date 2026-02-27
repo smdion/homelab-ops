@@ -103,7 +103,7 @@ and go.
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
 | `restore_hosts.yaml` | Restore config/appdata — per-stack, selective app, or monolithic; safety-gated with `confirm=yes`; coordinated cross-host DB (`with_databases=yes`); `stack=`/`role=` scope selectors | `vars/<platform>.yaml` with `app_restore` mapping |
 | `restore_amp.yaml` | Restore AMP game server instance(s) from backup; safety-gated with `confirm=yes`; pass `restore_target`; optionally `amp_instance_filter` for a single instance | `vars/amp.yaml` |
-| `restore_app.yaml` | Restore a single app (appdata + all DBs) to a production host; safety-gated with `confirm=yes`; pass `restore_app`, `restore_target`, optionally `restore_source_host` | `vars/docker_stacks.yaml` `app_info` dict + runtime config from container labels |
+| `restore_app.yaml` | Restore a single app (appdata + all DBs) to a production host; safety-gated with `confirm=yes`; pass `restore_app`, `restore_target`, optionally `restore_source_host` | `vars/docker_stacks.yaml` `app_definitions` dict + runtime config from container labels |
 | `rollback_docker.yaml` | Revert Docker containers to previous images; `with_backup=yes` for combined image+appdata+DB recovery; `stack=`/`role=` scope; safety-gated with `confirm=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
 | `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy; `role=`/`stack=` scope selectors; `serial: 1` for multi-host ordering | `vars/docker_stacks.yaml` with `stack_assignments` |
 | `apply_role.yaml` | Idempotent VM reconciliation — make a VM match its definition across OS/network/Docker/stacks/verification layers; omit `-e role` for all Docker VMs (`serial: 1`, VMID order); `-e role=core` to target one; per-layer skip flags | `vars/vm_definitions.yaml` with consolidated VM spec |
@@ -124,7 +124,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW; supports create, destroy, snapshot, and revert |
 | `dr_rebuild.yaml` | Proxmox + `docker_stacks` | DR rebuild — provision VM → bootstrap → restore backups → deploy stacks → health check; `-e role=core\|apps\|dev`; `scripts/dr_rebuild_all.sh` for multi-role sequential execution |
 | `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, patches SWAG configs, verifies health, reverts to snapshot; `vm_name` defaults to `test-vm`; `role` can substitute for `source_host`; DR mode (`dr_mode=yes`) keeps restored state. CephFS-backed test VMs get explicit appdata cleanup before each run (PVE snapshot revert alone does not clean CephFS state) |
-| `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_info` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope. CephFS-backed test VMs get explicit appdata cleanup before each run |
+| `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_definitions` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope. CephFS-backed test VMs get explicit appdata cleanup before each run |
 | `verify_cephfs.yaml` | Proxmox + CephFS | Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires `-e vm_name=<key>` |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
@@ -205,7 +205,7 @@ for platforms you don't have are automatically skipped.
 ├── dr_rebuild.yaml              # DR rebuild — provision VM → bootstrap → restore → deploy → health check
 ├── build_ubuntu.yaml            # Provision Ubuntu VMs on Proxmox — cloud-init, Docker, SSH hardening
 ├── test_restore.yaml            # End-to-end restore test on a disposable VM (Proxmox + docker_stacks); vm_name defaults to test-vm; role can substitute for source_host
-├── test_backup_restore.yaml        # Test all app_info apps on disposable VM — per-app restore from backup archives, OOM recovery, Discord summary
+├── test_backup_restore.yaml        # Test all app_definitions apps on disposable VM — per-app restore from backup archives, OOM recovery, Discord summary
 ├── verify_cephfs.yaml           # Verify CephFS mount — checks mount source, writes/reads marker file
 ├── deploy_grafana.yaml          # Grafana dashboard + datasource deploy via API
 ├── setup_ansible_user.yaml      # One-time user setup utility

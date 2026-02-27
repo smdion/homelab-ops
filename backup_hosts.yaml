@@ -6,12 +6,14 @@
 #
 # Scope selectors (docker_stacks only):
 #   stack=<name>  — back up a single stack (auto-resolves host)
+#   app=<name>    — back up a single app's stack (resolves via app_definitions)
 #   role=<name>   — back up all stacks in a role (auto-resolves host)
 #
 # Usage:
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=proxmox
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks -e stack=auth
+#   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks -e app=authentik
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=docker_stacks -e role=core
 
 - name: Back up host configurations and appdata

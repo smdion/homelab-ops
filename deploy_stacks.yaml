@@ -5,12 +5,14 @@
 #
 # Scope selectors:
 #   stack=<name>          — deploy a single stack (auto-resolves host)
+#   app=<name>            — deploy a single app's stack (resolves via app_definitions)
 #   deploy_stack=<name>   — alias for stack (backward compatibility)
 #   role=<name>           — deploy all stacks in a role (auto-resolves host)
 #
 # Usage:
 #   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks --limit core.example.com
 #   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks -e stack=auth
+#   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks -e app=authentik
 #   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks -e role=core
 #
 # Optional extra vars:
