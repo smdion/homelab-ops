@@ -804,12 +804,12 @@ Templates are organized into views (tabs in the Semaphore UI) by verb:
 |------|-----------|-------------|
 | Backups | 13 | `Backup —` |
 | Updates | 6 | `Update —` |
-| Maintenance | 8 | `Maintain —`, `Migrate —` |
+| Maintenance | 7 | `Maintain —` |
 | Downloads | 2 | `Download —` |
-| Verify | 9 | `Verify —` |
-| Restore | 9 | `Restore —`, `Rollback —`, `Test —` |
-| Deploy | 3 | `Deploy —`, `Build —` |
-| Setup | 2 | `Setup —` |
+| Verify | 10 | `Verify —` |
+| Restore | 14 | `Restore —`, `Rollback —`, `Test —` |
+| Deploy | 8 | `Deploy —`, `Build —`, `Apply —`, `DR —` |
+| Setup | 3 | `Setup —` |
 
 When adding a new template, assign it to the matching view. Views are stored in the
 `project__view` table; templates reference views via the `view_id` column in
@@ -923,7 +923,7 @@ schedule are ad-hoc only — document that intent in a comment if intentional.
 <details>
 <summary>Weekly schedule at a glance</summary>
 
-**Every day (not shown in table):** Secondary PG Backup + Unifi Restart @ 1am · Cache Flush @ 5am · Health Check @ 7am & 7pm · Download Videos every 4h
+**Every day (not shown in table):** Secondary PG Backup + Unifi Restart @ 1am · Docker Cache Flush @ 5am · Health Check @ 7am & 7pm · Download Videos every 4h
 
 | Time | Sun | Mon | Tue | Wed | Thu | Fri | Sat |
 |------|-----|-----|-----|-----|-----|-----|-----|
