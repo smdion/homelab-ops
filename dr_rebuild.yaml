@@ -378,7 +378,7 @@
             discord_status: "{{ 'failed' if bootstrap_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if bootstrap_failed else discord_color_success }}"
             discord_url: "{{ semaphore_ext_url }}"
-            discord_author: "{{ hostvars['localhost'].controller_fqdn }}"
+            discord_author: "{{ controller_fqdn }}"
             discord_fields:
               - name: "Role"
                 value: "{{ role }}"
@@ -697,7 +697,7 @@
               {{ role }}{{ ' (' + restore_app + ')' if restore_app | default('') | length > 0 else '' }}
             discord_color: "{{ discord_color_failure if _restore_test_failed else discord_color_success }}"
             discord_url: "{{ semaphore_ext_url }}"
-            discord_author: "{{ hostvars['localhost'].controller_fqdn }}"
+            discord_author: "{{ controller_fqdn }}"
             discord_fields:
               - name: "Role"
                 value: "{{ role }}"
@@ -715,7 +715,7 @@
           vars:
             log_table: maintenance
             log_application: "{{ maintenance_name }}"
-            log_hostname: "{{ hostvars['localhost'].controller_fqdn }}"
+            log_hostname: "{{ controller_fqdn }}"
             log_type: "{{ maintenance_type }}"
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if _restore_test_failed else 'success' }}"
