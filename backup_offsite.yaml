@@ -62,7 +62,7 @@
   vars:
     backup_name: "B2"
     backup_subtype: "Offsite"
-    offsite_method: "{{ offsite_method | default('restic') }}"
+    offsite_method: "restic"
     _stack_dir: "{{ stacks_base_path }}/backups"
     _is_docker_run: "{{ inventory_hostname in groups['docker_run'] | default([]) }}"
     _is_docker_stacks: "{{ inventory_hostname in groups['docker_stacks'] | default([]) }}"
