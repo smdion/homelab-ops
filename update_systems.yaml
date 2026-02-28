@@ -56,6 +56,7 @@
       when: inventory_hostname in groups['pve'] | default([])
       block:
         - name: Get cluster quorum status
+          become: true
           ansible.builtin.shell: pvecm status 2>/dev/null
           register: _pvecm_pre
           changed_when: false
