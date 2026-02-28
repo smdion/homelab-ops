@@ -470,7 +470,7 @@
             path: "/tmp/restore_inplace.tar.gz"
             state: absent
 
-        - name: Send test restore Discord notification
+        - name: Send test restore notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"

@@ -339,7 +339,7 @@
              | zip(_all_results | map(attribute='passed') | map('ternary', 'PASS', 'FAIL'))
              | list | map('join', ': ') | list | join(' | ') }}
 
-    - name: Build per-app Discord fields for test restore results
+    - name: Build per-app notification fields for test restore results
       ansible.builtin.set_fact:
         _app_discord_fields: >-
           [
@@ -348,7 +348,7 @@
            {"name": "{{ ('❌ ' if not r.passed else '✅ ') + r.app }}", "value": "{{ r.detail if not r.passed else 'OK' }}", "inline": true}
            {% endfor %}]
 
-    - name: Send test restore Discord summary
+    - name: Send test restore summary
       include_tasks: tasks/notify.yaml
       vars:
         discord_name: "{{ maintenance_name }}"

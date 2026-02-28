@@ -274,7 +274,7 @@
           when: with_backup | default('') == 'yes'
 
       always:
-        - name: Send Discord notification
+        - name: Send notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ update_name | default('Docker') }}"
@@ -305,5 +305,5 @@
 
         - name: Fail play if rollback errored
           ansible.builtin.fail:
-            msg: "Docker rollback failed — see Discord notification for details"
+            msg: "Docker rollback failed — see notification for details"
           when: rollback_failed

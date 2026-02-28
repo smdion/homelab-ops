@@ -192,7 +192,7 @@
             _apply_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
       always:
-        - name: Send Discord notification
+        - name: Send notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"

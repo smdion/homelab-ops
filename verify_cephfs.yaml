@@ -125,7 +125,7 @@
             _verify_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
 # ═══════════════════════════════════════════════════════════════════
-# Play 3 — Log to MariaDB and send Discord notification
+# Play 3 — Log to MariaDB and send notification
 # ═══════════════════════════════════════════════════════════════════
 - name: Log and notify verification result
   hosts: localhost
@@ -151,7 +151,7 @@
         log_status: "{{ 'failed' if _vf | bool else 'success' }}"
 
     - block:
-        - name: Send Discord notification
+        - name: Send notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "CephFS Verify"
@@ -171,7 +171,7 @@
                 value: "{{ _vd }}"
       rescue:
         - ansible.builtin.fail:
-            msg: "Discord notification failed. Re-run with -e debug_no_log=yes for details."
+            msg: "Notification failed. Re-run with -e debug_no_log=yes for details."
 
     - name: Fail play if verification failed
       ansible.builtin.fail:

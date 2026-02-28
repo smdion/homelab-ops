@@ -136,7 +136,7 @@
           ansible.builtin.debug:
             msg: "Last check: {{ last_check }} | New failures: {{ new_failures | length }}"
 
-        - name: Send Discord alert per failed task
+        - name: Send alert per failed task
           include_tasks: tasks/notify.yaml
           loop: "{{ new_failures }}"
           loop_control:
@@ -221,7 +221,7 @@
           ansible.builtin.set_fact:
             stale_backup_lines: "{{ _stale_backup_result.query_result[0] | map(attribute='line') | list }}"
 
-        - name: Send Discord alert for stale backups
+        - name: Send alert for stale backups
           include_tasks: tasks/notify.yaml
           when: stale_backup_lines | length > 0
           vars:
@@ -338,7 +338,7 @@
           ansible.builtin.set_fact:
             failed_maintenance_lines: "{{ _failed_maintenance_result.query_result[0] | map(attribute='line') | list }}"
 
-        - name: Send Discord alert for failed maintenance runs
+        - name: Send alert for failed maintenance runs
           include_tasks: tasks/notify.yaml
           when: failed_maintenance_lines | length > 0
           vars:
@@ -554,7 +554,7 @@
                  | map(attribute='item')
                  | list }}
 
-        - name: Send Discord alert for unreachable appliances
+        - name: Send alert for unreachable appliances
           include_tasks: tasks/notify.yaml
           when: _unreachable_appliances | length > 0
           vars:
@@ -1460,7 +1460,7 @@
       ansible.builtin.set_fact:
         unreachable_hosts: "{{ unreachable_hosts | default([]) }}"
 
-    - name: Send Discord alert for unreachable hosts
+    - name: Send alert for unreachable hosts
       include_tasks: tasks/notify.yaml
       when: unreachable_hosts | length > 0
       vars:
@@ -1476,7 +1476,7 @@
         discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
 
     # ── PER-HOST DISCORD ALERTS ────────────────────────────────────────────────
-    - name: Send Discord alert for hosts with issues
+    - name: Send alert for hosts with issues
       include_tasks: tasks/notify.yaml
       loop: "{{ ssh_hosts }}"
       loop_control:
@@ -1548,7 +1548,7 @@
       when: not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-    - name: Send Discord alert on maintenance failure
+    - name: Send alert on maintenance failure
       include_tasks: tasks/notify.yaml
       when: maintenance_failed
       vars:
@@ -1572,7 +1572,7 @@
 
     # ── DEAD MAN'S SWITCH — Uptime Kuma push heartbeat ──────────────────────────
     # If this playbook fails to complete (crashes, hangs, scheduler dies), Uptime Kuma
-    # will detect the missing heartbeat and alert independently of Discord.
+    # will detect the missing heartbeat and alert independently of notifications.
     - name: Send heartbeat to Uptime Kuma
       ansible.builtin.uri:
         url: "{{ uptime_kuma_push_url }}"

@@ -213,7 +213,7 @@
             _build_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
       always:
-        - name: Send Discord notification (failure only; success deferred to Play 2)
+        - name: Send notification (failure only; success deferred to Play 2)
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
@@ -309,7 +309,7 @@
             _bootstrap_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
       always:
-        - name: Send Discord notification (combined build + bootstrap result)
+        - name: Send notification (combined build + bootstrap result)
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
