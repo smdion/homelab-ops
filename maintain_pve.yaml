@@ -825,8 +825,8 @@
       ansible.builtin.set_fact:
         _flagged_vms: >-
           {{ _flagged_vms + [{'vm': item.item.name, 'vmid': item.item.vmid,
-                               'avg_cpu_pct': (_avg_cpu * 100) | round(1),
-                               'avg_mem_pct': (_avg_mem_pct * 100) | round(1)}]
+                               'avg_cpu_pct': ((_avg_cpu | float) * 100) | round(1),
+                               'avg_mem_pct': ((_avg_mem_pct | float) * 100) | round(1)}]
              if (_pts | length > 0 and
                  (_avg_cpu | float) < (rightsize_cpu_threshold | float) and
                  (_avg_mem_pct | float) < (rightsize_mem_threshold | float))
