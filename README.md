@@ -185,7 +185,7 @@ for platforms you don't have are automatically skipped.
 │   ├── docker_stacks.yaml        # Docker stack host config (backup paths, display names)
 │   ├── docker_vips.yaml          # VIP-to-role mapping for keepalived
 │   └── <platform>.yaml           # One per platform (proxmox, amp, unraid_os, etc.)
-├── tasks/                        # 47 shared task files — assertions, DB ops, backup/restore
+├── tasks/                        # 51 shared task files — assertions, DB ops, backup/restore
 │                                 #   orchestration, VM provisioning, Docker management, notifications
 ├── stacks/                       # Docker stack definitions
 │   ├── apps/                     # Application services (Nextcloud, Jellyfin, etc.)
@@ -213,8 +213,8 @@ for platforms you don't have are automatically skipped.
 ├── scripts/
 │   └── dr_rebuild_all.sh         # Shell wrapper for sequential multi-role DR rebuild
 │
-│── # ── Playbooks (31) ──────────────────────────────────────────────
-├── backup_*.yaml                 # Backup: hosts, databases, offline NAS-to-NAS
+│── # ── Playbooks (32) ──────────────────────────────────────────────
+├── backup_*.yaml                 # Backup: hosts, databases, offline NAS-to-NAS, offsite B2
 ├── verify_backups.yaml           # Backup verification (DB + config archives)
 ├── restore_databases.yaml        # Database restore (safety-gated)
 ├── restore_hosts.yaml            # Appdata restore — per-stack, selective, or monolithic (safety-gated)
