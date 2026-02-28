@@ -1,7 +1,13 @@
 # Test-mode compose override for auth stack.
 # Applied automatically by deploy_single_stack.yaml when _test_mode is true.
-# Previously overrode POSTGRES_HOST and CROWDSEC_LAPI_URL to redirect production IPs
-# to the local test VM. With the shared homelab Docker network, service names (postgres,
-# crowdsec) resolve correctly on any host — no IP overrides needed.
-# This file is kept as a no-op; add test-specific overrides here if needed.
-services: {}
+# Extends SWAG healthcheck timing to accommodate Certbot DNS validation timeout
+# on the isolated test VLAN. Restored certs from appdata let nginx serve once
+# Certbot finishes.
+services:
+  swag:
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsk https://localhost:443 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
