@@ -47,22 +47,14 @@
     maintenance_subtype: "DR Rebuild"
 
   pre_tasks:
-    - name: Assert role is defined
-      ansible.builtin.assert:
-        that: role is defined
-        fail_msg: >-
-          role is required. Pass -e role=core|apps|dev.
-
     - name: Default vm_name to role
       ansible.builtin.set_fact:
         vm_name: "{{ vm_name | default(role) }}"
 
-    - name: Assert vm_name exists in vm_definitions
-      ansible.builtin.assert:
-        that: vm_name in vm_definitions
-        fail_msg: >-
-          vm_name '{{ vm_name }}' not found in vm_definitions.
-          Valid names: {{ vm_definitions.keys() | list | join(', ') }}
+    - name: Run shared test pre-flight assertions
+      include_tasks: tasks/pre_test_assertions.yaml
+      vars:
+        _require_role: true
 
     - name: Auto-detect free vm_index for test-vm pool
       include_tasks: tasks/resolve_test_vm_index.yaml
@@ -448,6 +440,18 @@
     - name: Assert /opt is not production CephFS (safety gate)
       include_tasks: tasks/assert_test_vm.yaml
 
+    - name: Assert sufficient disk space on /tmp (staging)
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: /tmp
+        assert_disk_min_gb: 2
+
+    - name: Assert sufficient disk space on /opt (appdata)
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: /opt
+        assert_disk_min_gb: 5
+
     - name: Resolve scope (role injection for unmapped hosts)
       include_tasks: tasks/resolve_scope.yaml
 
@@ -484,195 +488,8 @@
       become: true
 
     - block:
-        # ===== EXTRACT APPDATA FROM BACKUP =====
-        - name: Ensure backup_tmp_dir exists on VM
-          ansible.builtin.file:
-            path: "{{ backup_tmp_dir }}"
-            state: directory
-            mode: '0755'
-          become: true
-
-        - name: Compute selective extract path
-          ansible.builtin.set_fact:
-            _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
-          when: restore_app | default('') | length > 0
-
-        - name: Restore appdata from production backup
-          include_tasks: tasks/restore_appdata.yaml
-          loop: "{{ hostvars['localhost']._archive_files }}"
-          loop_control:
-            loop_var: _current_archive
-          vars:
-            _restore_archive_path: "{{ _current_archive }}"
-            _restore_extract_path: "{{ _extract_path | default('') }}"
-            _restore_app_name: "{{ restore_app | default('') }}"
-
-        # ===== PATCH SWAG SITE-CONFS FOR NEW VM LAYOUT =====
-        - name: Resolve effective VIPs for SWAG patches
-          include_tasks: tasks/resolve_effective_vips.yaml
-          when: "'auth' in hostvars['localhost']._stacks"
-
-        - name: Patch SWAG site-confs for core/apps/dev layout
-          include_tasks: tasks/patch_swag_confs.yaml
-          when: "'auth' in hostvars['localhost']._stacks"
-
-        # ===== DEPLOY DATABASES STACK FIRST =====
-        - name: Deploy databases stack first
-          include_tasks: tasks/deploy_single_stack.yaml
-          vars:
-            _current_stack: databases
-            patch_compose_networks: true
-            _apps_vip: >-
-              {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
-          when: "'databases' in hostvars['localhost']._stacks"
-
-        - name: Reset DB passwords to match vault (restored data may differ)
-          include_tasks: tasks/reset_db_auth.yaml
-          vars:
-            _db_mariadb_password: "{{ db_password }}"
-            _db_postgres_password: "{{ docker_postgres_password }}"
-          when: "'databases' in hostvars['localhost']._stacks"
-
-        # ===== RESTORE SQL DUMPS =====
-        - name: Wait for database containers to accept authenticated connections
-          ansible.builtin.shell: |
-            found_any=false
-            for i in $(seq 1 60); do
-              all_ready=true
-              if docker ps -q --filter "name=postgres" | grep -q .; then
-                found_any=true
-                docker exec postgres pg_isready -U postgres >/dev/null 2>&1 || all_ready=false
-              fi
-              if docker ps -q --filter "name=mariadb" | grep -q .; then
-                found_any=true
-                docker exec -e MYSQL_PWD="$DB_PASSWORD" mariadb mysql -u root -e "SELECT 1" >/dev/null 2>&1 || all_ready=false
-              fi
-              if $found_any && $all_ready; then
-                echo "ready"
-                exit 0
-              fi
-              sleep 2
-            done
-            echo "timeout — found_any=$found_any"
-            exit 1
-          environment:
-            DB_PASSWORD: "{{ db_password | default('') }}"
-          become: true
-          changed_when: false
-          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
-
-        - name: Create DB restore staging directory on VM
-          ansible.builtin.file:
-            path: /tmp/db_restore_staging
-            state: directory
-            mode: '0755'
-          become: true
-          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
-
-        - name: Copy production DB backup to VM — {{ item.key }}
-          ansible.builtin.synchronize:
-            src: "{{ item.value }}"
-            dest: "/tmp/db_restore_staging/{{ item.value | basename }}"
-            compress: false
-            rsync_opts:
-              - "--timeout=300"
-              - "--whole-file"
-          become: true
-          ignore_errors: true
-          register: _db_rsync_result
-          loop: "{{ hostvars['localhost']._db_archive_map | default({}) | dict2items }}"
-          loop_control:
-            label: "{{ item.key }}"
-          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
-
-        - name: "Rsync stalled — copy DB backup via Ansible — {{ item.key }}"
-          ansible.builtin.copy:
-            src: "{{ item.value }}"
-            dest: "/tmp/db_restore_staging/{{ item.value | basename }}"
-            mode: "0644"
-          become: true
-          loop: "{{ hostvars['localhost']._db_archive_map | default({}) | dict2items }}"
-          loop_control:
-            label: "{{ item.key }}"
-          when:
-            - hostvars['localhost']._db_archive_map | default({}) | length > 0
-            - _db_rsync_result is failed
-
-        - name: Restore postgres database — {{ _db_item }}
-          include_tasks: tasks/db_restore.yaml
-          loop: "{{ hostvars['localhost']._db_postgres_names | default([]) }}"
-          loop_control:
-            loop_var: _db_item
-          vars:
-            _db_name: "{{ _db_item }}"
-            _db_container: "{{ hostvars['localhost']._db_postgres_container }}"
-            _db_username: "{{ hostvars['localhost']._db_postgres_username }}"
-            _db_password: "{{ db_password | default('') }}"
-            _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
-            _db_is_postgres: true
-            _db_is_mariadb: false
-            _db_is_influxdb: false
-            _db_tmp_dir: "/tmp/db_restore_staging"
-          when: hostvars['localhost']._db_postgres_names | default([]) | length > 0
-
-        - name: Restore mariadb database — {{ _db_item }}
-          include_tasks: tasks/db_restore.yaml
-          loop: "{{ hostvars['localhost']._db_mariadb_names | default([]) }}"
-          loop_control:
-            loop_var: _db_item
-          vars:
-            _db_name: "{{ _db_item }}"
-            _db_container: "{{ hostvars['localhost']._db_mariadb_container }}"
-            _db_username: "{{ hostvars['localhost']._db_mariadb_username }}"
-            _db_password: "{{ db_password | default('') }}"
-            _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
-            _db_is_postgres: false
-            _db_is_mariadb: true
-            _db_is_influxdb: false
-            _db_tmp_dir: "/tmp/db_restore_staging"
-          when: hostvars['localhost']._db_mariadb_names | default([]) | length > 0
-
-        - name: Clean up DB restore staging directory
-          ansible.builtin.file:
-            path: /tmp/db_restore_staging
-            state: absent
-          become: true
-          when: hostvars['localhost']._db_archive_map | default({}) | length > 0
-
-        # ===== DEPLOY REMAINING STACKS =====
-        - name: "Deploy stack — {{ _current_stack }}"
-          include_tasks: tasks/deploy_single_stack.yaml
-          loop: "{{ hostvars['localhost']._stacks | reject('equalto', 'databases') | list }}"
-          loop_control:
-            loop_var: _current_stack
-          vars:
-            patch_compose_networks: true
-            _apps_vip: >-
-              {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
-
-        # ===== HEALTH CHECK =====
-        - name: Verify container health
-          include_tasks: tasks/verify_docker_health.yaml
-
-        # ===== NETWORK VERIFICATION =====
-        - name: Verify Docker network connectivity
-          include_tasks: tasks/verify_docker_network.yaml
-
-        # ===== NETWORK ISOLATION VERIFICATION =====
-        - name: Verify test VLAN isolation from production
-          include_tasks: tasks/verify_network_isolation.yaml
-          vars:
-            _vm: "{{ hostvars['localhost']._vm }}"
-
-        # ===== VIP VERIFICATION =====
-        - name: Verify VIP is active
-          include_tasks: tasks/verify_vip.yaml
-
-        - name: Record success detail
-          ansible.builtin.set_fact:
-            _restore_test_detail: >-
-              {{ restore_app | default('full') }} restore verified
-              — {{ hostvars['localhost']._stacks | join(', ') }} stack(s)
+        - name: Run restore-deploy-verify pipeline
+          include_tasks: tasks/restore_and_deploy.yaml
 
       rescue:
         - name: Set restore failed flag
@@ -709,7 +526,7 @@
               - name: "Detail"
                 value: "{{ _restore_test_detail }}"
 
-        - name: Log restore to MariaDB
+        - name: Log restore to maintenance table
           include_tasks: tasks/log_mariadb.yaml
           vars:
             log_table: maintenance
@@ -718,6 +535,18 @@
             log_type: "{{ maintenance_type }}"
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if _restore_test_failed else 'success' }}"
+
+        - name: Log restore to restores table
+          include_tasks: tasks/log_restore.yaml
+          vars:
+            log_hostname: "{{ controller_fqdn }}"
+            restore_application: "{{ maintenance_name }}"
+            restore_source_file: "{{ hostvars['localhost']._archive_files | map('basename') | join(', ') }}"
+            restore_type: "{{ maintenance_type }}"
+            restore_subtype: "Appdata"
+            restore_operation: "dr_rebuild"
+            restore_status: "{{ 'failed' if _restore_test_failed else 'success' }}"
+            restore_detail: "{{ _restore_test_detail | default('check Semaphore logs') }}"
 
         - name: Fail play if restore failed
           ansible.builtin.fail:

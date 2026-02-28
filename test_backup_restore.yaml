@@ -38,21 +38,14 @@
     maintenance_subtype: "Test Backup Restore"
 
   pre_tasks:
-    - name: Assert source_host is defined
-      ansible.builtin.assert:
-        that: source_host is defined
-        fail_msg: "source_host is required — pass -e source_host=<fqdn>"
-
     - name: Default vm_name to test-vm
       ansible.builtin.set_fact:
         vm_name: "{{ vm_name | default('test-vm') }}"
 
-    - name: Assert vm_name exists in vm_definitions
-      ansible.builtin.assert:
-        that: vm_name in vm_definitions
-        fail_msg: >-
-          vm_name '{{ vm_name }}' not found in vm_definitions.
-          Valid names: {{ vm_definitions.keys() | list | join(', ') }}
+    - name: Run shared test pre-flight assertions
+      include_tasks: tasks/pre_test_assertions.yaml
+      vars:
+        _require_source_host: true
 
     - name: Run standard pre-flight assertions for test_backup_restore
       include_tasks: tasks/pre_task_assertions.yaml
@@ -250,6 +243,18 @@
   tasks:
     - name: Assert /opt is not production CephFS (safety gate)
       include_tasks: tasks/assert_test_vm.yaml
+
+    - name: Assert sufficient disk space on /tmp (staging)
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: /tmp
+        assert_disk_min_gb: 2
+
+    - name: Assert sufficient disk space on /opt (appdata)
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: /opt
+        assert_disk_min_gb: 5
 
     - name: Verify test VLAN isolation from production
       include_tasks: tasks/verify_network_isolation.yaml
