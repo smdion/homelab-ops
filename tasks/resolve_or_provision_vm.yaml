@@ -20,7 +20,7 @@
 
 - name: Check if VM exists in cluster
   ansible.builtin.uri:
-    url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+    url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
     method: GET
     headers:
       Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -55,7 +55,7 @@
 
 - name: Start existing VM if stopped
   ansible.builtin.uri:
-    url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/status/start"
+    url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/status/start"
     method: POST
     headers:
       Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"

@@ -63,7 +63,7 @@
       ansible.builtin.set_fact:
         _backup_archive_paths: >-
           {{ (_label_backup_paths.stdout_lines | default([]) | reject('eq', '') | list)
-             + ['/opt/stacks/' + _backup_stack] }}
+             + ['{{ stacks_base_path }}/' + _backup_stack] }}
 
     - name: Filter to existing paths for {{ _backup_stack }}
       ansible.builtin.stat:

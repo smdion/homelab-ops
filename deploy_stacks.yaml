@@ -108,7 +108,7 @@
 
     - name: Ensure shared Docker network exists
       community.docker.docker_network:
-        name: homelab
+        name: "{{ docker_network_name }}"
         state: present
       become: true
 
@@ -118,7 +118,7 @@
             conflicts=""
             declare -A port_map
             for stack in {{ _deploy_stacks | join(' ') }}; do
-              cd "/opt/stacks/$stack" 2>/dev/null || continue
+              cd "{{ stacks_base_path }}/$stack" 2>/dev/null || continue
               ports=$(docker compose config 2>/dev/null | grep -oP 'published: "\K\d+' | sort -u)
               for port in $ports; do
                 if [ -n "${port_map[$port]:-}" ]; then

@@ -23,7 +23,7 @@ services:
   homeassistant:
     <<: *baseuid
     container_name: homeassistant
-    image: lscr.io/linuxserver/homeassistant
+    image: ${HA_IMAGE}:${HA_TAG}
     network_mode: bridge
     ports:
     - 8123:8123
@@ -42,7 +42,7 @@ services:
   guacamole:
     <<: *base
     container_name: guacamole
-    image: abesnier/guacamole
+    image: ${GUAC_IMAGE}:${GUAC_TAG}
     network_mode: bridge
     ports:
     - 8084:8080
@@ -58,7 +58,7 @@ services:
   firefox:
     <<: *base
     container_name: firefox
-    image: jlesage/firefox
+    image: ${FIREFOX_IMAGE}:${FIREFOX_TAG}
     network_mode: bridge
     ports:
     - 7814:5800
@@ -78,7 +78,7 @@ services:
   xbackbone:
     <<: *baseuid
     container_name: xbackbone
-    image: lscr.io/linuxserver/xbackbone
+    image: ${XBACKBONE_IMAGE}:${XBACKBONE_TAG}
     network_mode: bridge
     ports:
     - 8088:80
@@ -96,7 +96,7 @@ services:
   homepage:
     <<: *base
     container_name: homepage
-    image: ghcr.io/gethomepage/homepage:latest
+    image: ${HOMEPAGE_IMAGE}:${HOMEPAGE_TAG}
     network_mode: bridge
     ports:
       - 3003:3000
@@ -116,7 +116,7 @@ services:
   homebox:
     <<: *baseenv
     container_name: homebox
-    image: ghcr.io/sysadminsmedia/homebox:latest
+    image: ${HOMEBOX_IMAGE}:${HOMEBOX_TAG}
     network_mode: bridge
     ports:
       - 3100:7745
@@ -127,14 +127,14 @@ services:
   rickroll:
     <<: *baseenv
     container_name: rickroll
-    image: modem7/docker-rickroll
+    image: ${RICKROLL_IMAGE}:${RICKROLL_TAG}
     network_mode: bridge
     ports:
     - 7344:8080
   cloudflareddns:
     <<: *base
     container_name: cloudflareddns
-    image: ghcr.io/hotio/cloudflareddns
+    image: ${DDNS_IMAGE}:${DDNS_TAG}
     network_mode: bridge
     labels:
       homelab.backup.paths: "/opt/cloudflareddns"

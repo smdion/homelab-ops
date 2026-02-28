@@ -1,15 +1,22 @@
 ---
 # Sync local backups to Backblaze B2 offsite storage.
-# Runs on localhost (controller). Supports two methods:
+# Targets a configurable Docker host (offsite_host from vault) since the
+# Semaphore controller runs as a container and cannot execute Docker.
+#
+# Two runtime modes (auto-detected from inventory group membership):
+#   - docker_run hosts (unRAID): docker run --rm restic/restic
+#   - docker_stacks hosts (Ubuntu VMs): docker compose run --rm restic
+#
+# Two sync methods:
 #   - restic (default): S3-compatible incremental backup (encrypted, deduplicated)
-#   - rclone: direct B2 API sync (mirror of /backup)
+#   - rclone: direct B2 API sync
 #
 # Sends notification + logs to MariaDB.
 #
 # Prerequisites:
-#   restic: Docker installed, B2 S3-compatible bucket,
+#   restic: Docker installed on target host, B2 S3-compatible bucket,
 #           vault keys restic_repository/restic_password/b2_account_id/b2_application_key
-#   rclone: rclone installed on controller (apt install rclone),
+#   rclone: rclone installed on target host,
 #           B2 bucket created, vault keys b2_account_id/b2_application_key/b2_bucket_name
 #
 # Usage:
@@ -19,25 +26,65 @@
 #   ansible-playbook backup_offsite.yaml -e offsite_method=rclone -e dry_run=yes
 #   ansible-playbook backup_offsite.yaml -e offsite_method=rclone -e bwlimit=10M
 
-- name: Sync backups to Backblaze B2 offsite storage
+# ═══════════════════════════════════════════════════════════════════════════
+# Play 1 — Resolve offsite target host
+# ═══════════════════════════════════════════════════════════════════════════
+- name: Resolve offsite target host
   hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/semaphore_check.yaml
+  tasks:
+    - name: Assert offsite_host is defined
+      ansible.builtin.assert:
+        that:
+          - offsite_host is defined and offsite_host | length > 0
+        fail_msg: "offsite_host not set — define in vault (vars/secrets.yaml)"
+
+    - name: Add offsite target to in-memory inventory
+      ansible.builtin.add_host:
+        name: "{{ offsite_host }}"
+        groups: offsite_target
+      changed_when: false
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Play 2 — Sync backups to B2 offsite storage
+# ═══════════════════════════════════════════════════════════════════════════
+- name: Sync backups to Backblaze B2 offsite storage
+  hosts: offsite_target
   gather_facts: true
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
     - vars/semaphore_check.yaml
+    - vars/container_definitions.yaml
   vars:
     backup_name: "B2"
     backup_subtype: "Offsite"
     offsite_method: "{{ offsite_method | default('restic') }}"
-    _stack_dir: "/opt/stacks/backups"
+    _stack_dir: "{{ stacks_base_path }}/backups"
+    _is_docker_run: "{{ inventory_hostname in groups['docker_run'] | default([]) }}"
+    _is_docker_stacks: "{{ inventory_hostname in groups['docker_stacks'] | default([]) }}"
+    _backup_source: "{{ offsite_backup_source | default(backup_base_dir) }}"
+    _cache_dir: "{{ offsite_restic_cache_dir | default(restic_cache_dir | default('/opt/restic-cache')) }}"
+    _restic_image: "{{ container_definitions.restic.image }}:{{ container_definitions.restic.tag }}"
+    _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
   pre_tasks:
+    - name: Load docker_run vars for docker_run hosts
+      ansible.builtin.include_vars: vars/docker_run.yaml
+      when: _is_docker_run | bool
+
+    - name: Load docker_stacks vars for docker_stacks hosts
+      ansible.builtin.include_vars: vars/docker_stacks.yaml
+      when: _is_docker_stacks | bool
+
     - name: Run standard pre-flight assertions for backup_offsite
       include_tasks: tasks/pre_task_assertions.yaml
       vars:
         pre_playbook: "backup_offsite.yaml"
-        pre_hostname: "{{ controller_fqdn }}"
+        pre_hostname: "{{ inventory_hostname }}"
 
     - name: Assert offsite_method is valid
       ansible.builtin.assert:
@@ -47,7 +94,7 @@
 
     - name: Assert backup source directory exists
       ansible.builtin.stat:
-        path: "{{ backup_base_dir }}"
+        path: "{{ _backup_source }}"
       register: _backup_dir
       failed_when: not _backup_dir.stat.exists
 
@@ -87,140 +134,275 @@
       ansible.builtin.set_fact:
         sync_failed: false
         _sync_start: "{{ ansible_date_time.epoch }}"
+        _restic_summary: {}
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Restic path (default)
-    # ═══════════════════════════════════════════════════════════════════════════
     - block:
-        - name: Create backups stack directory
-          ansible.builtin.file:
-            path: "{{ _stack_dir }}"
-            state: directory
-            mode: "0755"
+        # ═════════════════════════════════════════════════════════════════════
+        # Restic path — docker compose (docker_stacks hosts)
+        # ═════════════════════════════════════════════════════════════════════
+        - block:
+            - name: Create backups stack directory
+              ansible.builtin.file:
+                path: "{{ _stack_dir }}"
+                state: directory
+                mode: "0755"
 
-        - name: Template backups stack .env
-          ansible.builtin.template:
-            src: stacks/backups/env.j2
-            dest: "{{ _stack_dir }}/.env"
-            mode: "0600"
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+            - name: Template backups stack .env
+              ansible.builtin.template:
+                src: stacks/backups/env.j2
+                dest: "{{ _stack_dir }}/.env"
+                mode: "0600"
+              no_log: "{{ _no_log }}"
 
-        - name: Copy backups stack docker-compose.yaml
-          ansible.builtin.copy:
-            src: stacks/backups/docker-compose.yaml
-            dest: "{{ _stack_dir }}/docker-compose.yaml"
-            mode: "0644"
+            - name: Copy backups stack docker-compose.yaml
+              ansible.builtin.copy:
+                src: stacks/backups/docker-compose.yaml
+                dest: "{{ _stack_dir }}/docker-compose.yaml"
+                mode: "0644"
 
-        - name: Check if Restic repository is initialized
-          ansible.builtin.command: >-
-            docker compose -f {{ _stack_dir }}/docker-compose.yaml
-            run --rm restic snapshots --latest 1
-          register: _restic_check
-          failed_when: false
-          changed_when: false
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+            - name: Check if Restic repository is initialized (compose)
+              ansible.builtin.command: >-
+                docker compose -f {{ _stack_dir }}/docker-compose.yaml
+                run --rm restic snapshots --latest 1
+              register: _restic_check
+              failed_when: false
+              changed_when: false
+              no_log: "{{ _no_log }}"
 
-        - name: Initialize Restic repository
-          ansible.builtin.command: >-
-            docker compose -f {{ _stack_dir }}/docker-compose.yaml
-            run --rm restic init
-          when: _restic_check.rc != 0
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+            - name: Initialize Restic repository (compose)
+              ansible.builtin.command: >-
+                docker compose -f {{ _stack_dir }}/docker-compose.yaml
+                run --rm restic init
+              when: _restic_check.rc != 0
+              no_log: "{{ _no_log }}"
 
-        - name: Run Restic backup
-          ansible.builtin.command: >-
-            docker compose -f {{ _stack_dir }}/docker-compose.yaml
-            run --rm restic backup /data
-            --verbose
-            {{ '--dry-run' if dry_run | default(false) | bool else '' }}
-          register: _restic_result
-          timeout: 7200
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+            - name: Run Restic backup (compose)
+              ansible.builtin.command: >-
+                docker compose -f {{ _stack_dir }}/docker-compose.yaml
+                run --rm restic backup /data
+                --json
+                {{ '--dry-run' if dry_run | default(false) | bool else '' }}
+              register: _restic_result
+              timeout: 7200
+              no_log: "{{ _no_log }}"
 
-        - name: Apply Restic retention policy
-          ansible.builtin.command: >-
-            docker compose -f {{ _stack_dir }}/docker-compose.yaml
-            run --rm restic forget
-            --keep-daily 7
-            --keep-weekly 4
-            --keep-monthly 6
-            --prune
-          when: not (dry_run | default(false) | bool)
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+            - name: Apply Restic retention policy (compose)
+              ansible.builtin.command: >-
+                docker compose -f {{ _stack_dir }}/docker-compose.yaml
+                run --rm restic forget
+                --keep-daily 7
+                --keep-weekly 4
+                --keep-monthly 6
+                --prune
+              when: not (dry_run | default(false) | bool)
+              no_log: "{{ _no_log }}"
+
+          rescue:
+            - name: Set sync failed flag (compose)
+              ansible.builtin.set_fact:
+                sync_failed: true
+
+          when:
+            - offsite_method == 'restic'
+            - _is_docker_stacks | bool
+
+        # ═════════════════════════════════════════════════════════════════════
+        # Restic path — docker run (docker_run hosts, e.g. unRAID)
+        # ═════════════════════════════════════════════════════════════════════
+        - block:
+            - name: Create Restic cache directory
+              become: true
+              ansible.builtin.file:
+                path: "{{ _cache_dir }}"
+                state: directory
+                mode: "0755"
+
+            - name: Check if Restic repository is initialized (docker run)
+              ansible.builtin.command: >-
+                docker run --rm
+                -v {{ _backup_source }}:/data:ro
+                -v {{ _cache_dir }}:/root/.cache/restic
+                -e AWS_ACCESS_KEY_ID
+                -e AWS_SECRET_ACCESS_KEY
+                -e RESTIC_REPOSITORY
+                -e RESTIC_PASSWORD
+                {{ _restic_image }}
+                snapshots --latest 1
+              environment:
+                AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
+                AWS_SECRET_ACCESS_KEY: "{{ b2_application_key }}"
+                RESTIC_REPOSITORY: "{{ restic_repository }}"
+                RESTIC_PASSWORD: "{{ restic_password }}"
+              register: _restic_check
+              failed_when: false
+              changed_when: false
+              no_log: "{{ _no_log }}"
+
+            - name: Initialize Restic repository (docker run)
+              ansible.builtin.command: >-
+                docker run --rm
+                -v {{ _backup_source }}:/data:ro
+                -v {{ _cache_dir }}:/root/.cache/restic
+                -e AWS_ACCESS_KEY_ID
+                -e AWS_SECRET_ACCESS_KEY
+                -e RESTIC_REPOSITORY
+                -e RESTIC_PASSWORD
+                {{ _restic_image }}
+                init
+              environment:
+                AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
+                AWS_SECRET_ACCESS_KEY: "{{ b2_application_key }}"
+                RESTIC_REPOSITORY: "{{ restic_repository }}"
+                RESTIC_PASSWORD: "{{ restic_password }}"
+              when: _restic_check.rc != 0
+              no_log: "{{ _no_log }}"
+
+            - name: Run Restic backup (docker run)
+              ansible.builtin.command: >-
+                docker run --rm
+                -v {{ _backup_source }}:/data:ro
+                -v {{ _cache_dir }}:/root/.cache/restic
+                -e AWS_ACCESS_KEY_ID
+                -e AWS_SECRET_ACCESS_KEY
+                -e RESTIC_REPOSITORY
+                -e RESTIC_PASSWORD
+                {{ _restic_image }}
+                backup /data
+                --json
+                {{ '--dry-run' if dry_run | default(false) | bool else '' }}
+              environment:
+                AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
+                AWS_SECRET_ACCESS_KEY: "{{ b2_application_key }}"
+                RESTIC_REPOSITORY: "{{ restic_repository }}"
+                RESTIC_PASSWORD: "{{ restic_password }}"
+              register: _restic_result
+              timeout: 7200
+              no_log: "{{ _no_log }}"
+
+            - name: Apply Restic retention policy (docker run)
+              ansible.builtin.command: >-
+                docker run --rm
+                -v {{ _backup_source }}:/data:ro
+                -v {{ _cache_dir }}:/root/.cache/restic
+                -e AWS_ACCESS_KEY_ID
+                -e AWS_SECRET_ACCESS_KEY
+                -e RESTIC_REPOSITORY
+                -e RESTIC_PASSWORD
+                {{ _restic_image }}
+                forget
+                --keep-daily 7
+                --keep-weekly 4
+                --keep-monthly 6
+                --prune
+              environment:
+                AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
+                AWS_SECRET_ACCESS_KEY: "{{ b2_application_key }}"
+                RESTIC_REPOSITORY: "{{ restic_repository }}"
+                RESTIC_PASSWORD: "{{ restic_password }}"
+              when: not (dry_run | default(false) | bool)
+              no_log: "{{ _no_log }}"
+
+          rescue:
+            - name: Set sync failed flag (docker run)
+              ansible.builtin.set_fact:
+                sync_failed: true
+
+          when:
+            - offsite_method == 'restic'
+            - _is_docker_run | bool
+
+        # ═════════════════════════════════════════════════════════════════════
+        # Parse Restic JSON summary
+        # ═════════════════════════════════════════════════════════════════════
+        - name: Parse Restic backup summary from JSON output
+          ansible.builtin.set_fact:
+            _restic_summary: >-
+              {{ _restic_result.stdout_lines
+                 | select('search', '"message_type"\s*:\s*"summary"')
+                 | first
+                 | from_json }}
+          when:
+            - offsite_method == 'restic'
+            - not sync_failed
+            - _restic_result is defined
+            - _restic_result.stdout_lines | default([]) | select('search', 'summary') | list | length > 0
+
+        # ═════════════════════════════════════════════════════════════════════
+        # rclone path
+        # ═════════════════════════════════════════════════════════════════════
+        - block:
+            - name: Sync backups to B2 via rclone
+              ansible.builtin.command: >-
+                rclone sync
+                {{ _backup_source }}
+                :b2:{{ b2_bucket_name }}
+                --fast-list
+                --size-only
+                --transfers {{ b2_transfers | default(4) }}
+                --checkers {{ b2_checkers | default(4) }}
+                --retries 3
+                --low-level-retries 10
+                --stats-one-line
+                --stats 0
+                --log-level NOTICE
+                {{ '--bwlimit ' ~ bwlimit if bwlimit is defined else '' }}
+                {{ '--dry-run' if dry_run | default(false) | bool else '' }}
+              environment:
+                RCLONE_B2_ACCOUNT: "{{ b2_account_id }}"
+                RCLONE_B2_KEY: "{{ b2_application_key }}"
+              register: _rclone_result
+              changed_when: _rclone_result.rc == 0
+              timeout: 7200
+              no_log: "{{ _no_log }}"
+
+          rescue:
+            - name: Set sync failed flag (rclone)
+              ansible.builtin.set_fact:
+                sync_failed: true
+
+          when: offsite_method == 'rclone'
 
       rescue:
-        - name: Set sync failed flag
+        - name: Set sync failed flag (unexpected)
           ansible.builtin.set_fact:
             sync_failed: true
 
-      when: offsite_method == 'restic'
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # rclone path
-    # ═══════════════════════════════════════════════════════════════════════════
-    - block:
-        - name: Sync backups to B2 via rclone
-          ansible.builtin.command: >-
-            rclone sync
-            {{ backup_base_dir }}
-            :b2:{{ b2_bucket_name }}
-            --fast-list
-            --size-only
-            --transfers {{ b2_transfers | default(4) }}
-            --checkers {{ b2_checkers | default(4) }}
-            --retries 3
-            --low-level-retries 10
-            --stats-one-line
-            --stats 0
-            --log-level NOTICE
-            {{ '--bwlimit ' ~ bwlimit if bwlimit is defined else '' }}
-            {{ '--dry-run' if dry_run | default(false) | bool else '' }}
-          environment:
-            RCLONE_B2_ACCOUNT: "{{ b2_account_id }}"
-            RCLONE_B2_KEY: "{{ b2_application_key }}"
-          register: _rclone_result
-          changed_when: _rclone_result.rc == 0
-          timeout: 7200
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-
-      rescue:
-        - name: Set sync failed flag
+      # ═══════════════════════════════════════════════════════════════════════
+      # Notification + logging (always)
+      # ═══════════════════════════════════════════════════════════════════════
+      always:
+        - name: Calculate sync duration
           ansible.builtin.set_fact:
-            sync_failed: true
+            _sync_duration: "{{ now(utc=true).strftime('%s') | int - (_sync_start | int) }}"
 
-      when: offsite_method == 'rclone'
+        - name: Send offsite sync notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ backup_name }}"
+            discord_operation: "Sync"
+            discord_author: "{{ inventory_hostname }}"
+            discord_status: "{{ 'failed' if sync_failed else 'successful' }}"
+            discord_color: "{{ discord_color_failure if sync_failed else discord_color_success }}"
+            discord_url: "https://secure.backblaze.com/b2_buckets.htm"
+            discord_fields: >-
+              {{
+                [{'name': 'Method', 'value': offsite_method, 'inline': true},
+                 {'name': 'Runtime', 'value': (_is_docker_run | bool) | ternary('docker run', 'docker compose'), 'inline': true}]
+                + ([{'name': 'Bucket', 'value': b2_bucket_name}] if offsite_method == 'rclone' else [])
+                + ([{'name': 'Repository', 'value': restic_repository}] if offsite_method == 'restic' else [])
+                + ([{'name': 'Added', 'value': ((_restic_summary.data_added | default(0) | int) / 1048576) | round(1) | string ~ ' MiB', 'inline': true}] if _restic_summary | default({}) else [])
+                + ([{'name': 'Files', 'value': (_restic_summary.files_new | default(0) | string) ~ ' new, ' ~ (_restic_summary.files_changed | default(0) | string) ~ ' changed', 'inline': true}] if _restic_summary | default({}) else [])
+                + ([{'name': 'Snapshot', 'value': _restic_summary.snapshot_id | default('') | truncate(8, true, '')}] if _restic_summary.snapshot_id | default('') else [])
+                + [{'name': 'Duration', 'value': (_sync_duration | int // 60) | string ~ 'm ' ~ (_sync_duration | int % 60) | string ~ 's', 'inline': true},
+                   {'name': 'Dry Run', 'value': dry_run | default(false) | bool | string, 'inline': true}]
+              }}
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Notification + logging (always)
-    # ═══════════════════════════════════════════════════════════════════════════
-    - name: Calculate sync duration
-      ansible.builtin.set_fact:
-        _sync_duration: "{{ now(utc=true).strftime('%s') | int - (_sync_start | int) }}"
-
-    - name: Send offsite sync notification
-      include_tasks: tasks/notify.yaml
-      vars:
-        discord_name: "{{ backup_name }}"
-        discord_operation: "Sync"
-        discord_author: "{{ controller_fqdn }}"
-        discord_status: "{{ 'failed' if sync_failed else 'successful' }}"
-        discord_color: "{{ discord_color_failure if sync_failed else discord_color_success }}"
-        discord_url: "https://secure.backblaze.com/b2_buckets.htm"
-        discord_fields: >-
-          {{
-            [{'name': 'Method', 'value': offsite_method, 'inline': true}]
-            + ([{'name': 'Bucket', 'value': b2_bucket_name}] if offsite_method == 'rclone' else [])
-            + ([{'name': 'Repository', 'value': restic_repository}] if offsite_method == 'restic' else [])
-            + [{'name': 'Duration', 'value': (_sync_duration | int // 60) | string ~ 'm ' ~ (_sync_duration | int % 60) | string ~ 's', 'inline': true},
-               {'name': 'Dry Run', 'value': dry_run | default(false) | bool | string, 'inline': true}]
-          }}
-
-    - name: Log offsite sync to MariaDB
-      include_tasks: tasks/log_mariadb.yaml
-      vars:
-        log_table: backups
-        log_application: "{{ backup_name }}"
-        log_hostname: "{{ controller_fqdn }}"
-        log_file_name: "{{ ('FAILED_' if sync_failed else '') }}offsite_{{ offsite_method }}_{{ ansible_date_time.date }}"
-        log_file_size: "0"
-        log_backup_level: "offline"
+        - name: Log offsite sync to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: backups
+            log_application: "{{ backup_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_file_name: "{{ ('FAILED_' if sync_failed else '') }}offsite_{{ offsite_method }}_{{ ansible_date_time.date }}"
+            log_file_size: "{{ _restic_summary.data_added | default(0) | string }}"
+            log_backup_level: "offline"

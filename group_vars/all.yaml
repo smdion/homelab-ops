@@ -8,6 +8,7 @@ ansible_python_interpreter: auto_silent
 # Compression tool detection — shell snippet evaluated at runtime on whichever host runs the task.
 # Prefers pigz (parallel gzip) for speed, falls back to gzip. Change here to switch all backup/restore/verify.
 _gz_detect: '_gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)'
+stacks_base_path: "/opt/stacks"    # Docker Compose project root on all docker_stacks hosts
 backup_base_dir: "/backup"
 backup_tmp_dir: "/backup"          # override if host uses a different staging dir
 backup_tmp_file: "{{ backup_tmp_dir }}/{{ backup_file }}"

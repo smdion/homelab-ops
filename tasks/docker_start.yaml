@@ -25,7 +25,7 @@
 - name: Start Docker compose stacks (selective)
   become: true
   community.docker.docker_compose_v2:
-    project_src: "/opt/stacks/{{ item }}"
+    project_src: "{{ stacks_base_path }}/{{ item }}"
     state: present
   loop: "{{ _docker_selective_stacks }}"
   when:
@@ -41,7 +41,7 @@
 - name: Start all Docker compose stacks on {{ inventory_hostname }}
   become: true
   community.docker.docker_compose_v2:
-    project_src: "/opt/stacks/{{ item }}"
+    project_src: "{{ stacks_base_path }}/{{ item }}"
     state: present
   loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
   when:

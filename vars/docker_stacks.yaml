@@ -38,6 +38,7 @@ backup_stack_order: >-
   ) }}
 
 # Docker defaults — non-secret, shared across all stacks.
+docker_network_name: "homelab"
 # docker_mem_limit scales with host RAM — replaces static group_vars overrides.
 docker_mem_limit: >-
   {{ '10g' if ansible_memtotal_mb | default(0) | int > 12000

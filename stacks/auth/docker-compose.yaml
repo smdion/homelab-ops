@@ -92,7 +92,7 @@ services:
   swag:
     <<: *base
     container_name: swag
-    image: lscr.io/linuxserver/swag
+    image: ${SWAG_IMAGE}:${SWAG_TAG}
     networks:
       - homelab
     labels:
@@ -142,7 +142,7 @@ services:
   crowdsec:
     <<: *base
     container_name: crowdsec
-    image: docker.io/crowdsecurity/crowdsec:latest
+    image: ${CROWDSEC_IMAGE}:${CROWDSEC_TAG}
     networks:
       - homelab
     labels:

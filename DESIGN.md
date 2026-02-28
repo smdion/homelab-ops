@@ -68,7 +68,7 @@ playbooks, shared tasks, SQL schema, and Grafana dashboard work unchanged.
 |----------|-------------------|----------|
 | **`vars/*.yaml`** | All deployment-specific configuration — anything that would change on a different homelab | Hostnames, URLs, filesystem paths, container names, thresholds, API endpoints, retention periods, application paths |
 | **`vars/secrets.yaml`** (vault) | Credentials, API keys, domain suffixes, IP addresses | `discord_webhook_token`, `logging_db_password`, `domain_ext` |
-| **`group_vars/all.yaml`** | Shared defaults that apply to all hosts | `ansible_remote_tmp`, `backup_base_dir`, `backup_url` template |
+| **`group_vars/all.yaml`** | Shared defaults that apply to all hosts | `ansible_remote_tmp`, `stacks_base_path`, `backup_base_dir`, `backup_url` template |
 | **Inventory** | Host definitions, group membership, SSH/connection settings | `[ubuntu]`, `[pve]`, `[docker_stacks]`, host FQDNs |
 | **Semaphore variable groups** | Routing-only — `hosts_variable` and `config_file` | `{"hosts_variable": "pve:pbs"}` |
 | **Docker container labels** (`homelab.*`) | Static per-container config metadata discovered at runtime by tasks | `homelab.backup.paths`, `homelab.health_timeout`, `homelab.test.skip_health` |
@@ -126,7 +126,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
 │   ├── app_definitions.yaml         # Apps + infrastructure DBs — restore discovery, scope selector, single source for db_names
 │   ├── container_definitions.yaml   # Pinned container image:tag pairs (authentik, postgres, victoria-metrics, jellyseerr)
-│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, docker_* defaults
+│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, docker_network_name, docker_* defaults
 │   ├── docker_vips.yaml             # Keepalived VRRP config for Docker VM VIPs — interface, CIDR, test VIP offsets; vault vars for VIPs + priorities
 │   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
@@ -138,8 +138,9 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── db_primary_mariadb.yaml      # Primary host MariaDB backup + db_container_deps for restore
 │   ├── db_primary_influxdb.yaml     # Primary host InfluxDB backup + db_container_deps for restore
 │   ├── db_secondary_postgres.yaml   # Secondary host Postgres DB backup + db_container_deps for restore
-│   ├── download_default.yaml       # yt-dlp download profile: default (scheduled channel downloads)
-│   └── download_on_demand.yaml    # yt-dlp download profile: on_demand (bookmarklet-triggered; verbose, allows live streams)
+│   ├── download_base.yaml          # Shared infrastructure for all download profiles (container, paths, Discord icons)
+│   ├── download_default.yaml       # yt-dlp download profile: default (scheduled — per-user preference overrides)
+│   └── download_on_demand.yaml    # yt-dlp download profile: on_demand (bookmarklet — per-user preference overrides)
 │
 ├── tasks/
 │   ├── notify.yaml                  # Shared notification task (Discord + Apprise)
@@ -264,11 +265,12 @@ history, restore results, playbook runs) belongs in the database.
 ### Key files explained
 
 **`group_vars/all.yaml`** — Shared Ansible defaults for all hosts. Key contents:
-`ansible_remote_tmp` (home dir to avoid world-readable `/tmp`), `_gz_detect` (pigz/gzip
-auto-detection snippet), centralized backup path defaults (`backup_base_dir`, `backup_tmp_dir`,
-`backup_dest_path`, `backup_url`), type defaults (`backup_type: "Servers"`, `update_type:
-"Servers"` — override to `"Appliances"` for purpose-built gear), and DB engine flags
-(`is_postgres`/`is_mariadb`/`is_influxdb`, all default `false`).
+`ansible_remote_tmp` (home dir to avoid world-readable `/tmp`), `stacks_base_path` (Docker
+Compose project root, default `/opt/stacks`), `_gz_detect` (pigz/gzip auto-detection snippet),
+centralized backup path defaults (`backup_base_dir`, `backup_tmp_dir`, `backup_dest_path`,
+`backup_url`), type defaults (`backup_type: "Servers"`, `update_type: "Servers"` — override to
+`"Appliances"` for purpose-built gear), and DB engine flags (`is_postgres`/`is_mariadb`/
+`is_influxdb`, all default `false`).
 
 **`ansible.cfg`** — Ansible configuration: disables `.retry` files and sets `stdout_callback: yaml`
 for human-readable output.
@@ -312,19 +314,28 @@ control conditional rendering:
 
 Deployed to the host via `ansible.builtin.template` to `/mnt/user/appdata/youtube-dl/<config_name>/`.
 
-**`vars/download_default.yaml`** — yt-dlp download profile for scheduled channel downloads.
-Loaded via `vars_files: vars/{{ config_file }}.yaml`. Contains `config_name` (profile identifier
-for container paths), quality, format, paths, output template, batch file, archive, rate limit,
-filters, and extractor args.
+**`vars/download_base.yaml`** — Shared infrastructure for all download profiles. Contains
+MeTube container name, host paths, temp cleanup settings, container-internal paths, output
+template, extractor configuration, and Discord notification URLs/icons. Loaded automatically
+by `download_videos.yaml` before the profile-specific file.
 
-**`vars/download_on_demand.yaml`** — yt-dlp download profile for bookmarklet-triggered downloads.
-Shares `config_name: default` with `download_default.yaml` (same config directory and download
-archive) but overrides `ytdlp_batch_file` to read from the bookmarklet feeder file, and sets
-`ytdlp_quiet: false` and `ytdlp_filter_live: false` for verbose output and live stream support.
+**`vars/download_default.yaml`** — Per-user preference overrides for scheduled channel downloads.
+Contains `config_name`, batch file, archive path, quality, format, rate limit, content filters,
+and mode flags (`ytdlp_quiet: true`, `ytdlp_filter_live: true`).
+
+**`vars/download_on_demand.yaml`** — Per-user preference overrides for bookmarklet-triggered
+downloads. Shares `config_name: default` with `download_default.yaml` (same config directory
+and download archive) but overrides `ytdlp_batch_file` to read from the bookmarklet feeder
+file, and sets `ytdlp_quiet: false` and `ytdlp_filter_live: false` for verbose output and
+live stream support.
 
 Each Semaphore template uses its own `config_file` to load the correct profile:
 - **Default** environment: `{"hosts_variable": "<download_host>", "config_file": "download_default"}`
 - **On Demand** environment: `{"hosts_variable": "<download_host>", "config_file": "download_on_demand"}`
+
+Adding a new per-user profile = create `vars/download_<user>_default.yaml` and
+`vars/download_<user>_on_demand.yaml` with preference overrides + create Semaphore templates.
+Infrastructure vars inherit from `download_base.yaml` automatically.
 
 Both profiles share the same download archive (`/configs/default/downloaded`) so videos downloaded
 by either template are not re-downloaded by the other.

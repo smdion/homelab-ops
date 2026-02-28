@@ -1,24 +1,101 @@
 ---
-# Pinned container image versions.
-# Services that track :latest or use implicit tags are NOT listed here —
-# they live directly in their docker-compose.yaml files.
-# Add entries here only when a service needs explicit version pinning.
+# Container image definitions — single source of truth for all deployed images.
+# Every service's image and tag is defined here, referenced via env.j2 templates,
+# and consumed by docker-compose.yaml through ${IMAGE}:${TAG} substitution.
 #
-# To pin a new service:
-#   1. Add an entry below (image + tag)
-#   2. Add env vars to the stack's env.j2 (e.g., MY_IMAGE={{ container_definitions.myapp.image }})
-#   3. Update docker-compose.yaml to use ${MY_IMAGE}:${MY_TAG}
+# To update an image version: change the tag here, then redeploy the stack.
+# Pinned images (non-latest) require manual version bumps — do not auto-update.
+#
+# To add a new container:
+#   1. Add an entry below (image + tag), alphabetically by key
+#   2. Add IMAGE/TAG env vars to the stack's env.j2:
+#        MY_IMAGE={{ container_definitions.myapp.image }}
+#        MY_TAG={{ container_definitions.myapp.tag }}
+#   3. Update docker-compose.yaml image line: image: ${MY_IMAGE}:${MY_TAG}
+#   4. If the service has a database, add an entry in vars/app_definitions.yaml
 
 container_definitions:
+  adminer:
+    image: "adminer"
+    tag: "latest"
   authentik:
     image: "ghcr.io/goauthentik/server"
     tag: "2025.12.4"
-  postgres:
-    image: "postgres"
-    tag: "16-alpine"
-  victoria_metrics:
-    image: "victoriametrics/victoria-metrics"
-    tag: "v1.114.0"
+  beszel:
+    image: "henrygd/beszel"
+    tag: "latest"
+  beszel_agent:
+    image: "henrygd/beszel-agent"
+    tag: "latest"
+  cloudflareddns:
+    image: "ghcr.io/hotio/cloudflareddns"
+    tag: "latest"
+  code_server:
+    image: "lscr.io/linuxserver/code-server"
+    tag: "latest"
+  crowdsec:
+    image: "docker.io/crowdsecurity/crowdsec"
+    tag: "latest"
+  dozzle:
+    image: "amir20/dozzle"
+    tag: "latest"
+  firefox:
+    image: "jlesage/firefox"
+    tag: "latest"
+  grafana:
+    image: "grafana/grafana"
+    tag: "latest"
+  guacamole:
+    image: "abesnier/guacamole"
+    tag: "latest"
+  homeassistant:
+    image: "lscr.io/linuxserver/homeassistant"
+    tag: "latest"
+  homebox:
+    image: "ghcr.io/sysadminsmedia/homebox"
+    tag: "latest"
+  homepage:
+    image: "ghcr.io/gethomepage/homepage"
+    tag: "latest"
   jellyseerr:
     image: "fallenbagel/jellyseerr"
     tag: "preview-OIDC"
+  mariadb:
+    image: "lscr.io/linuxserver/mariadb"
+    tag: "latest"
+  netbootxyz:
+    image: "netbootxyz/netbootxyz"
+    tag: "latest"
+  nfs:
+    image: "itsthenetwork/nfs-server-alpine"
+    tag: "latest"
+  npm:
+    image: "docker.io/jc21/nginx-proxy-manager"
+    tag: "latest"
+  postgres:
+    image: "postgres"
+    tag: "16-alpine"
+  restic:
+    image: "restic/restic"
+    tag: "latest"
+  rickroll:
+    image: "modem7/docker-rickroll"
+    tag: "latest"
+  socket_proxy:
+    image: "lscr.io/linuxserver/socket-proxy"
+    tag: "latest"
+  swag:
+    image: "lscr.io/linuxserver/swag"
+    tag: "latest"
+  tautulli:
+    image: "lscr.io/linuxserver/tautulli"
+    tag: "latest"
+  victoria_metrics:
+    image: "victoriametrics/victoria-metrics"
+    tag: "v1.114.0"
+  wireguard:
+    image: "lscr.io/linuxserver/wireguard"
+    tag: "latest"
+  xbackbone:
+    image: "lscr.io/linuxserver/xbackbone"
+    tag: "latest"

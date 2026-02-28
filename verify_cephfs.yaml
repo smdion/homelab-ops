@@ -106,9 +106,9 @@
             fail_msg: "Marker file not readable — CephFS read/write may be broken"
 
         # ─── Informational checks ────────────────────────────────────
-        - name: Check /opt/stacks exists
+        - name: Check stacks directory exists
           ansible.builtin.stat:
-            path: /opt/stacks
+            path: "{{ stacks_base_path }}"
           register: _stacks_dir
 
         - name: Record verify detail
@@ -116,7 +116,7 @@
             _verify_detail: >-
               /opt mounted from CephFS:/{{ hostvars['localhost']._cephfs_host_dir }} —
               marker written and verified —
-              {{ '/opt/stacks present' if _stacks_dir.stat.exists else '/opt/stacks not yet deployed' }}
+              {{ stacks_base_path + ' present' if _stacks_dir.stat.exists else stacks_base_path + ' not yet deployed' }}
 
       rescue:
         - name: Set verify failed flag

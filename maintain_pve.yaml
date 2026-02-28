@@ -182,7 +182,7 @@
     # ===== FETCH CLUSTER VM LIST =====
     - name: Get all cluster VMs
       ansible.builtin.uri:
-        url: "https://{{ vault_pve_vip }}:8006/api2/json/cluster/resources?type=vm"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -193,7 +193,7 @@
     # ===== FETCH SNAPSHOTS PER VM =====
     - name: Get snapshots for each QEMU VM
       ansible.builtin.uri:
-        url: "https://{{ vault_pve_vip }}:8006/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/snapshot"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/snapshot"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -377,7 +377,7 @@
     - block:
         - name: Get all cluster VMs
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
             method: GET
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -387,7 +387,7 @@
 
         - name: Get existing PVE pools
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/pools"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools"
             method: GET
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -406,7 +406,7 @@
 
         - name: Get config for each QEMU VM
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
             method: GET
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -446,7 +446,7 @@
 
         - name: Create production pool
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/pools"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools"
             method: POST
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -460,7 +460,7 @@
 
         - name: Create hosted pool
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/pools"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools"
             method: POST
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -474,7 +474,7 @@
 
         - name: Create test pool
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/pools"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools"
             method: POST
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -490,7 +490,7 @@
         # any VM in the list is already a member, so we only PUT the diff.
         - name: Get current production pool members
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_production }}"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_production }}"
             method: GET
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -500,7 +500,7 @@
 
         - name: Get current hosted pool members
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_hosted }}"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_hosted }}"
             method: GET
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -510,7 +510,7 @@
 
         - name: Get current test pool members
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_test }}"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_test }}"
             method: GET
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -541,7 +541,7 @@
 
         - name: Add new production VMs to production pool
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_production }}"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_production }}"
             method: PUT
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -555,7 +555,7 @@
 
         - name: Add new hosted VMs to hosted pool
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_hosted }}"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_hosted }}"
             method: PUT
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -569,7 +569,7 @@
 
         - name: Add new test VMs to test pool
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ pve_pool_test }}"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_test }}"
             method: PUT
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -646,7 +646,7 @@
 
     - name: Get all cluster VMs
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -656,7 +656,7 @@
 
     - name: Get config for each QEMU VM
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -751,7 +751,7 @@
 
     - name: Get all cluster VMs
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -761,7 +761,7 @@
 
     - name: Get config for each QEMU VM
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -791,7 +791,7 @@
 
     - name: Fetch 1-month RRD averages for production VMs
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/rrddata?timeframe=month&cf=AVERAGE"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/rrddata?timeframe=month&cf=AVERAGE"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"

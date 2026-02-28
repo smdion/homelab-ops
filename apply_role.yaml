@@ -138,7 +138,7 @@
         # ===== DOCKER LAYER =====
         - name: Ensure shared Docker network exists
           community.docker.docker_network:
-            name: homelab
+            name: "{{ docker_network_name }}"
             state: present
           when: _target_is_docker_vm | bool
 

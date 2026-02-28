@@ -89,7 +89,7 @@
     - name: Read rollback snapshots (stack mode)
       become: true
       ansible.builtin.slurp:
-        src: "/opt/stacks/{{ item }}/.rollback_snapshot.json"
+        src: "{{ stacks_base_path }}/{{ item }}/.rollback_snapshot.json"
       loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
       register: _snapshot_stacks_raw
       check_mode: false
@@ -235,7 +235,7 @@
                                 | map(attribute='key') | list))
                 | join(' ')) }}
           args:
-            chdir: "/opt/stacks/{{ item }}"
+            chdir: "{{ stacks_base_path }}/{{ item }}"
           loop: "{{ _rollback_target_stacks }}"
           when: inventory_hostname in (stack_assignments | default({}))
 
@@ -248,7 +248,7 @@
           ansible.builtin.shell: >
             docker compose ps --format json {{ item }}
           args:
-            chdir: "/opt/stacks/{{ _service_stack_map[item] }}"
+            chdir: "{{ stacks_base_path }}/{{ _service_stack_map[item] }}"
           loop: "{{ _rollback_targets }}"
           register: _container_status
           changed_when: false

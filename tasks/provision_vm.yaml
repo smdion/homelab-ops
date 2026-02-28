@@ -52,7 +52,7 @@
 # --- Check if VMID already exists anywhere in the cluster (partial/failed prior run) ---
 - name: Check if VMID already exists in cluster
   ansible.builtin.uri:
-    url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+    url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
     method: GET
     headers:
       Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -146,7 +146,7 @@
     # Wait for cloned VM to appear in cluster (any node)
     - name: Wait for cloned VM to be ready
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -192,7 +192,7 @@
     # Verify cloud-init IP was applied before starting (fail fast, not after 5-min SSH timeout)
     - name: Read back VM config to verify cloud-init IP
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -211,7 +211,7 @@
     # Resize disk from cloud image (~3.5G) to target size
     - name: Resize VM disk
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/resize"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/resize"
         method: PUT
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -226,7 +226,7 @@
     # Configure net0: static MAC (stable Unifi identity) and/or VLAN tag (test isolation)
     - name: Configure VM net0 (static MAC / VLAN tag)
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
         method: PUT
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -240,7 +240,7 @@
     # Configure QEMU args (e.g. VNC listener for Guacamole access)
     - name: Configure VM QEMU args
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
         method: PUT
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -305,7 +305,7 @@
 
     - name: Add VM to {{ _provision_pool }} pool
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/pools/{{ _provision_pool }}"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ _provision_pool }}"
         method: PUT
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"

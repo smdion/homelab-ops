@@ -16,7 +16,7 @@
   block:
     - name: Query cluster VMs to find free test-vm slot
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"

@@ -10,7 +10,7 @@
 - name: "Create stack directory — {{ _current_stack }}"
   become: true
   ansible.builtin.file:
-    path: "/opt/stacks/{{ _current_stack }}"
+    path: "{{ stacks_base_path }}/{{ _current_stack }}"
     state: directory
     owner: root
     group: root
@@ -21,7 +21,7 @@
       become: true
       ansible.builtin.template:
         src: "stacks/{{ _current_stack }}/env.j2"
-        dest: "/opt/stacks/{{ _current_stack }}/.env.new"
+        dest: "{{ stacks_base_path }}/{{ _current_stack }}/.env.new"
         owner: root
         group: root
         mode: "0600"
@@ -34,7 +34,7 @@
   become: true
   ansible.builtin.copy:
     src: "stacks/{{ _current_stack }}/docker-compose.yaml"
-    dest: "/opt/stacks/{{ _current_stack }}/docker-compose.yaml.new"
+    dest: "{{ stacks_base_path }}/{{ _current_stack }}/docker-compose.yaml.new"
     owner: root
     group: root
     mode: "0644"
@@ -51,7 +51,7 @@
   become: true
   ansible.builtin.copy:
     src: "stacks/{{ _current_stack }}/custom-cont-init.d/"
-    dest: "/opt/stacks/{{ _current_stack }}/custom-cont-init.d/"
+    dest: "{{ stacks_base_path }}/{{ _current_stack }}/custom-cont-init.d/"
     owner: root
     group: root
     mode: "0755"
@@ -78,7 +78,7 @@
   become: true
   ansible.builtin.template:
     src: "stacks/{{ _current_stack }}/docker-compose.test.j2"
-    dest: "/opt/stacks/{{ _current_stack }}/docker-compose.override.yaml"
+    dest: "{{ stacks_base_path }}/{{ _current_stack }}/docker-compose.override.yaml"
     owner: root
     group: root
     mode: "0644"
@@ -90,7 +90,7 @@
   become: true
   ansible.builtin.template:
     src: "stacks/{{ _current_stack }}/docker-compose.override.j2"
-    dest: "/opt/stacks/{{ _current_stack }}/docker-compose.override.yaml"
+    dest: "{{ stacks_base_path }}/{{ _current_stack }}/docker-compose.override.yaml"
     owner: root
     group: root
     mode: "0644"
@@ -101,30 +101,30 @@
 - name: "Patch compose for homelab network — {{ _current_stack }}"
   include_tasks: tasks/patch_compose_networks.yaml
   vars:
-    _compose_file: "/opt/stacks/{{ _current_stack }}/docker-compose.yaml.new"
-    _env_file: "/opt/stacks/{{ _current_stack }}/.env.new"
+    _compose_file: "{{ stacks_base_path }}/{{ _current_stack }}/docker-compose.yaml.new"
+    _env_file: "{{ stacks_base_path }}/{{ _current_stack }}/.env.new"
   when: patch_compose_networks | default(false) | bool
 
 - name: "Validate compose config — {{ _current_stack }}"
   become: true
   ansible.builtin.command:
     cmd: docker compose -f docker-compose.yaml.new --env-file .env.new config --quiet
-    chdir: "/opt/stacks/{{ _current_stack }}"
+    chdir: "{{ stacks_base_path }}/{{ _current_stack }}"
   changed_when: false
   when: not ansible_check_mode
 
 - name: "Activate validated config — {{ _current_stack }}"
   become: true
   ansible.builtin.shell: |
-    mv -f /opt/stacks/{{ _current_stack }}/.env.new /opt/stacks/{{ _current_stack }}/.env
-    mv -f /opt/stacks/{{ _current_stack }}/docker-compose.yaml.new /opt/stacks/{{ _current_stack }}/docker-compose.yaml
+    mv -f {{ stacks_base_path }}/{{ _current_stack }}/.env.new {{ stacks_base_path }}/{{ _current_stack }}/.env
+    mv -f {{ stacks_base_path }}/{{ _current_stack }}/docker-compose.yaml.new {{ stacks_base_path }}/{{ _current_stack }}/docker-compose.yaml
   when: not ansible_check_mode
 
 - name: "Pull images — {{ _current_stack }}"
   become: true
   ansible.builtin.command:
     cmd: docker compose pull
-    chdir: "/opt/stacks/{{ _current_stack }}"
+    chdir: "{{ stacks_base_path }}/{{ _current_stack }}"
   register: _pull_result
   changed_when: "'Pull complete' in (_pull_result.stderr | default('')) or 'Downloaded' in (_pull_result.stderr | default(''))"
   retries: 3
@@ -137,7 +137,7 @@
 - name: "Start stack — {{ _current_stack }}"
   become: true
   community.docker.docker_compose_v2:
-    project_src: "/opt/stacks/{{ _current_stack }}"
+    project_src: "{{ stacks_base_path }}/{{ _current_stack }}"
     state: present
     remove_orphans: true
   register: _compose_up_result

@@ -4,8 +4,9 @@
 # and cleans up old temp download files.
 #
 # Parameterized on config_file — each Semaphore template passes a different value
-# (e.g., "download_default"). Adding a new download profile = add vars/download_<name>.yaml +
-# create a Semaphore template with config_file: download_<name>. No playbook changes needed.
+# (e.g., "download_default"). Adding a new download profile = add vars/download_<name>.yaml
+# with per-user preferences + create a Semaphore template with config_file: download_<name>.
+# Shared infrastructure lives in vars/download_base.yaml (loaded automatically).
 #
 # NOTE: This playbook intentionally does not log to the maintenance table. Downloads
 # run frequently (multiple times daily) and would flood the DB with low-value records.
@@ -21,6 +22,7 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
+    - vars/download_base.yaml
     - "vars/{{ config_file }}.yaml"
 
   pre_tasks:
