@@ -44,10 +44,11 @@ file. Every secret lives in the encrypted vault.
 If a variable is not in `vars/` or the vault, it does not exist. The `blank` variable group
 (`{}`) is a placeholder required by the Semaphore UI for templates that need no routing.
 
-**The database is a log, not a controller.** The MariaDB `ansible_logging` database stores backup
-and update records for visibility and history. Ansible writes to it — nothing reads from it to
-make decisions. No triggers, no stored functions, no computed columns. All categorization
-(type, subtype) and hostname normalization happen in Ansible before the INSERT.
+**The database is a log with minimal state reads.** The MariaDB `ansible_logging` database stores
+backup and update records for visibility and history. Two lightweight exceptions read back: version
+comparison (`update_systems`) and health-check baseline (`maintain_health`). No triggers, no stored
+functions, no computed columns. All categorization (type, subtype) and hostname normalization happen
+in Ansible before the INSERT.
 
 **Shared tasks over inline duplication.** Logic that appears in more than one playbook belongs in
 `tasks/`. Before adding inline task blocks, check whether the operation is already handled by a
@@ -123,10 +124,11 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), unifi_backup_retention, maintenance_url
 │   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (unifi_protect_api_backup_path, unifi_protect_temp_file)
 │   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
-│   ├── app_definitions.yaml         # Apps with external dependencies (DB, companion containers) — restore discovery + app scope selector
+│   ├── app_definitions.yaml         # Apps + infrastructure DBs — restore discovery, scope selector, single source for db_names
+│   ├── container_definitions.yaml   # Pinned container image:tag pairs (authentik, postgres, victoria-metrics, jellyseerr)
 │   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, docker_* defaults
 │   ├── docker_vips.yaml             # Keepalived VRRP config for Docker VM VIPs — interface, CIDR, test VIP offsets; vault vars for VIPs + priorities
-│   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists, app_restore mapping
+│   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
 │   ├── unraid_os.yaml               # unRAID OS backup
 │   ├── synology.yaml                # Synology NAS sync
@@ -1300,11 +1302,11 @@ output is masked, directing the operator to the correct debugging step.
 Docker service images generally use `latest`. Exceptions:
 
 - **Images without a `latest` tag** (e.g., Authentik — always use versioned tags): must be pinned
-  via a variable in `vars/docker_stacks.yaml` (e.g., `docker_authentik_tag: "2025.12.4"`)
-- **DB images that need version stability** (e.g., MariaDB, PostgreSQL) may also be pinned
+- **DB images that need version stability** (e.g., PostgreSQL) may also be pinned
 
-Pinned versions are intentional. Update them manually by editing `vars/docker_stacks.yaml`.
-Do not auto-update pinned images — they require testing before a version bump.
+All pinned image:tag pairs live in `vars/container_definitions.yaml`. Compose files reference
+them via env vars rendered through `env.j2`. Update them manually; do not auto-update pinned
+images — they require testing before a version bump.
 
 ### Triple alerting: Discord push + Grafana pull + Uptime Kuma dead man's switch
 
@@ -1970,10 +1972,9 @@ ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostna
 ```
 
 Always use `--limit <hostname>` with `-e restore_app` since `docker_stacks`/`docker_run` are
-multi-host groups. For docker_stacks apps, `app_definitions` in `vars/docker_stacks.yaml` provides the
-stack name + DB names (pre-deploy); DB config and health URLs are discovered from container labels
-at runtime. For docker_run apps, `app_restore` in `vars/docker_run.yaml` provides the container
-list, DB config file, and `db_host` for cross-host `delegate_to`.
+multi-host groups. `app_definitions` in `vars/app_definitions.yaml` provides the stack name (docker_stacks
+apps), container list + `db_host` (docker_run apps), and DB names for both. DB config and health
+URLs are discovered from container labels at runtime.
 
 ### Roll back a Docker container update
 

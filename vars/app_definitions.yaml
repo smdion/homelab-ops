@@ -5,14 +5,19 @@
 # known BEFORE containers run (archive discovery on controller).
 # All runtime restore config (DB engine, health URLs) lives in container labels.
 #
-# Required fields:
+# Required fields (docker_stacks apps):
 #   stack      — compose stack this app lives in (used for archive discovery + scope resolution)
 #
 # Optional fields (apps with external DB dependencies):
 #   db_stack   — stack containing the database containers (e.g., databases)
 #   db_config  — vars file to load for DB engine config (e.g., db_primary_postgres)
 #   db_names   — list of database names to back up / restore
+#
+# Optional fields (docker_run / selective restore):
+#   containers — list of Docker containers to stop/start during restore
+#   db_host    — inventory_hostname of the DB container host (cross-host delegation)
 
+# --- docker_stacks apps (have a compose stack) ---
 app_definitions:
   authentik:
     stack: auth
@@ -24,3 +29,43 @@ app_definitions:
     db_stack: databases
     db_config: db_primary_postgres
     db_names: [jellyseerr]
+
+  # --- docker_run apps (no compose stack; selective restore via containers) ---
+  sonarr:
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_host: "{{ db_host_primary }}"
+    db_names: [sonarr-log, sonarr-main]
+    containers: [sonarr]
+  radarr:
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_host: "{{ db_host_primary }}"
+    db_names: [radarr-log, radarr-main]
+    containers: [radarr]
+  prowlarr:
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_host: "{{ db_host_primary }}"
+    db_names: [prowlarr-log, prowlarr-main]
+    containers: [prowlarr]
+  nextcloud:
+    db_stack: databases
+    db_config: db_primary_mariadb
+    db_host: "{{ db_host_primary }}"
+    db_names: [nextcloud]
+    containers: [nextcloud]
+  immich:
+    db_stack: databases
+    db_config: db_secondary_postgres
+    db_host: "{{ db_host_secondary }}"
+    db_names: [immich]
+    containers: [immich-server, immich-machine-learning]
+
+  # --- infrastructure DBs (no app stack; backup pipeline only) ---
+  semaphore:
+    db_config: db_primary_mariadb
+    db_names: [semaphore]
+  ansible_logging:
+    db_config: db_primary_mariadb
+    db_names: [ansible_logging]

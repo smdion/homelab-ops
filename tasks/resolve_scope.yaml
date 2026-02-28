@@ -25,6 +25,15 @@
     - stack is not defined
     - app in (app_definitions | default({}))
 
+- name: Set restore_app from app selector (docker_run apps without stack)
+  ansible.builtin.set_fact:
+    restore_app: "{{ app }}"
+  when:
+    - app is defined
+    - stack is not defined
+    - app in (app_definitions | default({}))
+    - app_definitions[app].stack is not defined
+
 - name: Assert app exists in app_definitions
   ansible.builtin.assert:
     that: app in (app_definitions | default({}))
@@ -34,6 +43,7 @@
   when:
     - app is defined
     - stack is not defined
+    - restore_app is not defined
 
 # --- inject role for unmapped hosts (test VMs) ---
 - name: Inject role into host_roles (host not already mapped)

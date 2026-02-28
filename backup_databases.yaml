@@ -12,6 +12,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
+    - vars/app_definitions.yaml
     - "vars/{{ hosts_variable }}.yaml"
   tasks:
     - name: Assert hosts_variable is not both a DB config and inventory group
@@ -33,6 +34,7 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
+    - vars/app_definitions.yaml
     - vars/{{ config_file }}.yaml
   vars:
     config_file: "{{ hosts_variable }}"

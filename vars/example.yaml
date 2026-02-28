@@ -162,13 +162,5 @@ update_subtype: "OS"
 #   myapp_db: ["myapp-container"]
 #   shared_db: []                   # app runs on a different host
 
-# app_restore: maps app names to their containers, DB config, and DB host.
-# Used by restore_hosts.yaml for selective app restore and coordinated DB+appdata restore.
-# The app name must match the subdirectory under src_raw_files[0] in the backup archive.
-#
-# app_restore:
-#   myapp:
-#     containers: ["myapp-web", "myapp-worker"]   # all containers to stop/start
-#     db_config_file: db_myhost_postgres           # vars file (without vars/ prefix and .yaml suffix)
-#     db_host: myhost.example.com                  # inventory_hostname of the DB container host
-#     db_names: ["myapp_main", "myapp_cache"]      # database names (must match backup filenames)
+# Selective app restore config is now in vars/app_definitions.yaml.
+# See that file for the schema (stack, containers, db_host, db_config, db_stack, db_names).

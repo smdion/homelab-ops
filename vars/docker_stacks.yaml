@@ -52,8 +52,6 @@ docker_restart: "always"
 docker_postgres_user: "postgres"
 docker_postgres_default_db: "postgres"
 docker_adminer_design: "hydra"
-docker_authentik_image: "ghcr.io/goauthentik/server"
-docker_authentik_tag: "2025.12.4"
 docker_email_host: "smtp.gmail.com"
 docker_email_port: 587
 docker_dozzle_level: "info"

@@ -39,7 +39,7 @@ services:
   jellyseerr:
     <<: *base
     container_name: jellyseerr
-    image: fallenbagel/jellyseerr:preview-OIDC
+    image: ${JELLYSEERR_IMAGE}:${JELLYSEERR_TAG}
     networks:
       - homelab
     labels:
