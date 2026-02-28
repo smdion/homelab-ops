@@ -3,6 +3,10 @@
 # Deletes failed updates, failed maintenance, zero-size backups, and
 # warning/critical health checks recorded before this run.
 # Run ad-hoc after testing phases to clear noise from production dashboards.
+#
+# Optional:
+#   -e purge_all=yes  — truncate ALL tables (reset after major arch changes;
+#                        requires confirm=yes safety gate)
 
 - name: Purge stale failures from ansible_logging
   hosts: localhost
@@ -31,12 +35,48 @@
         maintenance_failed: false
 
     - block:
+        - name: Assert safety gate for purge_all
+          ansible.builtin.assert:
+            that: confirm | default('') == 'yes'
+            fail_msg: "purge_all=yes requires -e confirm=yes safety gate."
+          when: purge_all | default('') == 'yes'
+
+        - name: Truncate all ansible_logging tables
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          become: false
+          connection: local
+          when:
+            - purge_all | default('') == 'yes'
+            - not ansible_check_mode
+          community.mysql.mysql_query:
+            login_host: "{{ logging_db_host }}"
+            login_port: "{{ logging_db_port }}"
+            login_user: "{{ logging_db_user }}"
+            login_password: "{{ logging_db_password }}"
+            login_db: "{{ logging_db_name }}"
+            query: "{{ item }}"
+          loop:
+            - "TRUNCATE TABLE backups"
+            - "TRUNCATE TABLE updates"
+            - "TRUNCATE TABLE maintenance"
+            - "TRUNCATE TABLE health_checks"
+            - "TRUNCATE TABLE restores"
+            - "TRUNCATE TABLE health_check_state"
+            - "TRUNCATE TABLE docker_sizes"
+            - "TRUNCATE TABLE playbook_runs"
+          loop_control:
+            label: "{{ item.split('TABLE ')[1] }}"
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
         - name: Purge ansible_logging failure records
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           become: false
           connection: local
-          when: not ansible_check_mode
+          when:
+            - purge_all | default('') != 'yes'
+            - not ansible_check_mode
           community.mysql.mysql_query:
             login_host: "{{ logging_db_host }}"
             login_port: "{{ logging_db_port }}"
