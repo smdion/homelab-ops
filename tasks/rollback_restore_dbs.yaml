@@ -15,7 +15,7 @@
 
 - name: Find DB backup files for {{ _db_dep.key }}
   ansible.builtin.shell: >
-    ls -t {{ backup_base_dir }}/{{ _db_dep.value.db_stack }}/backup_{{ item }}_{{ restore_date | default('') }}*.sql
+    ls -t {{ backup_base_dir }}/{{ _db_dep.value.db_stack }}/backup_{{ item }}_{{ restore_date | default('') }}*.{{ _rb_db_vars.backup_ext | default('sql.gz') }}
     2>/dev/null | head -1
   loop: "{{ _db_dep.value.db_names }}"
   register: _rb_db_files
@@ -35,11 +35,25 @@
 - name: Copy DB backup files to target for {{ _db_dep.key }}
   ansible.builtin.copy:
     src: "{{ _rb_db_files.results[idx].stdout }}"
-    dest: "{{ backup_tmp_dir }}/restore_{{ item }}.sql"
+    dest: "{{ backup_tmp_dir }}/restore_{{ item }}.{{ _rb_db_vars.backup_ext | default('sql.gz') }}"
   loop: "{{ _db_dep.value.db_names }}"
   loop_control:
     index_var: idx
   become: true
+
+- name: Create pre-restore safety backup for {{ _db_dep.key }}
+  include_tasks: tasks/pre_restore_safety_dump.yaml
+  vars:
+    _safety_db_list: "{{ _db_dep.value.db_names }}"
+    _safety_container: "{{ _rb_db_vars.db_container_name }}"
+    _safety_username: "{{ _rb_db_vars.db_username }}"
+    _safety_password: "{{ db_password }}"
+    _safety_dest_dir: "{{ backup_tmp_dir }}"
+    _safety_ext: "{{ _rb_db_vars.backup_ext | default('sql.gz') }}"
+    _safety_is_postgres: "{{ _rb_db_vars.is_postgres | default(false) }}"
+    _safety_is_mariadb: "{{ _rb_db_vars.is_mariadb | default(false) }}"
+    _safety_is_influxdb: false
+  when: not (skip_pre_backup | default(false) | bool)
 
 - name: Restore databases for {{ _db_dep.key }}
   include_tasks: tasks/db_restore.yaml
@@ -49,7 +63,7 @@
     _db_container: "{{ _rb_db_vars.db_container_name }}"
     _db_username: "{{ _rb_db_vars.db_username }}"
     _db_password: "{{ db_password }}"
-    _db_source_file: "{{ backup_tmp_dir }}/restore_{{ item }}.sql"
+    _db_source_file: "{{ backup_tmp_dir }}/restore_{{ item }}.{{ _rb_db_vars.backup_ext | default('sql.gz') }}"
     _db_is_postgres: "{{ _rb_db_vars.is_postgres | default(false) }}"
     _db_is_mariadb: "{{ _rb_db_vars.is_mariadb | default(false) }}"
     _db_is_influxdb: false
@@ -57,7 +71,7 @@
 
 - name: Clean up DB temp files for {{ _db_dep.key }}
   ansible.builtin.file:
-    path: "{{ backup_tmp_dir }}/restore_{{ item }}.sql"
+    path: "{{ backup_tmp_dir }}/restore_{{ item }}.{{ _rb_db_vars.backup_ext | default('sql.gz') }}"
     state: absent
   loop: "{{ _db_dep.value.db_names }}"
   become: true

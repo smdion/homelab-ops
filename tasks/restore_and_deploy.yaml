@@ -86,6 +86,10 @@
         found_any=true
         docker exec -e MYSQL_PWD="$DB_PASSWORD" mariadb mysql -u root -e "SELECT 1" >/dev/null 2>&1 || all_ready=false
       fi
+      if docker ps -q --filter "name=postgres-immich" | grep -q .; then
+        found_any=true
+        docker exec postgres-immich pg_isready -U postgres >/dev/null 2>&1 || all_ready=false
+      fi
       if $found_any && $all_ready; then
         echo "ready"
         exit 0
@@ -170,6 +174,23 @@
     _db_is_influxdb: false
     _db_tmp_dir: "/tmp/db_restore_staging"
   when: hostvars['localhost']._db_mariadb_names | default([]) | length > 0
+
+- name: Restore secondary postgres database — {{ _db_item }}
+  include_tasks: tasks/db_restore.yaml
+  loop: "{{ hostvars['localhost']._db_secondary_postgres_names | default([]) }}"
+  loop_control:
+    loop_var: _db_item
+  vars:
+    _db_name: "{{ _db_item }}"
+    _db_container: "{{ hostvars['localhost']._db_secondary_postgres_container }}"
+    _db_username: "{{ hostvars['localhost']._db_secondary_postgres_username }}"
+    _db_password: "{{ db_password | default('') }}"
+    _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
+    _db_is_postgres: true
+    _db_is_mariadb: false
+    _db_is_influxdb: false
+    _db_tmp_dir: "/tmp/db_restore_staging"
+  when: hostvars['localhost']._db_secondary_postgres_names | default([]) | length > 0
 
 - name: Clean up DB restore staging directory
   ansible.builtin.file:

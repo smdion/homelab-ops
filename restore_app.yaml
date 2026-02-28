@@ -162,6 +162,23 @@
           vars:
             _docker_selective_stacks: ["{{ hostvars['localhost']._app_cfg.stack }}"]
 
+        - name: Create pre-restore safety backup
+          include_tasks: tasks/pre_restore_safety_dump.yaml
+          vars:
+            _safety_db_list: "{{ hostvars['localhost']._app_cfg.db_names | default([]) }}"
+            _safety_container: "{{ db_container_name }}"
+            _safety_username: "{{ db_username }}"
+            _safety_password: "{{ db_password | default('') }}"
+            _safety_dest_dir: "{{ _app_restore_tmp }}"
+            _safety_ext: "sql.gz"
+            _safety_is_postgres: "{{ is_postgres | default(false) }}"
+            _safety_is_mariadb: "{{ is_mariadb | default(false) }}"
+            _safety_is_influxdb: "{{ is_influxdb | default(false) }}"
+          when:
+            - hostvars['localhost']._app_cfg.db_names | default([]) | length > 0
+            - not (skip_pre_backup | default(false) | bool)
+            - not ansible_check_mode
+
         - name: Restore DB — {{ item }}
           include_tasks: tasks/db_restore.yaml
           loop: "{{ hostvars['localhost']._app_cfg.db_names | default([]) }}"

@@ -175,10 +175,23 @@
         _db_mariadb_username: "{{ db_username }}"
       when: "'databases' in _stacks"
 
+    - name: Load secondary postgres DB config from vars
+      ansible.builtin.include_vars:
+        file: vars/db_secondary_postgres.yaml
+      when: "'databases' in _stacks"
+
+    - name: Save secondary postgres DB config to Ansible facts
+      ansible.builtin.set_fact:
+        _db_secondary_postgres_all_names: "{{ db_names }}"
+        _db_secondary_postgres_container: "{{ db_container_name }}"
+        _db_secondary_postgres_username: "{{ db_username }}"
+      when: "'databases' in _stacks"
+
     - name: Filter skipped DBs from restore lists
       ansible.builtin.set_fact:
         _db_postgres_all_names: "{{ _db_postgres_all_names | difference(skip_dbs.split(',')) }}"
         _db_mariadb_all_names: "{{ _db_mariadb_all_names | difference(skip_dbs.split(',')) }}"
+        _db_secondary_postgres_all_names: "{{ _db_secondary_postgres_all_names | difference(skip_dbs.split(',')) }}"
       when:
         - skip_dbs | default('') | length > 0
         - "'databases' in _stacks"
@@ -187,21 +200,24 @@
       ansible.builtin.set_fact:
         _db_postgres_all_names: []
         _db_mariadb_all_names: []
+        _db_secondary_postgres_all_names: []
         _db_postgres_container: ""
         _db_mariadb_container: ""
+        _db_secondary_postgres_container: ""
         _db_postgres_username: ""
         _db_mariadb_username: ""
+        _db_secondary_postgres_username: ""
       when: "'databases' not in _stacks"
 
     - name: Find latest SQL dump per database — {{ item }}
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/databases/backup_{{ item }}_*.sql {{ backup_base_dir }}/databases/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
-      loop: "{{ _db_postgres_all_names + _db_mariadb_all_names }}"
+      loop: "{{ _db_postgres_all_names + _db_mariadb_all_names + _db_secondary_postgres_all_names }}"
       register: _db_dump_results
       become: false
       changed_when: false
       check_mode: false
-      when: (_db_postgres_all_names + _db_mariadb_all_names) | length > 0
+      when: (_db_postgres_all_names + _db_mariadb_all_names + _db_secondary_postgres_all_names) | length > 0
 
     - name: Build DB archive map and name lists
       ansible.builtin.set_fact:
@@ -226,13 +242,20 @@
              | selectattr('stdout', 'ne', '')
              | map(attribute='item') | list
              | intersect(_db_mariadb_all_names) }}
+        _db_secondary_postgres_names: >-
+          {{ _db_dump_results.results | default([])
+             | selectattr('stdout', 'defined')
+             | selectattr('stdout', 'ne', '')
+             | map(attribute='item') | list
+             | intersect(_db_secondary_postgres_all_names) }}
 
     - name: Report DB backup discovery
       ansible.builtin.debug:
         msg: >-
-          DB dumps found: {{ _db_archive_map | length }}/{{ (_db_postgres_all_names + _db_mariadb_all_names) | length }}.
+          DB dumps found: {{ _db_archive_map | length }}/{{ (_db_postgres_all_names + _db_mariadb_all_names + _db_secondary_postgres_all_names) | length }}.
           Postgres: {{ _db_postgres_names | join(', ') or 'none' }}.
           MariaDB: {{ _db_mariadb_names | join(', ') or 'none' }}.
+          Secondary Postgres: {{ _db_secondary_postgres_names | join(', ') or 'none' }}.
           {{ _db_archive_map | to_nice_yaml if _db_archive_map | length > 0 else '' }}
 
     - name: Verify archive integrity
