@@ -141,7 +141,7 @@
             _deploy_detail: "{{ _deploy_detail }} | Error: {{ ansible_failed_result.msg | default('unknown') }}"
 
       always:
-        - name: Send Discord notification
+        - name: Send notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
@@ -166,5 +166,5 @@
 
         - name: Fail play if deploy errored
           ansible.builtin.fail:
-            msg: "Grafana deploy failed — see Discord notification for details"
+            msg: "Grafana deploy failed — see notification for details"
           when: deploy_failed

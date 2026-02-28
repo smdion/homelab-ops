@@ -266,7 +266,7 @@
             _build_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
       always:
-        - name: Send Discord notification (failure only; success deferred to Play 3)
+        - name: Send notification (failure only; success deferred to Play 3)
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
@@ -384,7 +384,7 @@
             _bootstrap_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
       always:
-        - name: Send Discord notification (failure only; success deferred to Play 3)
+        - name: Send notification (failure only; success deferred to Play 3)
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
@@ -524,7 +524,7 @@
             path: "/tmp/restore_inplace.tar.gz"
             state: absent
 
-        - name: Send Discord notification (final result)
+        - name: Send notification (final result)
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"

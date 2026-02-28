@@ -85,7 +85,7 @@
             maintenance_failed: true
 
       always:
-        - name: Send Discord alert on failure
+        - name: Send alert on failure
           include_tasks: tasks/notify.yaml
           when: maintenance_failed
           vars:
@@ -156,7 +156,7 @@
             maintenance_failed: true
 
       always:
-        - name: Send Discord alert on failure
+        - name: Send alert on failure
           include_tasks: tasks/notify.yaml
           when: maintenance_failed
           vars:

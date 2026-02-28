@@ -116,7 +116,7 @@
       ansible.builtin.set_fact:
         _restore_failed: "{{ _amp_restore_results | selectattr('failed') | list | length > 0 }}"
 
-    - name: Build per-instance Discord fields
+    - name: Build per-instance notification fields
       ansible.builtin.set_fact:
         _amp_restore_discord_fields: >-
           [
@@ -125,7 +125,7 @@
            {"name": "{{ ('❌ ' if r.failed else '✅ ') + r.instance }}", "value": "{{ 'FAILED' if r.failed else (r.archive | basename | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2})\\.tar\\.gz$', '\\1')) }}", "inline": true}
            {% endfor %}]
 
-    - name: Send Discord notification
+    - name: Send notification
       include_tasks: tasks/notify.yaml
       vars:
         discord_name: "{{ backup_name }}"

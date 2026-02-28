@@ -248,7 +248,7 @@
             state: absent
           when: not ansible_check_mode
 
-        - name: Send Discord notification
+        - name: Send notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"

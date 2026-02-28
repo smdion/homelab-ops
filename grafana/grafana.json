@@ -1597,6 +1597,57 @@
           "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
           "fieldConfig": {
             "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "lineWidth": 1,
+                "scaleDistribution": { "type": "linear" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 80 },
+          "id": 151,
+          "options": {
+            "orientation": "horizontal",
+            "showValue": "always",
+            "legend": { "showLegend": false },
+            "barWidth": 0.8,
+            "stacking": "none"
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT restore_subtype, COUNT(*) as restores FROM restores WHERE timestamp >= UTC_TIMESTAMP() - INTERVAL 30 DAY AND hostname IN ($hostname) AND restore_subtype IN ($restore_subtype) GROUP BY restore_subtype ORDER BY restores DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Restore Count by Subtype (Last 30 Days)",
+          "type": "barchart"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
               "color": { "mode": "thresholds" },
               "custom": {
                 "align": "auto",
@@ -1633,7 +1684,7 @@
               }
             ]
           },
-          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 80 },
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 88 },
           "id": 150,
           "options": {
             "cellHeight": "sm",
@@ -1653,6 +1704,57 @@
           ],
           "title": "Recent Playbook Runs",
           "type": "table"
+        },
+        {
+          "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "palette-classic" },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+                "lineWidth": 1,
+                "scaleDistribution": { "type": "linear" },
+                "thresholdsStyle": { "mode": "off" }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": 0 }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 88 },
+          "id": 152,
+          "options": {
+            "orientation": "horizontal",
+            "showValue": "always",
+            "legend": { "showLegend": false },
+            "barWidth": 0.8,
+            "stacking": "none"
+          },
+          "pluginVersion": "12.3.3",
+          "targets": [
+            {
+              "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT playbook, COUNT(*) as runs FROM playbook_runs WHERE created_at > DATE_SUB(NOW(), INTERVAL 30 DAY) GROUP BY playbook ORDER BY runs DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Playbook Execution Frequency (Last 30 Days)",
+          "type": "barchart"
         }
       ],
       "title": "Recent Activity",
@@ -2013,6 +2115,24 @@
         "refresh": 2,
         "sort": 1,
         "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
+        "definition": "SELECT DISTINCT restore_subtype FROM restores WHERE restore_subtype IS NOT NULL ORDER BY restore_subtype",
+        "includeAll": true,
+        "multi": true,
+        "name": "restore_subtype",
+        "options": [],
+        "query": "SELECT DISTINCT restore_subtype FROM restores WHERE restore_subtype IS NOT NULL ORDER BY restore_subtype",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query",
+        "label": "Restore Subtype"
       }
     ]
   },

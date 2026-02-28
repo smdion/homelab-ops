@@ -226,7 +226,7 @@
       when: item.json is defined
 
     # ===== REPORT =====
-    - name: Format stale snapshot list for Discord
+    - name: Format stale snapshot list for notification
       ansible.builtin.set_fact:
         _stale_msg: |
           {% for s in _stale_snapshots -%}
@@ -234,7 +234,7 @@
           {% endfor %}
       when: _stale_snapshots | length > 0
 
-    - name: Send Discord alert for stale snapshots
+    - name: Send alert for stale snapshots
       include_tasks: tasks/notify.yaml
       when: _stale_snapshots | length > 0
       vars:
@@ -308,7 +308,7 @@
              | list }}
 
     # ===== REPORT =====
-    - name: Format task error list for Discord
+    - name: Format task error list for notification
       ansible.builtin.set_fact:
         _pbs_error_msg: |
           {% for t in _pbs_task_errors[:10] -%}
@@ -316,7 +316,7 @@
           {% endfor %}{% if _pbs_task_errors | length > 10 %}...and {{ _pbs_task_errors | length - 10 }} more{% endif %}
       when: _pbs_task_errors | length > 0
 
-    - name: Send Discord alert for PBS task errors
+    - name: Send alert for PBS task errors
       include_tasks: tasks/notify.yaml
       when: _pbs_task_errors | length > 0
       vars:
@@ -686,7 +686,7 @@
       loop_control:
         label: "{{ item.item.name }} ({{ item.item.vmid }})"
 
-    - name: Format unused disk list for Discord
+    - name: Format unused disk list for notification
       ansible.builtin.set_fact:
         _unused_disk_msg: |
           {% for vm in _unused_disks -%}
@@ -694,7 +694,7 @@
           {% endfor %}
       when: _unused_disks | length > 0
 
-    - name: Send Discord alert for unused disks
+    - name: Send alert for unused disks
       include_tasks: tasks/notify.yaml
       when: _unused_disks | length > 0
       vars:
@@ -838,7 +838,7 @@
         label: "{{ item.item.name }} ({{ item.item.vmid }})"
       when: _production_qemu_vms | length > 0
 
-    - name: Format right-size report for Discord
+    - name: Format right-size report for notification
       ansible.builtin.set_fact:
         _rightsize_msg: |
           {% for vm in _flagged_vms -%}
@@ -846,7 +846,7 @@
           {% endfor %}
       when: _flagged_vms | length > 0
 
-    - name: Send Discord alert for over-provisioned VMs
+    - name: Send alert for over-provisioned VMs
       include_tasks: tasks/notify.yaml
       when: _flagged_vms | length > 0
       vars:
