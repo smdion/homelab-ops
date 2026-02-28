@@ -17,6 +17,10 @@
   vars:
     config_file: "{{ hosts_variable }}"
   pre_tasks:
+    - name: Set offline backup name
+      ansible.builtin.set_fact:
+        backup_name: "Synology"
+
     - name: Run standard pre-flight assertions
       include_tasks: tasks/pre_task_assertions.yaml
       vars:
