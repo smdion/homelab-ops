@@ -228,7 +228,10 @@
             - name: Check if Restic repository is initialized (docker run)
               become: true
               ansible.builtin.command: >-
-                docker run --rm
+                docker run --rm --name restic
+                --label net.unraid.docker.managed=composeman
+                --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
+                --label net.unraid.docker.shell=sh
                 -v {{ _backup_source }}:/data:ro
                 -v {{ _cache_dir }}:/root/.cache/restic
                 -e AWS_ACCESS_KEY_ID
@@ -250,7 +253,10 @@
             - name: Initialize Restic repository (docker run)
               become: true
               ansible.builtin.command: >-
-                docker run --rm
+                docker run --rm --name restic
+                --label net.unraid.docker.managed=composeman
+                --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
+                --label net.unraid.docker.shell=sh
                 -v {{ _backup_source }}:/data:ro
                 -v {{ _cache_dir }}:/root/.cache/restic
                 -e AWS_ACCESS_KEY_ID
@@ -270,7 +276,10 @@
             - name: Run Restic backup (docker run)
               become: true
               ansible.builtin.command: >-
-                docker run --rm
+                docker run --rm --name restic
+                --label net.unraid.docker.managed=composeman
+                --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
+                --label net.unraid.docker.shell=sh
                 -v {{ _backup_source }}:/data:ro
                 -v {{ _cache_dir }}:/root/.cache/restic
                 -e AWS_ACCESS_KEY_ID
@@ -293,7 +302,10 @@
             - name: Apply Restic retention policy (docker run)
               become: true
               ansible.builtin.command: >-
-                docker run --rm
+                docker run --rm --name restic
+                --label net.unraid.docker.managed=composeman
+                --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
+                --label net.unraid.docker.shell=sh
                 -v {{ _backup_source }}:/data:ro
                 -v {{ _cache_dir }}:/root/.cache/restic
                 -e AWS_ACCESS_KEY_ID
