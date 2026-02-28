@@ -404,7 +404,7 @@
             - inventory_hostname in groups['unraid'] | default([])
             - not ansible_check_mode
 
-        # === unRAID: file inventory of all array shares (monthly — pass -e run_tree_index=true) ===
+        # === unRAID: file inventory of all array shares (monthly — pass -e run_tree_index=yes) ===
         - name: Assert find command is available (tree index)
           ansible.builtin.shell: command -v find
           changed_when: false
@@ -590,10 +590,7 @@
           block:
             - name: Back up all database groups
               include_tasks: tasks/backup_combined_db_group.yaml
-              loop:
-                - db_primary_mariadb
-                - db_primary_postgres
-                - db_secondary_postgres
+              loop: "{{ combined_db_configs }}"
               loop_control:
                 loop_var: _db_config_file
 

@@ -16,6 +16,14 @@ backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ domain_ext }}"
 backup_type: "Servers"             # override to "Appliances" for purpose-built gear
 update_type: "Servers"             # override to "Appliances" for purpose-built gear
 
+# Combined database configs — used by backup_hosts.yaml with_databases loop
+# and available as a reference for all DB config keys in the project.
+combined_db_configs:
+  - db_primary_mariadb
+  - db_primary_postgres
+  - db_secondary_postgres
+  # db_primary_influxdb excluded — OOM blocker (see future/TODO.md)
+
 # Database engine flags — all default false; db_*.yaml sets only the true flag
 is_postgres: false
 is_mariadb: false
