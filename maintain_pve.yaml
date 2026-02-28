@@ -465,7 +465,7 @@
             body_format: form-urlencoded
             body:
               poolid: "{{ pve_pool_hosted }}"
-              comment: "Hosted VMs for friends (VLAN {{ pve_pool_hosted_vlan }}) — excluded from PBS backup jobs"
+              comment: "Hosted VMs for friends (VLAN {{ pve_pool_hosted_vlan }})"
             validate_certs: false
           when: pve_pool_hosted not in _pool_ids
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
