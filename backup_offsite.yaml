@@ -403,7 +403,7 @@
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"
-            discord_operation: "Sync"
+            discord_operation: "Backup"
             discord_author: "{{ inventory_hostname }}"
             discord_status: "{{ 'failed' if sync_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if sync_failed else discord_color_success }}"
