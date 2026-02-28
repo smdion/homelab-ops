@@ -267,7 +267,7 @@
           become: true
           ansible.builtin.shell: docker compose config --services
           args:
-            chdir: "/opt/stacks/{{ item }}"
+            chdir: "{{ stacks_base_path }}/{{ item }}"
           register: _stack_services_raw
           changed_when: false
           check_mode: false
@@ -332,7 +332,7 @@
             echo '  }'
             echo '}'
           args:
-            chdir: "/opt/stacks/{{ item }}"
+            chdir: "{{ stacks_base_path }}/{{ item }}"
           register: _docker_snapshot_stacks
           loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
           when:
@@ -346,7 +346,7 @@
           become: true
           ansible.builtin.copy:
             content: "{{ item.stdout }}"
-            dest: "/opt/stacks/{{ item.item }}/.rollback_snapshot.json"
+            dest: "{{ stacks_base_path }}/{{ item.item }}/.rollback_snapshot.json"
             mode: '0600'
           loop: "{{ _docker_snapshot_stacks.results | default([]) | selectattr('stdout', 'defined') | list }}"
           when:
@@ -424,7 +424,7 @@
             done
             echo ']'
           args:
-            chdir: "/opt/stacks/{{ item }}"
+            chdir: "{{ stacks_base_path }}/{{ item }}"
           register: _compose_update_stacks
           changed_when: true
           loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"

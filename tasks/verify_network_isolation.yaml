@@ -1,7 +1,7 @@
 ---
 # Verify test VLAN isolation from production networks.
 # Confirms firewall zone policies ("Block Test to Internal") are working:
-#   - PVE VIP must be unreachable (ping + TCP 8006)
+#   - PVE VIP must be unreachable (ping + TCP {{ pve_api_port }})
 #   - CephFS monitors and public DNS must be REACHABLE (allowed by policy)
 #
 # Skips cleanly on non-VLAN hosts (production VMs).
@@ -31,9 +31,9 @@
       failed_when: false
       changed_when: false
 
-    - name: TCP connect to PVE VIP :8006 (expect failure)
+    - name: TCP connect to PVE VIP :{{ pve_api_port }} (expect failure)
       ansible.builtin.shell:
-        cmd: timeout 5 bash -c 'echo > /dev/tcp/{{ vault_pve_vip }}/8006' 2>/dev/null
+        cmd: timeout 5 bash -c 'echo > /dev/tcp/{{ vault_pve_vip }}/{{ pve_api_port }}' 2>/dev/null
         executable: /bin/bash
       register: _tcp_pve
       failed_when: false
@@ -64,7 +64,7 @@
         msg: |
           === Network Isolation Results ===
           Ping PVE VIP:     {{ 'BLOCKED' if _ping_blocked | bool else 'REACHABLE (BAD)' }}
-          TCP PVE VIP:8006: {{ 'BLOCKED' if _tcp_blocked | bool else 'REACHABLE (BAD)' }}
+          TCP PVE VIP:{{ pve_api_port }}: {{ 'BLOCKED' if _tcp_blocked | bool else 'REACHABLE (BAD)' }}
           DNS resolution:   OK
           CephFS monitor:   {{ 'OK' if _vm.cephfs_host_dir is defined else 'skipped (no CephFS)' }}
 
@@ -76,16 +76,16 @@
           NETWORK ISOLATION BREACH — PVE VIP ({{ vault_pve_vip }}) responds to ping
           from test VLAN. Check Unifi zone policy "Block Test to Internal".
 
-    - name: Assert PVE VIP :8006 is not reachable
+    - name: Assert PVE VIP :{{ pve_api_port }} is not reachable
       ansible.builtin.assert:
         that:
           - _tcp_blocked | bool
         fail_msg: >-
-          NETWORK ISOLATION BREACH — PVE VIP ({{ vault_pve_vip }}):8006 is reachable
+          NETWORK ISOLATION BREACH — PVE VIP ({{ vault_pve_vip }}):{{ pve_api_port }} is reachable
           from test VLAN. Check Unifi zone policy "Block Test to Internal".
 
     - name: Set isolation summary fact
       ansible.builtin.set_fact:
         _network_isolation_summary: >-
-          PVE VIP ping blocked, :8006 blocked,
+          PVE VIP ping blocked, :{{ pve_api_port }} blocked,
           DNS OK, CephFS {{ 'OK' if _vm.cephfs_host_dir is defined else 'n/a' }}

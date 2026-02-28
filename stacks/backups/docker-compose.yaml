@@ -1,6 +1,6 @@
 services:
   restic:
-    image: restic/restic:latest
+    image: ${RESTIC_IMAGE}:${RESTIC_TAG}
     container_name: restic
     volumes:
       - ${BACKUP_SOURCE}:/data:ro

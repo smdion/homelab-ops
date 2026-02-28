@@ -1,0 +1,249 @@
+---
+# Vault management utility — check status, decrypt, encrypt, change, or validate secrets.yaml.
+# Runs on localhost. No inventory or Semaphore template needed.
+#
+# Usage:
+#   ansible-playbook manage_vault.yaml                                                    # status
+#   ansible-playbook manage_vault.yaml -e action=change -e vault_pass_file=~/.vault_pass  # edit
+#   ansible-playbook manage_vault.yaml -e action=decrypt -e vault_pass_file=~/.vault_pass
+#   ansible-playbook manage_vault.yaml -e action=encrypt -e vault_pass_file=~/.vault_pass
+#   ansible-playbook manage_vault.yaml -e action=validate -e vault_pass_file=~/.vault_pass
+#
+# The vault_pass_file var can also come from ANSIBLE_VAULT_PASSWORD_FILE env var.
+#
+# Interactive commands (not wrapped — use ansible-vault directly):
+#   ansible-vault view vars/secrets.yaml --ask-vault-pass
+#   ansible-vault rekey vars/secrets.yaml --ask-vault-pass   # then update Semaphore Key Store id=30
+
+- name: Manage vault secrets
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vault_file: "{{ playbook_dir }}/vars/secrets.yaml"
+    example_file: "{{ playbook_dir }}/vars/secrets.yaml.example"
+    action: status
+    _pass_file: "{{ vault_pass_file | default(lookup('env', 'ANSIBLE_VAULT_PASSWORD_FILE'), true) | default('', true) }}"
+
+  tasks:
+    # ── Common: check vault file state ──────────────────────────────
+
+    - name: Assert vault file exists
+      ansible.builtin.stat:
+        path: "{{ vault_file }}"
+      register: _vault_stat
+
+    - name: Fail if vault file is missing
+      ansible.builtin.fail:
+        msg: "Vault file not found: {{ vault_file }}"
+      when: not _vault_stat.stat.exists
+
+    - name: Read first line of vault file
+      ansible.builtin.command:
+        cmd: head -1 "{{ vault_file }}"
+      register: _vault_header
+      changed_when: false
+
+    - name: Determine encryption state
+      ansible.builtin.set_fact:
+        _is_encrypted: "{{ _vault_header.stdout is search('\\$ANSIBLE_VAULT') }}"
+
+    - name: Assert valid action
+      ansible.builtin.assert:
+        that: action in ['status', 'change', 'decrypt', 'encrypt', 'validate']
+        fail_msg: "Invalid action '{{ action }}'. Valid: status, change, decrypt, encrypt, validate"
+        quiet: true
+
+    - name: Assert vault password file is provided
+      ansible.builtin.assert:
+        that: _pass_file | length > 0
+        fail_msg: >-
+          Vault password file required for '{{ action }}' action.
+          Pass -e vault_pass_file=/path or set ANSIBLE_VAULT_PASSWORD_FILE env var.
+        quiet: true
+      when: action in ['change', 'decrypt', 'encrypt', 'validate']
+
+    # ── Action: status (default) ────────────────────────────────────
+
+    - name: Report vault status
+      ansible.builtin.debug:
+        msg: |
+          Vault file: {{ vault_file }}
+          State:      {{ 'ENCRYPTED' if _is_encrypted else 'DECRYPTED ⚠ — re-encrypt when done' }}
+          Mode:       {{ _vault_stat.stat.mode }}
+          Owner:      {{ _vault_stat.stat.pw_name }}:{{ _vault_stat.stat.gr_name }}
+          Size:       {{ _vault_stat.stat.size }} bytes
+      when: action == 'status'
+
+    # ── Action: change (decrypt → $EDITOR → re-encrypt) ────────────
+
+    - name: Assert vault is encrypted before change
+      ansible.builtin.assert:
+        that: _is_encrypted
+        fail_msg: "Vault is already decrypted — encrypt first, then use change"
+        quiet: true
+      when: action == 'change'
+
+    - name: Open vault in editor
+      ansible.builtin.command:
+        cmd: ansible-vault edit "{{ vault_file }}" --vault-password-file "{{ _pass_file }}"
+      when: action == 'change'
+
+    - name: Verify vault is still encrypted after change
+      ansible.builtin.command:
+        cmd: head -1 "{{ vault_file }}"
+      register: _post_change_header
+      changed_when: false
+      when: action == 'change'
+
+    - name: Assert vault re-encrypted after change
+      ansible.builtin.assert:
+        that: _post_change_header.stdout is search('\\$ANSIBLE_VAULT')
+        fail_msg: "Vault is NOT encrypted after edit — investigate immediately"
+        quiet: true
+      when: action == 'change'
+
+    - name: Report change success
+      ansible.builtin.debug:
+        msg: "Vault edited and re-encrypted successfully"
+      when: action == 'change'
+
+    # ── Action: decrypt ─────────────────────────────────────────────
+
+    - name: Assert vault is encrypted before decrypt
+      ansible.builtin.assert:
+        that: _is_encrypted
+        fail_msg: "Vault is already decrypted — nothing to do"
+        quiet: true
+      when: action == 'decrypt'
+
+    - name: Decrypt vault file
+      ansible.builtin.command:
+        cmd: ansible-vault decrypt "{{ vault_file }}" --vault-password-file "{{ _pass_file }}"
+      when: action == 'decrypt'
+
+    - name: Set vault file permissions
+      ansible.builtin.file:
+        path: "{{ vault_file }}"
+        mode: "0644"
+      when: action == 'decrypt'
+
+    - name: Warn about decrypted state
+      ansible.builtin.debug:
+        msg: >-
+          Vault is now DECRYPTED — plaintext secrets on disk.
+          Re-encrypt when done: ansible-playbook manage_vault.yaml -e action=encrypt -e vault_pass_file={{ _pass_file }}
+      when: action == 'decrypt'
+
+    # ── Action: encrypt ─────────────────────────────────────────────
+
+    - name: Assert vault is decrypted before encrypt
+      ansible.builtin.assert:
+        that: not _is_encrypted
+        fail_msg: "Vault is already encrypted — nothing to do"
+        quiet: true
+      when: action == 'encrypt'
+
+    - name: Encrypt vault file
+      ansible.builtin.command:
+        cmd: ansible-vault encrypt "{{ vault_file }}" --vault-password-file "{{ _pass_file }}"
+      when: action == 'encrypt'
+
+    - name: Set vault file permissions
+      ansible.builtin.file:
+        path: "{{ vault_file }}"
+        mode: "0644"
+      when: action == 'encrypt'
+
+    - name: Verify vault is encrypted
+      ansible.builtin.command:
+        cmd: head -1 "{{ vault_file }}"
+      register: _post_encrypt_header
+      changed_when: false
+      when: action == 'encrypt'
+
+    - name: Assert encryption succeeded
+      ansible.builtin.assert:
+        that: _post_encrypt_header.stdout is search('\\$ANSIBLE_VAULT')
+        fail_msg: "Encryption failed — vault file does not have $ANSIBLE_VAULT header"
+        quiet: true
+      when: action == 'encrypt'
+
+    - name: Report encrypt success
+      ansible.builtin.debug:
+        msg: "Vault encrypted successfully"
+      when: action == 'encrypt'
+
+    # ── Action: validate (compare keys against example) ─────────────
+
+    - name: Assert vault is encrypted before validate
+      ansible.builtin.assert:
+        that: _is_encrypted
+        fail_msg: "Vault is decrypted — encrypt first before validating"
+        quiet: true
+      when: action == 'validate'
+
+    - name: View decrypted vault contents
+      ansible.builtin.command:
+        cmd: ansible-vault view "{{ vault_file }}" --vault-password-file "{{ _pass_file }}"
+      register: _vault_contents
+      changed_when: false
+      no_log: true
+      when: action == 'validate'
+
+    - name: Parse vault keys
+      ansible.builtin.set_fact:
+        _vault_keys: "{{ (_vault_contents.stdout | from_yaml).keys() | list }}"
+      when: action == 'validate'
+
+    - name: Read example file
+      ansible.builtin.slurp:
+        src: "{{ example_file }}"
+      register: _example_raw
+      when: action == 'validate'
+
+    - name: Parse required keys from example (uncommented key: lines)
+      ansible.builtin.set_fact:
+        _required_keys: >-
+          {{ (_example_raw.content | b64decode).split('\n')
+             | select('match', '^[a-z_]+:')
+             | map('regex_replace', ':.*$', '')
+             | list }}
+      when: action == 'validate'
+
+    - name: Parse optional keys from example (commented # key: lines)
+      ansible.builtin.set_fact:
+        _optional_keys: >-
+          {{ (_example_raw.content | b64decode).split('\n')
+             | select('match', '^# [a-z_]+:')
+             | map('regex_replace', '^# ', '')
+             | map('regex_replace', ':.*$', '')
+             | list }}
+      when: action == 'validate'
+
+    - name: Compute missing and extra keys
+      ansible.builtin.set_fact:
+        _missing_required: "{{ _required_keys | difference(_vault_keys) }}"
+        _missing_optional: "{{ _optional_keys | difference(_vault_keys) }}"
+        _extra_keys: "{{ _vault_keys | difference(_required_keys + _optional_keys) }}"
+      when: action == 'validate'
+
+    - name: Report validation results
+      ansible.builtin.debug:
+        msg: |
+          Vault keys:       {{ _vault_keys | length }}
+          Required keys:    {{ _required_keys | length }} ({{ _required_keys | length - _missing_required | length }} present)
+          Optional keys:    {{ _optional_keys | length }} ({{ _optional_keys | length - _missing_optional | length }} present)
+          {% if _missing_required | length > 0 %}
+          MISSING REQUIRED: {{ _missing_required | join(', ') }}
+          {% endif %}
+          {% if _missing_optional | length > 0 %}
+          Missing optional: {{ _missing_optional | join(', ') }}
+          {% endif %}
+          {% if _extra_keys | length > 0 %}
+          Undocumented:     {{ _extra_keys | join(', ') }}
+          {% endif %}
+          {% if _missing_required | length == 0 and _extra_keys | length == 0 %}
+          All required keys present, no undocumented keys. Vault is clean.
+          {% endif %}
+      when: action == 'validate'

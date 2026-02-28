@@ -27,7 +27,7 @@ services:
   wireguard:
     <<: *base
     container_name: wireguard
-    image: lscr.io/linuxserver/wireguard:latest
+    image: ${WG_IMAGE}:${WG_TAG}
     labels:
       homelab.backup.paths: "/opt/wireguard"
     ports:
@@ -55,7 +55,7 @@ services:
     - *baseuid
     - *wireguard
     container_name: npm
-    image: docker.io/jc21/nginx-proxy-manager:latest
+    image: ${NPM_IMAGE}:${NPM_TAG}
     labels:
       homelab.backup.paths: "/opt/npm,/opt/npm-le"
     volumes:
@@ -73,7 +73,7 @@ services:
     - *base
     - *wireguard
     container_name: dockerproxy
-    image: lscr.io/linuxserver/socket-proxy:latest
+    image: ${SOCKET_PROXY_IMAGE}:${SOCKET_PROXY_TAG}
     environment:
       CONTAINERS: ${DP_CONTAINERS}
       POST: ${DP_POST}
@@ -91,7 +91,7 @@ services:
     - *baseenv
     - *wireguard
     container_name: dozzle-agent
-    image: amir20/dozzle:latest
+    image: ${DOZZLE_IMAGE}:${DOZZLE_TAG}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     command: agent
@@ -100,7 +100,7 @@ services:
     - *base
     - *wireguard
     container_name: nfs
-    image: itsthenetwork/nfs-server-alpine:latest
+    image: ${NFS_IMAGE}:${NFS_TAG}
     environment:
       <<: *env
       SHARED_DIRECTORY: ${NFS_SHARED_DIRECTORY}
@@ -113,7 +113,7 @@ services:
     - *baseenv
     - *wireguard
     container_name: beszel
-    image: henrygd/beszel
+    image: ${BESZEL_IMAGE}:${BESZEL_TAG}
     labels:
       homelab.backup.paths: "/opt/beszel"
       homelab.health_timeout: "90"
@@ -125,7 +125,7 @@ services:
     - *base
     - *wireguard
     container_name: beszel-agent
-    image: henrygd/beszel-agent:latest
+    image: ${BESZEL_AGENT_IMAGE}:${BESZEL_AGENT_TAG}
     volumes:
       - ${APPSDIR}/beszel_socket:/beszel_socket
       - /var/run/docker.sock:/var/run/docker.sock:ro

@@ -22,7 +22,7 @@ services:
   tautulli:
     <<: *baseuid
     container_name: tautulli
-    image: lscr.io/linuxserver/tautulli
+    image: ${TAUTULLI_IMAGE}:${TAUTULLI_TAG}
     network_mode: bridge
     ports:
     - 8181:8181

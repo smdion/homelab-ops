@@ -15,7 +15,7 @@ services:
   code-server:
     <<: *base
     container_name: code-server
-    image: lscr.io/linuxserver/code-server
+    image: ${CODESERVER_IMAGE}:${CODESERVER_TAG}
     network_mode: bridge
     ports:
     - 8443:8443
@@ -42,7 +42,7 @@ services:
   netbootxyz:
     <<: *base
     container_name: netbootxyz
-    image: netbootxyz/netbootxyz:latest
+    image: ${NETBOOT_IMAGE}:${NETBOOT_TAG}
     network_mode: bridge
     labels:
       homelab.backup.paths: "/opt/netboot"

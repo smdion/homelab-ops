@@ -22,3 +22,7 @@ update_exclude_containers:
   - mariadb
   - ansible
 
+# Offsite backup (backup_offsite.yaml)
+offsite_backup_source: "/mnt/user/Backup"
+offsite_restic_cache_dir: "/mnt/user/Backup/.restic-cache"
+

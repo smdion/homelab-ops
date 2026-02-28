@@ -14,7 +14,7 @@ services:
   grafana:
     <<: *base
     container_name: grafana
-    image: grafana/grafana
+    image: ${GRAFANA_IMAGE}:${GRAFANA_TAG}
     network_mode: bridge
     ports:
     - 3000:3000

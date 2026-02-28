@@ -23,7 +23,7 @@
 - name: Stop Docker compose stacks (selective)
   become: true
   community.docker.docker_compose_v2:
-    project_src: "/opt/stacks/{{ item }}"
+    project_src: "{{ stacks_base_path }}/{{ item }}"
     state: stopped
   loop: "{{ _docker_selective_stacks }}"
   when:
@@ -34,7 +34,7 @@
 - name: Stop all Docker compose stacks on {{ inventory_hostname }}
   become: true
   community.docker.docker_compose_v2:
-    project_src: "/opt/stacks/{{ item }}"
+    project_src: "{{ stacks_base_path }}/{{ item }}"
     state: stopped
   loop: "{{ (stack_assignments[inventory_hostname] | default([])) | reverse | list }}"
   when:

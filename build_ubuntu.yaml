@@ -83,7 +83,7 @@
     # For present: provision_vm.yaml sets _vm_actual_node after cloning.
     - name: Query cluster resources for actual VM node
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/cluster/resources?type=vm"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -141,7 +141,7 @@
         # ═════════════════════════════════════════════════════════
         - name: Create VM snapshot
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot"
             method: POST
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -172,7 +172,7 @@
 
         - name: Revert VM to snapshot
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot/{{ snapshot_name }}/rollback"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot/{{ snapshot_name }}/rollback"
             method: POST
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"

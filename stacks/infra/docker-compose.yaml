@@ -11,7 +11,7 @@ services:
   dockerproxy:
     <<: *base
     container_name: dockerproxy
-    image: lscr.io/linuxserver/socket-proxy:latest
+    image: ${SOCKET_PROXY_IMAGE}:${SOCKET_PROXY_TAG}
     network_mode: bridge
     ports:
       - 2375:2375
@@ -30,7 +30,7 @@ services:
   beszel-agent:
     <<: *base
     container_name: beszel-agent
-    image: henrygd/beszel-agent:latest
+    image: ${BESZEL_AGENT_IMAGE}:${BESZEL_AGENT_TAG}
     network_mode: host
     labels:
       homelab.backup.paths: "/opt/beszel_socket"
@@ -45,7 +45,7 @@ services:
   dozzle-agent:
     <<: *baseenv
     container_name: dozzle-agent
-    image: amir20/dozzle:latest
+    image: ${DOZZLE_IMAGE}:${DOZZLE_TAG}
     network_mode: bridge
     ports:
       - 7007:7007
@@ -56,7 +56,7 @@ services:
   dozzle:
     <<: *base
     container_name: dozzle
-    image: amir20/dozzle
+    image: ${DOZZLE_IMAGE}:${DOZZLE_TAG}
     network_mode: bridge
     ports:
       - 8081:8080

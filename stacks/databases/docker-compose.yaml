@@ -18,7 +18,7 @@ services:
   mariadb:
     <<: *base
     container_name: mariadb
-    image: lscr.io/linuxserver/mariadb
+    image: ${MARIA_IMAGE}:${MARIA_TAG}
     networks:
       - homelab
     ports:
@@ -64,7 +64,7 @@ services:
   adminer:
     <<: *base
     container_name: adminer
-    image: adminer
+    image: ${ADMINER_IMAGE}:${ADMINER_TAG}
     networks:
       - homelab
     ports:

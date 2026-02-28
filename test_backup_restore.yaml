@@ -182,7 +182,7 @@
   tasks:
     - name: Get existing Proxmox snapshots for test VM
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -192,7 +192,7 @@
 
     - name: Delete existing pre-test snapshot if present
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot/pre-test-restore"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot/pre-test-restore"
         method: DELETE
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -202,7 +202,7 @@
 
     - name: Wait for VM lock to clear after snapshot delete
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/status/current"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/status/current"
         method: GET
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -216,7 +216,7 @@
 
     - name: Create pre-test snapshot (post-bootstrap clean state)
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot"
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot"
         method: POST
         headers:
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -281,7 +281,7 @@
 
     - name: Ensure shared Docker network exists on test VM
       community.docker.docker_network:
-        name: homelab
+        name: "{{ docker_network_name }}"
         state: present
       become: true
 
@@ -387,7 +387,7 @@
 
         - name: Revert to pre-test snapshot
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot/pre-test-restore/rollback"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot/pre-test-restore/rollback"
             method: POST
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -400,7 +400,7 @@
 
         - name: Delete pre-test snapshot
           ansible.builtin.uri:
-            url: "https://{{ pve_api_host }}:8006/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot/pre-test-restore"
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ hostvars['localhost']._vm_actual_node }}/qemu/{{ hostvars['localhost']._vm.vm_id }}/snapshot/pre-test-restore"
             method: DELETE
             headers:
               Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
