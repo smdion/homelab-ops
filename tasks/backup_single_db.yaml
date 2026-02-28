@@ -15,7 +15,7 @@
 
 - name: "Set file paths for {{ _current_db }}"
   ansible.builtin.set_fact:
-    _db_file: "backup_{{ _current_db }}_{{ ansible_date_time.date }}.{{ backup_ext | default('sql') }}"
+    _db_file: "backup_{{ _current_db }}_{{ ansible_date_time.date }}.{{ backup_ext | default('sql.gz') }}"
 
 - block:
     - name: "Dump {{ _current_db }}"
@@ -55,10 +55,10 @@
     - name: "Record success — {{ _current_db }}"
       ansible.builtin.set_fact:
         combined_results: >-
-          {{ combined_results + [{'db_name': _current_db, 'backup_rc': 0, 'file_size': _db_file_size.stat.size | default(0), 'db_host': _db_delegate_host | default(inventory_hostname)}] }}
+          {{ combined_results + [{'db_name': _current_db, 'backup_rc': 0, 'file_size': _db_file_size.stat.size | default(0), 'file_name': _db_file, 'db_host': _db_delegate_host | default(inventory_hostname)}] }}
 
   rescue:
     - name: "Record failure — {{ _current_db }}"
       ansible.builtin.set_fact:
         combined_results: >-
-          {{ combined_results + [{'db_name': _current_db, 'backup_rc': 1, 'file_size': 0, 'db_host': _db_delegate_host | default(inventory_hostname)}] }}
+          {{ combined_results + [{'db_name': _current_db, 'backup_rc': 1, 'file_size': 0, 'file_name': _db_file, 'db_host': _db_delegate_host | default(inventory_hostname)}] }}

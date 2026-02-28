@@ -149,12 +149,14 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── assert_disk_space.yaml       # Shared pre-task: assert sufficient disk space
 │   ├── assert_db_connectivity.yaml  # Shared pre-task: assert MariaDB logging DB is reachable
 │   ├── backup_single_stack.yaml     # Per-stack backup loop body (stop stack, archive appdata, verify, fetch, restart, record result)
+│   ├── capture_image_versions.yaml  # Record Docker container image versions (.versions.txt manifest) alongside backup archives
 │   ├── backup_single_db.yaml        # Per-DB backup loop body (dump, verify integrity, fetch to controller, record result)
 │   ├── backup_combined_db_group.yaml # Per-config-file DB backup (load vars, create temp dir, loop backup_single_db, cleanup)
 │   ├── db_dump.yaml                 # Dump a single DB from a Docker container — PostgreSQL/MariaDB/InfluxDB engine abstraction
 │   ├── db_restore.yaml              # Restore a single DB from backup — verify (temp DB) or production overwrite, all engines
 │   ├── db_count.yaml                # Count tables/measurements in a database — PostgreSQL/MariaDB/InfluxDB
 │   ├── db_drop_temp.yaml            # Drop a database and clean up container temp files — all engines
+│   ├── wait_db_ready.yaml           # Wait for database container to accept connections after Docker restart — engine-specific readiness probe
 │   ├── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, pull, up); retries transient image pull failures
 │   ├── provision_vm.yaml            # Provision VM on Proxmox via cloud-init template clone + API config; optional QEMU args (pve_args)
 │   ├── resolve_or_provision_vm.yaml # Resolve existing test VM or provision new one — shared by test/verify playbooks
@@ -167,11 +169,14 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── restore_single_stack.yaml    # Per-stack restore loop body (find→verify→stop→restore→start→record); mirrors backup_single_stack
 │   ├── restore_selective_app.yaml   # Selective app restore from monolithic archive + optional cross-host DB restore
 │   ├── restore_monolithic.yaml      # Full-host monolithic restore (verify→stop→extract→start)
+│   ├── restore_and_deploy.yaml      # Shared restore-deploy-verify pipeline for test_restore and dr_rebuild (extract appdata, patch SWAG, deploy stacks, restore DBs, health check)
 │   ├── restore_app_step.yaml        # Per-app restore loop body (stop stack, restore DB+appdata, restart, health check; OOM detection)
 │   ├── verify_app_http.yaml         # Per-app HTTP endpoint verification (used by restore_app.yaml and test_backup_restore.yaml)
 │   ├── backup_single_amp_instance.yaml  # Per-AMP-instance backup loop body (stop→archive→verify→fetch→start)
 │   ├── restore_single_amp_instance.yaml # Per-AMP-instance restore loop body (stop→remove→extract→start); mirrors backup_single_amp_instance
 │   ├── patch_swag_confs.yaml        # Patch SWAG nginx configs after restore — old IPs → Docker DNS (same-VM) / VIPs (cross-VM) + authentik outpost
+│   ├── patch_compose_networks.yaml  # Post-template patching: bridge-to-homelab network + env IP fixes for test/DR deploys
+│   ├── pre_restore_safety_dump.yaml # Create pre-restore safety backup of databases before overwriting — shared by restore/rollback playbooks
 │   ├── rollback_images.yaml         # Shared image rollback — re-tag local or pull from registry; retries transient pull failures (no compose up)
 │   ├── rollback_restore_stack.yaml  # Per-stack appdata restore during rollback with_backup (find→verify→extract→clean)
 │   ├── rollback_restore_dbs.yaml    # Per-app DB restore during rollback with_backup (load config→find dumps→restore→clean)
@@ -181,6 +186,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── verify_network_isolation.yaml # Verify test VLAN isolation — PVE VIP unreachable, CephFS monitors + public DNS reachable
 │   ├── verify_vip.yaml             # Verify keepalived VIP is active on expected interface (skips if no role assigned)
 │   ├── pre_task_assertions.yaml    # Pre-task bundle: assert_config_file (optional) → assert_db_connectivity → log_run_context; used by 26 playbooks
+│   ├── pre_test_assertions.yaml   # Shared pre-flight assertions for test/DR playbooks: vm_name in vm_definitions, source_host/role validation
 │   ├── apply_role_resolve.yaml     # Per-role resolution loop body: resolve VM definition, display scope, add target to inventory
 │   ├── resolve_effective_vips.yaml # Shared VIP resolution — test VIP offsets vs vault VIPs
 │   ├── resolve_test_vm_index.yaml  # Auto-detect free test-vm slot from vm_test_slot_base pool
@@ -190,8 +196,10 @@ history, restore results, playbook runs) belongs in the database.
 │   └── dr_rebuild_all.sh           # Shell wrapper: run dr_rebuild.yaml for multiple roles sequentially (core,apps,dev)
 │
 ├── templates/
+│   ├── keepalived.conf.j2          # Jinja2 template for keepalived VRRP config on PVE nodes — floating management VIP
+│   ├── keepalived-docker.conf.j2   # Jinja2 template for keepalived VRRP — floating VIP per Docker VM role; test mode derives VIP from VM subnet
 │   ├── metube.conf.j2              # Jinja2 template for yt-dlp config — rendered per profile from vars/download_<name>.yaml
-│   └── keepalived-docker.conf.j2   # Jinja2 template for keepalived VRRP — floating VIP per Docker VM role; test mode derives VIP from VM subnet
+│   └── netplan-loopback-aliases.j2 # Jinja2 template for netplan loopback alias config — VIP addresses on loopback interface
 │
 ├── backup_hosts.yaml               # Config/Appdata backups (Proxmox, PiKVM, Unifi, AMP, Docker, unRAID); with_databases=yes for combined appdata + DB backup
 ├── backup_databases.yaml           # Database backups (Postgres + MariaDB dumps, InfluxDB portable backup); integrity verification; standalone scheduling
@@ -968,7 +976,7 @@ or Host fields.
 
 > **Shared task review:** When modifying playbooks, check whether any inline task blocks are
 > duplicated across multiple playbooks. If so, they are a candidate for extraction into `tasks/`.
-> The current 47 shared task files cover notifications, logging, assertions, provisioning,
+> The current 51 shared task files cover notifications, logging, assertions, provisioning,
 > bootstrapping, Docker management, appdata restore, health checks, per-stack/per-DB backup
 > orchestration, and DB engine abstraction. Inline cleanup patterns or host-type detection logic
 > may have accumulated in individual playbooks and could be worth consolidating if the same
@@ -976,8 +984,8 @@ or Host fields.
 
 ### Roles vs. flat tasks/ structure
 
-The project uses 47 shared task files (thin glue code — Discord, DB logging, assertions,
-dump/restore) with no handlers or role-level templates. Flat `tasks/` is the right fit at this
+The project uses 51 shared task files (thin glue code — Discord, DB logging, assertions,
+dump/restore, test/DR pipelines, pre-restore safety) with no handlers or role-level templates. Flat `tasks/` is the right fit at this
 scale. Add roles when a component needs handlers, role-level templates, Molecule testing, or
 cross-project reuse.
 
