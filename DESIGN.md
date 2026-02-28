@@ -664,8 +664,21 @@ When the `vars/*.yaml` filename differs from the `hosts_variable` value, add `co
 ```
 
 Current cases requiring explicit `config_file`: `ubuntu_os`, `unraid_os`, `synology`,
-`db_primary_postgres`, `db_primary_mariadb`, `db_primary_influxdb`, `db_secondary_postgres`,
-`download_default`, `download_on_demand`.
+`download_default`, `download_on_demand`. Database config keys (`db_primary_*`,
+`db_secondary_*`) no longer need `config_file` — the resolver play handles them.
+
+**Resolver play (database targeting):** `backup_databases.yaml`, `restore_databases.yaml`, and
+`verify_backups.yaml` prepend a resolver play that runs on `localhost`. The resolver loads
+`vars/{{ hosts_variable }}.yaml` and, if the vars file defines `db_host`, dynamically creates
+an in-memory inventory group via `add_host`. This lets `hosts_variable=db_primary_postgres`
+work even though `db_primary_postgres` is not a real inventory group. When `hosts_variable`
+is a real inventory group (e.g. `docker_stacks`), the vars file does not define `db_host`
+and the resolver is a no-op. A runtime assertion prevents DB config key names from colliding
+with real inventory group names.
+
+**`combined_db_configs`** (in `group_vars/all.yaml`) — list of all active DB config keys.
+Used by `backup_hosts.yaml` combined mode to loop over DB tiers. Adding a new DB tier
+requires only appending to this list and creating the vars file with `db_host`.
 
 **Environment naming convention:** Semaphore environment names match the `config_file` value
 (or `hosts_variable` when `config_file` is not needed). For database targets, use role-based
@@ -828,6 +841,28 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 - Boolean triggers always use `=yes` — never `=true`, `=false`, or `=no` on the CLI
 - YAML booleans inside playbook code use `true`/`false` (see [Coding conventions](#coding-conventions))
 - `pre_backup=no` skips the pre-restore safety backup in `restore_databases.yaml` (default: on)
+
+**Per-playbook key vars (concise — see `future/CLAUDE_REFERENCE.md` for full detail):**
+| Playbook | Key `-e` vars |
+|----------|---------------|
+| `backup_hosts` | `hosts_variable` (req), `with_databases`, `stack`, `app`, `role`, `run_tree_index`, `amp_instance_filter` |
+| `backup_databases` | `hosts_variable` (req — DB config key) |
+| `backup_offline` | `hosts_variable` (req) |
+| `backup_offsite` | `dry_run`, `bwlimit` |
+| `verify_backups` | `hosts_variable` (req), `stack`, `app`, `role`, `amp_instance_filter` |
+| `restore_hosts` | `hosts_variable` (req), `confirm` (req), `stack`, `app`, `role`, `with_databases`, `restore_app` |
+| `restore_databases` | `hosts_variable` (req — DB config key), `confirm` (req), `restore_db`, `restore_date`, `pre_backup` |
+| `restore_app` | `restore_app` (req), `restore_target` (req), `confirm` (req) |
+| `restore_amp` | `restore_target` (req), `confirm` (req), `amp_instance_filter` |
+| `rollback_docker` | `hosts_variable` (req), `confirm` (req), `stack`, `app`, `role`, `rollback_service`, `with_backup` |
+| `deploy_stacks` | `hosts_variable` (req), `stack`, `app`, `role`, `validate_only`, `pull_only` |
+| `update_systems` | `hosts_variable` (req), `update_scope`, `amp_instance_filter` |
+| `test_restore` | `role` or `source_host` (req), `vm_name`, `dr_mode`, `deploy_ssh_key`, `skip_dbs`, `stack` |
+| `test_backup_restore` | `source_host` (req), `vm_name`, `test_apps`, `deploy_ssh_key` |
+| `dr_rebuild` | `role` (req), `vm_name`, `deploy_ssh_key`, `skip_dbs`, `restore_app` |
+| `apply_role` | `role`, `stack`, `validate_only`, `resize`, `skip_bootstrap`, `skip_stacks`, `skip_verify` |
+| `build_ubuntu` | `vm_name` (req), `vm_state`, `snapshot_name`, `deploy_ssh_key` |
+| `download_videos` | `hosts_variable` (req), `config_file` (req) |
 
 ### Error handling
 

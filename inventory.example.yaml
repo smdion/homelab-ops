@@ -90,3 +90,8 @@ nas01.home.local
 
 [amp]
 gameserver.home.local
+
+# NOTE: db_* groups (db_primary_mariadb, db_primary_postgres, db_secondary_postgres)
+# are NOT inventory groups. They are created dynamically at runtime by the resolver
+# play prepended to backup_databases, restore_databases, and verify_backups playbooks.
+# The resolver loads vars/db_*.yaml, reads db_host, and creates an in-memory group.
