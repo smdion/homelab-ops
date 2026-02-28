@@ -3,7 +3,7 @@
 # Database backups: restore to a temp DB on the same container, count tables/measurements, drop.
 # Config backups (per-stack): verify each stack's archive, extract to staging, count files.
 # Config backups (monolithic): verify gzip integrity, extract to staging dir, count files.
-# Sends Discord notification and logs result to restores table.
+# Sends notification and logs result to restores table.
 #
 # Scope selectors (docker_stacks only):
 #   stack=<name>  — verify a single stack's archive
@@ -99,20 +99,20 @@
 
         - name: Assert backup files exist
           ansible.builtin.assert:
-            that: _db_backup_files.results[idx].stdout | length > 0
+            that: _db_backup_files.results[_idx].stdout | length > 0
             fail_msg: "No backup found for database {{ item }} on controller"
           loop: "{{ db_names }}"
           loop_control:
-            index_var: idx
+            index_var: _idx
           when: _is_db_verify | bool
 
         - name: Copy backup files to target host
           ansible.builtin.copy:
-            src: "{{ _db_backup_files.results[idx].stdout }}"
+            src: "{{ _db_backup_files.results[_idx].stdout }}"
             dest: "{{ backup_tmp_dir }}/verify_{{ item }}.{{ backup_ext | default('sql') }}"
           loop: "{{ db_names }}"
           loop_control:
-            index_var: idx
+            index_var: _idx
           become: true
           when: _is_db_verify | bool
 
@@ -177,15 +177,15 @@
             combined_results: >-
               {{
                 combined_results + [{
-                  'db_name': db_names[idx],
-                  'source_file': _db_backup_files.results[idx].stdout | basename,
-                  'table_count': _db_count_results['_restore_test_' + db_names[idx]] | default('0'),
+                  'db_name': db_names[_idx],
+                  'source_file': _db_backup_files.results[_idx].stdout | basename,
+                  'table_count': _db_count_results['_restore_test_' + db_names[_idx]] | default('0'),
                   'status': 'success'
                 }]
               }}
           loop: "{{ range(0, db_names | length) | list }}"
           loop_control:
-            loop_var: idx
+            loop_var: _idx
           when:
             - _is_db_verify | bool
             - not ansible_check_mode
@@ -285,15 +285,15 @@
             combined_results: >-
               {{
                 combined_results + [{
-                  'db_name': _valid_stack_archives[idx].item,
-                  'source_file': _valid_stack_archives[idx].stdout | basename,
-                  'table_count': _stack_extracted_counts.results[idx].stdout | default('0') | trim,
+                  'db_name': _valid_stack_archives[_idx].item,
+                  'source_file': _valid_stack_archives[_idx].stdout | basename,
+                  'table_count': _stack_extracted_counts.results[_idx].stdout | default('0') | trim,
                   'status': 'success'
                 }]
               }}
           loop: "{{ range(0, _valid_stack_archives | default([]) | length) | list }}"
           loop_control:
-            loop_var: idx
+            loop_var: _idx
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
@@ -422,15 +422,15 @@
             combined_results: >-
               {{
                 combined_results + [{
-                  'db_name': _valid_amp_archives[idx].item,
-                  'source_file': _valid_amp_archives[idx].stdout | basename,
-                  'table_count': _amp_extracted_counts.results[idx].stdout | default('0') | trim,
+                  'db_name': _valid_amp_archives[_idx].item,
+                  'source_file': _valid_amp_archives[_idx].stdout | basename,
+                  'table_count': _amp_extracted_counts.results[_idx].stdout | default('0') | trim,
                   'status': 'success'
                 }]
               }}
           loop: "{{ range(0, _valid_amp_archives | default([]) | length) | list }}"
           loop_control:
-            loop_var: idx
+            loop_var: _idx
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
@@ -588,7 +588,7 @@
             - inventory_hostname not in groups["docker_stacks"] | default([])
 
       always:
-        - name: Build combined Discord fields for verification results
+        - name: Build combined notification fields for verification results
           ansible.builtin.set_fact:
             _verify_discord_fields: >-
               [
@@ -600,7 +600,7 @@
                {% endfor %}]
           when: combined_results | length > 0
 
-        - name: Send combined verification Discord notification
+        - name: Send combined verification notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"
@@ -611,7 +611,7 @@
             discord_fields: "{{ _verify_discord_fields }}"
           when: combined_results | length > 0
 
-        - name: Send Discord notification for unhandled block error
+        - name: Send notification for unhandled block error
           include_tasks: tasks/notify.yaml
           when: verify_failed and combined_results | length == 0
           vars:
@@ -626,16 +626,16 @@
           include_tasks: tasks/log_restore.yaml
           loop: "{{ combined_results }}"
           loop_control:
-            loop_var: verify_result
+            loop_var: _verify_result
           vars:
             log_hostname: "{{ inventory_hostname }}"
-            restore_application: "{{ verify_result.db_name }}{{ '-db' if _is_db_verify | bool else '' }}"
-            restore_source_file: "{{ verify_result.source_file }}"
+            restore_application: "{{ _verify_result.db_name }}{{ '-db' if _is_db_verify | bool else '' }}"
+            restore_source_file: "{{ _verify_result.source_file }}"
             restore_type: "{{ backup_type }}"
             restore_subtype: "{{ backup_subtype }}"
             restore_operation: "verify"
             restore_status: "{{ 'failed' if verify_failed else 'success' }}"
-            restore_detail: "{{ verify_result.table_count }} {{ 'measurements' if is_influxdb | default(false) | bool else 'tables' if _is_db_verify | bool else 'files' }} verified"
+            restore_detail: "{{ _verify_result.table_count }} {{ 'measurements' if is_influxdb | default(false) | bool else 'tables' if _is_db_verify | bool else 'files' }} verified"
 
         - name: Log unhandled failure to restores table
           include_tasks: tasks/log_restore.yaml

@@ -104,7 +104,7 @@
         - name: Flush handlers (restart keepalived if config changed)
           meta: flush_handlers
 
-        - name: Send Discord alert on failure
+        - name: Send alert on failure
           include_tasks: tasks/notify.yaml
           when: maintenance_failed
           vars:
@@ -118,7 +118,7 @@
         - name: Log maintenance to MariaDB
           include_tasks: tasks/log_mariadb.yaml
           vars:
-            log_table: "maintenance"
+            log_table: maintenance
             log_application: "{{ maintenance_name }}"
             log_hostname: "{{ inventory_hostname }}"
             log_type: "{{ maintenance_type }}"
@@ -150,7 +150,7 @@
         msg: "VIP {{ vault_pve_vip }} is not reachable on port 22 — keepalived may not have converged"
       when: not ansible_check_mode
 
-    - name: VIP is up
+    - name: Confirm VIP is up
       ansible.builtin.debug:
         msg: "VIP {{ vault_pve_vip }} is reachable. keepalived is healthy."
 
@@ -160,6 +160,7 @@
 - name: Check Proxmox for stale VM snapshots
   hosts: localhost
   gather_facts: true
+  gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
     - vars/semaphore_check.yaml
@@ -267,6 +268,7 @@
   hosts: pbs
   become: true
   gather_facts: true
+  gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
     - vars/semaphore_check.yaml
@@ -593,7 +595,7 @@
             maintenance_failed: true
 
       always:
-        - name: Send Discord alert on failure
+        - name: Send alert on failure
           include_tasks: tasks/notify.yaml
           when: maintenance_failed
           vars:
@@ -608,7 +610,7 @@
         - name: Log pool sync to MariaDB
           include_tasks: tasks/log_mariadb.yaml
           vars:
-            log_table: "maintenance"
+            log_table: maintenance
             log_application: "{{ maintenance_name }}"
             log_hostname: "{{ controller_fqdn }}"
             log_type: "{{ maintenance_type }}"
@@ -724,7 +726,7 @@
 # cf=AVERAGE). Production VMs = net0 defined with no VLAN tag.
 # Warn-only — no corrective action taken.
 # ═══════════════════════════════════════════════════════════════════
-- name: PVE right-size check
+- name: Check PVE right-sizing
   hosts: localhost
   gather_facts: false
   vars_files:

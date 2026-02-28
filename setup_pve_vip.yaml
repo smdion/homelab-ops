@@ -96,6 +96,6 @@
         msg: "VIP {{ vault_pve_vip }} is not reachable on port 22 — keepalived may not have converged"
       when: not ansible_check_mode
 
-    - name: VIP is up
+    - name: Confirm VIP is up
       ansible.builtin.debug:
         msg: "VIP {{ vault_pve_vip }} is reachable. keepalived is healthy."

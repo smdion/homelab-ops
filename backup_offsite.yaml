@@ -4,7 +4,7 @@
 #   - restic (default): S3-compatible incremental backup (encrypted, deduplicated)
 #   - rclone: direct B2 API sync (mirror of /backup)
 #
-# Sends Discord notification + logs to MariaDB.
+# Sends notification + logs to MariaDB.
 #
 # Prerequisites:
 #   restic: Docker installed, B2 S3-compatible bucket,
@@ -197,7 +197,7 @@
       ansible.builtin.set_fact:
         _sync_duration: "{{ now(utc=true).strftime('%s') | int - (_sync_start | int) }}"
 
-    - name: Send offsite sync Discord notification
+    - name: Send offsite sync notification
       include_tasks: tasks/notify.yaml
       vars:
         discord_name: "{{ backup_name }}"

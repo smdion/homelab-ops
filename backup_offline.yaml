@@ -1,7 +1,7 @@
 ---
 # Sync backups to offline Synology storage.
 # Wakes Synology via WOL, mounts shares, rsyncs backup data, unmounts,
-# shuts down Synology, verifies shutdown. Sends Discord + logs to MariaDB.
+# shuts down Synology, verifies shutdown. Sends notification + logs to MariaDB.
 #
 # Usage:
 #   ansible-playbook backup_offline.yaml -e hosts_variable=unraid
@@ -165,29 +165,29 @@
                  else 'WARNING: Synology still responding after shutdown request' }}
           when: not ansible_check_mode
 
-        - name: Send Discord notification for each sync result
+        - name: Send notification for each sync result
           include_tasks: tasks/notify.yaml
           loop: "{{ backup_status.results }}"
           loop_control:
-            loop_var: sync_result
+            loop_var: _sync_result
           when: not ansible_check_mode
           vars:
             discord_name: "{{ backup_name }}"
             discord_operation: "Sync"
-            discord_status: "{{ 'failed' if sync_result.rc != 0 else 'successful' }}"
-            discord_color: "{{ discord_color_success if sync_result.rc == 0 else discord_color_failure }}"
+            discord_status: "{{ 'failed' if _sync_result.rc != 0 else 'successful' }}"
+            discord_color: "{{ discord_color_success if _sync_result.rc == 0 else discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
               - name: "Share"
-                value: "{{ sync_result.item }}"
+                value: "{{ _sync_result.item }}"
               - name: "Size Transferred"
                 value: >-
-                  {{ ((sync_result.stdout | default('') |
+                  {{ ((_sync_result.stdout | default('') |
                        regex_search('Total transferred file size: ([\d,]+)', '\1') |
                        default(['0'], true) | first | replace(',', '')) | float
                        / 1024 / 1024) | round(2) }}MB
 
-        - name: Send Discord notification for pre-sync failure
+        - name: Send notification for pre-sync failure
           include_tasks: tasks/notify.yaml
           when: sync_failed
           vars:
@@ -202,15 +202,15 @@
           include_tasks: tasks/log_mariadb.yaml
           loop: "{{ backup_status.results }}"
           loop_control:
-            loop_var: sync_result
+            loop_var: _sync_result
           when: not ansible_check_mode
           vars:
             log_table: backups
             log_application: "{{ backup_name }}"
             log_hostname: "{{ inventory_hostname }}"
-            log_file_name: "{{ ('FAILED_' if sync_result.rc != 0 else '') }}sync_{{ sync_result.item }}_{{ ansible_date_time.date }}"
+            log_file_name: "{{ ('FAILED_' if _sync_result.rc != 0 else '') }}sync_{{ _sync_result.item }}_{{ ansible_date_time.date }}"
             log_file_size: >-
-              {{ ((sync_result.stdout | default('') |
+              {{ ((_sync_result.stdout | default('') |
                    regex_search('Total transferred file size: ([\d,]+)', '\1') |
                    default(['0'], true) | first | replace(',', '')) | float
                    / 1024 / 1024) | round(2) }}

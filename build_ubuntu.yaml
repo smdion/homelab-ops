@@ -275,6 +275,7 @@
   hosts: build_target
   become: true
   gather_facts: true
+  gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml

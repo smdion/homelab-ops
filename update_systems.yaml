@@ -3,7 +3,7 @@
 # Handles apt upgrade (Ubuntu/Proxmox), PiKVM update, AMP update,
 # Docker Compose pull+recreate, and unRAID container updates.
 # Saves a rollback snapshot before Docker Compose updates (see rollback_docker.yaml).
-# Sends Discord notification and logs version changes to MariaDB.
+# Sends notification and logs version changes to MariaDB.
 #
 # Usage:
 #   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu       (OS scope — auto-detected)
@@ -16,6 +16,7 @@
 
 - name: Update OS packages and Docker containers
   gather_facts: true
+  gather_subset: ['!all', 'date_time', 'hardware']
   serial: 1
   vars_files:
     - vars/secrets.yaml
@@ -129,19 +130,19 @@
             positional_args:
               - "{{ update_name }}"
               - "{{ inventory_hostname }}"
-          register: previous_version_result
+          register: _previous_version_result
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
         - name: Set previous version fact
           ansible.builtin.set_fact:
-            previous_version: "{{ previous_version_result.query_result[0][0].version | trim if previous_version_result.query_result[0] | length > 0 else '' }}"
+            previous_version: "{{ _previous_version_result.query_result[0][0].version | trim if _previous_version_result.query_result[0] | length > 0 else '' }}"
 
         - name: Update PiKVM
           ansible.builtin.shell: pikvm-update --no-reboot
-          register: pikvm_update_result
-          failed_when: pikvm_update_result.rc not in [0, 100]
+          register: _pikvm_update_result
+          failed_when: _pikvm_update_result.rc not in [0, 100]
           when:
             - _version_scope == 'os'
             - inventory_hostname in groups["pikvm"]
@@ -161,7 +162,7 @@
         - name: Check if a reboot is required
           ansible.builtin.stat:
             path: /var/run/reboot-required
-          register: reboot_required_file
+          register: _reboot_required_file
           when:
             - _version_scope == 'os'
             - inventory_hostname in groups["ubuntu"] or inventory_hostname in groups["pve"] or inventory_hostname in groups["pbs"]
@@ -174,7 +175,7 @@
           when:
             - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
-            - reboot_required_file.stat.exists | default(false)
+            - _reboot_required_file.stat.exists | default(false)
 
         - name: Wait for HA guests to migrate off this node
           ansible.builtin.shell: |
@@ -208,8 +209,8 @@
           when:
             - _version_scope == 'os'
             - >-
-              (reboot_required_file.stat.exists | default(false)) or
-              (inventory_hostname in groups["pikvm"] and pikvm_update_result.rc | default(0) == 100)
+              (_reboot_required_file.stat.exists | default(false)) or
+              (inventory_hostname in groups["pikvm"] and _pikvm_update_result.rc | default(0) == 100)
 
         - name: Wait for Ceph health to recover after PVE reboot
           ansible.builtin.shell: |
@@ -600,7 +601,7 @@
             state: absent
           when: _version_scope == 'docker'
 
-        - name: Send Discord notification
+        - name: Send notification
           include_tasks: tasks/notify.yaml
           when: (not _is_docker_update | bool) and (update_failed or current_version != previous_version)
           vars:
@@ -628,7 +629,7 @@
           when:
             - _version_scope == 'os'
             - inventory_hostname in groups["pikvm"]
-            - pikvm_update_result.rc | default(0) != 100
+            - _pikvm_update_result.rc | default(0) != 100
             - not ansible_check_mode
 
         - name: Send Docker update notification

@@ -2,7 +2,7 @@
 # Health Maintenance Playbook
 # ---------------------------
 # Comprehensive environment health monitor. Runs checks across all SSH-accessible
-# hosts and the Semaphore/DB environment, then sends Discord alerts and logs results.
+# hosts and the Semaphore/DB environment, then sends alerts and logs results.
 #
 # Play 1 (localhost):  Init, load state, Semaphore API check, stale backup DB check,
 #                      backup size anomaly, failed maintenance DB check,
@@ -14,7 +14,7 @@
 #                      DNS resolution, unRAID array, PBS datastore, ZFS pool,
 #                      BTRFS health, Docker HTTP
 # Play 3 (localhost):  Aggregate findings, unreachable host alerting,
-#                      Discord alerts per host, DB logging, save state
+#                      alerts per host, DB logging, save state
 #
 # Hosts covered by Play 2: defined by health_check_groups in vars/semaphore_check.yaml
 # Appliances (pikvm, unifi_network, unifi_protect) — covered via stale backup detection
@@ -40,6 +40,7 @@
 - name: Check health — run DB and API checks
   hosts: localhost
   gather_facts: true
+  gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
     - vars/semaphore_check.yaml
@@ -106,15 +107,15 @@
               Accept: "application/json"
             return_content: true
             status_code: 200
-          register: tasks_response
+          register: _tasks_response
           retries: 3
           delay: 5
-          until: tasks_response is succeeded
+          until: _tasks_response is succeeded
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Parse API response
           ansible.builtin.set_fact:
-            tasks_list: "{{ tasks_response.content | from_json }}"
+            tasks_list: "{{ _tasks_response.content | from_json }}"
 
         # Build failure list using a loop so we can normalize each task's 'end'
         # timestamp before comparison. Semaphore may return +00:00 suffix while
@@ -185,7 +186,7 @@
         - name: Set maintenance failed (Semaphore check error)
           ansible.builtin.set_fact:
             maintenance_failed: true
-        - name: Debug check results
+        - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 1 FAILED: Semaphore task check error — skipping"
 
@@ -211,14 +212,14 @@
             positional_args:
               - "{{ display_timezone }}"
               - "{{ health_backup_stale_days * 24 }}"
-          register: stale_backup_result
+          register: _stale_backup_result
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
         - name: Parse stale backup results
           ansible.builtin.set_fact:
-            stale_backup_lines: "{{ stale_backup_result.query_result[0] | map(attribute='line') | list }}"
+            stale_backup_lines: "{{ _stale_backup_result.query_result[0] | map(attribute='line') | list }}"
 
         - name: Send Discord alert for stale backups
           include_tasks: tasks/notify.yaml
@@ -249,7 +250,7 @@
         - name: Set maintenance failed (stale backup check error)
           ansible.builtin.set_fact:
             maintenance_failed: true
-        - name: Debug check results
+        - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 2 FAILED: Stale backup check error — skipping"
 
@@ -259,10 +260,6 @@
         - name: Query for anomalously small backups
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
-            _size_exclude_clause: >-
-              {% if health_backup_size_exclude | default([]) | length > 0 -%}
-              AND b.application NOT IN ('{{ health_backup_size_exclude | join("','") }}')
-              {%- endif %}
           community.mysql.mysql_query:
             login_host: "{{ logging_db_host }}"
             login_port: "{{ logging_db_port }}"
@@ -284,28 +281,31 @@
                 SELECT MAX(id) FROM backups GROUP BY application, hostname
               )
               AND b.file_size < avg_tbl.avg_size * %s / 100
-              {{ _size_exclude_clause }}
             positional_args:
               - "{{ health_backup_size_min_pct }}"
-          register: _size_anomaly_result
+          register: _size_anomaly_raw
           check_mode: false
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-        - name: Record backup size anomaly results
+        - name: Filter excluded applications from size anomaly results
+          vars:
+            _filtered: >-
+              {{ _size_anomaly_raw.query_result[0]
+                 | rejectattr('application', 'in', health_backup_size_exclude | default([])) | list }}
           ansible.builtin.set_fact:
             play1_health_results: >-
               {{ play1_health_results + [{
                 'check_name': 'backup_size_anomaly',
-                'status': 'warning' if (_size_anomaly_result.query_result[0] | length > 0) else 'ok',
-                'value': (_size_anomaly_result.query_result[0] | length | string) + ' anomalies' if (_size_anomaly_result.query_result[0] | length > 0) else 'normal',
-                'detail': _size_anomaly_result.query_result[0] | map(attribute='application') | join(', ') if (_size_anomaly_result.query_result[0] | length > 0) else ''
+                'status': 'warning' if (_filtered | length > 0) else 'ok',
+                'value': (_filtered | length | string) + ' anomalies' if (_filtered | length > 0) else 'normal',
+                'detail': _filtered | map(attribute='application') | join(', ') if (_filtered | length > 0) else ''
               }] }}
 
       rescue:
         - name: Set maintenance failed (backup size anomaly check error)
           ansible.builtin.set_fact:
             maintenance_failed: true
-        - name: Debug check results
+        - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 3 FAILED: Backup size anomaly check error — skipping"
 
@@ -329,14 +329,14 @@
               ORDER BY timestamp DESC
             positional_args:
               - "{{ last_check }}"
-          register: failed_maintenance_result
+          register: _failed_maintenance_result
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
         - name: Parse failed maintenance results
           ansible.builtin.set_fact:
-            failed_maintenance_lines: "{{ failed_maintenance_result.query_result[0] | map(attribute='line') | list }}"
+            failed_maintenance_lines: "{{ _failed_maintenance_result.query_result[0] | map(attribute='line') | list }}"
 
         - name: Send Discord alert for failed maintenance runs
           include_tasks: tasks/notify.yaml
@@ -367,7 +367,7 @@
         - name: Set maintenance failed (maintenance check error)
           ansible.builtin.set_fact:
             maintenance_failed: true
-        - name: Debug check results
+        - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 4 FAILED: Failed maintenance check error — skipping"
 
@@ -393,14 +393,14 @@
             positional_args:
               - "{{ display_timezone }}"
               - "{{ health_maintenance_stale_days }}"
-          register: stale_maintenance_result
+          register: _stale_maintenance_result
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
         - name: Parse stale maintenance results
           ansible.builtin.set_fact:
-            stale_maintenance_lines: "{{ stale_maintenance_result.query_result[0] | map(attribute='line') | list }}"
+            stale_maintenance_lines: "{{ _stale_maintenance_result.query_result[0] | map(attribute='line') | list }}"
 
         - name: Record stale maintenance check result
           ansible.builtin.set_fact:
@@ -416,7 +416,7 @@
         - name: Set maintenance failed (stale maintenance check error)
           ansible.builtin.set_fact:
             maintenance_failed: true
-        - name: Debug check results
+        - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 5 FAILED: Stale maintenance check error — skipping"
 
@@ -433,15 +433,15 @@
             login_password: "{{ logging_db_password }}"
             login_db: "{{ logging_db_name }}"
             query: "SELECT @@max_connections AS max_conn, (SELECT COUNT(*) FROM information_schema.PROCESSLIST) AS current_conn"
-          register: mariadb_conn_result
+          register: _mariadb_conn_result
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
         - name: Calculate connection percentage
           ansible.builtin.set_fact:
-            _db_max: "{{ mariadb_conn_result.query_result[0][0].max_conn | int }}"
-            _db_current: "{{ mariadb_conn_result.query_result[0][0].current_conn | int }}"
+            _db_max: "{{ _mariadb_conn_result.query_result[0][0].max_conn | int }}"
+            _db_current: "{{ _mariadb_conn_result.query_result[0][0].current_conn | int }}"
 
         - name: Compute connection percent
           ansible.builtin.set_fact:
@@ -459,14 +459,14 @@
             query: "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_COMMENT LIKE '%%crashed%%'"
             positional_args:
               - "{{ logging_db_name }}"
-          register: crashed_tables_result
+          register: _crashed_tables_result
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
           check_mode: false
 
         - name: Parse crashed tables
           ansible.builtin.set_fact:
-            _crashed_tables: "{{ crashed_tables_result.query_result[0] | map(attribute='TABLE_NAME') | list }}"
+            _crashed_tables: "{{ _crashed_tables_result.query_result[0] | map(attribute='TABLE_NAME') | list }}"
 
         - name: Record MariaDB health result
           ansible.builtin.set_fact:
@@ -489,7 +489,7 @@
         - name: Set maintenance failed (MariaDB health check error)
           ansible.builtin.set_fact:
             maintenance_failed: true
-        - name: Debug check results
+        - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 6 FAILED: MariaDB health check error — skipping"
 
@@ -502,10 +502,10 @@
             method: GET
             status_code: 200
             timeout: 10
-          register: wan_result
+          register: _wan_result
           retries: 3
           delay: 5
-          until: wan_result is succeeded
+          until: _wan_result is succeeded
 
         - name: Record WAN connectivity result
           ansible.builtin.set_fact:
@@ -583,7 +583,7 @@
         - name: Set maintenance failed (appliance check error)
           ansible.builtin.set_fact:
             maintenance_failed: true
-        - name: Debug check results
+        - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 8 FAILED: Appliance reachability check error — skipping"
 
@@ -593,6 +593,7 @@
 - name: Check health — gather per-host metrics
   hosts: "{{ health_check_groups | join(':') }}"
   gather_facts: true
+  gather_subset: ['!all', 'date_time', 'hardware']
   ignore_unreachable: true
   vars_files:
     - vars/secrets.yaml
@@ -645,14 +646,14 @@
               }
               END { print max + 0; print detail }
             '
-          register: disk_raw
+          register: _disk_raw
           changed_when: false
           check_mode: false
 
         - name: Parse disk results
           ansible.builtin.set_fact:
-            disk_max_pct: "{{ disk_raw.stdout_lines[0] | default('0') | int }}"
-            disk_detail: "{{ disk_raw.stdout_lines[1] | default('') }}"
+            disk_max_pct: "{{ _disk_raw.stdout_lines[0] | default('0') | int }}"
+            disk_detail: "{{ _disk_raw.stdout_lines[1] | default('') }}"
 
         - name: Record disk space result
           ansible.builtin.set_fact:
@@ -712,13 +713,13 @@
       block:
         - name: Read 5-minute load average
           ansible.builtin.shell: awk '{print $2}' /proc/loadavg
-          register: load_raw
+          register: _load_raw
           changed_when: false
           check_mode: false
 
         - name: Evaluate load against threshold
           ansible.builtin.set_fact:
-            load_5m: "{{ load_raw.stdout | float }}"
+            load_5m: "{{ _load_raw.stdout | float }}"
             load_threshold: "{{ (ansible_processor_vcpus | int * health_cpu_load_multiplier) | round(2) }}"
 
         - name: Record CPU load result
@@ -750,7 +751,7 @@
             journalctl -p err
             --since "{{ hostvars['localhost']['last_check'] | replace('T', ' ') | replace('Z', '') }}"
             --no-pager -q 2>/dev/null | sort -u | wc -l
-          register: journal_raw
+          register: _journal_raw
           changed_when: false
           failed_when: false
           check_mode: false
@@ -761,11 +762,11 @@
               {{
                 host_health_issues + [{
                   'check_name': 'journal_errors',
-                  'status': 'warning' if journal_raw.stdout | int >= health_journal_errors_max else 'ok',
-                  'value': journal_raw.stdout | string + ' errors',
+                  'status': 'warning' if _journal_raw.stdout | int >= health_journal_errors_max else 'ok',
+                  'value': _journal_raw.stdout | string + ' errors',
                   'detail': (
-                    journal_raw.stdout | string + ' journal errors since last check'
-                    if journal_raw.stdout | int >= health_journal_errors_max else ''
+                    _journal_raw.stdout | string + ' journal errors since last check'
+                    if _journal_raw.stdout | int >= health_journal_errors_max else ''
                   )
                 }]
               }}
@@ -784,7 +785,7 @@
             journalctl -k
             --since "{{ hostvars['localhost']['last_check'] | replace('T', ' ') | replace('Z', '') }}"
             --no-pager -q 2>/dev/null | grep -c "Out of memory" || true
-          register: oom_count_raw
+          register: _oom_count_raw
           changed_when: false
           failed_when: false
           check_mode: false
@@ -794,11 +795,11 @@
             journalctl -k
             --since "{{ hostvars['localhost']['last_check'] | replace('T', ' ') | replace('Z', '') }}"
             --no-pager -q 2>/dev/null | grep "Killed process" | awk '{print $NF}' | sort -u | head -5 || true
-          register: oom_procs_raw
+          register: _oom_procs_raw
           changed_when: false
           failed_when: false
           check_mode: false
-          when: oom_count_raw.stdout | int >= health_oom_kills_max
+          when: _oom_count_raw.stdout | int >= health_oom_kills_max
 
         - name: Record OOM kill result
           ansible.builtin.set_fact:
@@ -806,14 +807,14 @@
               {{
                 host_health_issues + [{
                   'check_name': 'oom_kills',
-                  'status': 'critical' if oom_count_raw.stdout | int >= health_oom_kills_max else 'ok',
-                  'value': oom_count_raw.stdout | string + ' kills',
+                  'status': 'critical' if _oom_count_raw.stdout | int >= health_oom_kills_max else 'ok',
+                  'value': _oom_count_raw.stdout | string + ' kills',
                   'detail': (
-                    oom_count_raw.stdout | string + ' OOM kills — '
-                    + ('processes: ' + oom_procs_raw.stdout_lines | join(', ')
-                       if (oom_procs_raw is defined and oom_procs_raw.stdout_lines | default([]) | length > 0)
+                    _oom_count_raw.stdout | string + ' OOM kills — '
+                    + ('processes: ' + _oom_procs_raw.stdout_lines | join(', ')
+                       if (_oom_procs_raw is defined and _oom_procs_raw.stdout_lines | default([]) | length > 0)
                        else 'process names unavailable')
-                    if oom_count_raw.stdout | int >= health_oom_kills_max else ''
+                    if _oom_count_raw.stdout | int >= health_oom_kills_max else ''
                   )
                 }]
               }}
@@ -836,7 +837,7 @@
                 echo "$name"
               fi
             done
-          register: stopped_raw
+          register: _stopped_raw
           changed_when: false
           failed_when: false
           check_mode: false
@@ -844,15 +845,15 @@
         - name: Find unhealthy containers
           ansible.builtin.shell: >
             docker ps --filter "health=unhealthy" --format "{% raw %}{{.Names}}{% endraw %}" 2>/dev/null || true
-          register: unhealthy_raw
+          register: _unhealthy_raw
           changed_when: false
           failed_when: false
           check_mode: false
 
         - name: Record Docker health result
           ansible.builtin.set_fact:
-            docker_stopped: "{{ stopped_raw.stdout_lines | default([]) }}"
-            docker_unhealthy: "{{ unhealthy_raw.stdout_lines | default([]) }}"
+            docker_stopped: "{{ _stopped_raw.stdout_lines | default([]) }}"
+            docker_unhealthy: "{{ _unhealthy_raw.stdout_lines | default([]) }}"
 
         - name: Build Docker result
           ansible.builtin.set_fact:
@@ -915,7 +916,7 @@
               fi
             done < <(smartctl --scan 2>/dev/null | awk '{print $1}')
             echo "${failed:-ok}"
-          register: smart_raw
+          register: _smart_raw
           changed_when: false
           failed_when: false
           check_mode: false
@@ -927,16 +928,16 @@
                 host_health_issues + [{
                   'check_name': 'smart_health',
                   'status': (
-                    'ok' if smart_raw.stdout | trim in ['ok', 'no_smartctl', '']
+                    'ok' if _smart_raw.stdout | trim in ['ok', 'no_smartctl', '']
                     else 'critical'
                   ),
                   'value': (
-                    'all ok' if smart_raw.stdout | trim == 'ok'
-                    else ('not installed' if smart_raw.stdout | trim == 'no_smartctl'
-                    else ('not checked' if smart_raw.stdout | trim == ''
-                    else smart_raw.stdout | trim | split | length | string + ' disk(s) failing'))
+                    'all ok' if _smart_raw.stdout | trim == 'ok'
+                    else ('not installed' if _smart_raw.stdout | trim == 'no_smartctl'
+                    else ('not checked' if _smart_raw.stdout | trim == ''
+                    else _smart_raw.stdout | trim | split | length | string + ' disk(s) failing'))
                   ),
-                  'detail': '' if smart_raw.stdout | trim in ['ok', 'no_smartctl', ''] else smart_raw.stdout | trim
+                  'detail': '' if _smart_raw.stdout | trim in ['ok', 'no_smartctl', ''] else _smart_raw.stdout | trim
                 }]
               }}
 
@@ -953,16 +954,16 @@
         - name: Get cluster quorum status
           become: true
           ansible.builtin.shell: pvecm status 2>/dev/null
-          register: pvecm_raw
+          register: _pvecm_raw
           changed_when: false
           failed_when: false
           check_mode: false
 
         - name: Parse cluster status
           ansible.builtin.set_fact:
-            _pvecm_quorate: "{{ pvecm_raw.stdout | regex_search('Quorate:\\s+Yes') is not none }}"
-            _pvecm_total: "{{ pvecm_raw.stdout | regex_search('Total votes:\\s+(\\d+)', '\\1') | default(['?'], true) | first }}"
-            _pvecm_expected: "{{ pvecm_raw.stdout | regex_search('Expected votes:\\s+(\\d+)', '\\1') | default(['?'], true) | first }}"
+            _pvecm_quorate: "{{ _pvecm_raw.stdout | regex_search('Quorate:\\s+Yes') is not none }}"
+            _pvecm_total: "{{ _pvecm_raw.stdout | regex_search('Total votes:\\s+(\\d+)', '\\1') | default(['?'], true) | first }}"
+            _pvecm_expected: "{{ _pvecm_raw.stdout | regex_search('Expected votes:\\s+(\\d+)', '\\1') | default(['?'], true) | first }}"
 
         - name: Record cluster health result
           ansible.builtin.set_fact:
@@ -972,7 +973,7 @@
                   'check_name': 'pve_cluster',
                   'status': 'ok' if _pvecm_quorate else 'critical',
                   'value': _pvecm_total + '/' + _pvecm_expected + ' nodes' + (' quorate' if _pvecm_quorate else ' NOT quorate'),
-                  'detail': '' if _pvecm_quorate else pvecm_raw.stdout | truncate(300)
+                  'detail': '' if _pvecm_quorate else _pvecm_raw.stdout | truncate(300)
                 }]
               }}
 
@@ -992,7 +993,7 @@
           ansible.builtin.shell: |
             if ! command -v ceph >/dev/null 2>&1; then echo "CEPH_NOT_INSTALLED"; exit 0; fi
             ceph health 2>/dev/null || echo "CEPH_ERROR"
-          register: ceph_raw
+          register: _ceph_raw
           changed_when: false
           failed_when: false
           check_mode: false
@@ -1004,15 +1005,15 @@
                 host_health_issues + [{
                   'check_name': 'ceph_health',
                   'status': (
-                    'ok' if ceph_raw.stdout | trim in ['HEALTH_OK', 'CEPH_NOT_INSTALLED']
-                    else ('warning' if 'HEALTH_WARN' in ceph_raw.stdout
+                    'ok' if _ceph_raw.stdout | trim in ['HEALTH_OK', 'CEPH_NOT_INSTALLED']
+                    else ('warning' if 'HEALTH_WARN' in _ceph_raw.stdout
                     else 'critical')
                   ),
                   'value': (
-                    'not configured' if ceph_raw.stdout | trim == 'CEPH_NOT_INSTALLED'
-                    else ceph_raw.stdout | trim | truncate(60)
+                    'not configured' if _ceph_raw.stdout | trim == 'CEPH_NOT_INSTALLED'
+                    else _ceph_raw.stdout | trim | truncate(60)
                   ),
-                  'detail': '' if ceph_raw.stdout | trim in ['HEALTH_OK', 'CEPH_NOT_INSTALLED'] else ceph_raw.stdout | trim
+                  'detail': '' if _ceph_raw.stdout | trim in ['HEALTH_OK', 'CEPH_NOT_INSTALLED'] else _ceph_raw.stdout | trim
                 }]
               }}
 
@@ -1044,16 +1045,16 @@
             done <<< "$certs"
             echo "$days_min"
             echo "${expiring:-}"
-          register: ssl_raw
+          register: _ssl_raw
           changed_when: false
           failed_when: false
           check_mode: false
 
         - name: Parse SSL cert result
           ansible.builtin.set_fact:
-            _ssl_no_certs: "{{ ssl_raw.stdout_lines[0] | default('no_certs') == 'no_certs' }}"
-            _ssl_days: "{{ ssl_raw.stdout_lines[0] | default('9999') | int }}"
-            _ssl_detail: "{{ ssl_raw.stdout_lines[1] | default('') | trim }}"
+            _ssl_no_certs: "{{ _ssl_raw.stdout_lines[0] | default('no_certs') == 'no_certs' }}"
+            _ssl_days: "{{ _ssl_raw.stdout_lines[0] | default('9999') | int }}"
+            _ssl_detail: "{{ _ssl_raw.stdout_lines[1] | default('') | trim }}"
 
         - name: Record SSL cert check
           ansible.builtin.set_fact:
@@ -1100,7 +1101,7 @@
             else
               echo "no_ntp_tool"
             fi
-          register: ntp_raw
+          register: _ntp_raw
           changed_when: false
           failed_when: false
           check_mode: false
@@ -1112,20 +1113,20 @@
                 host_health_issues + [{
                   'check_name': 'ntp_sync',
                   'status': (
-                    'ok' if ntp_raw.stdout | trim in ['synced', 'no_ntp_tool']
-                    else ('warning' if ntp_raw.stdout | trim == 'not_synced'
-                    else ('warning' if ntp_raw.stdout | trim == 'no_peer'
-                    else ('warning' if (ntp_raw.stdout | trim | float | abs) > health_ntp_max_offset_ms
+                    'ok' if _ntp_raw.stdout | trim in ['synced', 'no_ntp_tool']
+                    else ('warning' if _ntp_raw.stdout | trim == 'not_synced'
+                    else ('warning' if _ntp_raw.stdout | trim == 'no_peer'
+                    else ('warning' if (_ntp_raw.stdout | trim | float | abs) > health_ntp_max_offset_ms
                     else 'ok')))
                   ),
                   'value': (
-                    'synced' if ntp_raw.stdout | trim == 'synced'
-                    else ('no NTP tool' if ntp_raw.stdout | trim == 'no_ntp_tool'
-                    else ('not synced' if ntp_raw.stdout | trim == 'not_synced'
-                    else ('no peer' if ntp_raw.stdout | trim == 'no_peer'
-                    else ntp_raw.stdout | trim + 'ms offset')))
+                    'synced' if _ntp_raw.stdout | trim == 'synced'
+                    else ('no NTP tool' if _ntp_raw.stdout | trim == 'no_ntp_tool'
+                    else ('not synced' if _ntp_raw.stdout | trim == 'not_synced'
+                    else ('no peer' if _ntp_raw.stdout | trim == 'no_peer'
+                    else _ntp_raw.stdout | trim + 'ms offset')))
                   ),
-                  'detail': '' if ntp_raw.stdout | trim in ['synced', 'no_ntp_tool'] else ntp_raw.stdout | trim
+                  'detail': '' if _ntp_raw.stdout | trim in ['synced', 'no_ntp_tool'] else _ntp_raw.stdout | trim
                 }]
               }}
 
@@ -1140,7 +1141,7 @@
       block:
         - name: Test DNS resolution
           ansible.builtin.shell: "getent hosts {{ health_dns_hostname }} >/dev/null 2>&1 && echo ok || echo fail"
-          register: dns_raw
+          register: _dns_raw
           changed_when: false
           failed_when: false
           check_mode: false
@@ -1151,9 +1152,9 @@
               {{
                 host_health_issues + [{
                   'check_name': 'dns_resolution',
-                  'status': 'ok' if dns_raw.stdout | trim == 'ok' else 'critical',
-                  'value': 'ok' if dns_raw.stdout | trim == 'ok' else 'failed',
-                  'detail': '' if dns_raw.stdout | trim == 'ok' else 'cannot resolve ' + health_dns_hostname
+                  'status': 'ok' if _dns_raw.stdout | trim == 'ok' else 'critical',
+                  'value': 'ok' if _dns_raw.stdout | trim == 'ok' else 'failed',
+                  'detail': '' if _dns_raw.stdout | trim == 'ok' else 'cannot resolve ' + health_dns_hostname
                 }]
               }}
 
@@ -1179,15 +1180,15 @@
             # DISK_NP_DSBL with empty id is just an unassigned slot (e.g. unused parity2).
             missing=$(awk '/^id=/{id=$0} /^status="DISK_NP_DSBL"/{if(id !~ /^id=""$/) c++} END{print c+0}' "$ini")
             echo "${state:-unknown}|$(( dsbl + missing ))"
-          register: unraid_array_raw
+          register: _unraid_array_raw
           changed_when: false
           failed_when: false
           check_mode: false
 
         - name: Parse unRAID array status
           ansible.builtin.set_fact:
-            _array_state: "{{ unraid_array_raw.stdout.split('|')[0] | default('unknown') }}"
-            _array_disabled: "{{ unraid_array_raw.stdout.split('|')[1] | default('0') }}"
+            _array_state: "{{ _unraid_array_raw.stdout.split('|')[0] | default('unknown') }}"
+            _array_disabled: "{{ _unraid_array_raw.stdout.split('|')[1] | default('0') }}"
 
         - name: Record unRAID array result
           ansible.builtin.set_fact:
@@ -1227,14 +1228,14 @@
           become: true
           ansible.builtin.shell: >
             proxmox-backup-manager datastore list --output-format json 2>/dev/null || echo "[]"
-          register: pbs_raw
+          register: _pbs_raw
           changed_when: false
           failed_when: false
           check_mode: false
 
         - name: Parse PBS datastore results
           ansible.builtin.set_fact:
-            _pbs_stores: "{{ pbs_raw.stdout | from_json }}"
+            _pbs_stores: "{{ _pbs_raw.stdout | from_json }}"
 
         - name: Record PBS datastore result
           ansible.builtin.set_fact:
@@ -1276,15 +1277,15 @@
               count=$(echo "$pools" | wc -l | tr -d ' ')
               echo "ok|${count}"
             fi
-          register: zfs_pool_raw
+          register: _zfs_pool_raw
           changed_when: false
           failed_when: false
           check_mode: false
 
         - name: Parse ZFS pool result
           ansible.builtin.set_fact:
-            _zfs_status: "{{ zfs_pool_raw.stdout.split('|')[0] | default('unknown') }}"
-            _zfs_detail: "{{ zfs_pool_raw.stdout.split('|')[1] | default('') | trim }}"
+            _zfs_status: "{{ _zfs_pool_raw.stdout.split('|')[0] | default('unknown') }}"
+            _zfs_detail: "{{ _zfs_pool_raw.stdout.split('|')[1] | default('') | trim }}"
 
         - name: Record ZFS pool result
           ansible.builtin.set_fact:
@@ -1337,15 +1338,15 @@
             else
               echo "ok|${count}"
             fi
-          register: btrfs_raw
+          register: _btrfs_raw
           changed_when: false
           failed_when: false
           check_mode: false
 
         - name: Parse BTRFS result
           ansible.builtin.set_fact:
-            _btrfs_status: "{{ btrfs_raw.stdout.split('|')[0] | default('unknown') }}"
-            _btrfs_detail: "{{ btrfs_raw.stdout.split('|')[1] | default('') | trim }}"
+            _btrfs_status: "{{ _btrfs_raw.stdout.split('|')[0] | default('unknown') }}"
+            _btrfs_detail: "{{ _btrfs_raw.stdout.split('|')[1] | default('') | trim }}"
 
         - name: Record BTRFS health result
           ansible.builtin.set_fact:
@@ -1379,25 +1380,25 @@
       block:
         - name: Check Docker container HTTP endpoints
           ansible.builtin.uri:
-            url: "{{ endpoint.url }}"
+            url: "{{ _endpoint.url }}"
             method: GET
-            status_code: "{{ endpoint.status_code | default(200) }}"
+            status_code: "{{ _endpoint.status_code | default(200) }}"
             timeout: 10
-            validate_certs: "{{ endpoint.validate_certs | default(true) }}"
+            validate_certs: "{{ _endpoint.validate_certs | default(true) }}"
           loop: "{{ docker_health_endpoints }}"
           loop_control:
-            loop_var: endpoint
-            label: "{{ endpoint.name }}"
-          register: http_results
+            loop_var: _endpoint
+            label: "{{ _endpoint.name }}"
+          register: _http_results
           ignore_errors: true
 
         - name: Build HTTP health results
           ansible.builtin.set_fact:
             _http_failures: >-
-              {{ http_results.results | default([])
+              {{ _http_results.results | default([])
                  | selectattr('failed', 'defined')
                  | selectattr('failed')
-                 | map(attribute='endpoint')
+                 | map(attribute='_endpoint')
                  | map(attribute='name')
                  | list }}
 
@@ -1429,6 +1430,7 @@
 - name: Check health — aggregate and alert
   hosts: localhost
   gather_facts: true
+  gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
     - vars/semaphore_check.yaml
@@ -1487,7 +1489,7 @@
           {{ '🔴' if (hostvars[item]['host_health_issues'] | default([]) | selectattr('status', 'equalto', 'critical') | list | length > 0) else '⚠️' }}
           System Health — {{ item }}
         discord_color: >-
-          {{ 16711680 if (hostvars[item]['host_health_issues'] | default([]) | selectattr('status', 'equalto', 'critical') | list | length > 0) else 16753920 }}
+          {{ discord_color_failure if (hostvars[item]['host_health_issues'] | default([]) | selectattr('status', 'equalto', 'critical') | list | length > 0) else discord_color_warning }}
         discord_author: "{{ item }}"
         discord_fields: >-
           {{
@@ -1561,7 +1563,7 @@
     - name: Log maintenance to MariaDB
       include_tasks: tasks/log_mariadb.yaml
       vars:
-        log_table: "maintenance"
+        log_table: maintenance
         log_application: "{{ maintenance_name }}"
         log_hostname: "{{ controller_fqdn }}"
         log_type: "{{ maintenance_type }}"

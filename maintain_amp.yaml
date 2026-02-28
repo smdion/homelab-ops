@@ -15,6 +15,7 @@
 - name: Maintain AMP game servers
   hosts: amp
   gather_facts: true
+  gather_subset: ['!all', 'date_time']
   become: true
   vars_files:
     - vars/secrets.yaml
@@ -137,8 +138,8 @@
         - name: Vacuum old journal logs
           ansible.builtin.command:
             cmd: journalctl --vacuum-time={{ amp_journal_max_age }}
-          register: journal_result
-          changed_when: "'freed' in journal_result.stderr and 'freed 0B' not in journal_result.stderr"
+          register: _journal_result
+          changed_when: "'freed' in _journal_result.stderr and 'freed 0B' not in _journal_result.stderr"
           when: amp_scope is not defined or amp_scope == 'journal'
 
         # ── Temp Backup Cleanup ───────────────────────────────────────────
@@ -179,7 +180,7 @@
         - name: Log maintenance to MariaDB
           include_tasks: tasks/log_mariadb.yaml
           vars:
-            log_table: "maintenance"
+            log_table: maintenance
             log_application: "{{ maintenance_name }}"
             log_hostname: "{{ inventory_hostname }}"
             log_type: "{{ maintenance_type }}"

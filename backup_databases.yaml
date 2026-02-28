@@ -1,7 +1,7 @@
 ---
 # Back up databases from remote Docker containers.
 # PostgreSQL/MariaDB: SQL dump piped through gzip. InfluxDB: portable backup → tar.gz.
-# Sends Discord notification and logs result to MariaDB.
+# Sends notification and logs result to MariaDB.
 #
 # Usage:
 #   ansible-playbook backup_databases.yaml -e hosts_variable=db_primary_postgres
@@ -88,7 +88,7 @@
             backup_db_failed: true
 
       always:
-        - name: Build combined Discord fields for backup results
+        - name: Build combined notification fields for backup results
           ansible.builtin.set_fact:
             _db_discord_fields: >-
               [
@@ -100,7 +100,7 @@
                {% endfor %}]
           when: combined_results | length > 0
 
-        - name: Send combined DB backup Discord notification
+        - name: Send combined DB backup notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"
@@ -117,7 +117,7 @@
             discord_fields: "{{ _db_discord_fields }}"
           when: combined_results | length > 0
 
-        - name: Send Discord notification for unhandled block error
+        - name: Send notification for unhandled block error
           include_tasks: tasks/notify.yaml
           when: backup_db_failed and combined_results | length == 0
           vars:
@@ -132,13 +132,13 @@
           include_tasks: tasks/log_mariadb.yaml
           loop: "{{ combined_results }}"
           loop_control:
-            loop_var: db_result
+            loop_var: _db_result
           vars:
             log_table: backups
-            log_application: "{{ db_result.db_name }}-db"
+            log_application: "{{ _db_result.db_name }}-db"
             log_hostname: "{{ inventory_hostname }}"
-            log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else '') + db_result.file_name }}"
-            log_file_size: "{{ (db_result.file_size / 1024 / 1024) | round(2) if db_result.backup_rc == 0 else 0 }}"
+            log_file_name: "{{ ('FAILED_' if _db_result.backup_rc != 0 else '') + _db_result.file_name }}"
+            log_file_size: "{{ (_db_result.file_size / 1024 / 1024) | round(2) if _db_result.backup_rc == 0 else 0 }}"
             log_backup_level: "db"
 
         # ===== CLEANUP RUN-SCOPED TEMP DIRECTORY =====

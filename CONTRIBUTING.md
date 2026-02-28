@@ -27,7 +27,7 @@ runs state-gathering shell tasks without making changes:
 ansible-playbook maintain_health.yaml -i inventory.yaml --vault-password-file ~/.vault_pass --check
 ```
 
-Check mode skips Discord notifications, DB writes, and destructive operations. Shell tasks that
+Check mode skips notifications, DB writes, and destructive operations. Shell tasks that
 gather state (not change it) use `check_mode: false` to run even in check mode.
 
 ### Live testing
@@ -59,7 +59,7 @@ ansible-playbook backup_hosts.yaml -i inventory.yaml \
 
 ## Restore / Verify Playbooks
 
-Restore and verify playbooks follow the same `block`/`rescue`/`always` error handling, Discord
+Restore and verify playbooks follow the same `block`/`rescue`/`always` error handling,
 notification, and MariaDB logging patterns as backup playbooks. Additional conventions:
 
 - **Safety gate:** Destructive restore playbooks (`restore_databases.yaml`, `restore_hosts.yaml`

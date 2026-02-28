@@ -2,7 +2,7 @@
 # Restore database dumps from backup.
 # Safety-gated with confirm=yes. Supports restoring a single DB
 # on a shared instance, or all DBs. Creates pre-restore safety backup by default.
-# Sends Discord notification and logs result to restores table.
+# Sends notification and logs result to restores table.
 #
 # Usage:
 #   # Dry run (omit confirm)
@@ -93,11 +93,11 @@
 
         - name: Assert backup files exist
           ansible.builtin.assert:
-            that: _backup_files.results[idx].stdout | length > 0
+            that: _backup_files.results[_idx].stdout | length > 0
             fail_msg: "No backup found for database {{ item }} on controller{{ ' for date ' + restore_date if restore_date | default('') | length > 0 else '' }}"
           loop: "{{ _restore_db_list }}"
           loop_control:
-            index_var: idx
+            index_var: _idx
 
         - name: Create pre-restore safety backup
           include_tasks: tasks/pre_restore_safety_dump.yaml
@@ -117,11 +117,11 @@
 
         - name: Copy backup files to target host
           ansible.builtin.copy:
-            src: "{{ _backup_files.results[idx].stdout }}"
+            src: "{{ _backup_files.results[_idx].stdout }}"
             dest: "{{ backup_tmp_dir }}/restore_{{ item }}.{{ backup_ext | default('sql') }}"
           loop: "{{ _restore_db_list }}"
           loop_control:
-            index_var: idx
+            index_var: _idx
           become: true
           when: not ansible_check_mode
 
@@ -188,15 +188,15 @@
             combined_results: >-
               {{
                 combined_results + [{
-                  'db_name': _restore_db_list[idx],
-                  'source_file': _backup_files.results[idx].stdout | basename,
-                  'table_count': _db_count_results[_restore_db_list[idx]] | default('0'),
+                  'db_name': _restore_db_list[_idx],
+                  'source_file': _backup_files.results[_idx].stdout | basename,
+                  'table_count': _db_count_results[_restore_db_list[_idx]] | default('0'),
                   'status': 'success'
                 }]
               }}
           loop: "{{ range(0, _restore_db_list | length) | list }}"
           loop_control:
-            loop_var: idx
+            loop_var: _idx
           when: not ansible_check_mode
 
       rescue:
@@ -215,7 +215,7 @@
             - db_container_deps[item] | default([]) | length > 0
 
       always:
-        - name: Build combined Discord fields for restore results
+        - name: Build combined notification fields for restore results
           ansible.builtin.set_fact:
             _restore_discord_fields: >-
               [
@@ -227,7 +227,7 @@
                {% endfor %}]
           when: combined_results | length > 0
 
-        - name: Send combined restore Discord notification
+        - name: Send combined restore notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"
@@ -238,7 +238,7 @@
             discord_fields: "{{ _restore_discord_fields }}"
           when: combined_results | length > 0
 
-        - name: Send Discord notification for unhandled block error
+        - name: Send notification for unhandled block error
           include_tasks: tasks/notify.yaml
           when: restore_failed and combined_results | length == 0
           vars:
@@ -253,16 +253,16 @@
           include_tasks: tasks/log_restore.yaml
           loop: "{{ combined_results }}"
           loop_control:
-            loop_var: restore_result
+            loop_var: _restore_result
           vars:
             log_hostname: "{{ inventory_hostname }}"
-            restore_application: "{{ restore_result.db_name }}-db"
-            restore_source_file: "{{ restore_result.source_file }}"
+            restore_application: "{{ _restore_result.db_name }}-db"
+            restore_source_file: "{{ _restore_result.source_file }}"
             restore_type: "{{ backup_type }}"
             restore_subtype: "{{ backup_subtype }}"
             restore_operation: "restore"
             restore_status: "{{ 'failed' if restore_failed else 'success' }}"
-            restore_detail: "{{ restore_result.table_count }} {{ 'measurements' if is_influxdb | default(false) | bool else 'tables' }} restored"
+            restore_detail: "{{ _restore_result.table_count }} {{ 'measurements' if is_influxdb | default(false) | bool else 'tables' }} restored"
 
         - name: Log unhandled failure to MariaDB
           include_tasks: tasks/log_restore.yaml

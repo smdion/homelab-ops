@@ -179,17 +179,17 @@
             - not (skip_pre_backup | default(false) | bool)
             - not ansible_check_mode
 
-        - name: Restore DB — {{ item }}
+        - name: Restore DB — {{ _restore_db_item }}
           include_tasks: tasks/db_restore.yaml
           loop: "{{ hostvars['localhost']._app_cfg.db_names | default([]) }}"
           loop_control:
-            loop_var: item
+            loop_var: _restore_db_item
           vars:
-            _db_name: "{{ item }}"
+            _db_name: "{{ _restore_db_item }}"
             _db_container: "{{ db_container_name }}"
             _db_username: "{{ db_username }}"
             _db_password: "{{ db_password | default('') }}"
-            _db_source_file: "{{ _app_restore_tmp }}/{{ item }}.sql.gz"
+            _db_source_file: "{{ _app_restore_tmp }}/{{ _restore_db_item }}.sql.gz"
             _db_is_postgres: "{{ is_postgres | default(false) }}"
             _db_is_mariadb: "{{ is_mariadb | default(false) }}"
             _db_is_influxdb: "{{ is_influxdb | default(false) }}"

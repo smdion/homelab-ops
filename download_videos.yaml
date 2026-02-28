@@ -1,6 +1,6 @@
 ---
 # Download videos via MeTube / yt-dlp.
-# Runs yt-dlp inside the metube container, sends per-video Discord notifications,
+# Runs yt-dlp inside the metube container, sends per-video notifications,
 # and cleans up old temp download files.
 #
 # Parameterized on config_file — each Semaphore template passes a different value
@@ -9,7 +9,7 @@
 #
 # NOTE: This playbook intentionally does not log to the maintenance table. Downloads
 # run frequently (multiple times daily) and would flood the DB with low-value records.
-# Per-video Discord notifications provide sufficient visibility. The stale_maintenance
+# Per-video notifications provide sufficient visibility. The stale_maintenance
 # health check excludes this playbook.
 #
 # Usage:
@@ -64,9 +64,9 @@
           ansible.builtin.command: >
             docker exec {{ metube_container }}
             yt-dlp --config-location {{ metube_config_path }}
-          register: ytdlp_result
+          register: _ytdlp_result
           changed_when: true
-          failed_when: ytdlp_result.rc >= 2
+          failed_when: _ytdlp_result.rc >= 2
 
         # -- Read download manifest ------------------------------------------
         - name: Check manifest file size
@@ -88,7 +88,7 @@
           become: true
           ansible.builtin.shell: >
             docker exec {{ metube_container }} cat {{ metube_manifest }} 2>/dev/null || true
-          register: manifest_raw
+          register: _manifest_raw
           changed_when: false
           check_mode: false
 
@@ -110,12 +110,12 @@
           register: _parsed_manifest
           become: true
           changed_when: false
-          when: manifest_raw.stdout | default('') | length > 0
+          when: _manifest_raw.stdout | default('') | length > 0
 
         - name: Set downloaded videos fact
           ansible.builtin.set_fact:
             downloaded_videos: "{{ _parsed_manifest.stdout | default('[]') | from_json }}"
-          when: manifest_raw.stdout | default('') | length > 0
+          when: _manifest_raw.stdout | default('') | length > 0
 
         # -- Clean temp downloads --------------------------------------------
         - name: Find old temp download files
@@ -143,40 +143,40 @@
             download_failed: true
 
       always:
-        # -- Per-video Discord notifications ----------------------------------
-        - name: Send per-video Discord notification
+        # -- Per-video notifications -------------------------------------------
+        - name: Send per-video notification
           include_tasks: tasks/notify.yaml
           loop: "{{ downloaded_videos }}"
           loop_control:
-            loop_var: video
-            label: "{{ video.title | default('unknown') }}"
+            loop_var: _video
+            label: "{{ _video.title | default('unknown') }}"
           when:
             - downloaded_videos | length > 0
             - not download_failed
           vars:
             discord_webhook_id: "{{ discord_download_webhook_id }}"
             discord_webhook_token: "{{ discord_download_webhook_token }}"
-            discord_username: "{{ video.uploader }} - MeTube Bot"
+            discord_username: "{{ _video.uploader }} - MeTube Bot"
             discord_avatar: "{{ metube_avatar }}"
-            discord_title: "{{ video.title }}"
-            discord_description: "{{ video.description | default('') | truncate(4096, True, '...') }}"
+            discord_title: "{{ _video.title }}"
+            discord_description: "{{ _video.description | default('') | truncate(4096, True, '...') }}"
             discord_color: "{{ discord_color_success }}"
-            discord_url: "{{ video.url }}"
-            discord_author: "Channel: {{ video.uploader }}"
-            discord_author_url: "{{ video.channel_url if video.channel_url | default('') | length > 0 else omit }}"
-            discord_author_icon: "{{ platform_icons[video.extractor] | default(default_platform_icon) }}"
-            discord_image: "{{ video.thumbnail }}"
+            discord_url: "{{ _video.url }}"
+            discord_author: "Channel: {{ _video.uploader }}"
+            discord_author_url: "{{ _video.channel_url if _video.channel_url | default('') | length > 0 else omit }}"
+            discord_author_icon: "{{ platform_icons[_video.extractor] | default(default_platform_icon) }}"
+            discord_image: "{{ _video.thumbnail }}"
             discord_fields:
               - name: "Platform"
-                value: "{{ platform_names[video.extractor] | default(video.extractor) }}"
+                value: "{{ platform_names[_video.extractor] | default(_video.extractor) }}"
               - name: "Duration"
-                value: "{{ video.duration }}"
+                value: "{{ _video.duration }}"
             discord_footer:
               text: "metube.{{ domain_ext }}"
               icon_url: "{{ metube_avatar }}"
 
         # -- Failure alert (operational webhook) ------------------------------
-        - name: Send Discord alert on failure
+        - name: Send alert on failure
           include_tasks: tasks/notify.yaml
           when: download_failed
           vars:

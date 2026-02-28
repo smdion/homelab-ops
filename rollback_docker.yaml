@@ -48,10 +48,11 @@
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
 #     --limit <hostname>
 
-- name: Rollback — Docker Containers
+- name: Roll back Docker containers
   hosts: "{{ hosts_variable }}"
   serial: 1
   gather_facts: true
+  gather_subset: ['!all', 'date_time', 'hardware']
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
