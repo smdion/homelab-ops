@@ -130,6 +130,7 @@
         _stack_backup_results: []
         _amp_backup_results: []
         _original_backup_name: "{{ backup_name }}"
+        _original_backup_url: "{{ backup_url }}"
         _target_stacks: >-
           {{ [stack] if stack is defined
              else backup_stack_order[inventory_hostname]
@@ -173,6 +174,7 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname in groups["docker_run"] | default([])
+            - config_file == 'docker_run'
 
         # ===== STOP DOCKER =====
         - include_tasks: tasks/docker_stop.yaml
@@ -181,6 +183,7 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname in groups["docker_run"] | default([])
+            - config_file == 'docker_run'
 
         # ===== UNVR PROTECT BACKUP VIA API =====
         - name: Trigger UNVR backup
@@ -490,6 +493,7 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname in groups["docker_run"] | default([])
+            - config_file == 'docker_run'
 
         # ===== FETCH AND CLEANUP =====
         - name: Delete prior backup archive for {{ inventory_hostname }} on controller
@@ -531,7 +535,9 @@
         - include_tasks: tasks/docker_start.yaml
           vars:
             _docker_ignore_errors: true
-          when: inventory_hostname in groups["docker_run"] | default([])
+          when:
+            - inventory_hostname in groups["docker_run"] | default([])
+            - config_file == 'docker_run'
 
         # ===== WAIT FOR MARIADB AFTER DOCKER RESTART =====
         - name: Wait for MariaDB logging database after Docker restart
@@ -623,7 +629,7 @@
               {{ discord_color_success if not (backup_failed | bool)
                  else (discord_color_failure if (_stack_backup_results | rejectattr('failed') | list | length == 0)
                        else discord_color_warning) }}
-            discord_url: "{{ backup_url }}"
+            discord_url: "{{ _original_backup_url }}"
             discord_fields: "{{ _stack_discord_fields }}"
           when: inventory_hostname in groups["docker_stacks"] | default([])
 
@@ -651,7 +657,7 @@
               {{ discord_color_success if not (backup_failed | bool)
                  else (discord_color_failure if (_amp_backup_results | rejectattr('failed') | list | length == 0)
                        else discord_color_warning) }}
-            discord_url: "{{ backup_url }}"
+            discord_url: "{{ _original_backup_url }}"
             discord_fields: "{{ _amp_discord_fields }}"
           when: inventory_hostname in groups["amp"] | default([])
 
@@ -663,7 +669,7 @@
             discord_operation: "Backup"
             discord_status: "{{ 'failed' if backup_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if backup_failed else discord_color_success }}"
-            discord_url: "{{ backup_url }}"
+            discord_url: "{{ _original_backup_url }}"
             discord_fields:
               - name: "Stacks"
                 value: "{{ stack_assignments[inventory_hostname] | default([]) | join(', ') }}"
@@ -688,7 +694,7 @@
             discord_status: "failed"
             discord_detail: "containers could not be restarted"
             discord_color: "{{ discord_color_failure }}"
-            discord_url: "{{ backup_url }}"
+            discord_url: "{{ _original_backup_url }}"
             discord_fields:
               - name: "Docker Recovery"
                 value: "Manual intervention required"
