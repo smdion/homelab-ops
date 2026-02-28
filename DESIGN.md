@@ -1088,6 +1088,15 @@ from Docker groups. Currently `docker_run` and `unraid` contain the same hosts, 
 - Docker stop/start in backup must guard on `groups['docker_run']`, not just
   `not in groups['docker_stacks']` (too broad — would target future non-Docker unRAID hosts).
 
+**Docker stop/start for backup on unRAID:** Hosts in both `docker_run` and `unraid` use
+unRAID's `DockerClient.php` (Dynamix Docker Manager plugin) for per-container stop/start via the
+Docker socket API (Mode 4a in `docker_stop.yaml`/`docker_start.yaml`). This keeps unRAID's
+container state consistent with its web UI while preserving `backup_exclude_containers` support —
+critical because Semaphore runs on the unRAID host and must stay running during backup. Containers
+are enumerated via `docker ps` with the exclude filter, then stopped/started individually through
+`DockerClient->stopContainer()`/`startContainer()`. Hosts in `docker_run` but NOT `unraid`
+continue to use per-container `docker stop`/`docker start` with the exclusion list (Mode 4b).
+
 ### Check mode (dry-run) support
 
 All playbooks support `ansible-playbook --check` for safe dry-run previews. Three annotation

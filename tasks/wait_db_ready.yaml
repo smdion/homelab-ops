@@ -1,0 +1,32 @@
+---
+# Wait for a database container to accept connections after Docker restart.
+# Retries docker exec with the engine-specific readiness probe.
+# Implicitly waits for both the container to start and the DB to be ready.
+#
+# Expects (from caller's loaded DB config):
+#   db_container_name, db_username, db_host
+#   is_postgres / is_mariadb / is_influxdb (booleans)
+# Optional:
+#   _db_ready_retries — number of retries (default: 30)
+#   _db_ready_delay   — seconds between retries (default: 5)
+
+- name: "Wait for {{ db_container_name }} to accept connections — {{ _db_config_file }}"
+  become: true
+  ansible.builtin.shell: |
+    {% if is_postgres | default(false) | bool %}
+    docker exec {{ db_container_name }} pg_isready -U {{ db_username }}
+    {% elif is_mariadb | default(false) | bool %}
+    docker exec {{ db_container_name }} mysqladmin ping -u {{ db_username }} --password="$DB_PASSWORD" --silent
+    {% elif is_influxdb | default(false) | bool %}
+    docker exec {{ db_container_name }} influx -execute 'SHOW DATABASES' >/dev/null 2>&1
+    {% endif %}
+  environment:
+    DB_PASSWORD: "{{ db_password | default('') }}"
+  delegate_to: "{{ db_host }}"
+  register: _db_ready
+  retries: "{{ _db_ready_retries | default(30) }}"
+  delay: "{{ _db_ready_delay | default(5) }}"
+  until: _db_ready.rc == 0
+  changed_when: false
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  check_mode: false

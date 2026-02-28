@@ -1,13 +1,18 @@
 ---
-# Stop Docker containers/stacks. Quad-modal: selective containers, selective stacks, all stacks, unRAID.
+# Stop Docker containers/stacks. Five modes (evaluated in priority order):
+#   1. Selective containers (_docker_selective_containers)
+#   2. Selective stacks (_docker_selective_stacks, docker_stacks hosts)
+#   3. All stacks (docker_stacks hosts)
+#   4a. unRAID Docker API stop (docker_run + unraid hosts — DockerClient PHP)
+#   4b. Per-container stop (docker_run non-unraid hosts)
 # Caller gates with `when:` for check_mode, etc.
 #
 # Optional:
 #   _docker_selective_containers — list; stop only these containers (skips all other modes)
-#   _docker_selective_stacks     — list; stop only these stacks (skips all-stacks and unRAID modes)
-#   _docker_exclude_containers   — list; exclude from unRAID enumerate (e.g. backup_exclude_containers)
+#   _docker_selective_stacks     — list; stop only these stacks (skips all-stacks and service/container modes)
+#   _docker_exclude_containers   — list; exclude from docker_run enumerate (e.g. backup_exclude_containers)
 # Registers:
-#   _docker_containers — unRAID container list (referenced by docker_start.yaml)
+#   _docker_containers — docker_run container list (referenced by docker_start.yaml)
 
 - name: Stop named containers (selective)
   become: true
@@ -38,7 +43,8 @@
     - inventory_hostname in groups["docker_stacks"] | default([])
     - inventory_hostname in (stack_assignments | default({}))
 
-- name: Get running Docker containers on unRAID
+# --- Mode 4a/4b shared: enumerate running containers (all docker_run hosts) ---
+- name: Get running Docker containers
   become: true
   ansible.builtin.shell: |
     docker ps --format {% raw %}'{{.Names}}'{% endraw %}{% if _docker_exclude_containers | default([]) | length > 0 %} | grep -viE '({{ _docker_exclude_containers | join("|") }})'{% endif %}
@@ -51,7 +57,26 @@
   changed_when: false
   check_mode: false
 
-- name: Stop Docker containers on unRAID
+# --- Mode 4a: unRAID Docker API stop (per-container via DockerClient) ---
+- name: Stop Docker containers on unRAID via Docker API
+  become: true
+  ansible.builtin.shell: |
+    /usr/bin/php -q -r '
+    require_once "/usr/local/emhttp/plugins/dynamix.docker.manager/include/DockerClient.php";
+    $c = new DockerClient();
+    foreach (array_slice($argv, 1) as $name) {
+      $c->stopContainer($name);
+    }
+    ' {{ _docker_containers.stdout_lines | join(' ') }}
+  when:
+    - _docker_selective_containers is not defined
+    - _docker_selective_stacks is not defined
+    - inventory_hostname in groups["docker_run"] | default([])
+    - inventory_hostname in groups["unraid"] | default([])
+    - _docker_containers.stdout_lines | default([]) | length > 0
+
+# --- Mode 4b: per-container stop (non-unRAID docker_run hosts) ---
+- name: Stop Docker containers (non-unRAID)
   become: true
   ansible.builtin.command:
     argv: "{{ ['docker', 'stop'] + _docker_containers.stdout_lines }}"
@@ -59,4 +84,5 @@
     - _docker_selective_containers is not defined
     - _docker_selective_stacks is not defined
     - inventory_hostname in groups["docker_run"] | default([])
+    - inventory_hostname not in groups["unraid"] | default([])
     - _docker_containers.stdout_lines | default([]) | length > 0
