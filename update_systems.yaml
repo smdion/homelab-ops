@@ -64,7 +64,7 @@
         - name: Abort if cluster is not quorate
           ansible.builtin.fail:
             msg: "PVE cluster is not quorate — aborting update to avoid instability. Run: pvecm status"
-          when: _pvecm_pre.stdout | regex_search('Quorate:\\s+Yes') is none
+          when: (_pvecm_pre.stdout | regex_search('Quorate:\\s+Yes')) is none
 
     - name: Deploy get_push_epoch helper script
       ansible.builtin.copy:
