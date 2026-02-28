@@ -5,7 +5,9 @@
 # is missing from most third-party container images.
 #
 # Optional:
-#   _network_name  — Docker network to verify (default: 'homelab')
+#   _network_name      — Docker network to verify (default: 'homelab')
+#   _db_service_names  — list of DB container names (default: ['postgres', 'mariadb'])
+#   _db_service_ports  — dict of container name → port (default: {postgres: 5432, mariadb: 3306})
 # Sets:
 #   _network_summary — human-readable verification result for logging
 
@@ -16,6 +18,10 @@
       set -e
       network="{{ _network_name | default('homelab') }}"
       errors=0
+
+      # DB service names and ports (passed from caller or defaults)
+      IFS=',' read -ra db_names <<< "$DB_SERVICE_NAMES"
+      IFS=',' read -ra db_ports <<< "$DB_SERVICE_PORTS"
 
       # --- 1. Network membership ---
       containers=$(docker network inspect "$network" \
@@ -31,8 +37,9 @@
       echo ""
       echo "DNS RESOLUTION:"
       db_services=""
-      echo "$containers" | grep -qw postgres && db_services="$db_services postgres"
-      echo "$containers" | grep -qw mariadb && db_services="$db_services mariadb"
+      for db in "${db_names[@]}"; do
+        echo "$containers" | grep -qw "$db" && db_services="$db_services $db"
+      done
 
       if [ -z "$db_services" ]; then
         echo "  SKIP: no database services on '$network' network"
@@ -40,7 +47,12 @@
         # Pick up to 3 non-DB containers as representative consumers
         consumers=""
         for c in $containers; do
-          case "$c" in postgres|mariadb|adminer|dockerproxy|dozzle|dozzle-agent|beszel-agent|rickroll|cloudflareddns) continue;; esac
+          is_db=false
+          for db in "${db_names[@]}"; do
+            [ "$c" = "$db" ] && is_db=true && break
+          done
+          $is_db && continue
+          case "$c" in adminer|dockerproxy|dozzle|dozzle-agent|beszel-agent|rickroll|cloudflareddns) continue;; esac
           consumers="$consumers $c"
           count_c=$(echo "$consumers" | wc -w)
           [ "$count_c" -ge 3 ] && break
@@ -63,27 +75,20 @@
       # --- 3. TCP connectivity for DB services (check via published host ports) ---
       echo ""
       echo "TCP CONNECTIVITY:"
-      if echo "$containers" | grep -qw postgres; then
-        if timeout 3 bash -c 'echo > /dev/tcp/127.0.0.1/5432' 2>/dev/null; then
-          echo "  OK: postgres:5432 reachable"
+      for i in "${!db_names[@]}"; do
+        db="${db_names[$i]}"
+        port="${db_ports[$i]}"
+        if echo "$containers" | grep -qw "$db"; then
+          if timeout 3 bash -c "echo > /dev/tcp/127.0.0.1/$port" 2>/dev/null; then
+            echo "  OK: $db:$port reachable"
+          else
+            echo "  FAIL: $db:$port not reachable"
+            errors=$((errors + 1))
+          fi
         else
-          echo "  FAIL: postgres:5432 not reachable"
-          errors=$((errors + 1))
+          echo "  SKIP: $db not on '$network' network"
         fi
-      else
-        echo "  SKIP: postgres not on '$network' network"
-      fi
-
-      if echo "$containers" | grep -qw mariadb; then
-        if timeout 3 bash -c 'echo > /dev/tcp/127.0.0.1/3306' 2>/dev/null; then
-          echo "  OK: mariadb:3306 reachable"
-        else
-          echo "  FAIL: mariadb:3306 not reachable"
-          errors=$((errors + 1))
-        fi
-      else
-        echo "  SKIP: mariadb not on '$network' network"
-      fi
+      done
 
       echo ""
       if [ "$errors" -gt 0 ]; then
@@ -92,6 +97,9 @@
       fi
       echo "RESULT: All DNS and TCP checks passed"
     executable: /bin/bash
+  environment:
+    DB_SERVICE_NAMES: "{{ (_db_service_names | default(['postgres', 'mariadb'])) | join(',') }}"
+    DB_SERVICE_PORTS: "{{ (_db_service_names | default(['postgres', 'mariadb'])) | map('extract', _db_service_ports | default({'postgres': 5432, 'mariadb': 3306})) | join(',') }}"
   register: _network_check
   changed_when: false
   when: not ansible_check_mode

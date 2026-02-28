@@ -826,7 +826,7 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 | `rollback_service=<name>` | Rollback a single service |
 | `amp_instance_filter=<name>` | Target a single AMP instance by name (`backup_hosts`, `restore_amp`) |
 | `vm_name=<key>` | VM definition key from `vars/vm_definitions.yaml` |
-| `update_scope=os\|docker\|software` | Target a specific update layer (`update_systems`); omit for all layers |
+| `update_scope=os\|docker\|software` | Override auto-detected scope (`update_systems`); normally derived from `hosts_variable` |
 | `amp_scope=versions\|cleanup\|coredumps\|prune\|journal` | Target a specific maintenance operation (`maintain_amp`); omit for all |
 | `skip_dbs=<comma-list>` | DB names to exclude from restore (`dr_rebuild`, e.g. `-e skip_dbs=nextcloud`) |
 
@@ -856,7 +856,7 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 | `restore_amp` | `restore_target` (req), `confirm` (req), `amp_instance_filter` |
 | `rollback_docker` | `hosts_variable` (req), `confirm` (req), `stack`, `app`, `role`, `rollback_service`, `with_backup`, `skip_pre_backup` |
 | `deploy_stacks` | `hosts_variable` (req), `stack`, `app`, `role`, `validate_only`, `pull_only` |
-| `update_systems` | `hosts_variable` (req), `update_scope`, `amp_instance_filter` |
+| `update_systems` | `hosts_variable` (req), `amp_instance_filter` |
 | `test_restore` | `role` or `source_host` (req), `vm_name`, `dr_mode`, `deploy_ssh_key`, `skip_dbs`, `stack` |
 | `test_backup_restore` | `source_host` (req), `vm_name`, `test_apps`, `deploy_ssh_key` |
 | `dr_rebuild` | `role` (req), `vm_name`, `deploy_ssh_key`, `skip_dbs`, `restore_app` |
@@ -1356,19 +1356,29 @@ The state is read at the start of Play 1 and written at the end of Play 3 via
 ### Version detection pattern (`update_systems.yaml`)
 
 Version commands for each host type live in two play-level dicts — one for OS versions
-(`update_scope=os`), one for software versions (`update_scope=software`). Each dict key matches
-an inventory group name:
+(`_version_scope == 'os'`), one for software versions (`_version_scope == 'software'`). Each
+dict key matches an inventory group name:
 
 ```yaml
 vars:
+  _version_scope: >-
+    {{ update_scope | default(
+         'software' if config_file in (_sw_version_commands | default({})).keys()
+         else 'docker' if config_file in ['docker_stacks', 'docker_run']
+         else 'os'
+       ) }}
   _os_version_commands:
     pikvm:  "pacman -Q | grep 'kvmd ' | cut -c 6-"
     ubuntu: "uname -r | sed 's/-generic//'"
     pve:    "pveversion | awk -F'/' '{print $2}'"
-    pbs:    "proxmox-backup-manager version | grep 'proxmox-backup-server' | awk '{print $2}'"
+    pbs:    "dpkg-query -W -f='${Version}' proxmox-backup-server"
   _sw_version_commands:
     amp:    "ampinstmgr -version | sed -n 's/.*\\(v[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+\\).*/\\1/p'"
 ```
+
+`_version_scope` is auto-derived from `hosts_variable` (via `config_file`): `docker_stacks`/`docker_run`
+→ docker, `amp` → software, everything else → os. The `-e update_scope=X` override is accepted
+via the `update_scope | default(...)` wrapper for backward compatibility.
 
 Two tasks per dict handle all host types:
 
@@ -1379,14 +1389,14 @@ Two tasks per dict handle all host types:
   changed_when: false
   when:
     - group_names | select('in', _os_version_commands) | list | length > 0
-    - update_scope is not defined or update_scope == 'os'
+    - _version_scope == 'os'
 
 - name: Set current_version
   ansible.builtin.set_fact:
     current_version: "{{ _version_raw_os.stdout | trim }}"
   when:
     - group_names | select('in', _os_version_commands) | list | length > 0
-    - update_scope is not defined or update_scope == 'os'
+    - _version_scope == 'os'
 ```
 
 `group_names | select('in', _os_version_commands)` returns the intersection of the current host's
