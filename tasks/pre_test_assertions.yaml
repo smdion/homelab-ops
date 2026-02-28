@@ -1,0 +1,48 @@
+---
+# Shared pre-flight assertions for test/DR playbooks.
+# Called from test_restore.yaml, test_backup_restore.yaml, dr_rebuild.yaml.
+#
+# Caller must set vm_name (with appropriate default) before including this task.
+#
+# Optional flags (pass via vars:):
+#   _require_source_host    — assert source_host is defined
+#   _require_role           — assert role is defined
+#   _require_source_or_role — assert source_host OR role (test_restore)
+
+- name: Assert vm_name exists in vm_definitions
+  ansible.builtin.assert:
+    that: vm_name in vm_definitions
+    fail_msg: >-
+      vm_name '{{ vm_name }}' not found in vm_definitions.
+      Valid names: {{ vm_definitions.keys() | list | join(', ') }}
+
+- name: Assert source_host is defined
+  ansible.builtin.assert:
+    that: source_host is defined
+    fail_msg: "source_host is required — pass -e source_host=<fqdn>"
+  when: _require_source_host | default(false) | bool
+
+- name: Assert role is defined
+  ansible.builtin.assert:
+    that: role is defined
+    fail_msg: "role is required — pass -e role=core|apps|dev."
+  when: _require_role | default(false) | bool
+
+- name: Assert source_host or role is provided
+  ansible.builtin.assert:
+    that: source_host is defined or role is defined
+    fail_msg: >-
+      Either source_host or role is required.
+      source_host: inventory_hostname in stack_assignments.
+      role: stack role name (e.g. core, apps, dev).
+  when: _require_source_or_role | default(false) | bool
+
+- name: Assert source_host exists in stack_assignments
+  ansible.builtin.assert:
+    that: source_host in stack_assignments
+    fail_msg: >-
+      source_host '{{ source_host }}' not found in stack_assignments.
+      Valid hosts: {{ stack_assignments.keys() | list | join(', ') }}
+  when:
+    - source_host is defined
+    - _require_source_or_role | default(false) | bool or _require_source_host | default(false) | bool
