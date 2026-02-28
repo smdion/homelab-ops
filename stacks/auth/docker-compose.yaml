@@ -97,7 +97,6 @@ services:
       - homelab
     labels:
       homelab.backup.paths: "/opt/swag"
-      homelab.test.skip_health: "true"
     ports:
       - 443:443
       - 8081:8081

@@ -1,0 +1,8 @@
+# Test-mode compose override for monitoring stack.
+# Applied automatically by deploy_single_stack.yaml when _test_mode is true.
+# Disables OAuth auto-login so Grafana starts without reaching the auth provider
+# on the isolated test VLAN.
+services:
+  grafana:
+    environment:
+      GF_AUTH_OAUTH_AUTO_LOGIN: "false"

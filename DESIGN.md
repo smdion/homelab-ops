@@ -2164,7 +2164,9 @@ Key panel features:
   `<tmp_dir>/pre_restore_<db>_<date>.<ext>` as a safety net. Shared via
   `tasks/pre_restore_safety_dump.yaml`. Used in: `restore_databases.yaml`, `restore_app.yaml`,
   `restore_hosts.yaml` (with_databases path), `rollback_docker.yaml` (with_backup path).
-  Skip with `-e skip_pre_backup=yes` (default: safety dump runs).
+  Skip with `-e skip_pre_backup=yes` (default: safety dump runs). The destination directory
+  is `backup_tmp_dir` from the platform vars (`/mnt/user/Backup/ansibletemp/` on unRAID,
+  `/tmp/backup` on AMP); `restore_app.yaml` uses a run-scoped temp dir instead.
 
 ### Backup filename convention
 
