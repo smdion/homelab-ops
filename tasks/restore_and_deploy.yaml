@@ -59,7 +59,6 @@
   include_tasks: tasks/deploy_single_stack.yaml
   vars:
     _current_stack: databases
-    _test_mode: "{{ _test_mode | default(false) }}"
     patch_compose_networks: true
     _apps_vip: >-
       {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
@@ -214,7 +213,6 @@
   loop_control:
     loop_var: _current_stack
   vars:
-    _test_mode: "{{ _test_mode | default(false) }}"
     patch_compose_networks: true
     _apps_vip: >-
       {% if _role_injected | default(false) %}{{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets['apps'] }}{% else %}{{ vault_apps_vip }}{% endif %}
@@ -222,8 +220,6 @@
 # ===== HEALTH CHECK =====
 - name: Verify container health
   include_tasks: tasks/verify_docker_health.yaml
-  vars:
-    _test_mode: "{{ _test_mode | default(false) }}"
 
 # ===== NETWORK VERIFICATION =====
 - name: Verify Docker network connectivity
