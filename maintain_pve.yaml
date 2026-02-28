@@ -546,6 +546,7 @@
             body_format: form-urlencoded
             body:
               vms: "{{ _production_new_vmids | join(',') }}"
+              allow-move: 1
             validate_certs: false
           when: _production_new_vmids | length > 0
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -559,6 +560,7 @@
             body_format: form-urlencoded
             body:
               vms: "{{ _hosted_new_vmids | join(',') }}"
+              allow-move: 1
             validate_certs: false
           when: _hosted_new_vmids | length > 0
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -572,6 +574,7 @@
             body_format: form-urlencoded
             body:
               vms: "{{ _test_new_vmids | join(',') }}"
+              allow-move: 1
             validate_certs: false
           when: _test_new_vmids | length > 0
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -799,19 +802,20 @@
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when: _production_qemu_vms | length > 0
 
-    # RRD points with cpu=null indicate the VM was off during that period.
-    # Filter them out before averaging so uptime doesn't dilute the result.
+    # RRD points with cpu=null or missing cpu key indicate the VM was off during
+    # that period. Filter them out before averaging so downtime doesn't dilute.
     - name: Flag over-provisioned VMs
       vars:
         _pts: >-
-          {{ item.json.data | rejectattr('cpu', 'none') | list
+          {{ item.json.data | selectattr('cpu', 'defined') | rejectattr('cpu', 'none') | list
              if (item.json is defined and item.json.data is defined)
              else [] }}
         _avg_cpu: >-
           {{ ((_pts | map(attribute='cpu') | list | sum) / (_pts | length))
              if _pts | length > 0 else 1.0 }}
         _mem_pts: >-
-          {{ _pts | rejectattr('mem', 'none') | rejectattr('maxmem', 'none') | list }}
+          {{ _pts | selectattr('mem', 'defined') | rejectattr('mem', 'none')
+                  | selectattr('maxmem', 'defined') | rejectattr('maxmem', 'none') | list }}
         _maxmem: >-
           {{ _mem_pts | map(attribute='maxmem') | list | max
              if _mem_pts | length > 0 else 1 }}

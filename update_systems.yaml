@@ -52,6 +52,17 @@
         pre_assert_config_file: true
         pre_playbook: "update_systems.yaml"
 
+    - name: Fail if host has both OS and software updates but no update_scope
+      ansible.builtin.fail:
+        msg: >-
+          Host {{ inventory_hostname }} belongs to both OS ({{ group_names | select('in', _os_version_commands) | list | join(', ') }})
+          and software ({{ group_names | select('in', _sw_version_commands) | list | join(', ') }}) version groups.
+          Set -e update_scope=os or -e update_scope=software to avoid version tracking conflicts.
+      when:
+        - update_scope is not defined
+        - group_names | select('in', _os_version_commands) | list | length > 0
+        - group_names | select('in', _sw_version_commands) | list | length > 0
+
     - name: Check Proxmox cluster quorum before update
       when: inventory_hostname in groups['pve'] | default([])
       block:
