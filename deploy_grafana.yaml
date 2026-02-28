@@ -20,6 +20,7 @@
 - name: Deploy Grafana dashboard and datasource
   hosts: localhost
   gather_facts: true
+  gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
     - vars/semaphore_check.yaml
@@ -156,7 +157,7 @@
         - name: Log to MariaDB
           include_tasks: tasks/log_mariadb.yaml
           vars:
-            log_table: "maintenance"
+            log_table: maintenance
             log_hostname: "{{ controller_fqdn }}"
             log_application: "{{ maintenance_name }}"
             log_type: "{{ maintenance_type }}"

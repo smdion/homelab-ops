@@ -142,7 +142,7 @@
         owner: "{{ vm_user }}"
         group: "{{ vm_user }}"
         mode: "0600"
-      no_log: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Write SSH client config (accept new host keys, no interactive prompts)
       ansible.builtin.copy:

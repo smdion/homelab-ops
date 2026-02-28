@@ -6,17 +6,17 @@
 #   _health_check_urls    — list of {name, url, status_code (default 200)} dicts
 #   _http_check_timeout   — seconds to retry each URL (default 60)
 
-- name: Verify HTTP endpoint — {{ endpoint.name }}
+- name: Verify HTTP endpoint — {{ _endpoint.name }}
   ansible.builtin.uri:
-    url: "{{ endpoint.url }}"
+    url: "{{ _endpoint.url }}"
     method: GET
-    status_code: "{{ endpoint.status_code | default(200) }}"
+    status_code: "{{ _endpoint.status_code | default(200) }}"
     timeout: 10
     validate_certs: false
   loop: "{{ _health_check_urls }}"
   loop_control:
-    loop_var: endpoint
-    label: "{{ endpoint.name }}"
+    loop_var: _endpoint
+    label: "{{ _endpoint.name }}"
   register: _http_check_results
   until: _http_check_results is not failed
   retries: "{{ (_http_check_timeout | default(60) | int / 10) | int }}"

@@ -2,7 +2,7 @@
 # Back up host configurations and appdata.
 # Docker stacks: per-stack archives (stop one stack at a time, minimize downtime).
 # Other hosts: monolithic archive (stop Docker, archive all paths, restart).
-# Sends Discord notification + logs each backup to MariaDB.
+# Sends notification + logs each backup to MariaDB.
 #
 # Scope selectors (docker_stacks only):
 #   stack=<name>  — back up a single stack (auto-resolves host)
@@ -109,17 +109,17 @@
     - name: Delete old Unifi backup files exceeding retention
       become: true
       ansible.builtin.file:
-        path: "{{ found_file.path }}"
+        path: "{{ _found_file.path }}"
         state: absent
       loop: "{{ _old_backups.results | default([]) | map(attribute='files') | flatten }}"
       loop_control:
-        loop_var: found_file
+        loop_var: _found_file
       when: inventory_hostname in groups["unifi_network"]
 
     - name: Extract WireGuard VPS config
       become: true
       ansible.builtin.shell: >
-        awk '/"address": "{{ vps_address }}",/ {found=1; count=0} found && count<8 {gsub(/^[ \t]+/, "", $0); print; count++}'
+        awk -v addr="{{ vps_address }}" '$0 ~ "\"address\": \"" addr "\"," {found=1; count=0} found && count<8 {gsub(/^[ \t]+/, "", $0); print; count++}'
         {{ unifi_state_file }} > {{ src_raw_files | first }}/{{ wg_config_file }}
       when: inventory_hostname in groups["unifi_network"]
 
@@ -198,7 +198,7 @@
             headers:
               x-api-key: "{{ unvr_api_key }}"
             status_code: 200
-          register: unvr_backup
+          register: _unvr_backup
           delegate_to: localhost
           ignore_errors: true  # TODO: API endpoint 404 — silence until correct path is found (IMP-10)
           when:
@@ -207,7 +207,7 @@
 
         - name: Download UNVR backup file
           ansible.builtin.get_url:
-            url: "https://{{ inventory_hostname }}{{ unvr_backup.json.data[0].url }}"
+            url: "https://{{ inventory_hostname }}{{ _unvr_backup.json.data[0].url }}"
             dest: "{{ unifi_protect_temp_file }}"
             mode: "0600"
             validate_certs: false  # UNVR uses a self-signed cert; vendor API prevents proper TLS cert management
@@ -608,7 +608,7 @@
                 _combined_db_failed: true
 
         # ===== REPORTING (per-stack) =====
-        - name: Build per-stack Discord fields for backup results
+        - name: Build per-stack notification fields for backup results
           ansible.builtin.set_fact:
             _stack_discord_fields: >-
               [
@@ -618,7 +618,7 @@
                {% endfor %}]
           when: inventory_hostname in groups["docker_stacks"] | default([])
 
-        - name: Send per-stack backup Discord notification
+        - name: Send per-stack backup notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ _original_backup_name }}"
@@ -636,7 +636,7 @@
           when: inventory_hostname in groups["docker_stacks"] | default([])
 
         # ===== REPORTING (per-AMP-instance) =====
-        - name: Build per-instance AMP Discord fields for backup results
+        - name: Build per-instance AMP notification fields for backup results
           ansible.builtin.set_fact:
             _amp_discord_fields: >-
               [
@@ -646,7 +646,7 @@
                {% endfor %}]
           when: inventory_hostname in groups["amp"] | default([])
 
-        - name: Send per-instance AMP backup Discord notification
+        - name: Send per-instance AMP backup notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"
@@ -664,7 +664,7 @@
           when: inventory_hostname in groups["amp"] | default([])
 
         # ===== REPORTING (monolithic) =====
-        - name: Send monolithic backup Discord notification
+        - name: Send monolithic backup notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"
@@ -702,7 +702,7 @@
                 value: "Manual intervention required"
 
         # ===== REPORTING (combined DB) =====
-        - name: Build combined DB Discord fields for backup results
+        - name: Build combined DB notification fields for backup results
           ansible.builtin.set_fact:
             _db_discord_fields: >-
               [
@@ -712,7 +712,7 @@
                {% endfor %}]
           when: _db_combined_results | default([]) | length > 0
 
-        - name: Send combined DB backup Discord notification
+        - name: Send combined DB backup notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "Database"
@@ -800,13 +800,13 @@
           include_tasks: tasks/log_mariadb.yaml
           loop: "{{ _db_combined_results | default([]) }}"
           loop_control:
-            loop_var: db_result
+            loop_var: _db_result
           vars:
             log_table: backups
-            log_application: "{{ db_result.db_name }}-db"
-            log_hostname: "{{ db_result.db_host }}"
-            log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else '') + db_result.file_name }}"
-            log_file_size: "{{ (db_result.file_size / 1024 / 1024) | round(2) if db_result.backup_rc == 0 else 0 }}"
+            log_application: "{{ _db_result.db_name }}-db"
+            log_hostname: "{{ _db_result.db_host }}"
+            log_file_name: "{{ ('FAILED_' if _db_result.backup_rc != 0 else '') + _db_result.file_name }}"
+            log_file_size: "{{ (_db_result.file_size / 1024 / 1024) | round(2) if _db_result.backup_rc == 0 else 0 }}"
             log_backup_level: "db"
           when: _db_combined_results | default([]) | length > 0
 
@@ -818,7 +818,7 @@
             path: "{{ backup_tmp_dir }}"
           when: "'/run_' in backup_tmp_dir"
 
-        # ===== PIKVM: RETURN TO READ-ONLY =====
+        # ===== PiKVM: RETURN TO READ-ONLY =====
         - name: Put PiKVM device back in RO mode (post-backup)
           raw: ro
           when:

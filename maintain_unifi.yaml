@@ -56,7 +56,7 @@
         - name: Log maintenance to MariaDB
           include_tasks: tasks/log_mariadb.yaml
           vars:
-            log_table: "maintenance"
+            log_table: maintenance
             log_application: "{{ maintenance_name }}"
             log_hostname: "{{ inventory_hostname }}"
             log_type: "{{ maintenance_type }}"

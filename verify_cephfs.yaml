@@ -32,15 +32,12 @@
           vm_name={{ vm_name | default('(unset)') }} is not defined or has no cephfs_host_dir.
           Valid values: {{ vm_definitions | dict2items | selectattr('value.cephfs_host_dir', 'defined') | map(attribute='key') | list | join(', ') }}
 
-    - name: Assert MariaDB logging database is reachable
-      include_tasks: tasks/assert_db_connectivity.yaml
-
-    - name: Log playbook run context to MariaDB
-      include_tasks: tasks/log_run_context.yaml
+    - name: Run standard pre-flight assertions
+      ansible.builtin.include_tasks: tasks/pre_task_assertions.yaml
       vars:
-        log_playbook: "verify_cephfs.yaml"
-        log_hostname: "{{ controller_fqdn }}"
-        log_run_vars: "{{ {'vm_name': vm_name} | to_json | to_json }}"
+        pre_playbook: "verify_cephfs.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+        pre_run_vars: "{{ {'vm_name': vm_name} | to_json }}"
 
   tasks:
     - name: Resolve target parameters

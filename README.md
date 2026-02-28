@@ -98,7 +98,7 @@ and go.
 | `maintain_docker.yaml` | Prune unused Docker images + drop Linux page cache (Ubuntu/unRAID); logs disk metrics to MariaDB | Needs `[docker]` group + `[ubuntu]`/`[unraid]` for cache |
 | `maintain_semaphore.yaml` | Clean stopped Semaphore tasks, prune old download tasks (`download_task_retention_days`), and prune `ansible_logging` rows (`retention_days`) | Runs on localhost |
 | `maintain_logging_db.yaml` | Purge failed/warning records from `ansible_logging` — failed updates, failed maintenance, zero-size backups, warning/critical health checks | Runs on localhost |
-| `check_logging_db.yaml` | Weekly `ansible_logging` summary — 7-day row counts per table, hosts with no recent backup, failure counts — sends an informational Discord embed; logs to MariaDB | Runs on localhost |
+| `check_logging_db.yaml` | Weekly `ansible_logging` summary — 7-day row counts per table, hosts with no recent backup, failure counts — sends an informational notification; logs to MariaDB | Runs on localhost |
 | `maintain_health.yaml` | 26 health checks across all SSH hosts + DB/API | `vars/semaphore_check.yaml` for thresholds |
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB, count tables/measurements) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
@@ -119,16 +119,16 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `maintain_unifi.yaml` | Unifi Network (UDMP) | Service restart |
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | Wake Synology via WOL, rsync backup data from unRAID to Synology, verify shutdown |
 | `backup_offsite.yaml` | Backblaze B2 | Sync `/backup/` to B2 via rclone; runs on localhost; supports `dry_run=yes` and `bwlimit=` |
-| `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video Discord notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
+| `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
 | `setup_test_network.yaml` | Unifi UDM | One-time test VLAN creation for VM isolation; prints zone policy settings for manual firewall step |
 | `verify_isolation.yaml` | Proxmox + Unifi | Verify test VLAN isolation — provisions a bare VM, runs network checks (production blocked, CephFS + internet allowed), destroys VM |
-| `maintain_pve.yaml` | Proxmox + PBS | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; VM snapshot staleness check (>14d Discord warning); PBS backup task error check (last 2 days via `proxmox-backup-manager`); Discord + MariaDB logging |
+| `maintain_pve.yaml` | Proxmox + PBS | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; VM snapshot staleness check (>14d alert); PBS backup task error check (last 2 days via `proxmox-backup-manager`); notification + MariaDB logging |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW, optional QEMU args (`pve_args`) and desktop env; supports create, destroy, snapshot, and revert |
 | `dr_rebuild.yaml` | Proxmox + `docker_stacks` | DR rebuild — provision VM → bootstrap → restore backups → deploy stacks → health check; `-e role=core\|apps\|dev`; `scripts/dr_rebuild_all.sh` for multi-role sequential execution |
 | `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, patches SWAG configs, verifies health, reverts to snapshot; `vm_name` defaults to `test-vm`; `role` can substitute for `source_host`; DR mode (`dr_mode=yes`) keeps restored state. CephFS-backed test VMs get explicit appdata cleanup before each run (PVE snapshot revert alone does not clean CephFS state) |
-| `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_definitions` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), Discord summary, revert; pass `test_apps=` to limit scope. CephFS-backed test VMs get explicit appdata cleanup before each run |
+| `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_definitions` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), notification summary, revert; pass `test_apps=` to limit scope. CephFS-backed test VMs get explicit appdata cleanup before each run |
 | `verify_cephfs.yaml` | Proxmox + CephFS | Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires `-e vm_name=<key>` |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
@@ -270,8 +270,8 @@ ansible-vault encrypt vars/secrets.yaml
 ```
 
 See [`vars/secrets.yaml.example`](vars/secrets.yaml.example) for all available keys. Only the
-`logging_db_*` and `domain_*` keys are required by every playbook. Discord and Semaphore
-API keys are optional — features degrade gracefully without them.
+`logging_db_*` and `domain_*` keys are required by every playbook. Discord, Apprise, and Semaphore
+credentials are optional — features degrade gracefully without them.
 
 ### 3. Inventory
 
@@ -613,7 +613,7 @@ ansible-playbook restore_app.yaml \
   -e confirm=yes \
   --vault-password-file ~/.vault_pass
 
-# Test all apps on a disposable VM — full restore cycle, Discord summary, auto-revert
+# Test all apps on a disposable VM — full restore cycle, notification summary, auto-revert
 ansible-playbook test_backup_restore.yaml \
   -i inventory.yaml \
   -e source_host=myhost.home.local \

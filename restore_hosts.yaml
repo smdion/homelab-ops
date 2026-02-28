@@ -1,7 +1,7 @@
 ---
 # Restore config/appdata archives from backup.
 # Three paths: per-stack (docker_stacks), selective app (docker_run), monolithic (full host).
-# Sends Discord notification and logs result to restores table.
+# Sends notification and logs result to restores table.
 #
 # Safety-gated: requires -e confirm=yes to proceed.
 # Containers are always stopped before restore and restarted after.
@@ -150,7 +150,7 @@
 
       always:
         # ===== REPORTING (per-stack) =====
-        - name: Build per-stack Discord fields
+        - name: Build per-stack notification fields
           ansible.builtin.set_fact:
             _stack_restore_discord_fields: >-
               [
@@ -160,7 +160,7 @@
                {% endfor %}]
           when: _restore_path == 'stack'
 
-        - name: Send per-stack Discord notification
+        - name: Send per-stack notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"
@@ -197,7 +197,7 @@
           when: _restore_path == 'stack'
 
         # ===== REPORTING (single result — app / monolithic) =====
-        - name: Send Discord notification
+        - name: Send notification
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ backup_name }}"

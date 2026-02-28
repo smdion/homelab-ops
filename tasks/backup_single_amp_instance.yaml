@@ -28,7 +28,7 @@
   become_exe: sudo su -l
   ansible.builtin.shell: |
     ampinstmgr list 2>/dev/null \
-      | awk '/{{ _amp_instance }}/{found=1} found && /Running/{print; exit}' \
+      | awk -v inst="{{ _amp_instance }}" '$0 ~ inst {found=1} found && /Running/{print; exit}' \
       | grep -q "Yes"
   args:
     executable: /bin/bash
@@ -58,7 +58,7 @@
       become_exe: sudo su -l
       ansible.builtin.shell: |
         ampinstmgr list 2>/dev/null \
-          | awk '/{{ _amp_instance }}/{found=1} found && /Running/{print; exit}' \
+          | awk -v inst="{{ _amp_instance }}" '$0 ~ inst {found=1} found && /Running/{print; exit}' \
           | grep -q "No"
       args:
         executable: /bin/bash
@@ -154,7 +154,7 @@
       become_exe: sudo su -l
       ansible.builtin.shell: |
         ampinstmgr list 2>/dev/null \
-          | awk '/{{ _amp_instance }}/{found=1} found && /Running/{print; exit}' \
+          | awk -v inst="{{ _amp_instance }}" '$0 ~ inst {found=1} found && /Running/{print; exit}' \
           | grep -q "Yes"
       args:
         executable: /bin/bash

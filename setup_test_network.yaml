@@ -32,7 +32,7 @@
 #   Semaphore IP   — extracted from semaphore_host_url (already in vault)
 #   Prod LAN CIDR  — derived from vault_vm_gateway + vm_cidr (already in vault)
 
-- name: Setup test VM network isolation on Unifi
+- name: Set up test VM network isolation on Unifi
   hosts: unifi_network
   gather_facts: false
   vars_files:
@@ -60,7 +60,7 @@
         validate_certs: false
       register: _portconf
       check_mode: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Find Proxmox uplink port profile
       ansible.builtin.set_fact:
@@ -85,7 +85,7 @@
         validate_certs: false
       register: _all_networks
       check_mode: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Find test VLAN network _id
       ansible.builtin.set_fact:
@@ -136,7 +136,7 @@
         validate_certs: false
         status_code: [200, 201]
       when: not _test_vlan_exists and not ansible_check_mode
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       register: _create_vlan
 
     - name: Record VLAN status
@@ -211,7 +211,7 @@
           x-api-key: "{{ unifi_network_api_key }}"
         validate_certs: false
       register: _verify_networks
-      no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when: not ansible_check_mode
 
     - name: Assert test-isolation VLAN exists

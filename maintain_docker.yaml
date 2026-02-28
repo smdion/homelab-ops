@@ -99,7 +99,7 @@
         - name: Log maintenance to MariaDB
           include_tasks: tasks/log_mariadb.yaml
           vars:
-            log_table: "maintenance"
+            log_table: maintenance
             log_application: "{{ maintenance_name }}"
             log_hostname: "{{ inventory_hostname }}"
             log_type: "{{ maintenance_type }}"
@@ -110,7 +110,7 @@
           include_tasks: tasks/log_mariadb.yaml
           when: _docker_df is defined and not _docker_df.skipped | default(false)
           vars:
-            log_table: "docker_sizes"
+            log_table: docker_sizes
             log_hostname: "{{ inventory_hostname }}"
             log_images_count:  "{{ _docker_images_count | default(0) }}"
             log_images_mb:     "{{ _docker_images_mb | default(0) }}"
@@ -170,7 +170,7 @@
         - name: Log maintenance to MariaDB
           include_tasks: tasks/log_mariadb.yaml
           vars:
-            log_table: "maintenance"
+            log_table: maintenance
             log_application: "{{ maintenance_name }}"
             log_hostname: "{{ inventory_hostname }}"
             log_type: "{{ maintenance_type }}"

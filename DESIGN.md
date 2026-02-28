@@ -216,8 +216,8 @@ history, restore results, playbook runs) belongs in the database.
 ├── maintain_docker.yaml            # Prune unused Docker images + drop Linux page cache (Ubuntu/unRAID); logs metrics to docker_sizes table
 ├── maintain_unifi.yaml             # Restart Unifi Network service
 ├── maintain_health.yaml            # Scheduled health monitoring — 26 checks across all SSH hosts + DB/API; Uptime Kuma dead man's switch
-├── maintain_pve.yaml               # Idempotent Proxmox node config (keepalived VIP, ansible user, SSH hardening); stale snapshot check (>14d alert); PBS task error check (last 2d via proxmox-backup-manager); Discord + MariaDB logging
-├── download_videos.yaml            # MeTube yt-dlp downloads — per-video Discord notifications + temp file cleanup; parameterized on config_file; hosts via hosts_variable
+├── maintain_pve.yaml               # Idempotent Proxmox node config (keepalived VIP, ansible user, SSH hardening); stale snapshot check (>14d alert); PBS task error check (last 2d via proxmox-backup-manager); notification + MariaDB logging
+├── download_videos.yaml            # MeTube yt-dlp downloads — per-video notifications + temp file cleanup; parameterized on config_file; hosts via hosts_variable
 ├── setup_ansible_user.yaml         # One-time utility: create ansible user on PVE/PBS/unRAID hosts (SSH key from vault, ansible_remote_tmp dir, validation assertions)
 ├── setup_pve_vip.yaml              # One-time VIP setup: install and configure keepalived on PVE nodes; verifies VIP reachable on port 22
 ├── deploy_stacks.yaml             # Deploy Docker stacks from Git — templates .env from vault, copies compose, starts stacks; serial:1; role=/stack= scope
@@ -227,7 +227,7 @@ history, restore results, playbook runs) belongs in the database.
 ├── restore_amp.yaml               # AMP instance restore — stop instance(s), replace data dir from archive, restart; per-instance or all; requires confirm=yes
 ├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert; vm_name defaults to test-vm; role can substitute for source_host
-├── test_backup_restore.yaml          # Test all app_definitions apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, Discord summary, revert
+├── test_backup_restore.yaml          # Test all app_definitions apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, notification summary, revert
 ├── verify_cephfs.yaml             # Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires -e vm_name=<key>
 ├── verify_isolation.yaml          # Lightweight test VLAN isolation verification — provisions bare test VM, runs network checks, then destroys
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
@@ -433,13 +433,13 @@ files, remove crash dumps, purge old logs, prune Docker images, vacuum journal. 
 **`restore_app.yaml`** — Production single-app restore. Safety-gated with `confirm=yes`. Stops
 the target stack, restores DB(s) + appdata inplace, restarts the stack, runs HTTP health checks,
 and logs to the `restores` table (`restore_subtype: Appdata`). Accepts `-e restore_app=<app>` and
-`-e restore_target=<host>`. Uses `tasks/restore_app_step.yaml` for per-app logic. Sends Discord
+`-e restore_target=<host>`. Uses `tasks/restore_app_step.yaml` for per-app logic. Sends
 notification on success or failure.
 
 **`test_backup_restore.yaml`** — Automated all-app restore test on a disposable VM. Provisions a
 test VM (or reuses one with `-e provision=false`), deploys all stacks, restores each `app_definitions`
 app in sequence (DB + appdata inplace), runs HTTP health checks, and summarizes results via
-Discord. Includes OOM auto-recovery: if a restore OOM-kills the VM, saves partial results to
+notification. Includes OOM auto-recovery: if a restore OOM-kills the VM, saves partial results to
 localhost, doubles RAM via PVE API, reboots, and retries the OOM-failed apps. Reverts the VM to
 a pre-restore snapshot when done. Uses `tasks/restore_app_step.yaml` (loop var: `_test_app`).
 Logs to the `maintenance` table (type: `Servers`, subtype: `Test Backup Restore`).
@@ -452,7 +452,7 @@ disk — `docker tag` re-tag, no network needed) and **slow** (image pruned by
 scopes: all containers (default), per-stack via `-e stack=<name>` (or legacy `-e rollback_stack=<name>`),
 or per-service via `-e rollback_service=<name>`. Docker Compose hosts (`docker_stacks`) only —
 for unRAID `docker_run` hosts, see manual rollback guidance below. Uses `tasks/log_restore.yaml`
-with `operation: rollback` (per-service). Discord notification uses yellow (16776960) to
+with `operation: rollback` (per-service). Notification uses yellow (16776960) to
 distinguish from green/red. Supports combined recovery via `-e with_backup=yes`: restores
 appdata from backup archives and auto-detects dependent databases from `app_definitions` (e.g.,
 rolling back `auth` stack also restores the `authentik` database). The `with_backup` path
@@ -885,15 +885,15 @@ rescue:
     ansible.builtin.set_fact:
       backup_failed: true   # or maintenance_failed: true
 always:
-  - name: Notify Discord
+  - name: Send notification
     include_tasks: tasks/notify.yaml
   - name: Log to MariaDB
     include_tasks: tasks/log_mariadb.yaml
 ```
 
-**Backup/update playbooks**: Discord and DB logging always fire — even on failure. Every run is recorded.
+**Backup/update playbooks**: Notifications and DB logging always fire — even on failure. Every run is recorded.
 
-**Maintenance playbooks**: DB logging always fires. Discord fires **only on failure** (maintenance
+**Maintenance playbooks**: DB logging always fires. Notifications fire **only on failure** (maintenance
 runs frequently; success is silent). The `maintenance_failed` flag is set in `rescue:` and checked
 in `always:` to decide whether to notify.
 
@@ -984,7 +984,7 @@ or Host fields.
 
 ### Roles vs. flat tasks/ structure
 
-The project uses 51 shared task files (thin glue code — Discord, DB logging, assertions,
+The project uses 51 shared task files (thin glue code — notifications, DB logging, assertions,
 dump/restore, test/DR pipelines, pre-restore safety) with no handlers or role-level templates. Flat `tasks/` is the right fit at this
 scale. Add roles when a component needs handlers, role-level templates, Molecule testing, or
 cross-project reuse.
@@ -1007,7 +1007,7 @@ follow the pattern "Check X" (e.g., "Check MariaDB health", "Check WAN connectiv
 
 **Register variable names:** Internal/temporary variables (used only in the next task or two)
 use a `_` prefix: `_old_backups`, `_docker_containers`, `_ping_result`. Primary operation
-results used across task boundaries (logging, Discord, conditionals) stay unprefixed:
+results used across task boundaries (logging, notifications, conditionals) stay unprefixed:
 `backup_status`, `file_size`, `unvr_backup`, `docker_update_results`. The `maintain_health.yaml`
 playbook uses a `*_raw` suffix convention for shell output variables.
 
@@ -1032,7 +1032,7 @@ old explicit "Host" field; do not re-add a Host field.
 reports about itself, which varies by OS and configuration. unRAID may return `myhost.local`;
 some hosts may return short names or unexpected capitalization. `inventory_hostname` is the
 canonical identifier defined in the inventory — it is always the correct FQDN, always lowercase,
-and completely under the user's control. The DB and Discord output reflect exactly what is in
+and completely under the user's control. The DB and notification output reflect exactly what is in
 the inventory, regardless of what any host reports about itself.
 
 **`controller_fqdn`** is defined in `vars/semaphore_check.yaml` as a Jinja2 expression:
@@ -1061,7 +1061,7 @@ Some hosts use fixed URL patterns instead:
 - Unifi Network: `https://unifi.ui.com/` (hardcoded external cloud portal)
 
 **Semaphore dual URLs:** Semaphore has two URL variables because the API needs an internal
-IP-based URL while Discord notification links need the external domain:
+IP-based URL while notification links need the external domain:
 
 | Variable | Source | Example | Purpose |
 |---|---|---|---|
@@ -1069,7 +1069,7 @@ IP-based URL while Discord notification links need the external domain:
 | `semaphore_ext_url` | Built from `controller_fqdn` + `domain_ext` | `https://controller.example.com` | Discord embed links, `maintenance_url` |
 
 Both are defined in `vars/semaphore_check.yaml`. Only `maintain_health.yaml` uses both — the
-API URL for the Semaphore task query and the external URL for Discord task links and the
+API URL for the Semaphore task query and the external URL for notification task links and the
 `maintenance_url` clickable embed.
 
 ### PiKVM RW/RO mode
@@ -1163,9 +1163,9 @@ files so all callers are automatically protected.
 report "would have changed" in check mode without taking action.
 
 **Running dry runs:** In Semaphore, enter `--check` in the **CLI Args** field. All
-state-gathering tasks still execute, but no changes are made, no Discord notifications fire,
+state-gathering tasks still execute, but no changes are made, no notifications fire,
 and no DB logging happens. General pattern: pre-checks and queries run, mutations are
-simulated, Discord/DB suppressed.
+simulated, notifications/DB suppressed.
 
 ### Pre-task validations
 
@@ -1680,7 +1680,7 @@ are fixed — new hosts and platforms must follow the same pattern.
 #### Product name branding
 
 Use official product branding in task names, `backup_name`/`update_name`/`maintenance_name`
-values, documentation, and Discord notifications:
+values, documentation, and notifications:
 
 | Product | Correct | Incorrect |
 |---------|---------|-----------|
@@ -1726,7 +1726,7 @@ Narrows the category. Current values:
 Always the fully qualified domain name from `inventory_hostname` (or `controller_fqdn` for
 localhost plays) — exactly as defined in the Ansible inventory. Passed to shared tasks via the
 unified `log_hostname` parameter. No transformation is applied. The inventory is the single
-source of truth for how hostnames appear in the DB and in Discord.
+source of truth for how hostnames appear in the DB and in notifications.
 
 #### The Proxmox split — and why it exists
 
@@ -2033,7 +2033,7 @@ Pool membership is derived at runtime from each VM's live `net0` VLAN tag — no
 **Sync pools:** Run `maintain_pve.yaml` (Play 5 "Manage PVE resource pools"). On each run it:
 1. Creates any missing pools (idempotent)
 2. Adds VMs to their pool based on VLAN tag (additive — never removes)
-3. Logs to MariaDB; Discord alert on failure
+3. Logs to MariaDB; alert on failure
 
 **To add a hosted friend VM:** Set `net0` VLAN tag to 1682 in PVE, then run `maintain_pve.yaml`. Done.
 
@@ -2457,5 +2457,5 @@ for code-server workspace access.
 - `bootstrap_vm.yaml` auto-mounts CephFS at `/opt` when `_vm.cephfs_host_dir` is defined
 - `test_restore.yaml -e vm_name=cephfs-migrate-test` validates backup/restore on CephFS
   - Auto-creates CephFS dir, wipes appdata before each run, restores archives onto CephFS
-- `verify_cephfs.yaml` checks mount status, read/write, and logs to MariaDB + Discord
+- `verify_cephfs.yaml` checks mount status, read/write, and logs to MariaDB + sends notification
 - If CephFS goes down, test VMs hang at boot; production VMs are unaffected

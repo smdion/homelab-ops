@@ -28,6 +28,13 @@
     - vars/semaphore_check.yaml
 
   pre_tasks:
+    - name: Run standard pre-flight assertions
+      ansible.builtin.include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "verify_isolation.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+        pre_run_vars: "{{ {'vm_name': vm_name | default('undefined')} | to_json }}"
+
     - name: Assert vm_name exists in vm_definitions
       ansible.builtin.assert:
         that:
@@ -141,17 +148,33 @@
     - vars/docker_vips.yaml
 
   tasks:
-    - name: Assert /opt is not production CephFS (safety gate)
-      include_tasks: tasks/assert_test_vm.yaml
+    - name: Initialize verify state
+      ansible.builtin.set_fact:
+        _verify_failed: false
+        _verify_detail: ""
 
-    - name: Verify test VLAN isolation from production
-      include_tasks: tasks/verify_network_isolation.yaml
-      vars:
-        _vm: "{{ hostvars['localhost']._vm }}"
+    - block:
+        - name: Assert /opt is not production CephFS (safety gate)
+          include_tasks: tasks/assert_test_vm.yaml
 
-    - name: Display summary
-      ansible.builtin.debug:
-        msg: "Network isolation: {{ _network_isolation_summary }}"
+        - name: Verify test VLAN isolation from production
+          include_tasks: tasks/verify_network_isolation.yaml
+          vars:
+            _vm: "{{ hostvars['localhost']._vm }}"
+
+        - name: Record verify detail
+          ansible.builtin.set_fact:
+            _verify_detail: "{{ _network_isolation_summary }}"
+
+        - name: Display summary
+          ansible.builtin.debug:
+            msg: "Network isolation: {{ _network_isolation_summary }}"
+
+      rescue:
+        - name: Set verify failed flag
+          ansible.builtin.set_fact:
+            _verify_failed: true
+            _verify_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 4 — Destroy test VM
@@ -191,3 +214,53 @@
         vmid: "{{ vm_definitions[vm_name].vm_id }}"
         state: absent
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 5 — Log to MariaDB and send Discord notification
+# ═══════════════════════════════════════════════════════════════════
+- name: Log and notify verification result
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/semaphore_check.yaml
+
+  tasks:
+    - name: Resolve result from target host
+      ansible.builtin.set_fact:
+        _vf: "{{ hostvars[groups['test_target'][0]]._verify_failed | default(true) }}"
+        _vd: "{{ hostvars[groups['test_target'][0]]._verify_detail | default('Play 3 did not run') }}"
+
+    - name: Log verification result to MariaDB
+      ansible.builtin.include_tasks: tasks/log_mariadb.yaml
+      vars:
+        log_table: maintenance
+        log_application: "Test Isolation"
+        log_hostname: "{{ controller_fqdn }}"
+        log_type: "Local"
+        log_subtype: "Verify"
+        log_status: "{{ 'failed' if (_vf | bool) else 'success' }}"
+      when: not ansible_check_mode
+
+    - name: Send alert on failure
+      ansible.builtin.include_tasks: tasks/notify.yaml
+      vars:
+        discord_name: "Test Isolation"
+        discord_operation: "Verification"
+        discord_status: "failed"
+        discord_detail: "{{ _vd }}"
+        discord_color: "{{ discord_color_failure }}"
+        discord_author: "{{ controller_fqdn }}"
+        discord_fields:
+          - name: "VM"
+            value: "{{ vm_name }}"
+            inline: true
+          - name: "Detail"
+            value: "{{ _vd }}"
+            inline: false
+      when: _vf | bool
+
+    - name: Fail play if verification failed
+      ansible.builtin.fail:
+        msg: "Network isolation verification failed: {{ _vd }}"
+      when: _vf | bool
