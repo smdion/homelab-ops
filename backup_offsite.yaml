@@ -115,6 +115,7 @@
 
     # ── restic pre-flight ──
     - name: Assert Docker is available
+      become: true
       ansible.builtin.command: docker version --format '{{ '{{' }}.Server.Version{{ '}}' }}'
       changed_when: false
       when: offsite_method == 'restic'
@@ -142,12 +143,14 @@
         # ═════════════════════════════════════════════════════════════════════
         - block:
             - name: Create backups stack directory
+              become: true
               ansible.builtin.file:
                 path: "{{ _stack_dir }}"
                 state: directory
                 mode: "0755"
 
             - name: Template backups stack .env
+              become: true
               ansible.builtin.template:
                 src: stacks/backups/env.j2
                 dest: "{{ _stack_dir }}/.env"
@@ -155,12 +158,14 @@
               no_log: "{{ _no_log }}"
 
             - name: Copy backups stack docker-compose.yaml
+              become: true
               ansible.builtin.copy:
                 src: stacks/backups/docker-compose.yaml
                 dest: "{{ _stack_dir }}/docker-compose.yaml"
                 mode: "0644"
 
             - name: Check if Restic repository is initialized (compose)
+              become: true
               ansible.builtin.command: >-
                 docker compose -f {{ _stack_dir }}/docker-compose.yaml
                 run --rm restic snapshots --latest 1
@@ -170,6 +175,7 @@
               no_log: "{{ _no_log }}"
 
             - name: Initialize Restic repository (compose)
+              become: true
               ansible.builtin.command: >-
                 docker compose -f {{ _stack_dir }}/docker-compose.yaml
                 run --rm restic init
@@ -177,6 +183,7 @@
               no_log: "{{ _no_log }}"
 
             - name: Run Restic backup (compose)
+              become: true
               ansible.builtin.command: >-
                 docker compose -f {{ _stack_dir }}/docker-compose.yaml
                 run --rm restic backup /data
@@ -187,6 +194,7 @@
               no_log: "{{ _no_log }}"
 
             - name: Apply Restic retention policy (compose)
+              become: true
               ansible.builtin.command: >-
                 docker compose -f {{ _stack_dir }}/docker-compose.yaml
                 run --rm restic forget
@@ -218,6 +226,7 @@
                 mode: "0755"
 
             - name: Check if Restic repository is initialized (docker run)
+              become: true
               ansible.builtin.command: >-
                 docker run --rm
                 -v {{ _backup_source }}:/data:ro
@@ -239,6 +248,7 @@
               no_log: "{{ _no_log }}"
 
             - name: Initialize Restic repository (docker run)
+              become: true
               ansible.builtin.command: >-
                 docker run --rm
                 -v {{ _backup_source }}:/data:ro
@@ -258,6 +268,7 @@
               no_log: "{{ _no_log }}"
 
             - name: Run Restic backup (docker run)
+              become: true
               ansible.builtin.command: >-
                 docker run --rm
                 -v {{ _backup_source }}:/data:ro
@@ -280,6 +291,7 @@
               no_log: "{{ _no_log }}"
 
             - name: Apply Restic retention policy (docker run)
+              become: true
               ansible.builtin.command: >-
                 docker run --rm
                 -v {{ _backup_source }}:/data:ro
