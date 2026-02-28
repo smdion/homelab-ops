@@ -6,12 +6,13 @@
 # Sends Discord notification and logs version changes to MariaDB.
 #
 # Usage:
-#   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu
-#   ansible-playbook update_systems.yaml -e hosts_variable=docker_stacks -e update_scope=os
-#   ansible-playbook update_systems.yaml -e hosts_variable=docker_stacks -e update_scope=docker
+#   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu       (OS scope — auto-detected)
+#   ansible-playbook update_systems.yaml -e hosts_variable=docker_stacks (Docker scope — auto-detected)
+#   ansible-playbook update_systems.yaml -e hosts_variable=amp          (Software scope — auto-detected)
 #
-# Optional extra vars:
-#   update_scope=os|docker|software  — run only tasks for this scope (default: all)
+# Scope is auto-derived from hosts_variable:
+#   docker_stacks, docker_run → docker | amp → software | everything else → os
+#   Override: -e update_scope=os|docker|software
 
 - name: Update OS packages and Docker containers
   gather_facts: true
@@ -23,6 +24,12 @@
     - vars/{{ config_file }}.yaml
   vars:
     config_file: "{{ hosts_variable }}"
+    _version_scope: >-
+      {{ update_scope | default(
+           'software' if config_file in (_sw_version_commands | default({})).keys()
+           else 'docker' if config_file in ['docker_stacks', 'docker_run']
+           else 'os'
+         ) }}
     _os_version_commands:
       pikvm:  "pacman -Q | grep 'kvmd ' | cut -c 6-"
       ubuntu: "uname -r | sed 's/-generic//'"
@@ -36,7 +43,7 @@
     - name: Put device in RW mode
       raw: rw
       when:
-        - update_scope is not defined or update_scope == 'os'
+        - _version_scope == 'os'
         - inventory_hostname in groups["pikvm"]
         - not ansible_check_mode
 
@@ -51,17 +58,6 @@
       vars:
         pre_assert_config_file: true
         pre_playbook: "update_systems.yaml"
-
-    - name: Fail if host has both OS and software updates but no update_scope
-      ansible.builtin.fail:
-        msg: >-
-          Host {{ inventory_hostname }} belongs to both OS ({{ group_names | select('in', _os_version_commands) | list | join(', ') }})
-          and software ({{ group_names | select('in', _sw_version_commands) | list | join(', ') }}) version groups.
-          Set -e update_scope=os or -e update_scope=software to avoid version tracking conflicts.
-      when:
-        - update_scope is not defined
-        - group_names | select('in', _os_version_commands) | list | length > 0
-        - group_names | select('in', _sw_version_commands) | list | length > 0
 
     - name: Check Proxmox cluster quorum before update
       when: inventory_hostname in groups['pve'] | default([])
@@ -84,7 +80,7 @@
         dest: /tmp/get_push_epoch.sh
         mode: "0644"
       when:
-        - update_scope is not defined or update_scope == 'docker'
+        - _version_scope == 'docker'
         - inventory_hostname in groups["docker_stacks"] | default([]) or
           inventory_hostname in groups["docker_run"] | default([])
         - update_delay_days | default(0) | int > 0
@@ -94,14 +90,14 @@
         path: /usr/local/emhttp/plugins/dynamix.docker.manager/scripts/update_container
       register: _unraid_update_script
       when:
-        - update_scope is not defined or update_scope == 'docker'
+        - _version_scope == 'docker'
         - inventory_hostname in groups["docker_run"] | default([])
 
     - name: Fail if update_container script missing
       ansible.builtin.fail:
         msg: "unRAID update_container script not found — install the Dynamix Docker Manager plugin"
       when:
-        - update_scope is not defined or update_scope == 'docker'
+        - _version_scope == 'docker'
         - inventory_hostname in groups["docker_run"] | default([])
         - not (_unraid_update_script.stat.exists | default(false))
 
@@ -147,7 +143,7 @@
           register: pikvm_update_result
           failed_when: pikvm_update_result.rc not in [0, 100]
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - inventory_hostname in groups["pikvm"]
 
         - name: Upgrade packages via apt
@@ -156,7 +152,7 @@
             update_cache: true
             upgrade: "{{ 'full' if (inventory_hostname in groups['pve'] or inventory_hostname in groups['pbs']) else 'yes' }}"
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - >-
               inventory_hostname in groups["ubuntu"] or
               inventory_hostname in groups["pve"] or
@@ -167,7 +163,7 @@
             path: /var/run/reboot-required
           register: reboot_required_file
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - inventory_hostname in groups["ubuntu"] or inventory_hostname in groups["pve"] or inventory_hostname in groups["pbs"]
           changed_when: false
 
@@ -176,7 +172,7 @@
           become: true
           register: _pve_maint_enabled
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
             - reboot_required_file.stat.exists | default(false)
 
@@ -193,7 +189,7 @@
           changed_when: false
           become: true
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
             - _pve_maint_enabled is not skipped
 
@@ -202,7 +198,7 @@
           become: true
           register: _ceph_noout_set
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
             - _pve_maint_enabled is not skipped
 
@@ -210,7 +206,7 @@
           ansible.builtin.reboot:
           become: true
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - >-
               (reboot_required_file.stat.exists | default(false)) or
               (inventory_hostname in groups["pikvm"] and pikvm_update_result.rc | default(0) == 100)
@@ -227,7 +223,7 @@
           changed_when: false
           become: true
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
             - _ceph_noout_set is defined
             - not (_ceph_noout_set is skipped)
@@ -236,7 +232,7 @@
           ansible.builtin.shell: ceph osd unset noout; ceph osd unset nobackfill; ceph osd unset norebalance
           become: true
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
             - _ceph_noout_set is defined
             - not (_ceph_noout_set is skipped)
@@ -245,7 +241,7 @@
           ansible.builtin.shell: ha-manager crm-command node-maintenance disable {{ ansible_hostname }}
           become: true
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
             - _pve_maint_enabled is defined
             - not (_pve_maint_enabled is skipped)
@@ -260,7 +256,7 @@
                if amp_instance_filter is defined
                else 'ampinstmgr upgradeall' }}
           when:
-            - update_scope is not defined or update_scope == 'software'
+            - _version_scope == 'software'
             - inventory_hostname in groups["amp"]
           timeout: "{{ amp_upgrade_timeout | default(3600) }}"
 
@@ -276,7 +272,7 @@
           check_mode: false
           loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_stacks"] | default([])
             - inventory_hostname in (stack_assignments | default({}))
 
@@ -290,7 +286,7 @@
                             | selectattr('stdout_lines', 'defined')
                             | map(attribute='stdout_lines'))) }}
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_stacks"] | default([])
             - inventory_hostname in (stack_assignments | default({}))
 
@@ -300,7 +296,7 @@
               {{ _stack_service_map.values() | flatten
                  | difference(update_exclude_services | default([])) }}
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_stacks"] | default([])
             - inventory_hostname in (stack_assignments | default({}))
 
@@ -339,7 +335,7 @@
           register: _docker_snapshot_stacks
           loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_stacks"] | default([])
             - inventory_hostname in (stack_assignments | default({}))
             - (_stack_service_map[item] | default([])) | difference(update_exclude_services | default([])) | length > 0
@@ -353,7 +349,7 @@
             mode: '0600'
           loop: "{{ _docker_snapshot_stacks.results | default([]) | selectattr('stdout', 'defined') | list }}"
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_stacks"] | default([])
             - inventory_hostname in (stack_assignments | default({}))
 
@@ -432,7 +428,7 @@
           changed_when: true
           loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_stacks"] | default([])
             - inventory_hostname in (stack_assignments | default({}))
             - (_stack_service_map[item] | default([])) | difference(update_exclude_services | default([])) | length > 0
@@ -447,7 +443,7 @@
                  | map('from_json')
                  | flatten }}
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_stacks"] | default([])
             - inventory_hostname in (stack_assignments | default({}))
 
@@ -462,14 +458,14 @@
           check_mode: false
           failed_when: false
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_run"] | default([])
 
         - name: Set target unRAID containers
           ansible.builtin.set_fact:
             _docker_target_containers: "{{ _unraid_containers_raw.stdout_lines | default([]) }}"
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_run"] | default([])
 
         - name: Pull, update, and compare unRAID containers
@@ -535,7 +531,7 @@
           register: _unraid_update_raw
           changed_when: true
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_run"] | default([])
             - _docker_target_containers | default([]) | length > 0
             - not ansible_check_mode
@@ -544,7 +540,7 @@
           ansible.builtin.set_fact:
             docker_update_results: "{{ _unraid_update_raw.stdout | from_json }}"
           when:
-            - update_scope is not defined or update_scope == 'docker'
+            - _version_scope == 'docker'
             - inventory_hostname in groups["docker_run"] | default([])
             - _unraid_update_raw is not skipped
 
@@ -554,14 +550,14 @@
           changed_when: false
           check_mode: false
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - group_names | select('in', _os_version_commands) | list | length > 0
 
         - name: Set current_version
           ansible.builtin.set_fact:
             current_version: "{{ _version_raw_os.stdout | trim }}"
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - group_names | select('in', _os_version_commands) | list | length > 0
 
         - name: Get current version
@@ -570,14 +566,14 @@
           changed_when: false
           check_mode: false
           when:
-            - update_scope is not defined or update_scope == 'software'
+            - _version_scope == 'software'
             - group_names | select('in', _sw_version_commands) | list | length > 0
 
         - name: Set current_version
           ansible.builtin.set_fact:
             current_version: "{{ _version_raw_sw.stdout | trim }}"
           when:
-            - update_scope is not defined or update_scope == 'software'
+            - _version_scope == 'software'
             - group_names | select('in', _sw_version_commands) | list | length > 0
 
       rescue:
@@ -592,7 +588,7 @@
           become: true
           failed_when: false
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
             - _pve_maint_enabled is defined
             - not (_pve_maint_enabled is skipped)
@@ -602,7 +598,7 @@
           ansible.builtin.file:
             path: /tmp/get_push_epoch.sh
             state: absent
-          when: update_scope is not defined or update_scope == 'docker'
+          when: _version_scope == 'docker'
 
         - name: Send Discord notification
           include_tasks: tasks/notify.yaml
@@ -630,7 +626,7 @@
         - name: Return PiKVM to RO mode
           raw: ro
           when:
-            - update_scope is not defined or update_scope == 'os'
+            - _version_scope == 'os'
             - inventory_hostname in groups["pikvm"]
             - pikvm_update_result.rc | default(0) != 100
             - not ansible_check_mode

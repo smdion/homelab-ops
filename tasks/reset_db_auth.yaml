@@ -11,13 +11,19 @@
 # Expects:
 #   _db_mariadb_password — desired MariaDB root password
 #   _db_postgres_password — desired Postgres superuser password
+# Optional:
+#   _db_mariadb_container — MariaDB container name (default: 'mariadb')
+#   _db_postgres_container — Postgres container name (default: 'postgres')
 
 - name: Detect running database containers
   ansible.builtin.shell: |
     mariadb=false; postgres=false
-    docker ps -q --filter "name=^mariadb$" | grep -q . && mariadb=true
-    docker ps -q --filter "name=^postgres$" | grep -q . && postgres=true
+    docker ps -q --filter "name=^${MARIA_CONTAINER}$" | grep -q . && mariadb=true
+    docker ps -q --filter "name=^${PG_CONTAINER}$" | grep -q . && postgres=true
     echo "mariadb=$mariadb postgres=$postgres"
+  environment:
+    MARIA_CONTAINER: "{{ _db_mariadb_container | default('mariadb') }}"
+    PG_CONTAINER: "{{ _db_postgres_container | default('postgres') }}"
   become: true
   changed_when: false
   register: _db_container_check
@@ -33,12 +39,12 @@
     # A single mysqladmin ping can catch the first (ephemeral) startup.
     # Loop until GRANT succeeds — covers both socket readiness and auth reset.
     for i in $(seq 1 60); do
-      if docker exec mariadb mariadb -u root --skip-password -e "
+      if docker exec "$MARIA_CONTAINER" mariadb -u root --skip-password -e "
         GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost'
           IDENTIFIED BY '$DB_PASSWORD' WITH GRANT OPTION;
         FLUSH PRIVILEGES;" 2>/dev/null; then
         # root@'%' may not exist — ignore errors
-        docker exec mariadb mariadb -u root --skip-password -e "
+        docker exec "$MARIA_CONTAINER" mariadb -u root --skip-password -e "
           GRANT ALL PRIVILEGES ON *.* TO 'root'@'%'
             IDENTIFIED BY '$DB_PASSWORD' WITH GRANT OPTION;
           FLUSH PRIVILEGES;" 2>/dev/null || true
@@ -51,6 +57,7 @@
     exit 1
   environment:
     DB_PASSWORD: "{{ _db_mariadb_password }}"
+    MARIA_CONTAINER: "{{ _db_mariadb_container | default('mariadb') }}"
   become: true
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   when: _mariadb_running | bool
@@ -59,20 +66,25 @@
 - name: Wait for Postgres to accept connections
   ansible.builtin.shell: |
     for i in $(seq 1 30); do
-      docker exec postgres pg_isready -U postgres >/dev/null 2>&1 && exit 0
+      docker exec "$PG_CONTAINER" pg_isready -U "$PG_USER" >/dev/null 2>&1 && exit 0
       sleep 2
     done
-    echo "timeout waiting for postgres"
+    echo "timeout waiting for $PG_CONTAINER"
     exit 1
+  environment:
+    PG_CONTAINER: "{{ _db_postgres_container | default('postgres') }}"
+    PG_USER: "{{ _db_postgres_username | default('postgres') }}"
   become: true
   changed_when: false
   when: _postgres_running | bool
 
 - name: Reset Postgres superuser password to match vault
   ansible.builtin.shell: |
-    docker exec postgres psql -U postgres -c "ALTER USER postgres WITH PASSWORD '$DB_PASSWORD';"
+    docker exec "$PG_CONTAINER" psql -U "$PG_USER" -c "ALTER USER $PG_USER WITH PASSWORD '$DB_PASSWORD';"
   environment:
     DB_PASSWORD: "{{ _db_postgres_password }}"
+    PG_CONTAINER: "{{ _db_postgres_container | default('postgres') }}"
+    PG_USER: "{{ _db_postgres_username | default('postgres') }}"
   become: true
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   when: _postgres_running | bool
@@ -81,12 +93,13 @@
 - name: Verify MariaDB root auth after password reset
   ansible.builtin.shell: |
     for i in $(seq 1 10); do
-      docker exec -e MYSQL_PWD="$DB_PASSWORD" mariadb mariadb -u root -e "SELECT 1" 2>/dev/null && exit 0
+      docker exec -e MYSQL_PWD="$DB_PASSWORD" "$MARIA_CONTAINER" mariadb -u root -e "SELECT 1" 2>/dev/null && exit 0
       sleep 2
     done
-    docker exec -e MYSQL_PWD="$DB_PASSWORD" mariadb mariadb -u root -e "SELECT 1"
+    docker exec -e MYSQL_PWD="$DB_PASSWORD" "$MARIA_CONTAINER" mariadb -u root -e "SELECT 1"
   environment:
     DB_PASSWORD: "{{ _db_mariadb_password }}"
+    MARIA_CONTAINER: "{{ _db_mariadb_container | default('mariadb') }}"
   become: true
   changed_when: false
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"

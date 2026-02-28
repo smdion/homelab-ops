@@ -10,6 +10,10 @@
 # Inherits from play scope:
 #   app_definitions, backup_base_dir, db_password,
 #   semaphore_check vars (controller_fqdn, etc.)
+# Optional:
+#   _wait_postgres_container  — postgres container name (default: 'postgres')
+#   _wait_postgres_username   — postgres username (default: 'postgres')
+#   _wait_mariadb_container   — mariadb container name (default: 'mariadb')
 
 - name: Resolve stack assignment for {{ _test_app }}
   ansible.builtin.set_fact:
@@ -38,6 +42,8 @@
       vars:
         _db_mariadb_password: "{{ db_password }}"
         _db_postgres_password: "{{ docker_postgres_password }}"
+        _db_mariadb_container: "{{ _wait_mariadb_container | default('mariadb') }}"
+        _db_postgres_container: "{{ _wait_postgres_container | default('postgres') }}"
       when:
         - app_definitions[_test_app].db_names | default([]) | length > 0
         - _cur_stack != 'databases'
@@ -47,14 +53,13 @@
         found_any=false
         for i in $(seq 1 60); do
           all_ready=true
-          # Check each running DB container in the databases stack
-          if docker ps -q --filter "name=postgres" | grep -q .; then
+          if [ -n "$PG_CONTAINER" ] && docker ps -q --filter "name=$PG_CONTAINER" | grep -q .; then
             found_any=true
-            docker exec postgres pg_isready -U postgres >/dev/null 2>&1 || all_ready=false
+            docker exec "$PG_CONTAINER" pg_isready -U "$PG_USER" >/dev/null 2>&1 || all_ready=false
           fi
-          if docker ps -q --filter "name=mariadb" | grep -q .; then
+          if [ -n "$MARIA_CONTAINER" ] && docker ps -q --filter "name=$MARIA_CONTAINER" | grep -q .; then
             found_any=true
-            docker exec mariadb mysqladmin ping -h localhost >/dev/null 2>&1 || all_ready=false
+            docker exec "$MARIA_CONTAINER" mysqladmin ping -h localhost >/dev/null 2>&1 || all_ready=false
           fi
           if $found_any && $all_ready; then
             echo "ready"
@@ -64,6 +69,10 @@
         done
         echo "timeout — found_any=$found_any"
         exit 1
+      environment:
+        PG_CONTAINER: "{{ _wait_postgres_container | default('postgres') }}"
+        PG_USER: "{{ _wait_postgres_username | default('postgres') }}"
+        MARIA_CONTAINER: "{{ _wait_mariadb_container | default('mariadb') }}"
       become: true
       changed_when: false
       when:
