@@ -1,0 +1,12 @@
+services:
+  restic:
+    image: restic/restic:latest
+    container_name: restic
+    volumes:
+      - ${BACKUP_SOURCE}:/data:ro
+      - ${CACHE_DIR}:/root/.cache/restic
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD}

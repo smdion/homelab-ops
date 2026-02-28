@@ -1,18 +1,23 @@
 ---
 # Sync local backups to Backblaze B2 offsite storage.
-# Runs on localhost (controller) — no remote hosts needed.
-# Uses rclone sync for efficient, batched transfers.
+# Runs on localhost (controller). Supports two methods:
+#   - restic (default): S3-compatible incremental backup (encrypted, deduplicated)
+#   - rclone: direct B2 API sync (mirror of /backup)
+#
 # Sends Discord notification + logs to MariaDB.
 #
 # Prerequisites:
-#   - rclone installed on controller (apt install rclone)
-#   - B2 bucket created with lifecycle rule (see future/BACKBLAZE_B2_OFFSITE_BACKUP.md)
-#   - Vault keys set: b2_account_id, b2_application_key, b2_bucket_name
+#   restic: Docker installed, B2 S3-compatible bucket,
+#           vault keys restic_repository/restic_password/b2_account_id/b2_application_key
+#   rclone: rclone installed on controller (apt install rclone),
+#           B2 bucket created, vault keys b2_account_id/b2_application_key/b2_bucket_name
 #
 # Usage:
-#   ansible-playbook backup_offsite.yaml
-#   ansible-playbook backup_offsite.yaml -e dry_run=yes    # preview only (--dry-run)
-#   ansible-playbook backup_offsite.yaml -e bwlimit=10M    # throttle bandwidth
+#   ansible-playbook backup_offsite.yaml                                        # restic (default)
+#   ansible-playbook backup_offsite.yaml -e offsite_method=rclone               # rclone
+#   ansible-playbook backup_offsite.yaml -e dry_run=yes                         # restic dry-run
+#   ansible-playbook backup_offsite.yaml -e offsite_method=rclone -e dry_run=yes
+#   ansible-playbook backup_offsite.yaml -e offsite_method=rclone -e bwlimit=10M
 
 - name: Sync backups to Backblaze B2 offsite storage
   hosts: localhost
@@ -24,6 +29,8 @@
   vars:
     backup_name: "B2"
     backup_subtype: "Offsite"
+    offsite_method: "{{ offsite_method | default('restic') }}"
+    _stack_dir: "/opt/stacks/backups"
 
   pre_tasks:
     - name: Run standard pre-flight assertions for backup_offsite
@@ -32,17 +39,11 @@
         pre_playbook: "backup_offsite.yaml"
         pre_hostname: "{{ controller_fqdn }}"
 
-    - name: Assert rclone is installed
-      ansible.builtin.command: rclone version
-      changed_when: false
-
-    - name: Assert B2 credentials are configured in vault
+    - name: Assert offsite_method is valid
       ansible.builtin.assert:
         that:
-          - b2_account_id is defined and b2_account_id | length > 0
-          - b2_application_key is defined and b2_application_key | length > 0
-          - b2_bucket_name is defined and b2_bucket_name | length > 0
-        fail_msg: "B2 credentials missing from vault — set b2_account_id, b2_application_key, b2_bucket_name"
+          - offsite_method in ['rclone', 'restic']
+        fail_msg: "offsite_method must be 'rclone' or 'restic' — got '{{ offsite_method }}'"
 
     - name: Assert backup source directory exists
       ansible.builtin.stat:
@@ -50,20 +51,123 @@
       register: _backup_dir
       failed_when: not _backup_dir.stat.exists
 
+    # ── rclone pre-flight ──
+    - name: Assert rclone is installed
+      ansible.builtin.command: rclone version
+      changed_when: false
+      when: offsite_method == 'rclone'
+
+    - name: Assert rclone B2 credentials are configured in vault
+      ansible.builtin.assert:
+        that:
+          - b2_account_id is defined and b2_account_id | length > 0
+          - b2_application_key is defined and b2_application_key | length > 0
+          - b2_bucket_name is defined and b2_bucket_name | length > 0
+        fail_msg: "B2 credentials missing from vault — set b2_account_id, b2_application_key, b2_bucket_name"
+      when: offsite_method == 'rclone'
+
+    # ── restic pre-flight ──
+    - name: Assert Docker is available
+      ansible.builtin.command: docker version --format '{{ '{{' }}.Server.Version{{ '}}' }}'
+      changed_when: false
+      when: offsite_method == 'restic'
+
+    - name: Assert Restic credentials are configured in vault
+      ansible.builtin.assert:
+        that:
+          - restic_repository is defined and restic_repository | length > 0
+          - restic_password is defined and restic_password | length > 0
+          - b2_account_id is defined and b2_account_id | length > 0
+          - b2_application_key is defined and b2_application_key | length > 0
+        fail_msg: "Restic credentials missing from vault — set restic_repository, restic_password, b2_account_id, b2_application_key"
+      when: offsite_method == 'restic'
+
   tasks:
     - name: Initialize offsite sync state
       ansible.builtin.set_fact:
         sync_failed: false
         _sync_start: "{{ ansible_date_time.epoch }}"
 
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Restic path (default)
+    # ═══════════════════════════════════════════════════════════════════════════
+    - block:
+        - name: Create backups stack directory
+          ansible.builtin.file:
+            path: "{{ _stack_dir }}"
+            state: directory
+            mode: "0755"
+
+        - name: Template backups stack .env
+          ansible.builtin.template:
+            src: stacks/backups/env.j2
+            dest: "{{ _stack_dir }}/.env"
+            mode: "0600"
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Copy backups stack docker-compose.yaml
+          ansible.builtin.copy:
+            src: stacks/backups/docker-compose.yaml
+            dest: "{{ _stack_dir }}/docker-compose.yaml"
+            mode: "0644"
+
+        - name: Check if Restic repository is initialized
+          ansible.builtin.command: >-
+            docker compose -f {{ _stack_dir }}/docker-compose.yaml
+            run --rm restic snapshots --latest 1
+          register: _restic_check
+          failed_when: false
+          changed_when: false
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Initialize Restic repository
+          ansible.builtin.command: >-
+            docker compose -f {{ _stack_dir }}/docker-compose.yaml
+            run --rm restic init
+          when: _restic_check.rc != 0
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Run Restic backup
+          ansible.builtin.command: >-
+            docker compose -f {{ _stack_dir }}/docker-compose.yaml
+            run --rm restic backup /data
+            --verbose
+            {{ '--dry-run' if dry_run | default(false) | bool else '' }}
+          register: _restic_result
+          timeout: 7200
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Apply Restic retention policy
+          ansible.builtin.command: >-
+            docker compose -f {{ _stack_dir }}/docker-compose.yaml
+            run --rm restic forget
+            --keep-daily 7
+            --keep-weekly 4
+            --keep-monthly 6
+            --prune
+          when: not (dry_run | default(false) | bool)
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+      rescue:
+        - name: Set sync failed flag
+          ansible.builtin.set_fact:
+            sync_failed: true
+
+      when: offsite_method == 'restic'
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # rclone path
+    # ═══════════════════════════════════════════════════════════════════════════
     - block:
         - name: Sync backups to B2 via rclone
           ansible.builtin.command: >-
             rclone sync
             {{ backup_base_dir }}
             :b2:{{ b2_bucket_name }}
+            --fast-list
+            --size-only
             --transfers {{ b2_transfers | default(4) }}
-            --checkers {{ b2_checkers | default(8) }}
+            --checkers {{ b2_checkers | default(4) }}
             --retries 3
             --low-level-retries 10
             --stats-one-line
@@ -84,35 +188,39 @@
           ansible.builtin.set_fact:
             sync_failed: true
 
-      always:
-        - name: Calculate sync duration
-          ansible.builtin.set_fact:
-            _sync_duration: "{{ now(utc=true).strftime('%s') | int - (_sync_start | int) }}"
+      when: offsite_method == 'rclone'
 
-        - name: Send offsite sync Discord notification
-          include_tasks: tasks/notify.yaml
-          vars:
-            discord_name: "{{ backup_name }}"
-            discord_operation: "Sync"
-            discord_author: "{{ controller_fqdn }}"
-            discord_status: "{{ 'failed' if sync_failed else 'successful' }}"
-            discord_color: "{{ discord_color_failure if sync_failed else discord_color_success }}"
-            discord_url: "https://secure.backblaze.com/b2_buckets.htm"
-            discord_fields:
-              - name: "Bucket"
-                value: "{{ b2_bucket_name }}"
-              - name: "Duration"
-                value: "{{ (_sync_duration | int // 60) }}m {{ (_sync_duration | int % 60) }}s"
-              - name: "Dry Run"
-                value: "{{ dry_run | default(false) | bool }}"
-                inline: true
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Notification + logging (always)
+    # ═══════════════════════════════════════════════════════════════════════════
+    - name: Calculate sync duration
+      ansible.builtin.set_fact:
+        _sync_duration: "{{ now(utc=true).strftime('%s') | int - (_sync_start | int) }}"
 
-        - name: Log offsite sync to MariaDB
-          include_tasks: tasks/log_mariadb.yaml
-          vars:
-            log_table: backups
-            log_application: "{{ backup_name }}"
-            log_hostname: "{{ controller_fqdn }}"
-            log_file_name: "{{ ('FAILED_' if sync_failed else '') }}offsite_b2_{{ ansible_date_time.date }}"
-            log_file_size: "0"
-            log_backup_level: "offline"
+    - name: Send offsite sync Discord notification
+      include_tasks: tasks/notify.yaml
+      vars:
+        discord_name: "{{ backup_name }}"
+        discord_operation: "Sync"
+        discord_author: "{{ controller_fqdn }}"
+        discord_status: "{{ 'failed' if sync_failed else 'successful' }}"
+        discord_color: "{{ discord_color_failure if sync_failed else discord_color_success }}"
+        discord_url: "https://secure.backblaze.com/b2_buckets.htm"
+        discord_fields: >-
+          {{
+            [{'name': 'Method', 'value': offsite_method, 'inline': true}]
+            + ([{'name': 'Bucket', 'value': b2_bucket_name}] if offsite_method == 'rclone' else [])
+            + ([{'name': 'Repository', 'value': restic_repository}] if offsite_method == 'restic' else [])
+            + [{'name': 'Duration', 'value': (_sync_duration | int // 60) | string ~ 'm ' ~ (_sync_duration | int % 60) | string ~ 's', 'inline': true},
+               {'name': 'Dry Run', 'value': dry_run | default(false) | bool | string, 'inline': true}]
+          }}
+
+    - name: Log offsite sync to MariaDB
+      include_tasks: tasks/log_mariadb.yaml
+      vars:
+        log_table: backups
+        log_application: "{{ backup_name }}"
+        log_hostname: "{{ controller_fqdn }}"
+        log_file_name: "{{ ('FAILED_' if sync_failed else '') }}offsite_{{ offsite_method }}_{{ ansible_date_time.date }}"
+        log_file_size: "0"
+        log_backup_level: "offline"
