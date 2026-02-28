@@ -1,0 +1,24 @@
+---
+# Pinned container image versions.
+# Services that track :latest or use implicit tags are NOT listed here —
+# they live directly in their docker-compose.yaml files.
+# Add entries here only when a service needs explicit version pinning.
+#
+# To pin a new service:
+#   1. Add an entry below (image + tag)
+#   2. Add env vars to the stack's env.j2 (e.g., MY_IMAGE={{ container_definitions.myapp.image }})
+#   3. Update docker-compose.yaml to use ${MY_IMAGE}:${MY_TAG}
+
+container_definitions:
+  authentik:
+    image: "ghcr.io/goauthentik/server"
+    tag: "2025.12.4"
+  postgres:
+    image: "postgres"
+    tag: "16-alpine"
+  victoria_metrics:
+    image: "victoriametrics/victoria-metrics"
+    tag: "v1.114.0"
+  jellyseerr:
+    image: "fallenbagel/jellyseerr"
+    tag: "preview-OIDC"

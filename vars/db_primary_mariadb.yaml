@@ -9,10 +9,11 @@ backup_ext: "sql.gz"
 backup_file: "backup_{{ item }}_{{ ansible_date_time.date }}.sql.gz"
 db_username: "root"
 db_container_name: "mariadb"
-db_names:
-  - "nextcloud"
-  - "semaphore"
-  - "ansible_logging"
+db_names: >-
+  {{ app_definitions | dict2items
+     | selectattr('value.db_config', 'defined')
+     | selectattr('value.db_config', 'equalto', 'db_primary_mariadb')
+     | map(attribute='value.db_names') | flatten | sort | list }}
 is_mariadb: true
 
 # Restore support — maps each DB to dependent containers ON THE SAME HOST as mariadb.

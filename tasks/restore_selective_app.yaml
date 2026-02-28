@@ -3,6 +3,9 @@
 # Supports optional coordinated DB restore via cross-host delegate_to.
 # Extracted from restore_hosts.yaml.
 #
+# App config is read from app_definitions.yaml (containers, db_config,
+# db_host, db_stack, db_names).
+#
 # Expects (from caller scope):
 #   restore_app            — app name to restore
 #   backup_base_dir        — controller-side backup root
@@ -12,6 +15,17 @@
 #   restore_date           — date filter for archive selection
 # Sets:
 #   restore_failed, _restore_source_file, _restore_detail
+
+- name: Resolve app config from app_definitions
+  ansible.builtin.set_fact:
+    _app_cfg: "{{ app_definitions[restore_app] }}"
+
+- name: Assert app has containers defined for selective restore
+  ansible.builtin.assert:
+    that: _app_cfg.containers is defined
+    fail_msg: >-
+      App '{{ restore_app }}' in app_definitions does not have 'containers' defined.
+      Selective restore requires containers to stop/start.
 
 - block:
     - name: Find backup archive on controller
@@ -58,27 +72,25 @@
     # ===== STOP CONTAINERS =====
     - include_tasks: tasks/docker_stop.yaml
       vars:
-        _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
+        _docker_selective_containers: "{{ _app_cfg.containers }}"
       when:
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.containers is defined
         - not ansible_check_mode
 
     # ===== COORDINATED DB RESTORE (cross-host via delegate_to) =====
     - name: Load DB vars into namespace
       ansible.builtin.include_vars:
-        file: "vars/{{ app_restore[restore_app].db_config_file }}.yaml"
+        file: "vars/{{ _app_cfg.db_config }}.yaml"
         name: _db_vars
       when:
         - with_databases | default('') == 'yes'
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.db_config is defined
 
     - name: Find DB backup files on controller
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ app_restore[restore_app].db_backup_stack | default(app_restore[restore_app].db_host) }}/backup_{{ item }}_{{ restore_date | default('*') }}.{{ _db_vars.backup_ext | default('sql.gz') }}
+        ls -t {{ backup_base_dir }}/{{ _app_cfg.db_stack }}/backup_{{ item }}_{{ restore_date | default('*') }}.{{ _db_vars.backup_ext | default('sql.gz') }}
         2>/dev/null | head -1
-      loop: "{{ app_restore[restore_app].db_names }}"
+      loop: "{{ _app_cfg.db_names }}"
       register: _db_backup_files
       delegate_to: localhost
       become: false
@@ -86,40 +98,37 @@
       check_mode: false
       when:
         - with_databases | default('') == 'yes'
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.db_names is defined
 
     - name: Assert DB backup files exist
       ansible.builtin.assert:
         that: _db_backup_files.results[idx].stdout | length > 0
         fail_msg: "No backup found for database {{ item }}"
-      loop: "{{ app_restore[restore_app].db_names }}"
+      loop: "{{ _app_cfg.db_names }}"
       loop_control:
         index_var: idx
       when:
         - with_databases | default('') == 'yes'
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.db_names is defined
 
     - name: Copy DB backup files to DB host
       ansible.builtin.copy:
         src: "{{ _db_backup_files.results[idx].stdout }}"
         dest: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.{{ _db_vars.backup_ext | default('sql.gz') }}"
-      loop: "{{ app_restore[restore_app].db_names }}"
+      loop: "{{ _app_cfg.db_names }}"
       loop_control:
         index_var: idx
-      delegate_to: "{{ app_restore[restore_app].db_host }}"
+      delegate_to: "{{ _app_cfg.db_host }}"
       become: true
       when:
         - with_databases | default('') == 'yes'
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.db_names is defined
         - not ansible_check_mode
 
     - name: Create pre-restore safety backup on DB host
       include_tasks: tasks/pre_restore_safety_dump.yaml
       vars:
-        _safety_db_list: "{{ app_restore[restore_app].db_names }}"
+        _safety_db_list: "{{ _app_cfg.db_names }}"
         _safety_container: "{{ _db_vars.db_container_name }}"
         _safety_username: "{{ _db_vars.db_username }}"
         _safety_password: "{{ db_password }}"
@@ -128,17 +137,16 @@
         _safety_is_postgres: "{{ _db_vars.is_postgres | default(false) }}"
         _safety_is_mariadb: "{{ _db_vars.is_mariadb | default(false) }}"
         _safety_is_influxdb: false
-        _safety_delegate_host: "{{ app_restore[restore_app].db_host }}"
+        _safety_delegate_host: "{{ _app_cfg.db_host }}"
       when:
         - with_databases | default('') == 'yes'
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.db_names is defined
         - not (skip_pre_backup | default(false) | bool)
         - not ansible_check_mode
 
     - name: Restore databases on DB host
       include_tasks: tasks/db_restore.yaml
-      loop: "{{ app_restore[restore_app].db_names }}"
+      loop: "{{ _app_cfg.db_names }}"
       vars:
         _db_name: "{{ item }}"
         _db_container: "{{ _db_vars.db_container_name }}"
@@ -149,16 +157,15 @@
         _db_is_mariadb: "{{ _db_vars.is_mariadb | default(false) }}"
         _db_is_influxdb: false
         _db_tmp_dir: "{{ _db_vars.backup_tmp_dir }}"
-      delegate_to: "{{ app_restore[restore_app].db_host }}"
+      delegate_to: "{{ _app_cfg.db_host }}"
       when:
         - with_databases | default('') == 'yes'
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.db_names is defined
         - not ansible_check_mode
 
     - name: Validate restored databases on DB host
       include_tasks: tasks/db_count.yaml
-      loop: "{{ app_restore[restore_app].db_names }}"
+      loop: "{{ _app_cfg.db_names }}"
       vars:
         _db_name: "{{ item }}"
         _db_container: "{{ _db_vars.db_container_name }}"
@@ -167,24 +174,22 @@
         _db_is_postgres: "{{ _db_vars.is_postgres | default(false) }}"
         _db_is_mariadb: "{{ _db_vars.is_mariadb | default(false) }}"
         _db_is_influxdb: false
-      delegate_to: "{{ app_restore[restore_app].db_host }}"
+      delegate_to: "{{ _app_cfg.db_host }}"
       when:
         - with_databases | default('') == 'yes'
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.db_names is defined
         - not ansible_check_mode
 
     - name: Clean up DB temp files on DB host
       ansible.builtin.file:
         path: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.{{ _db_vars.backup_ext | default('sql.gz') }}"
         state: absent
-      loop: "{{ app_restore[restore_app].db_names }}"
-      delegate_to: "{{ app_restore[restore_app].db_host }}"
+      loop: "{{ _app_cfg.db_names }}"
+      delegate_to: "{{ _app_cfg.db_host }}"
       become: true
       when:
         - with_databases | default('') == 'yes'
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.db_names is defined
 
     # ===== RESTORE APPDATA =====
     - include_tasks: tasks/restore_appdata.yaml
@@ -197,20 +202,18 @@
       ansible.builtin.set_fact:
         _restore_detail: >-
           {{ _restore_detail }}
-          + {{ app_restore[restore_app].db_names | join(', ') }} DB(s) restored
+          + {{ _app_cfg.db_names | join(', ') }} DB(s) restored
       when:
         - with_databases | default('') == 'yes'
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.db_names is defined
         - not ansible_check_mode
 
     # ===== START CONTAINERS =====
     - include_tasks: tasks/docker_start.yaml
       vars:
-        _docker_selective_containers: "{{ app_restore[restore_app].containers }}"
+        _docker_selective_containers: "{{ _app_cfg.containers }}"
       when:
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.containers is defined
         - not ansible_check_mode
 
     # ===== CLEANUP =====
@@ -227,8 +230,7 @@
 
     - include_tasks: tasks/docker_start.yaml
       vars:
-        _docker_selective_containers: "{{ app_restore[restore_app].containers | default([]) }}"
+        _docker_selective_containers: "{{ _app_cfg.containers | default([]) }}"
         _docker_ignore_errors: true
       when:
-        - app_restore is defined
-        - app_restore[restore_app] is defined
+        - _app_cfg.containers is defined

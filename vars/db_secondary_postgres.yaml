@@ -9,8 +9,11 @@ backup_ext: "sql.gz"
 backup_file: "backup_{{ item }}_{{ ansible_date_time.date }}.sql.gz"
 db_username: "postgres"
 db_container_name: "postgres-immich"
-db_names:
-  - "immich"
+db_names: >-
+  {{ app_definitions | dict2items
+     | selectattr('value.db_config', 'defined')
+     | selectattr('value.db_config', 'equalto', 'db_secondary_postgres')
+     | map(attribute='value.db_names') | flatten | sort | list }}
 is_postgres: true
 
 # Restore support — maps each DB to dependent containers ON THE SAME HOST as postgres-immich.
