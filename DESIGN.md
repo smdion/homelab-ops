@@ -215,7 +215,7 @@ history, restore results, playbook runs) belongs in the database.
 ├── update_systems.yaml             # OS, application, and Docker container updates (Proxmox, PiKVM, AMP, Ubuntu, Docker); PVE cluster quorum pre-check; rollback snapshot; unRAID update_container script
 ├── maintain_amp.yaml               # AMP game server maintenance (versions, dumps, prune, journal)
 ├── maintain_semaphore.yaml         # Delete stopped/error + old download tasks from Semaphore DB + prune ansible_logging retention (runs on localhost)
-├── maintain_logging_db.yaml        # Purge failed/warning records from ansible_logging (failed updates, maintenance, zero-size backups, warning/critical health checks) — runs on localhost
+├── maintain_logging_db.yaml        # Purge failed/warning records from ansible_logging; purge_all=yes + confirm=yes truncates all 8 tables (full reset) — runs on localhost
 ├── maintain_docker.yaml            # Prune unused Docker images + drop Linux page cache (Ubuntu/unRAID); logs metrics to docker_sizes table
 ├── maintain_unifi.yaml             # Restart Unifi Network service
 ├── maintain_health.yaml            # Scheduled health monitoring — 26 checks across all SSH hosts + DB/API; Uptime Kuma dead man's switch

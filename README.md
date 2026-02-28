@@ -97,7 +97,7 @@ and go.
 | `update_systems.yaml` | OS packages + Docker container updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers` | `vars/<platform>.yaml` with `update_*` vars |
 | `maintain_docker.yaml` | Prune unused Docker images + drop Linux page cache (Ubuntu/unRAID); logs disk metrics to MariaDB | Needs `[docker]` group + `[ubuntu]`/`[unraid]` for cache |
 | `maintain_semaphore.yaml` | Clean stopped Semaphore tasks, prune old download tasks (`download_task_retention_days`), and prune `ansible_logging` rows (`retention_days`) | Runs on localhost |
-| `maintain_logging_db.yaml` | Purge failed/warning records from `ansible_logging` — failed updates, failed maintenance, zero-size backups, warning/critical health checks | Runs on localhost |
+| `maintain_logging_db.yaml` | Purge failed/warning records from `ansible_logging`; `-e purge_all=yes -e confirm=yes` truncates all tables (full reset after arch changes) | Runs on localhost |
 | `check_logging_db.yaml` | Weekly `ansible_logging` summary — 7-day row counts per table, hosts with no recent backup, failure counts — sends an informational notification; logs to MariaDB | Runs on localhost |
 | `maintain_health.yaml` | 26 health checks across all SSH hosts + DB/API | `vars/semaphore_check.yaml` for thresholds |
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB, count tables/measurements) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
@@ -118,7 +118,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `maintain_amp.yaml` | [AMP](https://cubecoders.com/AMP) game server | Version checks, journal pruning, dump cleanup |
 | `maintain_unifi.yaml` | Unifi Network (UDMP) | Service restart |
 | `backup_offline.yaml` | NAS-to-NAS (unRAID + Synology) | Wake Synology via WOL, rsync backup data from unRAID to Synology, verify shutdown |
-| `backup_offsite.yaml` | Backblaze B2 | Sync `/backup/` to B2 via rclone; runs on localhost; supports `dry_run=yes` and `bwlimit=` |
+| `backup_offsite.yaml` | Backblaze B2 | Sync `/backup/` to B2 via restic or rclone; supports `dry_run=yes` and `bwlimit=` |
 | `download_videos.yaml` | [MeTube](https://github.com/alexta69/metube) / yt-dlp | Automated video downloads with per-video notifications; supports multiple profiles (`download_default`, `download_on_demand`) |
 | `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
