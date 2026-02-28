@@ -430,5 +430,5 @@
             log_application: "{{ backup_name }}"
             log_hostname: "{{ inventory_hostname }}"
             log_file_name: "{{ ('FAILED_' if sync_failed else '') }}offsite_{{ offsite_method }}_{{ ansible_date_time.date }}"
-            log_file_size: "{{ _restic_summary.data_added | default(0) | string }}"
+            log_file_size: "{{ ((_restic_summary.data_added | default(0) | int) / 1048576) | round(2) | string }}"
             log_backup_level: "offline"
