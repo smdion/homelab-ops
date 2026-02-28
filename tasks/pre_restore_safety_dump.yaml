@@ -1,0 +1,33 @@
+---
+# Create pre-restore safety backup of databases.
+# Dumps each database in the list before restoring over it.
+# Called from restore_databases.yaml, restore_app.yaml,
+# restore_selective_app.yaml, and rollback_restore_dbs.yaml.
+#
+# Required vars (pass via vars: on include_tasks):
+#   _safety_db_list       — list of DB names to dump
+#   _safety_container     — Docker container name
+#   _safety_username      — DB username
+#   _safety_password      — DB password (default: '')
+#   _safety_dest_dir      — directory for safety dump files
+#   _safety_ext           — file extension (e.g., sql.gz)
+#   _safety_is_postgres   — bool
+#   _safety_is_mariadb    — bool
+#   _safety_is_influxdb   — bool
+# Optional:
+#   _safety_delegate_host — delegate to a different host (cross-host restores)
+
+- name: Create pre-restore safety backup — {{ item }}
+  include_tasks: tasks/db_dump.yaml
+  loop: "{{ _safety_db_list }}"
+  vars:
+    _db_name: "{{ item }}"
+    _db_container: "{{ _safety_container }}"
+    _db_username: "{{ _safety_username }}"
+    _db_password: "{{ _safety_password | default('') }}"
+    _db_dest_file: "{{ _safety_dest_dir }}/pre_restore_{{ item }}_{{ ansible_date_time.date }}.{{ _safety_ext | default('sql.gz') }}"
+    _db_is_postgres: "{{ _safety_is_postgres | default(false) }}"
+    _db_is_mariadb: "{{ _safety_is_mariadb | default(false) }}"
+    _db_is_influxdb: "{{ _safety_is_influxdb | default(false) }}"
+    _db_tmp_dir: "{{ _safety_dest_dir }}"
+    _db_delegate_host: "{{ _safety_delegate_host | default(omit) }}"

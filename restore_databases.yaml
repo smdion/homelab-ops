@@ -19,6 +19,9 @@
 #
 #   # Restore InfluxDB
 #   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_influxdb -e confirm=yes
+#
+#   # Skip pre-restore safety backup
+#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm=yes -e skip_pre_backup=yes
 
 - name: Resolve database target host
   hosts: localhost
@@ -49,7 +52,6 @@
     - vars/{{ config_file }}.yaml
   vars:
     config_file: "{{ hosts_variable }}"
-    pre_backup: "{{ pre_backup | default('yes') }}"
 
   pre_tasks:
     - name: Assert confirm is set
@@ -98,20 +100,19 @@
             index_var: idx
 
         - name: Create pre-restore safety backup
-          include_tasks: tasks/db_dump.yaml
-          loop: "{{ _restore_db_list }}"
+          include_tasks: tasks/pre_restore_safety_dump.yaml
           vars:
-            _db_name: "{{ item }}"
-            _db_container: "{{ db_container_name }}"
-            _db_username: "{{ db_username }}"
-            _db_password: "{{ db_password | default('') }}"
-            _db_dest_file: "{{ backup_tmp_dir }}/pre_restore_{{ item }}_{{ ansible_date_time.date }}.{{ backup_ext | default('sql') }}"
-            _db_is_postgres: "{{ is_postgres | default(false) }}"
-            _db_is_mariadb: "{{ is_mariadb | default(false) }}"
-            _db_is_influxdb: "{{ is_influxdb | default(false) }}"
-            _db_tmp_dir: "{{ backup_tmp_dir }}"
+            _safety_db_list: "{{ _restore_db_list }}"
+            _safety_container: "{{ db_container_name }}"
+            _safety_username: "{{ db_username }}"
+            _safety_password: "{{ db_password | default('') }}"
+            _safety_dest_dir: "{{ backup_tmp_dir }}"
+            _safety_ext: "{{ backup_ext | default('sql.gz') }}"
+            _safety_is_postgres: "{{ is_postgres | default(false) }}"
+            _safety_is_mariadb: "{{ is_mariadb | default(false) }}"
+            _safety_is_influxdb: "{{ is_influxdb | default(false) }}"
           when:
-            - pre_backup | bool
+            - not (skip_pre_backup | default(false) | bool)
             - not ansible_check_mode
 
         - name: Copy backup files to target host

@@ -143,8 +143,8 @@ update_subtype: "OS"
 # is_postgres: true
 # is_influxdb: true
 
-# Backup file extension — "sql" for SQL engines, "tar.gz" for InfluxDB portable backups
-# backup_ext: "sql"
+# Backup file extension — "sql.gz" for SQL engines (gzip-compressed), "tar.gz" for InfluxDB
+# backup_ext: "sql.gz"
 
 # Database password should be in vars/secrets.yaml (vault), not here
 # db_password: "{{ my_db_password_from_vault }}"

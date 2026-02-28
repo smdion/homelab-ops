@@ -840,7 +840,7 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 **Value rules:**
 - Boolean triggers always use `=yes` — never `=true`, `=false`, or `=no` on the CLI
 - YAML booleans inside playbook code use `true`/`false` (see [Coding conventions](#coding-conventions))
-- `pre_backup=no` skips the pre-restore safety backup in `restore_databases.yaml` (default: on)
+- `skip_pre_backup=yes` skips the pre-restore safety backup (default: safety dump runs)
 
 **Per-playbook key vars (concise — see `future/CLAUDE_REFERENCE.md` for full detail):**
 | Playbook | Key `-e` vars |
@@ -850,11 +850,11 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 | `backup_offline` | `hosts_variable` (req) |
 | `backup_offsite` | `dry_run`, `bwlimit` |
 | `verify_backups` | `hosts_variable` (req), `stack`, `app`, `role`, `amp_instance_filter` |
-| `restore_hosts` | `hosts_variable` (req), `confirm` (req), `stack`, `app`, `role`, `with_databases`, `restore_app` |
-| `restore_databases` | `hosts_variable` (req — DB config key), `confirm` (req), `restore_db`, `restore_date`, `pre_backup` |
-| `restore_app` | `restore_app` (req), `restore_target` (req), `confirm` (req) |
+| `restore_hosts` | `hosts_variable` (req), `confirm` (req), `stack`, `app`, `role`, `with_databases`, `restore_app`, `skip_pre_backup` |
+| `restore_databases` | `hosts_variable` (req — DB config key), `confirm` (req), `restore_db`, `restore_date`, `skip_pre_backup` |
+| `restore_app` | `restore_app` (req), `restore_target` (req), `confirm` (req), `skip_pre_backup` |
 | `restore_amp` | `restore_target` (req), `confirm` (req), `amp_instance_filter` |
-| `rollback_docker` | `hosts_variable` (req), `confirm` (req), `stack`, `app`, `role`, `rollback_service`, `with_backup` |
+| `rollback_docker` | `hosts_variable` (req), `confirm` (req), `stack`, `app`, `role`, `rollback_service`, `with_backup`, `skip_pre_backup` |
 | `deploy_stacks` | `hosts_variable` (req), `stack`, `app`, `role`, `validate_only`, `pull_only` |
 | `update_systems` | `hosts_variable` (req), `update_scope`, `amp_instance_filter` |
 | `test_restore` | `role` or `source_host` (req), `vm_name`, `dr_mode`, `deploy_ssh_key`, `skip_dbs`, `stack` |
@@ -1771,8 +1771,9 @@ No SQL changes needed.
 | `backup_offsite.yaml` (inline) | B2 | Servers | Offsite |
 | `vars/db_*.yaml` | (individual db name)-db | Servers | Database |
 
-Database vars files also set `backup_ext` (`"sql"` for PostgreSQL/MariaDB, `"tar.gz"` for InfluxDB)
+Database vars files also set `backup_ext` (`"sql.gz"` for PostgreSQL/MariaDB, `"tar.gz"` for InfluxDB)
 which controls file extensions in find/copy/cleanup paths across all three database playbooks.
+To restore from old `.sql` backups (pre-extension fix), pass `-e backup_ext=sql`.
 
 **Updates:**
 
@@ -2129,9 +2130,11 @@ Key panel features:
   `-e confirm=yes` on the command line. Without it, the pre-task assertion fails with a guidance
   message. Prevents accidental data overwrites. Applies to: `restore_databases.yaml`,
   `restore_hosts.yaml`, `restore_app.yaml`, `restore_amp.yaml`, `rollback_docker.yaml`.
-- **Pre-restore safety backup** (`restore_databases.yaml`): Before restoring a database, the current
-  state is dumped to `<backup_tmp_dir>/pre_restore_<db>_<date>.sql` as a safety net. Controlled by
-  `pre_backup` (defaults to `yes`).
+- **Pre-restore safety backup**: Before restoring databases, the current state is dumped to
+  `<tmp_dir>/pre_restore_<db>_<date>.<ext>` as a safety net. Shared via
+  `tasks/pre_restore_safety_dump.yaml`. Used in: `restore_databases.yaml`, `restore_app.yaml`,
+  `restore_hosts.yaml` (with_databases path), `rollback_docker.yaml` (with_backup path).
+  Skip with `-e skip_pre_backup=yes` (default: safety dump runs).
 
 ### Backup filename convention
 

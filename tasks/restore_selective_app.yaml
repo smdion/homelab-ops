@@ -76,7 +76,7 @@
 
     - name: Find DB backup files on controller
       ansible.builtin.shell: >
-        ls -t {{ backup_base_dir }}/{{ app_restore[restore_app].db_backup_stack | default(app_restore[restore_app].db_host) }}/backup_{{ item }}_{{ restore_date | default('*') }}.sql
+        ls -t {{ backup_base_dir }}/{{ app_restore[restore_app].db_backup_stack | default(app_restore[restore_app].db_host) }}/backup_{{ item }}_{{ restore_date | default('*') }}.{{ _db_vars.backup_ext | default('sql.gz') }}
         2>/dev/null | head -1
       loop: "{{ app_restore[restore_app].db_names }}"
       register: _db_backup_files
@@ -104,7 +104,7 @@
     - name: Copy DB backup files to DB host
       ansible.builtin.copy:
         src: "{{ _db_backup_files.results[idx].stdout }}"
-        dest: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql"
+        dest: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.{{ _db_vars.backup_ext | default('sql.gz') }}"
       loop: "{{ app_restore[restore_app].db_names }}"
       loop_control:
         index_var: idx
@@ -116,6 +116,26 @@
         - app_restore[restore_app] is defined
         - not ansible_check_mode
 
+    - name: Create pre-restore safety backup on DB host
+      include_tasks: tasks/pre_restore_safety_dump.yaml
+      vars:
+        _safety_db_list: "{{ app_restore[restore_app].db_names }}"
+        _safety_container: "{{ _db_vars.db_container_name }}"
+        _safety_username: "{{ _db_vars.db_username }}"
+        _safety_password: "{{ db_password }}"
+        _safety_dest_dir: "{{ _db_vars.backup_tmp_dir }}"
+        _safety_ext: "{{ _db_vars.backup_ext | default('sql.gz') }}"
+        _safety_is_postgres: "{{ _db_vars.is_postgres | default(false) }}"
+        _safety_is_mariadb: "{{ _db_vars.is_mariadb | default(false) }}"
+        _safety_is_influxdb: false
+        _safety_delegate_host: "{{ app_restore[restore_app].db_host }}"
+      when:
+        - with_databases | default('') == 'yes'
+        - app_restore is defined
+        - app_restore[restore_app] is defined
+        - not (skip_pre_backup | default(false) | bool)
+        - not ansible_check_mode
+
     - name: Restore databases on DB host
       include_tasks: tasks/db_restore.yaml
       loop: "{{ app_restore[restore_app].db_names }}"
@@ -124,7 +144,7 @@
         _db_container: "{{ _db_vars.db_container_name }}"
         _db_username: "{{ _db_vars.db_username }}"
         _db_password: "{{ db_password }}"
-        _db_source_file: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql"
+        _db_source_file: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.{{ _db_vars.backup_ext | default('sql.gz') }}"
         _db_is_postgres: "{{ _db_vars.is_postgres | default(false) }}"
         _db_is_mariadb: "{{ _db_vars.is_mariadb | default(false) }}"
         _db_is_influxdb: false
@@ -156,7 +176,7 @@
 
     - name: Clean up DB temp files on DB host
       ansible.builtin.file:
-        path: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.sql"
+        path: "{{ _db_vars.backup_tmp_dir }}/restore_{{ item }}.{{ _db_vars.backup_ext | default('sql.gz') }}"
         state: absent
       loop: "{{ app_restore[restore_app].db_names }}"
       delegate_to: "{{ app_restore[restore_app].db_host }}"
