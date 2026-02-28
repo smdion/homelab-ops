@@ -403,8 +403,10 @@
             dest: /boot/config/DISK_ASSIGNMENTS.ini
             remote_src: true
             mode: "0644"
+          become: true
           when:
             - inventory_hostname in groups['unraid'] | default([])
+            - config_file == 'unraid_os'
             - not ansible_check_mode
 
         # === unRAID: file inventory of all array shares (monthly — pass -e run_tree_index=yes) ===
