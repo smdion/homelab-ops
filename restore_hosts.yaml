@@ -74,6 +74,22 @@
         pre_playbook: "restore_hosts.yaml"
         pre_run_vars: "{{ {'config_file': config_file | default('')} | to_json }}"
 
+    - name: Assert DockerClient.php exists on unRAID
+      ansible.builtin.stat:
+        path: /usr/local/emhttp/plugins/dynamix.docker.manager/include/DockerClient.php
+      register: _unraid_docker_client
+      when:
+        - inventory_hostname in groups["docker_run"] | default([])
+        - inventory_hostname in groups["unraid"] | default([])
+
+    - name: Fail if DockerClient.php missing on unRAID
+      ansible.builtin.fail:
+        msg: "unRAID DockerClient.php not found — Dynamix Docker Manager plugin may not be installed"
+      when:
+        - inventory_hostname in groups["docker_run"] | default([])
+        - inventory_hostname in groups["unraid"] | default([])
+        - not (_unraid_docker_client.stat.exists | default(false))
+
     - name: Put PiKVM in RW mode
       raw: rw
       when:

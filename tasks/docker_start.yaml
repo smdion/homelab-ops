@@ -1,13 +1,18 @@
 ---
-# Start Docker containers/stacks. Quad-modal: selective containers, selective stacks, all stacks, unRAID.
+# Start Docker containers/stacks. Five modes (evaluated in priority order):
+#   1. Selective containers (_docker_selective_containers)
+#   2. Selective stacks (_docker_selective_stacks, docker_stacks hosts)
+#   3. All stacks (docker_stacks hosts)
+#   4a. unRAID Docker API start (docker_run + unraid hosts — DockerClient PHP)
+#   4b. Per-container start (docker_run non-unraid hosts)
 # Caller gates with `when:` for check_mode, etc.
 #
 # Optional:
 #   _docker_selective_containers — list; start only these containers (skips all other modes)
-#   _docker_selective_stacks     — list; start only these stacks (skips all-stacks and unRAID modes)
+#   _docker_selective_stacks     — list; start only these stacks (skips all-stacks and service/container modes)
 #   _docker_ignore_errors        — bool (default false); set true for safety-net use
 #   _docker_wait_ssh             — bool (default false); wait for SSH after start
-# Requires (unRAID mode):
+# Requires (docker_run modes):
 #   _docker_containers — register from docker_stop.yaml
 
 - name: Start named containers (selective)
@@ -50,7 +55,32 @@
   until: _docker_start_stacks is not failed
   ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
 
-- name: Start Docker containers on unRAID
+# --- Mode 4a: unRAID Docker API start (per-container via DockerClient) ---
+- name: Start Docker containers on unRAID via Docker API
+  become: true
+  ansible.builtin.shell: |
+    /usr/bin/php -q -r '
+    require_once "/usr/local/emhttp/plugins/dynamix.docker.manager/include/DockerClient.php";
+    $c = new DockerClient();
+    foreach (array_slice($argv, 1) as $name) {
+      $c->startContainer($name);
+    }
+    ' {{ _docker_containers.stdout_lines | join(' ') }}
+  when:
+    - _docker_selective_containers is not defined
+    - _docker_selective_stacks is not defined
+    - inventory_hostname in groups["docker_run"] | default([])
+    - inventory_hostname in groups["unraid"] | default([])
+    - _docker_containers is defined
+    - _docker_containers.stdout_lines | default([]) | length > 0
+  register: _docker_start_containers
+  retries: 3
+  delay: 15
+  until: _docker_start_containers is not failed
+  ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
+
+# --- Mode 4b: per-container start (non-unRAID docker_run hosts) ---
+- name: Start Docker containers (non-unRAID)
   become: true
   ansible.builtin.command:
     argv: "{{ ['docker', 'start'] + _docker_containers.stdout_lines }}"
@@ -58,9 +88,13 @@
     - _docker_selective_containers is not defined
     - _docker_selective_stacks is not defined
     - inventory_hostname in groups["docker_run"] | default([])
+    - inventory_hostname not in groups["unraid"] | default([])
     - _docker_containers is defined
     - _docker_containers.stdout_lines | default([]) | length > 0
   register: _docker_start_containers
+  retries: 3
+  delay: 15
+  until: _docker_start_containers is not failed
   ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
 
 - name: Wait for SSH after Docker restart
