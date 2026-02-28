@@ -266,7 +266,7 @@
             _build_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
       always:
-        - name: Send Discord notification (failure only; success deferred to Play 2)
+        - name: Send Discord notification (failure only; success deferred to Play 3)
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
@@ -384,13 +384,13 @@
             _bootstrap_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
 
       always:
-        - name: Send Discord notification (combined build + bootstrap result)
+        - name: Send Discord notification (failure only; success deferred to Play 3)
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
             discord_operation: "DR Rebuild"
-            discord_status: "{{ 'failed' if bootstrap_failed else 'successful' }}"
-            discord_color: "{{ discord_color_failure if bootstrap_failed else discord_color_success }}"
+            discord_status: "failed"
+            discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
@@ -400,11 +400,9 @@
               - name: "VM Name"
                 value: "{{ hostvars['localhost']._vm.vm_name }}"
                 inline: true
-              - name: "Host IP"
-                value: "{{ hostvars['localhost']._vm.vm_ip }}"
-                inline: true
               - name: "Detail"
                 value: "{{ hostvars['localhost']._build_detail }} | {{ _bootstrap_detail }}"
+          when: bootstrap_failed
 
         - name: Log bootstrap to MariaDB
           include_tasks: tasks/log_mariadb.yaml

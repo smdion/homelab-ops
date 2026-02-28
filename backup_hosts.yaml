@@ -805,7 +805,7 @@
             log_table: backups
             log_application: "{{ db_result.db_name }}-db"
             log_hostname: "{{ db_result.db_host }}"
-            log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else 'backup_') + db_result.db_name + '_' + ansible_date_time.date + '.sql' }}"
+            log_file_name: "{{ ('FAILED_' if db_result.backup_rc != 0 else '') + db_result.file_name }}"
             log_file_size: "{{ (db_result.file_size / 1024 / 1024) | round(2) if db_result.backup_rc == 0 else 0 }}"
             log_backup_level: "db"
           when: _db_combined_results | default([]) | length > 0
