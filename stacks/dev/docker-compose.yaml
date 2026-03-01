@@ -20,7 +20,7 @@ services:
     ports:
     - 8443:8443
     labels:
-      homelab.backup.paths: "/opt/code-server"
+      homelab.backup.paths: "/opt/code-server,/opt/homelab-ops"
       homelab.health_timeout: "90"
     environment:
       <<: *envuid
@@ -31,10 +31,11 @@ services:
     - apps:/workspace/apps
     - dev:/workspace/dev
     - vps:/workspace/vps
+    - homelab-ops:/workspace/homelab-ops
     - ${APPSDIR}/code-server:/config
     - ./custom-cont-init.d:/custom-cont-init.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "ls /workspace/core /workspace/apps /workspace/dev /workspace/vps > /dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "ls /workspace/core /workspace/apps /workspace/dev /workspace/vps /workspace/homelab-ops > /dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -63,3 +64,4 @@ volumes:
   apps:
   dev:
   vps:
+  homelab-ops:

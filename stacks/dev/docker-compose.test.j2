@@ -1,6 +1,6 @@
 # Test-mode compose override — replaces NFS bind mounts with local empty dirs.
 # Applied automatically by deploy_single_stack.yaml when _test_mode is true.
-# code-server healthcheck (ls /workspace/core /workspace/apps /workspace/dev /workspace/vps) passes:
+# code-server healthcheck (ls /workspace/core /workspace/apps /workspace/dev /workspace/vps /workspace/homelab-ops) passes:
 # mountpoints exist as empty local dirs.
 volumes:
   core:
@@ -10,4 +10,6 @@ volumes:
   dev:
     driver: local
   vps:
+    driver: local
+  homelab-ops:
     driver: local
