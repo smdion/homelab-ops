@@ -1,7 +1,7 @@
 ---
 # Manage Ubuntu VMs on Proxmox via API.
 # Play 1 (localhost): Create, destroy, snapshot, or revert a VM.
-# Play 2 (new VM): Bootstrap Ubuntu with Docker and security hardening.
+# Play 2 (new VM): Bootstrap Ubuntu with security hardening (Docker optional per VM def).
 # Play 3 (localhost): Auto-sync Guacamole connections for VNC VMs.
 # Deploy stacks separately via deploy_stacks.yaml after provisioning.
 #
@@ -292,14 +292,15 @@
         _bootstrap_detail: ""
 
     - block:
-        - name: Bootstrap Ubuntu with Docker and security hardening
+        - name: Bootstrap Ubuntu with security hardening
           include_tasks: tasks/bootstrap_vm.yaml
           vars:
             _vm: "{{ hostvars['localhost']._vm }}"
+            _install_docker: "{{ hostvars['localhost']._vm.install_docker | default(true) | bool }}"
 
         - name: Record bootstrap detail
           ansible.builtin.set_fact:
-            _bootstrap_detail: "Bootstrap complete — Docker, security hardening"
+            _bootstrap_detail: "Bootstrap complete — security hardening{{ ', Docker' if hostvars['localhost']._vm.install_docker | default(true) | bool else '' }}"
 
       rescue:
         - name: Set bootstrap failed flag

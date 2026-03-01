@@ -152,6 +152,7 @@ vm_definitions:
     vm_disk_gb: 64
     pve_target_node: "{{ vault_hosted_vm_node | default(pve_template_node) }}"
     deploy_ssh_key: true
+    install_docker: false              # desktop VM — no Docker needed
     vnc_display: 78                    # display :78 = port 5978 — merged into QEMU args by provision_vm.yaml
     guacamole: { name: Desktop, group: Hosted Desktops, protocol: vnc }
 
