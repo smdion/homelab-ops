@@ -2,6 +2,7 @@
 # Manage Ubuntu VMs on Proxmox via API.
 # Play 1 (localhost): Create, destroy, snapshot, or revert a VM.
 # Play 2 (new VM): Bootstrap Ubuntu with Docker and security hardening.
+# Play 3 (localhost): Auto-sync Guacamole connections for VNC VMs.
 # Deploy stacks separately via deploy_stacks.yaml after provisioning.
 #
 # The cloud-init template is created automatically on first run (one-time per cluster).
@@ -357,3 +358,41 @@
           ansible.builtin.fail:
             msg: "Bootstrap failed: {{ _bootstrap_detail }}"
           when: bootstrap_failed
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 3 — Sync Guacamole connections (auto-triggered for VNC VMs)
+# ═══════════════════════════════════════════════════════════════════
+- name: Sync Guacamole connections
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/pve_definitions.yaml
+    - vars/vm_definitions.yaml
+    - vars/host_definitions.yaml
+    - vars/proxmox.yaml
+    - vars/guacamole.yaml
+  vars:
+    _guac_host: "{{ host_definitions.odyssey.vm_hostname }}"  # TODO: move to apps VM after migration
+    _guac_db_user: "guacamole"
+    _guac_db_name: "guacamole_db"
+    _guac_container: "guacamole"
+
+  tasks:
+    - name: Skip Guacamole sync (no VNC VM provisioned)
+      ansible.builtin.debug:
+        msg: "No VNC VM provisioned — skipping Guacamole sync"
+      when: not (_guacamole_sync_needed | default(false) | bool)
+
+    - block:
+        - name: Converge Guacamole connections
+          include_tasks: tasks/sync_guacamole_connections.yaml
+
+      rescue:
+        - name: Warn on Guacamole sync failure (non-fatal)
+          ansible.builtin.debug:
+            msg: >-
+              Guacamole sync failed — run maintain_guacamole.yaml manually.
+              Error: {{ ansible_failed_result.msg | default('unknown') }}
+
+      when: _guacamole_sync_needed | default(false) | bool

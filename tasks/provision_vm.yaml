@@ -262,6 +262,12 @@
       when: _effective_pve_args is defined and _effective_pve_args | length > 0 and not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
+    # Flag Guacamole sync when VNC args were applied and VM has guacamole metadata
+    - name: Flag Guacamole sync needed for VNC VM
+      ansible.builtin.set_fact:
+        _guacamole_sync_needed: true
+      when: _vm.vnc_display is defined and _vm.guacamole is defined
+
     # Start VM
     - name: Start VM
       community.general.proxmox_kvm:
