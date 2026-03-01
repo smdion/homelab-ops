@@ -119,6 +119,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── secrets.yaml.example         # Template with all vault keys documented (copy → encrypt)
 │   ├── example.yaml                # Template for creating new platform vars files
 │   ├── semaphore_check.yaml         # Health thresholds (26 checks), controller_fqdn, semaphore_db_name, semaphore_url/semaphore_ext_url, display_timezone, retention_days, appliance_check_hosts
+│   ├── pve_definitions.yaml          # PVE cluster node definitions (IPs, FQDNs, Guacamole metadata)
 │   ├── proxmox.yaml                 # Proxmox PVE + PBS
 │   ├── pikvm.yaml                   # PiKVM KVM — backup/update config; see group_vars/pikvm.yaml for connection override
 │   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), unifi_backup_retention, maintenance_url
@@ -129,6 +130,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, docker_network_name, docker_* defaults
 │   ├── docker_vips.yaml             # Keepalived VRRP config for Docker VM VIPs — interface, CIDR, test VIP offsets; vault vars for VIPs + priorities
 │   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists
+│   ├── guacamole.yaml               # Guacamole connection management — groups, admin groups, SSH defaults, user group permissions
 │   ├── ubuntu_os.yaml               # Ubuntu OS updates
 │   ├── unraid_os.yaml               # unRAID OS backup
 │   ├── synology.yaml                # Synology NAS sync
@@ -219,6 +221,7 @@ history, restore results, playbook runs) belongs in the database.
 ├── maintain_docker.yaml            # Prune unused Docker images + drop Linux page cache (Ubuntu/unRAID); logs metrics to docker_sizes table
 ├── maintain_unifi.yaml             # Restart Unifi Network service
 ├── maintain_health.yaml            # Scheduled health monitoring — 26 checks across all SSH hosts + DB/API; Uptime Kuma dead man's switch
+├── maintain_guacamole.yaml          # Declarative Guacamole connection + user group permission management — converges from definition files via docker exec
 ├── maintain_pve.yaml               # Idempotent Proxmox node config (keepalived VIP, ansible user, SSH hardening); stale snapshot check (>14d alert); PBS task error check (last 2d via proxmox-backup-manager); notification + MariaDB logging
 ├── download_videos.yaml            # MeTube yt-dlp downloads — per-video notifications + temp file cleanup; parameterized on config_file; hosts via hosts_variable
 ├── setup_ansible_user.yaml         # One-time utility: create ansible user on PVE/PBS/unRAID hosts (SSH key from vault, ansible_remote_tmp dir, validation assertions)
@@ -1835,6 +1838,7 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `maintain_health.yaml` | Semaphore | Local | Health Check |
 | `maintain_logging_db.yaml` | Logging DB | Local | Cleanup |
 | `check_logging_db.yaml` | Logging DB | Local | Summary |
+| `maintain_guacamole.yaml` | Guacamole | Local | Connections |
 | `maintain_pve.yaml` (Play 1) | Proxmox | Appliances | Maintenance |
 | `maintain_pve.yaml` (Play 3) | Proxmox | Appliances | Snapshot Check |
 | `maintain_pve.yaml` (Play 4) | PBS | Appliances | Task Check |
