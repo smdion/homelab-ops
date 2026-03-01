@@ -2,13 +2,46 @@
 # One-shot fix: update NFS exports and UFW on core/apps test VMs
 # to use test VLAN subnet instead of dev VIP.
 # DELETE THIS FILE after use.
+
+# Play 1 — build dynamic inventory for test VMs
+- name: Build test VM inventory
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+    - vars/docker_vips.yaml
+  tasks:
+    - name: Add core test VM
+      ansible.builtin.add_host:
+        name: test-vm0.{{ vault_vm_search_domain }}
+        groups: test_nfs_servers
+        ansible_user: ansible
+        ansible_port: 22
+
+    - name: Add apps test VM
+      ansible.builtin.add_host:
+        name: test-vm1.{{ vault_vm_search_domain }}
+        groups: test_nfs_servers
+        ansible_user: ansible
+        ansible_port: 22
+
+    - name: Add dev test VM
+      ansible.builtin.add_host:
+        name: test-vm2.{{ vault_vm_search_domain }}
+        groups: test_nfs_client
+        ansible_user: ansible
+        ansible_port: 22
+
+# Play 2 — fix NFS exports and UFW on core/apps
 - name: Fix NFS exports and UFW on test VMs
-  hosts: test-vm0.seandion.local,test-vm1.seandion.local
+  hosts: test_nfs_servers
   gather_facts: false
   become: true
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
+    - vars/docker_vips.yaml
   vars:
     _test_subnet: "{{ vault_test_vlan_subnet }}"
     _dev_tvip: "{{ vault_test_vm_ip_prefix }}{{ docker_test_vip_offsets['dev'] }}"
@@ -41,9 +74,9 @@
         proto: tcp
         src: "{{ _test_subnet }}"
 
-# Play 2 — remount NFS on dev test VM
+# Play 3 — remount NFS on dev test VM
 - name: Remount NFS on dev test VM
-  hosts: test-vm2.seandion.local
+  hosts: test_nfs_client
   gather_facts: false
   become: true
   vars_files:
