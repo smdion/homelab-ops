@@ -24,7 +24,7 @@ host_definitions:
   vps:
     vm_hostname: "vps.{{ domain_ext }}"
     stacks: [vpn]
-    guacamole: { name: VPS, group: Tools }
+    guacamole: { name: VPS, group: Docker }
 
   # Legacy hosts — remove after migration to core/apps/dev VMs is complete.
   tantiveiv:
