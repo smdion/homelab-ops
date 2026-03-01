@@ -528,7 +528,7 @@
             -c "SELECT c.connection_id, c.connection_name, g.connection_group_name
                 FROM guacamole_connection c
                 JOIN guacamole_connection_group g ON c.parent_id = g.connection_group_id
-                WHERE g.connection_group_name IN ({{ guacamole_connection_groups | map('regex_replace', '^(.*)$', \"'\\1'\") | join(',') }})
+                WHERE g.connection_group_name IN ({{ guacamole_connection_groups | map('regex_replace', '^(.*)$', "'\1'") | join(',') }})
                 ORDER BY c.connection_name"
           delegate_to: guac_target
           register: _all_managed_group_connections
