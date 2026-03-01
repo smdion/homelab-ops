@@ -225,12 +225,19 @@
 - name: Verify Docker network connectivity
   include_tasks: tasks/verify_docker_network.yaml
   vars:
-    _db_service_names:
-      - "{{ hostvars['localhost']._db_postgres_container | default('postgres') }}"
-      - "{{ hostvars['localhost']._db_mariadb_container | default('mariadb') }}"
-    _db_service_ports:
-      "{{ hostvars['localhost']._db_postgres_container | default('postgres') }}": 5432
-      "{{ hostvars['localhost']._db_mariadb_container | default('mariadb') }}": 3306
+    _db_service_names: >-
+      {{ [hostvars['localhost']._db_postgres_container | default(''),
+          hostvars['localhost']._db_mariadb_container | default('')]
+         | select | list }}
+    _db_service_ports: >-
+      {{ {} | combine(
+           {hostvars['localhost']._db_postgres_container: 5432}
+           if hostvars['localhost']._db_postgres_container | default('') | length > 0
+           else {})
+         | combine(
+           {hostvars['localhost']._db_mariadb_container: 3306}
+           if hostvars['localhost']._db_mariadb_container | default('') | length > 0
+           else {}) }}
 
 # ===== NETWORK ISOLATION VERIFICATION =====
 - name: Verify test VLAN isolation from production
