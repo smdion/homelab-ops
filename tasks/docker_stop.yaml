@@ -31,7 +31,7 @@
     - _docker_selective_stacks is defined
     - inventory_hostname in groups["docker_stacks"] | default([])
 
-- name: Stop all Docker compose stacks on {{ inventory_hostname }}
+- name: Stop all Docker compose stacks
   become: true
   community.docker.docker_compose_v2:
     project_src: "{{ stacks_base_path }}/{{ item }}"

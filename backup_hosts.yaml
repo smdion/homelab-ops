@@ -383,7 +383,7 @@
             - inventory_hostname not in groups["unifi_protect"]
             - inventory_hostname not in groups["amp"] | default([])
 
-        - name: Assert backup paths exist on {{ inventory_hostname }}
+        - name: Assert backup paths exist
           ansible.builtin.assert:
             that: (_validated_backup_paths | default([])) | length > 0
             fail_msg: >-
@@ -500,7 +500,7 @@
             - inventory_hostname in groups['pbs'] | default([])
             - not ansible_check_mode
 
-        - name: Create compressed backup archive for {{ inventory_hostname }}
+        - name: Create compressed backup archive
           become: true
           ansible.builtin.shell: |
             {{ _gz_detect }}
@@ -516,7 +516,7 @@
             - inventory_hostname not in groups["unifi_protect"]
             - inventory_hostname not in groups["amp"] | default([])
 
-        - name: Get backup archive file size for {{ inventory_hostname }}
+        - name: Get backup archive file size
           ansible.builtin.stat:
             path: "{{ backup_tmp_file }}"
           register: file_size
@@ -525,7 +525,7 @@
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
 
-        - name: Assert backup archive is non-empty for {{ inventory_hostname }}
+        - name: Assert backup archive is non-empty
           ansible.builtin.assert:
             that: file_size.stat.size | default(0) | int > 1024
             fail_msg: >-
@@ -545,7 +545,7 @@
             - config_file == 'docker_run'
 
         # ===== FETCH AND CLEANUP =====
-        - name: Delete prior backup archive for {{ inventory_hostname }} on controller
+        - name: Delete prior backup archive on controller
           ansible.builtin.file:
             path: "{{ backup_dest_path }}"
             state: absent
@@ -555,7 +555,7 @@
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
 
-        - name: Fetch backup archive for {{ inventory_hostname }} to controller
+        - name: Fetch backup archive to controller
           ansible.builtin.fetch:
             src: "{{ backup_tmp_file }}"
             dest: "{{ backup_dest_path }}"
@@ -565,7 +565,7 @@
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
 
-        - name: Delete source backup on {{ inventory_hostname }}
+        - name: Delete source backup
           become: true
           ansible.builtin.file:
             path: "{{ backup_tmp_file }}"
@@ -575,7 +575,7 @@
             - inventory_hostname not in groups["amp"] | default([])
 
       rescue:
-        - name: Set backup failed flag for {{ inventory_hostname }}
+        - name: Set backup failed flag
           ansible.builtin.set_fact:
             backup_failed: true
 
@@ -830,7 +830,7 @@
           when: inventory_hostname in groups["amp"] | default([])
 
         # ===== MARIADB LOGGING (monolithic — single row) =====
-        - name: Log monolithic backup to MariaDB for {{ inventory_hostname }}
+        - name: Log monolithic backup to MariaDB
           include_tasks: tasks/log_mariadb.yaml
           vars:
             log_table: backups

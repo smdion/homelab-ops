@@ -38,7 +38,7 @@
   until: _docker_start_selective is not failed
   ignore_errors: "{{ _docker_ignore_errors | default(false) }}"
 
-- name: Start all Docker compose stacks on {{ inventory_hostname }}
+- name: Start all Docker compose stacks
   become: true
   community.docker.docker_compose_v2:
     project_src: "{{ stacks_base_path }}/{{ item }}"
