@@ -123,7 +123,7 @@
         {{ unifi_state_file }} > {{ src_raw_files | first }}/{{ wg_config_file }}
       when: inventory_hostname in groups["unifi_network"]
 
-    - name: Initialize backup state for {{ inventory_hostname }}
+    - name: Initialize backup state
       ansible.builtin.set_fact:
         file_size: {stat: {size: 0}}
         backup_failed: false
@@ -149,7 +149,7 @@
 
     - block:
         # ===== PER-STACK BACKUP (docker_stacks hosts) =====
-        - name: Back up per-stack archives for {{ inventory_hostname }}
+        - name: Back up per-stack archives
           include_tasks: tasks/backup_single_stack.yaml
           loop: "{{ _target_stacks }}"
           loop_control:
@@ -314,7 +314,7 @@
             - not ansible_check_mode
 
         # Step 2: discover and back up each instance
-        - name: Discover AMP instances on {{ inventory_hostname }}
+        - name: Discover AMP instances
           become: true
           ansible.builtin.find:
             paths: "{{ amp_home }}/.ampdata/instances"
@@ -344,7 +344,7 @@
             - _amp_instances is defined
             - not ansible_check_mode
 
-        - name: Back up AMP instances on {{ inventory_hostname }}
+        - name: Back up AMP instances
           include_tasks: tasks/backup_single_amp_instance.yaml
           loop: "{{ _amp_instances | default([]) }}"
           loop_control:
@@ -412,7 +412,7 @@
 
         - name: Assert backup source directories are not empty
           ansible.builtin.assert:
-            that: _src_dir_content.stdout_lines | select('search', ': 0 top-level') | list | length == 0
+            that: "_src_dir_content.stdout_lines | select('search', ': 0 top-level') | list | length == 0"
             fail_msg: >-
               Backup source directories are empty: {{ _src_dir_content.stdout }}.
               Docker data may not be accessible. Check FUSE mounts and share settings.
