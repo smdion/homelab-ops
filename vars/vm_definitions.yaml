@@ -129,7 +129,7 @@ vm_definitions:
   # No stacks — basic VM (OS + Network layers only via apply_role).
   # Vault secrets required before provisioning: vault_vm_desktop_ip, vault_vm_desktop_node
   desktop:
-    vm_id: 303
+    vm_id: 400
     vm_name: desktop
     vm_mac: "02:00:00:00:01:07"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "desktop.{{ vault_vm_search_domain }}"
