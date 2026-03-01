@@ -510,6 +510,8 @@
               {% endfor %}
               -C / \
               {{ (_archive_paths | default(_validated_backup_paths, true) | default(src_raw_files, true)) | map('regex_replace', '^/', '') | join(' ') }}
+          register: _tar_result
+          failed_when: _tar_result.rc > 1
           timeout: 3600
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
