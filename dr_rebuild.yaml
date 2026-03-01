@@ -13,9 +13,6 @@
 #   ansible-playbook dr_rebuild.yaml -e role=apps -e deploy_ssh_key=yes -e debug_no_log=yes
 #   ansible-playbook dr_rebuild.yaml -e role=dev  -e deploy_ssh_key=yes -e debug_no_log=yes
 #
-#   # Test on CephFS-backed VM (override vm_name for test-pool)
-#   ansible-playbook dr_rebuild.yaml -e role=core -e vm_name=cephfs-migrate-test -e deploy_ssh_key=yes
-#
 # Required extra vars:
 #   role         — stack role name (core, apps, dev)
 #
@@ -58,7 +55,7 @@
 
     - name: Auto-detect free vm_index for test-vm pool
       include_tasks: tasks/resolve_test_vm_index.yaml
-      when: vm_name in ['test-vm', 'cephfs-migrate-test']
+      when: vm_name == 'test-vm'
 
     - name: Run standard pre-flight assertions
       include_tasks: tasks/pre_task_assertions.yaml
@@ -77,38 +74,6 @@
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
         _stacks: "{{ stack_roles[role] }}"
-
-    # ===== AUTO-CREATE CEPHFS DIR (CephFS test VMs only) =====
-    - name: Add PVE host to in-memory inventory (for CephFS dir creation)
-      ansible.builtin.add_host:
-        name: pve_builder
-        ansible_host: "{{ pve_api_host }}"
-        ansible_user: ansible
-      when: _vm.cephfs_host_dir is defined
-
-    - name: Ensure test VM CephFS directory exists (isolated from production)
-      ansible.builtin.shell: |
-        set -e
-        MOUNT_DIR=$(mktemp -d)
-        ADMIN_KEY=$(ceph auth print-key client.admin)
-        mount -t ceph {{ vault_ceph_mons }}:/ "$MOUNT_DIR" \
-          -o "name=admin,secret=${ADMIN_KEY}"
-        if [ -d "$MOUNT_DIR/{{ _vm.cephfs_host_dir }}" ]; then
-          echo "exists"
-        else
-          mkdir "$MOUNT_DIR/{{ _vm.cephfs_host_dir }}"
-          echo "created"
-        fi
-        umount "$MOUNT_DIR"
-        rmdir "$MOUNT_DIR"
-      args:
-        executable: /bin/bash
-      delegate_to: pve_builder
-      become: true
-      register: _cephfs_dir_result
-      changed_when: "'created' in _cephfs_dir_result.stdout"
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: _vm.cephfs_host_dir is defined
 
     # ===== FIND BACKUP ARCHIVES =====
     - name: Find per-stack backup archives from production backups (read-only)
@@ -458,9 +423,6 @@
     backup_tmp_dir: "/tmp"
 
   tasks:
-    - name: Assert /opt is not production CephFS (safety gate)
-      include_tasks: tasks/assert_test_vm.yaml
-
     - name: Assert sufficient disk space on /tmp (staging)
       include_tasks: tasks/assert_disk_space.yaml
       vars:
@@ -487,20 +449,6 @@
       ansible.builtin.set_fact:
         _restore_test_failed: false
         _restore_test_detail: ""
-
-    - name: Stop and remove all containers before CephFS cleanup
-      ansible.builtin.shell: |
-        docker ps -aq | xargs -r docker rm -f 2>/dev/null || true
-      become: true
-      when:
-        - hostvars['localhost']._vm.cephfs_host_dir is defined
-
-    - name: Clean test VM CephFS appdata (/opt on test VM only)
-      become: true
-      ansible.builtin.shell: |
-        find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-      when:
-        - hostvars['localhost']._vm.cephfs_host_dir is defined
 
     - name: Ensure shared Docker network exists
       community.docker.docker_network:

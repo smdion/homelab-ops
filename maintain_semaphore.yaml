@@ -2,7 +2,8 @@
 # Clean up Semaphore task history and prune ansible_logging retention.
 # Deletes stopped/error tasks from Semaphore DB, prunes old successful download
 # tasks, and prunes old ansible_logging rows.
-# Schedule with Semaphore to run weekly.
+# NOT SCHEDULED — run manually only. Automatic cleanup would delete task output
+# needed for debugging before it can be reviewed.
 
 - name: Clean up Semaphore task history
   hosts: localhost

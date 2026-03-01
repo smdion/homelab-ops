@@ -23,16 +23,6 @@
 pve_api_host: "{{ vault_pve_vip }}"
 pve_storage: "replicated"
 
-# CephFS — used by test VMs only (cephfs-migrate-test). Production VMs use local RBD disk.
-# Credentials in vault: vault_ceph_mons, vault_ceph_vm_appdata_key
-# cephfs_production_dirs: safety gate — assert_test_vm.yaml and bootstrap_vm.yaml check
-# that test VMs do not mount these directories (which hold real appdata on CephFS).
-cephfs_production_dirs:
-  - core
-  - apps
-  - dev
-cephfs_client_name: "vm-appdata"
-cephfs_keyring_path: "/etc/ceph/ceph.client.vm-appdata.keyring"
 pve_bridge: "vmbr0"
 vm_user: "ansible"
 vm_gateway: "{{ vault_vm_gateway }}"
@@ -190,25 +180,6 @@ vm_definitions:
       group: Hosted Desktops
       protocol: vnc
 
-  # VM for testing restore on CephFS-backed /opt (test_restore.yaml -e vm_name=cephfs-migrate-test).
-  # Draws a slot from the same test-vm pool via resolve_test_vm_index.yaml (no fixed VMID).
-  # Same test VLAN isolation as test-vm — CephFS monitor access via "Allow Test to Ceph" zone policy
-  # (setup_test_network.yaml, ports 3300/6789/6800-7300). No ip_aliases (no prod-IP routing needed).
-  # Prerequisites: none — test_restore.yaml auto-creates /cephfs-migrate-test on CephFS root.
-  cephfs-migrate-test:
-    vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
-    vm_mac: "02:00:00:00:05:{{ '%02d' | format(vm_index | default(0) | int) }}"
-    vm_name: "cephfs-migrate-test{{ vm_index | default(0) | int }}"
-    vm_hostname: "cephfs-migrate-test{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain | default('') }}"
-    vm_ip: "{{ vault_test_vm_ip_prefix | default('') }}{{ (vault_test_vm_ip_offset | default(0) | int) + (vm_index | default(0) | int) }}"
-    vm_cores: 4
-    vm_memory_mb: 24576
-    vm_disk_gb: 50
-    pve_target_node: "{{ vm_node | default(pve_template_node) }}"
-    vm_gateway: "{{ vault_test_vlan_gateway | default('') }}"   # isolated VLAN gateway (overrides global vm_gateway)
-    vm_vlan_tag: "{{ vault_test_vlan_id | default('') }}"       # same test isolation as test-vm
-    cephfs_host_dir: "cephfs-migrate-test{{ vm_index | default(0) | int }}"  # per-slot — auto-created by test_restore.yaml if missing
-
   test-vm:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
     vm_mac: "02:00:00:00:05:{{ '%02d' | format(vm_index | default(0) | int) }}"
@@ -245,9 +216,6 @@ vm_definitions:
 #   nfs_exports:                         # NFS server exports (installs nfs-kernel-server)
 #     - path: "/opt"
 #       clients: "10.0.0.50(ro,no_subtree_check,no_root_squash)"
-#
-#   cephfs_host_dir: "hostname"          # if defined, mounts /<dir> from CephFS root at /opt
-#                                        # used by test VMs only; production VMs use local RBD disk
 #
 # Optional per-VM provision fields (used by tasks/provision_vm.yaml when defined):
 #
