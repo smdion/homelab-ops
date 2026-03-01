@@ -361,6 +361,7 @@
     - vars/docker_stacks.yaml
     - vars/docker_vips.yaml
     - vars/vm_definitions.yaml
+    - vars/container_definitions.yaml
     - vars/semaphore_check.yaml
   vars:
     maintenance_name: "Docker"
