@@ -69,6 +69,7 @@
             name: guac_target
             ansible_host: "{{ _guac_host }}"
             ansible_user: ansible
+            ansible_become: true
 
         - name: Verify Guacamole container is running
           ansible.builtin.shell: docker inspect --format '{{ '{{' }}.State.Running{{ '}}' }}' {{ _guac_container }}
