@@ -98,6 +98,35 @@
              else stack_roles[role] if role is defined and source_host is not defined
              else stack_assignments[source_host] }}
 
+    - name: Rewrite NFS VIPs for test VM network isolation
+      vars:
+        _tp: "{{ vault_test_vm_ip_prefix }}"
+        _core_tvip: "{{ _tp }}{{ docker_test_vip_offsets['core'] }}"
+        _apps_tvip: "{{ _tp }}{{ docker_test_vip_offsets['apps'] }}"
+        _dev_tvip: "{{ _tp }}{{ docker_test_vip_offsets['dev'] }}"
+      ansible.builtin.set_fact:
+        _vm: >-
+          {% set _mounts = [] %}
+          {% for m in _vm.nfs_mounts | default([]) %}
+          {%   set _src = m.src
+                 | replace(vault_core_vip, _core_tvip)
+                 | replace(vault_apps_vip, _apps_tvip)
+                 | replace(vault_dev_vip, _dev_tvip) %}
+          {%   set _ = _mounts.append(m | combine({'src': _src})) %}
+          {% endfor %}
+          {% set _exports = [] %}
+          {% for e in _vm.nfs_exports | default([]) %}
+          {%   set _cl = e.clients
+                 | replace(vault_core_vip, _core_tvip)
+                 | replace(vault_apps_vip, _apps_tvip)
+                 | replace(vault_dev_vip, _dev_tvip) %}
+          {%   set _ = _exports.append(e | combine({'clients': _cl})) %}
+          {% endfor %}
+          {{ _vm
+             | combine({'nfs_mounts': _mounts} if _vm.nfs_mounts is defined else {})
+             | combine({'nfs_exports': _exports} if _vm.nfs_exports is defined else {}) }}
+      when: vm_name == 'test-vm'
+
     # ===== FIND BACKUP ARCHIVES =====
     # Requires the container user to have read access to the /backup/ bind
     # mount (e.g. via group_add: 100 for the users group on unRAID).
