@@ -4,7 +4,7 @@ backup_tmp_dir: "/mnt/user/Backup/ansibletemp/"
 backup_name: "Docker"
 backup_description: "Automatic Docker Backup"
 backup_subtype: "Appdata"
-backup_file: "backup_docker_appdata_{{ ansible_date_time.date }}.tar.gz"
+backup_file: "backup_docker_{{ ansible_date_time.date }}.tar.gz"
 
 # Containers to keep running during backup (never stopped/started)
 backup_exclude_containers:

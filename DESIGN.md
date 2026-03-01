@@ -2175,7 +2175,7 @@ All backup archives follow the pattern `backup_<identifier>_<date>.<ext>`, where
 | PostgreSQL / MariaDB DB | `<dbname>` | `.sql` | `backup_authentik_2026-02-25.sql` | `vars/db_primary_*.yaml`, `tasks/backup_single_db.yaml` |
 | InfluxDB | `<dbname>` | `.tar.gz` | `backup_telegraf_2026-02-25.tar.gz` | `vars/db_primary_influxdb.yaml`, `tasks/backup_single_db.yaml` |
 | Docker stack | `<stackname>` | `.tar.gz` | `backup_auth_2026-02-25.tar.gz` | `tasks/backup_single_stack.yaml` |
-| Docker appdata (monolithic) | `docker_appdata` | `.tar.gz` | `backup_docker_appdata_2026-02-25.tar.gz` | `vars/docker_run.yaml` |
+| Docker appdata (monolithic) | `docker` | `.tar.gz` | `backup_docker_2026-02-25.tar.gz` | `vars/docker_run.yaml` |
 | AMP instance | `amp_<instance>` | `.tar.gz` | `backup_amp_Minecraft01_2026-02-25.tar.gz` | `tasks/backup_single_amp_instance.yaml` |
 | Proxmox / PBS config | `<hostname>_config` | `.tar.gz` | `backup_pve01_config_2026-02-25.tar.gz` | `vars/proxmox.yaml` |
 | PiKVM config | `<hostname>_config` | `.tar.gz` | `backup_pikvm01_config_2026-02-25.tar.gz` | `vars/pikvm.yaml` |

@@ -395,6 +395,31 @@
             - inventory_hostname not in groups["unifi_protect"]
             - inventory_hostname not in groups["amp"] | default([])
 
+        - name: Check backup source directories have content
+          become: true
+          ansible.builtin.shell: |
+            for dir in {{ _validated_backup_paths | default(src_raw_files) | join(' ') }}; do
+              count=$(find "$dir" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)
+              echo "$dir: $count top-level entries"
+            done
+          register: _src_dir_content
+          changed_when: false
+          check_mode: false
+          when:
+            - inventory_hostname not in groups["docker_stacks"] | default([])
+            - inventory_hostname not in groups["unifi_protect"]
+            - inventory_hostname not in groups["amp"] | default([])
+
+        - name: Assert backup source directories are not empty
+          ansible.builtin.assert:
+            that: _src_dir_content.stdout_lines | select('search', ': 0 top-level') | list | length == 0
+            fail_msg: >-
+              Backup source directories are empty: {{ _src_dir_content.stdout }}.
+              Docker data may not be accessible. Check FUSE mounts and share settings.
+          when:
+            - _src_dir_content is defined
+            - _src_dir_content.stdout is defined
+
         # When exclude dirs are defined, convert directory paths to globs (e.g. /opt → /opt/*)
         # so community.general.archive expands them to individual items that exclude_path can match.
         - name: Convert paths to globs for exclusion support
