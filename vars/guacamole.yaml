@@ -36,7 +36,7 @@ guacamole_ssh_defaults:
 guacamole_extra_connections:
   - name: Firefox
     protocol: vnc
-    hostname: "{{ vault_vm_apps_ip }}"
+    hostname: "{{ host_definitions.odyssey.vm_hostname }}"  # TODO: move to apps VM after migration
     group: Tools
     port: 7914
     user_groups: [Guac-Firefox]
