@@ -199,6 +199,9 @@ history, restore results, playbook runs) belongs in the database.
 ├── scripts/
 │   └── dr_rebuild_all.sh           # Shell wrapper: run dr_rebuild.yaml for multiple roles sequentially (core,apps,dev)
 │
+├── callback_plugins/
+│   └── review.py                   # Minimal stdout callback for review playbooks — shows only debug msg content and errors; ANSIBLE_STDOUT_CALLBACK=review
+│
 ├── templates/
 │   ├── keepalived.conf.j2          # Jinja2 template for keepalived VRRP config on PVE nodes — floating management VIP
 │   ├── keepalived-docker.conf.j2   # Jinja2 template for keepalived VRRP — floating VIP per Docker VM role; test mode derives VIP from VM subnet

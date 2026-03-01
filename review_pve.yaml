@@ -8,7 +8,11 @@
 # periodically to verify infrastructure health at a glance.
 #
 # Usage:
-#   ansible-playbook review_pve.yaml
+#   ANSIBLE_STDOUT_CALLBACK=review ansible-playbook review_pve.yaml
+#
+# The 'review' callback (callback_plugins/review.py) shows only the
+# formatted report — no task headers, no ok/skipped noise.  Without it
+# the playbook still works but output includes Ansible boilerplate.
 #
 # Required vault vars: pve_api_user, pve_api_token_id, pve_api_token_secret,
 #                       vault_pve_vip (via pve_api_host)
