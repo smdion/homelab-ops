@@ -11,27 +11,27 @@
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
     - vars/docker_vips.yaml
+  vars:
+    _prefix: "{{ vault_test_vm_ip_prefix }}"
+    _offset: "{{ vault_test_vm_ip_offset | int }}"
   tasks:
-    - name: Add core test VM
+    - name: Add core test VM (slot 0)
       ansible.builtin.add_host:
-        name: test-vm0.{{ vault_vm_search_domain }}
+        name: "{{ _prefix }}{{ _offset | int + 0 }}"
         groups: test_nfs_servers
         ansible_user: ansible
-        ansible_port: 22
 
-    - name: Add apps test VM
+    - name: Add apps test VM (slot 1)
       ansible.builtin.add_host:
-        name: test-vm1.{{ vault_vm_search_domain }}
+        name: "{{ _prefix }}{{ _offset | int + 1 }}"
         groups: test_nfs_servers
         ansible_user: ansible
-        ansible_port: 22
 
-    - name: Add dev test VM
+    - name: Add dev test VM (slot 2)
       ansible.builtin.add_host:
-        name: test-vm2.{{ vault_vm_search_domain }}
+        name: "{{ _prefix }}{{ _offset | int + 2 }}"
         groups: test_nfs_client
         ansible_user: ansible
-        ansible_port: 22
 
 # Play 2 — fix NFS exports and UFW on core/apps
 - name: Fix NFS exports and UFW on test VMs
