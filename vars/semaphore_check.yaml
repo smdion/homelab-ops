@@ -38,6 +38,8 @@ health_backup_size_exclude:            # application names to skip in size anoma
   - "nextcloud-db"                     # DB dump now tracked separately (previously inside Docker archive)
   - "semaphore-db"                     # DB dump now tracked separately (previously inside Docker archive)
 health_update_stale_days: 14          # Grafana panel: flag updates older than N days as stale
+rightsize_cpu_threshold: 0.10         # flag if 1-month avg CPU < 10%
+rightsize_mem_threshold: 0.30         # flag if 1-month avg mem < 30% of configured max
 
 # Appliance reachability check — tested via TCP connect (port 443)
 # CUSTOMIZE: list your network appliances that lack SSH access
@@ -51,6 +53,10 @@ appliance_check_port: 443
 
 # Display timezone (used in Discord alerts for human-readable timestamps)
 display_timezone: "America/Chicago"
+
+# Reporting windows (used in SQL queries for summaries and anomaly detection)
+summary_report_days: 7            # weekly summary report window (check_logging_db)
+backup_trend_days: 30             # backup size anomaly trending window (maintain_health)
 
 # Data retention
 retention_days: 365               # delete rows older than this from ansible_logging tables

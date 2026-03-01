@@ -82,7 +82,7 @@
         dest: "{{ _amp_restore_tmp }}/{{ _amp_restore_archive | basename }}"
         compress: false
         rsync_opts:
-          - "--timeout=1800"
+          - "--timeout={{ rsync_timeout_amp }}"
 
     - name: Remove existing instance data for {{ _amp_instance }}
       become: true

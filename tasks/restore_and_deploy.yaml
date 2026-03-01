@@ -125,7 +125,7 @@
     dest: "/tmp/db_restore_staging/{{ item.value | basename }}"
     compress: false
     rsync_opts:
-      - "--timeout=300"
+      - "--timeout={{ rsync_timeout }}"
       - "--whole-file"
   become: true
   ignore_errors: true

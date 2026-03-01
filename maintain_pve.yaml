@@ -737,8 +737,6 @@
     maintenance_name: "Proxmox"
     maintenance_type: "Appliances"
     maintenance_subtype: "Right-Size Check"
-    rightsize_cpu_threshold: 0.10   # flag if 1-month avg CPU < 10%
-    rightsize_mem_threshold: 0.30   # flag if 1-month avg mem < 30% of configured max
 
   pre_tasks:
     - name: Assert MariaDB logging database is reachable
