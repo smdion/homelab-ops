@@ -8,7 +8,8 @@ set -e
 MARKER="/config/.packages-installed"
 SCRIPT_HASH=$(md5sum "$0" | cut -d' ' -f1)
 
-if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$SCRIPT_HASH" ]; then
+# Check hash AND verify packages exist (apt lives on overlay, marker on persistent storage)
+if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$SCRIPT_HASH" ] && command -v python3 >/dev/null 2>&1; then
   echo "[custom-init] Packages already installed, skipping"
   exit 0
 fi
@@ -21,6 +22,8 @@ apt-get install -y --no-install-recommends \
   python3 \
   python3-pip \
   python3-venv \
+  python3-requests \
+  python3-pymysql \
   nodejs \
   npm \
   shellcheck \
