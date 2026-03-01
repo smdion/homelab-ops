@@ -322,8 +322,14 @@
               - name: "{{ '❌ ' if bootstrap_failed else '✅ ' }}{{ hostvars['localhost']._vm.vm_name }}"
                 value: "{{ hostvars['localhost']._vm.vm_ip }}"
                 inline: true
+              - name: "Hostname"
+                value: "{{ hostvars['localhost']._vm.vm_hostname }}"
+                inline: true
               - name: "Proxmox Node"
                 value: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm.pve_target_node) }}"
+                inline: true
+              - name: "Role"
+                value: "{{ hostvars['localhost']._vm.role | default(hostvars['localhost']._vm.vm_name) }}"
                 inline: true
               - name: "Detail"
                 value: "{{ _bootstrap_detail }}"
