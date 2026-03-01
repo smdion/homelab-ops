@@ -379,7 +379,22 @@
               {% endif %}
               {% endif %}
 
-              -- Remove duplicate connections with the same name
+              -- Remove duplicate connections with the same name (all FK references)
+              DELETE FROM guacamole_connection_history
+              WHERE connection_id IN (
+                SELECT connection_id FROM guacamole_connection
+                WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id
+              );
+              DELETE FROM guacamole_sharing_profile
+              WHERE primary_connection_id IN (
+                SELECT connection_id FROM guacamole_connection
+                WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id
+              );
+              DELETE FROM guacamole_connection_attribute
+              WHERE connection_id IN (
+                SELECT connection_id FROM guacamole_connection
+                WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id
+              );
               DELETE FROM guacamole_connection_permission
               WHERE connection_id IN (
                 SELECT connection_id FROM guacamole_connection
