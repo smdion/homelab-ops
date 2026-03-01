@@ -248,17 +248,17 @@
              else _vm.pve_args | default('') }}
       when: _vm.vnc_display is defined or _vm.pve_args is defined
 
-    # Configure QEMU args (e.g. VNC listener for Guacamole access)
+    # Configure QEMU args via SSH — API tokens cannot set 'args' (Proxmox root-only restriction)
     - name: Configure VM QEMU args
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
-        method: PUT
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        body_format: form-urlencoded
-        body:
-          args: "{{ _effective_pve_args }}"
-        validate_certs: false
+      delegate_to: pve_builder
+      become: true
+      ansible.builtin.command:
+        argv:
+          - qm
+          - set
+          - "{{ _vm.vm_id }}"
+          - --args
+          - "{{ _effective_pve_args }}"
       when: _effective_pve_args is defined and _effective_pve_args | length > 0 and not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
