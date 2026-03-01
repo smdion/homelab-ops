@@ -379,34 +379,6 @@
               {% endif %}
               {% endif %}
 
-              -- Remove duplicate connections with the same name (all FK references)
-              DELETE FROM guacamole_connection_history
-              WHERE connection_id IN (
-                SELECT connection_id FROM guacamole_connection
-                WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id
-              );
-              DELETE FROM guacamole_sharing_profile
-              WHERE primary_connection_id IN (
-                SELECT connection_id FROM guacamole_connection
-                WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id
-              );
-              DELETE FROM guacamole_connection_attribute
-              WHERE connection_id IN (
-                SELECT connection_id FROM guacamole_connection
-                WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id
-              );
-              DELETE FROM guacamole_connection_permission
-              WHERE connection_id IN (
-                SELECT connection_id FROM guacamole_connection
-                WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id
-              );
-              DELETE FROM guacamole_connection_parameter
-              WHERE connection_id IN (
-                SELECT connection_id FROM guacamole_connection
-                WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id
-              );
-              DELETE FROM guacamole_connection
-              WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id;
             END $$;
             ENDSQL
           delegate_to: guac_target
@@ -417,6 +389,56 @@
           changed_when: true
           when: not ansible_check_mode
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        # Remove duplicate connections (same name, multiple rows).
+        # Runs as a separate task so it succeeds even if parameter
+        # insertion in Step 6 caused a rollback in the DO $$ block.
+        - name: Remove duplicate connections
+          ansible.builtin.shell: |
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
+            DO $$
+            DECLARE
+              r RECORD;
+            BEGIN
+              FOR r IN
+                SELECT connection_name, MIN(connection_id) AS keep_id
+                FROM guacamole_connection
+                GROUP BY connection_name
+                HAVING COUNT(*) > 1
+              LOOP
+                DELETE FROM guacamole_connection_history
+                WHERE connection_id IN (
+                  SELECT connection_id FROM guacamole_connection
+                  WHERE connection_name = r.connection_name AND connection_id != r.keep_id
+                );
+                DELETE FROM guacamole_sharing_profile
+                WHERE primary_connection_id IN (
+                  SELECT connection_id FROM guacamole_connection
+                  WHERE connection_name = r.connection_name AND connection_id != r.keep_id
+                );
+                DELETE FROM guacamole_connection_attribute
+                WHERE connection_id IN (
+                  SELECT connection_id FROM guacamole_connection
+                  WHERE connection_name = r.connection_name AND connection_id != r.keep_id
+                );
+                DELETE FROM guacamole_connection_permission
+                WHERE connection_id IN (
+                  SELECT connection_id FROM guacamole_connection
+                  WHERE connection_name = r.connection_name AND connection_id != r.keep_id
+                );
+                DELETE FROM guacamole_connection_parameter
+                WHERE connection_id IN (
+                  SELECT connection_id FROM guacamole_connection
+                  WHERE connection_name = r.connection_name AND connection_id != r.keep_id
+                );
+                DELETE FROM guacamole_connection
+                WHERE connection_name = r.connection_name AND connection_id != r.keep_id;
+              END LOOP;
+            END $$;
+            ENDSQL
+          delegate_to: guac_target
+          changed_when: true
+          when: not ansible_check_mode
 
         # ═══════════════════════════════════════════════════════════════
         # Step 7 — Converge user group permissions
