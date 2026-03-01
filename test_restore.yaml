@@ -85,8 +85,14 @@
       when: vm_name == 'test-vm'
 
     - name: Resolve test VM and target stack configuration
+      vars:
+        _role_vm: "{{ vm_definitions[role] | default({}) if role is defined else {} }}"
+        _role_nfs: >-
+          {{ {}
+             | combine({'nfs_mounts': _role_vm.nfs_mounts} if _role_vm.nfs_mounts is defined else {})
+             | combine({'nfs_exports': _role_vm.nfs_exports} if _role_vm.nfs_exports is defined else {}) }}
       ansible.builtin.set_fact:
-        _vm: "{{ vm_definitions[vm_name] }}"
+        _vm: "{{ vm_definitions[vm_name] | combine(_role_nfs) }}"
         _stacks: >-
           {{ [stack] if stack is defined
              else stack_roles[role] if role is defined and source_host is not defined
