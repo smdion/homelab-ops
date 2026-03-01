@@ -1,0 +1,72 @@
+---
+# One-shot fix: update NFS exports and UFW on core/apps test VMs
+# to use test VLAN subnet instead of dev VIP.
+# DELETE THIS FILE after use.
+- name: Fix NFS exports and UFW on test VMs
+  hosts: test-vm0.seandion.local,test-vm1.seandion.local
+  gather_facts: false
+  become: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+  vars:
+    _test_subnet: "{{ vault_test_vlan_subnet }}"
+    _dev_tvip: "{{ vault_test_vm_ip_prefix }}{{ docker_test_vip_offsets['dev'] }}"
+  tasks:
+    - name: Update NFS export clients to test VLAN subnet
+      ansible.builtin.lineinfile:
+        path: /etc/exports
+        regexp: '^/opt\s'
+        line: "/opt {{ _test_subnet }}(ro,no_subtree_check,no_root_squash)"
+      register: _exports_changed
+
+    - name: Reload NFS exports
+      ansible.builtin.command: exportfs -ra
+      changed_when: true
+      when: _exports_changed.changed
+
+    - name: Remove old UFW rule for dev VIP
+      community.general.ufw:
+        rule: allow
+        port: "2049"
+        proto: tcp
+        src: "{{ _dev_tvip }}"
+        delete: true
+      ignore_errors: true
+
+    - name: Allow NFS from test VLAN subnet
+      community.general.ufw:
+        rule: allow
+        port: "2049"
+        proto: tcp
+        src: "{{ _test_subnet }}"
+
+# Play 2 — remount NFS on dev test VM
+- name: Remount NFS on dev test VM
+  hosts: test-vm2.seandion.local
+  gather_facts: false
+  become: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+    - vars/docker_vips.yaml
+  vars:
+    _tp: "{{ vault_test_vm_ip_prefix }}"
+    _core_tvip: "{{ _tp }}{{ docker_test_vip_offsets['core'] }}"
+    _apps_tvip: "{{ _tp }}{{ docker_test_vip_offsets['apps'] }}"
+  tasks:
+    - name: Mount NFS from core
+      ansible.posix.mount:
+        path: /mnt/nfs/core
+        src: "{{ _core_tvip }}:/opt"
+        fstype: nfs
+        opts: defaults,_netdev
+        state: mounted
+
+    - name: Mount NFS from apps
+      ansible.posix.mount:
+        path: /mnt/nfs/apps
+        src: "{{ _apps_tvip }}:/opt"
+        fstype: nfs
+        opts: defaults,_netdev
+        state: mounted
