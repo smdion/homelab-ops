@@ -202,10 +202,7 @@
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
-              - name: "Role"
-                value: "{{ _target_role }}"
-                inline: true
-              - name: "VM"
+              - name: "{{ '❌ ' if _apply_failed else '✅ ' }}{{ _target_role }}"
                 value: "{{ _target_vm.vm_name }}"
                 inline: true
               - name: "Detail"

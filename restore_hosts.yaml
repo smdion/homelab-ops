@@ -208,8 +208,9 @@
             discord_color: "{{ discord_color_failure if restore_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Source File"
-                value: "{{ _restore_source_file | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1') }}"
+              - name: "{{ '❌ ' if restore_failed else '✅ ' }}{{ backup_name }}"
+                value: "{{ 'FAILED' if restore_failed else (_restore_source_file | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1')) }}"
+                inline: true
               - name: "Detail"
                 value: "{{ _restore_detail | default('check Semaphore logs') }}"
           when: _restore_path != 'stack'

@@ -258,8 +258,9 @@
             discord_color: "{{ discord_color_failure if _restore_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Detail"
+              - name: "{{ '❌ ' if _restore_failed else '✅ ' }}{{ restore_app }}"
                 value: "{{ _restore_detail }}"
+                inline: true
 
         - name: Log restore to MariaDB
           include_tasks: tasks/log_restore.yaml

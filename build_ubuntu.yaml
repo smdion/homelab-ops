@@ -223,10 +223,7 @@
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
-              - name: "VM Name"
-                value: "{{ _vm.vm_name }}"
-                inline: true
-              - name: "Host IP"
+              - name: "❌ {{ _vm.vm_name }}"
                 value: "{{ _vm.vm_ip }}"
                 inline: true
               - name: "Proxmox Node"
@@ -319,10 +316,7 @@
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ hostvars['localhost'].controller_fqdn }}"
             discord_fields:
-              - name: "VM Name"
-                value: "{{ hostvars['localhost']._vm.vm_name }}"
-                inline: true
-              - name: "Host IP"
+              - name: "{{ '❌ ' if bootstrap_failed else '✅ ' }}{{ hostvars['localhost']._vm.vm_name }}"
                 value: "{{ hostvars['localhost']._vm.vm_ip }}"
                 inline: true
               - name: "Proxmox Node"

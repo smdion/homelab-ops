@@ -143,7 +143,9 @@
             label: "Task #{{ item.id }}"
           when: new_failures | length > 0
           vars:
-            discord_title: "🔴 Task Failed in Semaphore"
+            discord_name: "Semaphore"
+            discord_operation: "Task Alert"
+            discord_status: "failed"
             discord_color: "{{ discord_color_failure }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
@@ -225,9 +227,11 @@
           include_tasks: tasks/notify.yaml
           when: stale_backup_lines | length > 0
           vars:
-            discord_title: "⚠️ Stale Backup Alert"
+            discord_name: "Semaphore"
+            discord_operation: "Backup Check"
+            discord_status: "warning"
+            discord_detail: "{{ stale_backup_lines | length }} host(s) stale over {{ health_backup_stale_days }} days"
             discord_color: "{{ discord_color_warning }}"
-            discord_description: "The following hosts have not had a successful backup in over {{ health_backup_stale_days }} days."
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
               - name: "Host / Last backup / Age"
@@ -342,9 +346,11 @@
           include_tasks: tasks/notify.yaml
           when: failed_maintenance_lines | length > 0
           vars:
-            discord_title: "⚠️ Failed Maintenance Runs"
+            discord_name: "Semaphore"
+            discord_operation: "Maintenance Check"
+            discord_status: "warning"
+            discord_detail: "{{ failed_maintenance_lines | length }} failure(s) since last health check"
             discord_color: "{{ discord_color_warning }}"
-            discord_description: "The following maintenance tasks failed since the last health check."
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
               - name: "Failed runs"
@@ -558,9 +564,11 @@
           include_tasks: tasks/notify.yaml
           when: _unreachable_appliances | length > 0
           vars:
-            discord_title: "🔴 Unreachable Appliances"
+            discord_name: "Semaphore"
+            discord_operation: "Appliance Check"
+            discord_status: "failed"
+            discord_detail: "{{ _unreachable_appliances | length }} appliance(s) did not respond"
             discord_color: "{{ discord_color_failure }}"
-            discord_description: "The following appliances did not respond to TCP port {{ appliance_check_port | default(443) }}."
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
               - name: "Unreachable"
@@ -1464,9 +1472,11 @@
       include_tasks: tasks/notify.yaml
       when: unreachable_hosts | length > 0
       vars:
-        discord_title: "🔴 Unreachable Hosts"
+        discord_name: "Semaphore"
+        discord_operation: "Host Check"
+        discord_status: "failed"
+        discord_detail: "{{ unreachable_hosts | length }} host(s) unreachable via SSH"
         discord_color: "{{ discord_color_failure }}"
-        discord_description: "The following hosts did not respond to SSH during the health check."
         discord_author: "{{ controller_fqdn }}"
         discord_fields:
           - name: "Unreachable"
@@ -1485,19 +1495,19 @@
         - hostvars[item]['host_reachable'] | default(false)
         - (hostvars[item]['host_health_issues'] | default([]) | selectattr('status', 'ne', 'ok') | list | length) > 0
       vars:
-        discord_title: >-
-          {{ '🔴' if (hostvars[item]['host_health_issues'] | default([]) | selectattr('status', 'equalto', 'critical') | list | length > 0) else '⚠️' }}
-          System Health — {{ item }}
+        discord_name: "System"
+        discord_operation: "Health"
+        discord_status: >-
+          {{ 'failed' if (hostvars[item]['host_health_issues'] | default([]) | selectattr('status', 'equalto', 'critical') | list | length > 0) else 'warning' }}
         discord_color: >-
           {{ discord_color_failure if (hostvars[item]['host_health_issues'] | default([]) | selectattr('status', 'equalto', 'critical') | list | length > 0) else discord_color_warning }}
         discord_author: "{{ item }}"
         discord_fields: >-
-          {{
-            hostvars[item]['host_health_issues']
-            | default([])
-            | selectattr('status', 'ne', 'ok')
-            | json_query('[].{name: check_name, value: value}')
-          }}
+          [
+           {% for issue in hostvars[item]['host_health_issues'] | default([]) | selectattr('status', 'ne', 'ok') | list %}
+           {% if not loop.first %},{% endif %}
+           {"name": "{{ ('❌ ' if issue.status == 'critical' else '⚠️ ') + issue.check_name }}", "value": "{{ issue.value }}", "inline": true}
+           {% endfor %}]
         discord_footer:
           text: "Health Check"
         discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"

@@ -923,14 +923,15 @@ standard operational interface. Embed layout is built automatically from three v
   `update_name`). Values: `"Database"`, `"Docker"`, `"unRAID"`, `"Ubuntu"`, etc.
 - **`discord_operation`** — operation name set inline in the playbook. Values: `"Backup"`,
   `"Sync"`, `"Verification"`, `"Restore"`, `"Deploy"`, `"Build"`, `"Bootstrap"`,
-  `"Restore Test"`, `"Update"`, `"Rollback"`, `"Maintenance"`, `"Health"`.
+  `"Restore Test"`, `"Update"`, `"Rollback"`, `"Maintenance"`, `"Health"`,
+  `"Task Alert"`, `"Backup Check"`, `"Maintenance Check"`, `"Appliance Check"`,
+  `"Host Check"`, `"DR Rebuild"`.
 - **`discord_status`** — `"successful"`, `"failed"`, or `"partial"`.
 - **`discord_detail`** *(optional)* — appended to description: `"Successful — radarr-log"`.
 
 The task auto-builds: **title** = `"{name} {operation}"` and **description** =
 `"{Status}[ — {detail}]"`. Do not add `discord_title` or `discord_description` for standard
-operational notifications — those are reserved for the hardcoded `maintain_health` alert titles
-and `download_videos` per-video embeds.
+operational notifications — those are reserved for `download_videos` per-video embeds only.
 
 **Do not include "Description" or "Host" fields.** The operation is in the title; the host is
 already the embed author (Line 1). Both fields were removed in the standardization pass.
@@ -940,32 +941,44 @@ Discord renders up to 3 inline fields per row — use `inline: true` for short i
 (VM Name, Host IP, instance results) and omit it for longer values. The `tasks/notify.yaml`
 comment documents the full dict shape.
 
+**Emoji prefix on result fields.** The primary subject field in every notification uses
+`✅` (success), `❌` (failure), or `⚠️` (warning) as a prefix on the field name.
+Multi-item notifications (per-stack, per-DB) apply the emoji per item. Single-item
+notifications apply it to the main identifying field. Metadata fields (Detail, Snapshot
+Date, Proxmox Node) remain plain text without emoji.
+
 **"Source File (date)"** in the table above means the field value is extracted to `YYYY-MM-DD`
 via `regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2}).*$', '\\1')` — showing just the backup date
 rather than the full filename.
 
 | Category | `discord_url` source | Fields | Fires on |
 |----------|---------------------|--------|----------|
-| **Backup** (`backup_hosts`) | `backup_url` | Backup Name, Backup Size | Always |
+| **Backup** (`backup_hosts`) | `backup_url` | ✅/❌ backup_name (inline) | Always |
 | **Backup — DB** (`backup_databases`) | `backup_url` | Date, Backup Size | Always (standalone) |
 | **Backup — DB (combined)** (`backup_hosts`) | `backup_url` | Per-DB ✅/❌ fields (inline) | `with_databases=yes` |
-| **Sync** (`backup_offline`) | `backup_url` | Share, Size Transferred | Always |
+| **Sync** (`backup_offline`) | `backup_url` | ✅/❌ share_name (inline) | Always |
+| **Offsite** (`backup_offsite`) | `backup_url` | ✅/❌ method (inline), stats fields | Always |
 | **Verify** (`verify_backups`) | `backup_url` | Source File (date), Detail | Always |
 | **Restore — DB** (`restore_databases`) | `backup_url` | Source File (date), Tables/Measurements | Always |
-| **Restore — Host** (`restore_hosts`) | `backup_url` | Mode, Source File (date), Detail | Always |
-| **Restore — App** (`restore_app`) | `backup_url` | Detail | Always |
+| **Restore — Host** (`restore_hosts`) | `backup_url` | ✅/❌ backup_name (inline), Detail | Always |
+| **Restore — App** (`restore_app`) | `backup_url` | ✅/❌ app_name (inline) | Always |
 | **Restore — AMP** (`restore_amp`) | `backup_url` | Per-instance ✅/❌ fields (inline), Detail | Always |
-| **Update — OS** (`update_systems` non-Docker) | `backup_url` | Version | Change or failure only |
-| **Update — Docker** (`update_systems` Docker) | `backup_url` | Updated | Change or failure only |
-| **Rollback** (`rollback_docker`) | `backup_url` | Services, Snapshot Date, Detail | Always |
-| **Deploy** (`deploy_stacks`, `deploy_grafana`) | `semaphore_ext_url` | Stacks/Detail | Always |
-| **Build** (`build_ubuntu` Play 1) | `semaphore_ext_url` | VM Name (inline), Host IP (inline), Proxmox Node (inline), Detail | Always |
-| **Bootstrap** (`build_ubuntu` Play 2) | `semaphore_ext_url` | Detail | Always |
+| **Update — OS** (`update_systems` non-Docker) | `backup_url` | ✅/❌ Version (inline) | Change or failure only |
+| **Update — Docker** (`update_systems` Docker) | `backup_url` | ✅/❌/⚠️ Updated | Change or failure only |
+| **Rollback** (`rollback_docker`) | `backup_url` | ✅/❌ Services (inline), Snapshot Date (inline), Detail | Always |
+| **Deploy — Stacks** (`deploy_stacks`) | `semaphore_ext_url` | ✅/❌ Stacks (inline), Detail | Always |
+| **Deploy — Grafana** (`deploy_grafana`) | `semaphore_ext_url` | ✅/❌ Deploy (inline) | Always |
+| **Build** (`build_ubuntu` Play 1) | `semaphore_ext_url` | ❌ vm_name (inline), Proxmox Node (inline), Detail | Failure only |
+| **Bootstrap** (`build_ubuntu` Play 2) | `semaphore_ext_url` | ✅/❌ vm_name (inline), Proxmox Node (inline), Detail | Always |
+| **Apply Role** (`apply_role`) | `semaphore_ext_url` | ✅/❌ role_name (inline), Detail | Always |
+| **DR Rebuild** (`dr_rebuild` Play 1/2) | `semaphore_ext_url` | ❌ role (inline), Detail | Failure only |
+| **DR Rebuild** (`dr_rebuild` Play 3) | `semaphore_ext_url` | ✅/❌ role (inline), Stacks, Detail | Always |
+| **Verify Isolation** (`verify_isolation`) | `semaphore_ext_url` | ❌ vm_name (inline) | Failure only |
 | **Restore Test** (`test_restore`) | `semaphore_ext_url` | Source Host (inline), Test VM (inline), Stacks, Detail | Always |
 | **Test Backup Restore** (`test_backup_restore`) | `semaphore_ext_url` | Per-app ✅/❌ inline fields, Detail | Always |
 | **Maintenance** (`maintain_*`) | `maintenance_url` | *(none)* | Failure only |
-| **Health** (`maintain_health` failure) | `maintenance_url` | *(none)* | Failure only |
-| **Health alerts** (`maintain_health` checks) | `maintenance_url` / per-check | Custom per alert type | Per-check logic |
+| **Health — failure** (`maintain_health`) | `maintenance_url` | *(none)* | Failure only |
+| **Health — alerts** (`maintain_health`) | `maintenance_url` | Per-issue ❌/⚠️ fields (inline) | Per-check logic |
 | **Download** (`download_videos`) | `video.url` (per-video) | Custom per video | Always |
 
 **`backup_offline` uses `discord_operation: "Sync"`** (not `"Backup"`) to distinguish offline

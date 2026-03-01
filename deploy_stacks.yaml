@@ -188,8 +188,9 @@
             discord_color: "{{ discord_color_failure if deploy_failed else discord_color_success }}"
             discord_url: "{{ semaphore_ext_url }}"
             discord_fields:
-              - name: "Stacks"
+              - name: "{{ '❌ ' if deploy_failed else '✅ ' }}Stacks"
                 value: "{{ _deploy_stacks | join(', ') }}"
+                inline: true
               - name: "Detail"
                 value: "{{ _deploy_detail }}"
 

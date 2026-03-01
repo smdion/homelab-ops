@@ -255,10 +255,7 @@
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
-              - name: "Role"
-                value: "{{ role }}"
-                inline: true
-              - name: "VM Name"
+              - name: "❌ {{ role }}"
                 value: "{{ _vm.vm_name }}"
                 inline: true
               - name: "Detail"
@@ -373,10 +370,7 @@
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
-              - name: "Role"
-                value: "{{ role }}"
-                inline: true
-              - name: "VM Name"
+              - name: "❌ {{ role }}"
                 value: "{{ hostvars['localhost']._vm.vm_name }}"
                 inline: true
               - name: "Detail"
@@ -500,10 +494,7 @@
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
-              - name: "Role"
-                value: "{{ role }}"
-                inline: true
-              - name: "VM"
+              - name: "{{ '❌ ' if _restore_test_failed else '✅ ' }}{{ role }}"
                 value: "{{ hostvars['localhost']._vm.vm_name }}"
                 inline: true
               - name: "Stacks"

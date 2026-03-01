@@ -151,8 +151,9 @@
             discord_url: "{{ semaphore_ext_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
-              - name: "Detail"
+              - name: "{{ '❌ ' if deploy_failed else '✅ ' }}Deploy"
                 value: "{{ _deploy_detail }}"
+                inline: true
 
         - name: Log to MariaDB
           include_tasks: tasks/log_mariadb.yaml

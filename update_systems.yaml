@@ -611,8 +611,9 @@
             discord_color: "{{ discord_color_failure if update_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Version"
+              - name: "{{ '❌ ' if update_failed else '✅ ' }}Version"
                 value: "{{ previous_version + ' → ' + current_version }}"
+                inline: true
 
         - name: Log update to MariaDB
           include_tasks: tasks/log_mariadb.yaml
@@ -647,7 +648,7 @@
             discord_color: "{{ discord_color_failure if update_failed or (_pull_failed | bool) else discord_color_success }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Updated"
+              - name: "{{ '❌ ' if update_failed else ('⚠️ ' if _pull_failed | bool else '✅ ') }}Updated"
                 value: "{{ docker_update_results | selectattr('updated') | map(attribute='name') | join(', ') | default('None', true) }}"
 
         - name: Log container updates to MariaDB

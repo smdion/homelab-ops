@@ -412,8 +412,7 @@
             discord_url: "https://secure.backblaze.com/b2_buckets.htm"
             discord_fields: >-
               {{
-                [{'name': 'Method', 'value': offsite_method, 'inline': true},
-                 {'name': 'Runtime', 'value': (_is_docker_run | bool) | ternary('docker run', 'docker compose'), 'inline': true}]
+                [{'name': ('❌ ' if sync_failed else '✅ ') ~ offsite_method, 'value': (_is_docker_run | bool) | ternary('docker run', 'docker compose'), 'inline': true}]
                 + ([{'name': 'Bucket', 'value': b2_bucket_name}] if offsite_method == 'rclone' else [])
                 + ([{'name': 'Repository', 'value': restic_repository}] if offsite_method == 'restic' else [])
                 + ([{'name': 'Changed', 'value': ((_restic_summary.data_added | default(0) | int) / 1048576) | round(1) | string ~ ' MiB', 'inline': true}] if _restic_summary | default({}) else [])

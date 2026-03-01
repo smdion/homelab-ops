@@ -216,12 +216,9 @@
         discord_color: "{{ discord_color_failure }}"
         discord_author: "{{ controller_fqdn }}"
         discord_fields:
-          - name: "VM"
-            value: "{{ vm_name }}"
-            inline: true
-          - name: "Detail"
+          - name: "❌ {{ vm_name }}"
             value: "{{ _vd }}"
-            inline: false
+            inline: true
       when: _vf | bool
 
     - name: Fail play if verification failed

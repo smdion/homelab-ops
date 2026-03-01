@@ -182,14 +182,14 @@
             discord_color: "{{ discord_color_success if _sync_result.rc == 0 else discord_color_failure }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Share"
-                value: "{{ _sync_result.item }}"
-              - name: "Size Transferred"
+              - name: "{{ '❌ ' if _sync_result.rc != 0 else '✅ ' }}{{ _sync_result.item }}"
                 value: >-
-                  {{ ((_sync_result.stdout | default('') |
-                       regex_search('Total transferred file size: ([\d,]+)', '\1') |
-                       default(['0'], true) | first | replace(',', '')) | float
-                       / 1024 / 1024) | round(2) }}MB
+                  {{ 'FAILED' if _sync_result.rc != 0 else
+                     (((_sync_result.stdout | default('') |
+                        regex_search('Total transferred file size: ([\d,]+)', '\1') |
+                        default(['0'], true) | first | replace(',', '')) | float
+                        / 1024 / 1024) | round(2) | string + ' MB') }}
+                inline: true
 
         - name: Send notification for pre-sync failure
           include_tasks: tasks/notify.yaml

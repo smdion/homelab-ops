@@ -283,10 +283,12 @@
             discord_color: "{{ discord_color_failure if rollback_failed else discord_color_rollback }}"
             discord_url: "{{ backup_url }}"
             discord_fields:
-              - name: "Services"
+              - name: "{{ '❌ ' if rollback_failed else '✅ ' }}Services"
                 value: "{{ _rollback_targets | join(', ') }}"
+                inline: true
               - name: "Snapshot Date"
                 value: "{{ rollback_snapshot.timestamp }}"
+                inline: true
               - name: "Detail"
                 value: "{{ _rollback_detail | default('') }}"
 
