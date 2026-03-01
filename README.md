@@ -123,13 +123,12 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `setup_ansible_user.yaml` | PVE / PBS / unRAID | One-time setup: create ansible user with SSH key |
 | `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
 | `setup_test_network.yaml` | Unifi UDM | One-time test VLAN creation for VM isolation; prints zone policy settings for manual firewall step |
-| `verify_isolation.yaml` | Proxmox + Unifi | Verify test VLAN isolation — provisions a bare VM, runs network checks (production blocked, CephFS + internet allowed), destroys VM |
+| `verify_isolation.yaml` | Proxmox + Unifi | Verify test VLAN isolation — provisions a bare VM, runs network checks (production blocked, internet allowed), destroys VM |
 | `maintain_pve.yaml` | Proxmox + PBS | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; VM snapshot staleness check (>14d alert); PBS backup task error check (last 2 days via `proxmox-backup-manager`); notification + MariaDB logging |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW, optional QEMU args (`pve_args`) and desktop env; supports create, destroy, snapshot, and revert |
 | `dr_rebuild.yaml` | Proxmox + `docker_stacks` | DR rebuild — provision VM → bootstrap → restore backups → deploy stacks → health check; `-e role=core\|apps\|dev`; `scripts/dr_rebuild_all.sh` for multi-role sequential execution |
-| `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, patches SWAG configs, verifies health, reverts to snapshot; `vm_name` defaults to `test-vm`; `role` can substitute for `source_host`; DR mode (`dr_mode=yes`) keeps restored state. CephFS-backed test VMs get explicit appdata cleanup before each run (PVE snapshot revert alone does not clean CephFS state) |
-| `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_definitions` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), notification summary, revert; pass `test_apps=` to limit scope. CephFS-backed test VMs get explicit appdata cleanup before each run |
-| `verify_cephfs.yaml` | Proxmox + CephFS | Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires `-e vm_name=<key>` |
+| `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, patches SWAG configs, verifies health, reverts to snapshot; `vm_name` defaults to `test-vm`; `role` can substitute for `source_host`; DR mode (`dr_mode=yes`) keeps restored state |
+| `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_definitions` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), notification summary, revert; pass `test_apps=` to limit scope |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
 
 > **unRAID — Fix Common Problems:** If you have the [Fix Common Problems](https://forums.unraid.net/topic/47266-plugin-ca-fix-common-problems/) plugin installed, it will raise an alert when `setup_ansible_user.yaml` adds the `ansible` user via SSH. This is expected behaviour — the plugin flags any new SSH-capable user as a potential security concern. You can safely acknowledge and suppress the alert once you've verified the key and confirmed the user was added intentionally.
@@ -215,7 +214,7 @@ for platforms you don't have are automatically skipped.
 ├── scripts/
 │   └── dr_rebuild_all.sh         # Shell wrapper for sequential multi-role DR rebuild
 │
-│── # ── Playbooks (32) ──────────────────────────────────────────────
+│── # ── Playbooks (31) ──────────────────────────────────────────────
 ├── backup_*.yaml                 # Backup: hosts, databases, offline NAS-to-NAS, offsite B2
 ├── verify_backups.yaml           # Backup verification (DB + config archives)
 ├── restore_databases.yaml        # Database restore (safety-gated)
@@ -234,7 +233,6 @@ for platforms you don't have are automatically skipped.
 ├── build_ubuntu.yaml             # Provision Ubuntu VMs on Proxmox
 ├── test_restore.yaml             # End-to-end restore test on a disposable VM
 ├── test_backup_restore.yaml      # Per-app backup integrity test on a disposable VM
-├── verify_cephfs.yaml            # Verify CephFS mount on a target VM
 ├── verify_isolation.yaml         # Test VLAN isolation verification — provision, check, destroy
 ├── setup_ansible_user.yaml       # One-time ansible user setup (PVE/PBS/unRAID)
 ├── setup_pve_vip.yaml            # One-time keepalived VIP setup on PVE nodes

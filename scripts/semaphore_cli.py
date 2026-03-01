@@ -5,7 +5,7 @@ Usage:
     python3 scripts/semaphore_cli.py <command> [subcommand] [options]
 
 Config:
-    /config/.claude/semaphore.conf (INI format, persistent CephFS storage)
+    /config/.claude/semaphore.conf (INI format, persistent storage)
     Run 'config init --url URL --token TOKEN' to set up.
 """
 

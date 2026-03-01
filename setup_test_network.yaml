@@ -44,7 +44,6 @@
     _semaphore_ip: "{{ semaphore_host_url | urlsplit('hostname') }}"
     _prod_lan_subnet: "{{ vault_vm_gateway | regex_replace('(\\d+\\.\\d+\\.\\d+)\\.\\d+', '\\1.0') }}/{{ vm_cidr }}"
     _ssh_policy_name: "Allow Server to Test"
-    _ceph_policy_name: "Allow Test to Ceph"
     _block_policy_name: "Block Test to Internal"
 
   tasks:
@@ -163,13 +162,7 @@
           - "  Destination Zone: Guest  |  Destination Network: test-isolation  |  Port: 22  |  Protocol: TCP"
           - "  (Allows Semaphore to SSH into test VMs on the isolated VLAN)"
           - ""
-          - "Policy 2 — '{{ _ceph_policy_name }}'  ← must be ABOVE the block rule"
-          - "  Source Zone: Guest  |  Source Network: test-isolation"
-          - "  Action: Allow"
-          - "  Destination Zone: Server  |  Ports: 3300,6789,6800-7300  |  Protocol: TCP"
-          - "  (Allows test VMs to mount CephFS — client connects to mon + OSD + MDS)"
-          - ""
-          - "Policy 3 — '{{ _block_policy_name }}'"
+          - "Policy 2 — '{{ _block_policy_name }}'"
           - "  Source Zone: Guest  |  Source IP: {{ vault_test_vlan_subnet }}"
           - "  Action: Block"
           - "  Destination Zone: Any (all internal zones)"
@@ -177,8 +170,7 @@
           - ""
           - "Policy order matters — evaluate top to bottom, first match wins:"
           - "  1. {{ _ssh_policy_name }}"
-          - "  2. {{ _ceph_policy_name }}"
-          - "  3. {{ _block_policy_name }}"
+          - "  2. {{ _block_policy_name }}"
           - ""
           - "After creating all policies in order, re-run this playbook to verify the VLAN is present."
       when: not ansible_check_mode
@@ -194,8 +186,7 @@
           - ""
           - "Zone policies require manual creation in Unifi UI (Settings → Firewall & Security → Rules → Create Policy):"
           - "  Policy 1 — '{{ _ssh_policy_name }}': Source=Server/{{ _semaphore_ip }}/32 → Allow → Dest=Guest/test-isolation:22/TCP"
-          - "  Policy 2 — '{{ _ceph_policy_name }}': Source=Guest/test-isolation → Allow → Dest=Server:3300,6789,6800-7300/TCP"
-          - "  Policy 3 — '{{ _block_policy_name }}': Source=Guest/{{ vault_test_vlan_subnet }} → Block → Dest=Any"
+          - "  Policy 2 — '{{ _block_policy_name }}': Source=Guest/{{ vault_test_vlan_subnet }} → Block → Dest=Any"
           - ""
           - "Re-run without --check after creating policies to verify."
       when: ansible_check_mode

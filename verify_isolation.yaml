@@ -4,15 +4,14 @@
 # isolation checks, then destroys the VM.
 #
 # Proves the Unifi "Block Test to Internal" zone policy prevents test VMs
-# from reaching production hosts (gateway, PVE, DNS) while allowing CephFS
-# and public internet.
+# from reaching production hosts (gateway, PVE, DNS) while allowing
+# public internet.
 #
 # Usage:
-#   ansible-playbook verify_isolation.yaml -e vm_name=cephfs-migrate-test
 #   ansible-playbook verify_isolation.yaml -e vm_name=test-vm
 #
 # Required extra vars:
-#   vm_name — test VM key from vm_definitions (cephfs-migrate-test or test-vm)
+#   vm_name — test VM key from vm_definitions (e.g. test-vm)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Provision test VM
@@ -42,7 +41,7 @@
           - vm_name in vm_definitions
         fail_msg: >-
           vm_name '{{ vm_name | default('undefined') }}' not found in vm_definitions.
-          Valid test VMs: test-vm, cephfs-migrate-test
+          Valid test VMs: test-vm
 
     - name: Assert VM is a test VM (VLAN-tagged)
       ansible.builtin.assert:
@@ -55,43 +54,11 @@
   tasks:
     - name: Auto-detect free vm_index for test-vm pool
       include_tasks: tasks/resolve_test_vm_index.yaml
-      when: vm_name in ['test-vm', 'cephfs-migrate-test']
+      when: vm_name == 'test-vm'
 
     - name: Resolve VM definition
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
-
-    # ===== AUTO-CREATE CEPHFS DIR (when vm has cephfs_host_dir) =====
-    - name: Add PVE host to in-memory inventory (for CephFS dir creation)
-      ansible.builtin.add_host:
-        name: pve_builder
-        ansible_host: "{{ pve_api_host }}"
-        ansible_user: ansible
-      when: _vm.cephfs_host_dir is defined
-
-    - name: Ensure test VM CephFS directory exists (isolated from production)
-      ansible.builtin.shell: |
-        set -e
-        MOUNT_DIR=$(mktemp -d)
-        ADMIN_KEY=$(ceph auth print-key client.admin)
-        mount -t ceph {{ vault_ceph_mons }}:/ "$MOUNT_DIR" \
-          -o "name=admin,secret=${ADMIN_KEY}"
-        if [ -d "$MOUNT_DIR/{{ _vm.cephfs_host_dir }}" ]; then
-          echo "exists"
-        else
-          mkdir "$MOUNT_DIR/{{ _vm.cephfs_host_dir }}"
-          echo "created"
-        fi
-        umount "$MOUNT_DIR"
-        rmdir "$MOUNT_DIR"
-      args:
-        executable: /bin/bash
-      delegate_to: pve_builder
-      become: true
-      register: _cephfs_dir_result
-      changed_when: "'created' in _cephfs_dir_result.stdout"
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: _vm.cephfs_host_dir is defined
 
     # ===== RESOLVE OR PROVISION VM =====
     - name: Resolve or provision test VM
@@ -154,9 +121,6 @@
         _verify_detail: ""
 
     - block:
-        - name: Assert /opt is not production CephFS (safety gate)
-          include_tasks: tasks/assert_test_vm.yaml
-
         - name: Verify test VLAN isolation from production
           include_tasks: tasks/verify_network_isolation.yaml
           vars:

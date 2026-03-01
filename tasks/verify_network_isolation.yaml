@@ -2,12 +2,12 @@
 # Verify test VLAN isolation from production networks.
 # Confirms firewall zone policies ("Block Test to Internal") are working:
 #   - PVE VIP must be unreachable (ping + TCP {{ pve_api_port }})
-#   - CephFS monitors and public DNS must be REACHABLE (allowed by policy)
+#   - Public DNS must be REACHABLE
 #
 # Skips cleanly on non-VLAN hosts (production VMs).
 #
 # Requires:
-#   vars/secrets.yaml loaded (vault_pve_vip, vault_ceph_mons)
+#   vars/secrets.yaml loaded (vault_pve_vip)
 #   _vm — the current VM definition (must have vm_vlan_tag for VLAN hosts)
 # Sets:
 #   _network_isolation_summary — human-readable verification result
@@ -51,14 +51,6 @@
       changed_when: false
       failed_when: _dns_check.rc != 0 or _dns_check.stdout | trim | length == 0
 
-    - name: Verify CephFS monitor reachability (allowed by zone policy)
-      ansible.builtin.wait_for:
-        host: "{{ vault_ceph_mons.split(',') | first }}"
-        port: 6789
-        timeout: 10
-        state: started
-      when: _vm.cephfs_host_dir is defined
-
     - name: Display isolation results
       ansible.builtin.debug:
         msg: |
@@ -66,7 +58,6 @@
           Ping PVE VIP:     {{ 'BLOCKED' if _ping_blocked | bool else 'REACHABLE (BAD)' }}
           TCP PVE VIP:{{ pve_api_port }}: {{ 'BLOCKED' if _tcp_blocked | bool else 'REACHABLE (BAD)' }}
           DNS resolution:   OK
-          CephFS monitor:   {{ 'OK' if _vm.cephfs_host_dir is defined else 'skipped (no CephFS)' }}
 
     - name: Assert PVE VIP is not pingable
       ansible.builtin.assert:
@@ -87,5 +78,4 @@
     - name: Set isolation summary fact
       ansible.builtin.set_fact:
         _network_isolation_summary: >-
-          PVE VIP ping blocked, :{{ pve_api_port }} blocked,
-          DNS OK, CephFS {{ 'OK' if _vm.cephfs_host_dir is defined else 'n/a' }}
+          PVE VIP ping blocked, :{{ pve_api_port }} blocked, DNS OK

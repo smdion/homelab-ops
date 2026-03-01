@@ -1,0 +1,537 @@
+---
+# Read-only review of Proxmox VE cluster and PBS backup server state.
+# Gathers infrastructure status via PVE API (localhost) and PBS CLI (SSH)
+# and displays a formatted summary. No mutations, no notifications, no
+# MariaDB logging beyond the run-context audit entry.
+#
+# Intended for ad-hoc use: run before maintenance, after incidents, or
+# periodically to verify infrastructure health at a glance.
+#
+# Usage:
+#   ansible-playbook review_pve.yaml
+#
+# Required vault vars: pve_api_user, pve_api_token_id, pve_api_token_secret,
+#                       vault_pve_vip (via pve_api_host)
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Review PVE cluster and VM state
+# Queries PVE REST API via the keepalived VIP for cluster-wide status:
+# nodes, storage, Ceph, HA, replication, VMs, and firewall rules.
+# ═══════════════════════════════════════════════════════════════════
+- name: Review PVE cluster and VM state
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+    - vars/vm_definitions.yaml
+    - vars/pve_definitions.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    _api_base: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json"
+    _api_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "review_pve.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
+  tasks:
+    # ===== CLUSTER STATUS =====
+    - name: Get cluster status
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/cluster/status"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _cluster_status
+      check_mode: false
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    # ===== CLUSTER RESOURCES (nodes, VMs, storage in one call) =====
+    - name: Get all cluster resources
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/cluster/resources"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _cluster_resources
+      check_mode: false
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    # ===== NODE VERSIONS =====
+    - name: Get PVE version for each node
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/nodes/{{ item.node }}/version"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _node_versions
+      loop: >-
+        {{ _cluster_resources.json.data
+           | selectattr('type', 'equalto', 'node')
+           | list }}
+      loop_control:
+        label: "{{ item.node }}"
+      check_mode: false
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Build node version lookup
+      ansible.builtin.set_fact:
+        _version_map: >-
+          {{ dict(_node_versions.results
+                  | rejectattr('failed', 'equalto', true)
+                  | map(attribute='item.node')
+                  | zip(_node_versions.results
+                        | rejectattr('failed', 'equalto', true)
+                        | map(attribute='json.data.version'))) }}
+
+    # ===== DISPLAY CLUSTER OVERVIEW =====
+    - name: Display cluster overview
+      vars:
+        _cluster_info: >-
+          {{ _cluster_status.json.data
+             | selectattr('type', 'equalto', 'cluster')
+             | first }}
+        _nodes: >-
+          {{ _cluster_resources.json.data
+             | selectattr('type', 'equalto', 'node')
+             | sort(attribute='node')
+             | list }}
+      ansible.builtin.debug:
+        msg: |
+          === PVE CLUSTER OVERVIEW ===
+          Cluster: {{ _cluster_info.name | default('unknown') }}  Quorum: {{ 'yes' if (_cluster_info.quorate | default(0) | int) == 1 else 'no' }}  Nodes: {{ _nodes | length }}
+
+          {{ '%-16s %-8s %-16s %6s %18s %10s' | format('Node', 'Status', 'PVE Version', 'CPU %', 'Memory', 'Uptime') }}
+          {{ '%-16s %-8s %-16s %6s %18s %10s' | format('----', '------', '-----------', '-----', '------', '------') }}
+          {% for n in _nodes %}
+          {{ '%-16s %-8s %-16s %5.0f%% %7.1f / %5.1f GB %8dd %2dh' | format(
+               n.node,
+               n.status | default('unknown'),
+               _version_map[n.node] | default('?'),
+               (n.cpu | default(0) | float) * 100,
+               (n.mem | default(0) | float) / 1073741824,
+               (n.maxmem | default(0) | float) / 1073741824,
+               (n.uptime | default(0) | int) // 86400,
+               ((n.uptime | default(0) | int) % 86400) // 3600) }}
+          {% endfor %}
+
+    # ===== DISPLAY STORAGE OVERVIEW =====
+    - name: Display storage overview
+      vars:
+        _storages: >-
+          {{ _cluster_resources.json.data
+             | selectattr('type', 'equalto', 'storage')
+             | sort(attribute='storage')
+             | list }}
+      ansible.builtin.debug:
+        msg: |
+          === STORAGE ===
+          {{ '%-20s %-10s %-16s %10s %10s %6s  %s' | format('Storage', 'Type', 'Node', 'Used', 'Total', 'Pct', 'Status') }}
+          {{ '%-20s %-10s %-16s %10s %10s %6s  %s' | format('-------', '----', '----', '----', '-----', '---', '------') }}
+          {% for s in _storages %}
+          {% if (s.maxdisk | default(0) | int) > 0 %}
+          {{ '%-20s %-10s %-16s %7.1f GB %7.1f GB %5.0f%%  %s' | format(
+               s.storage,
+               s.plugintype | default('?'),
+               s.node | default('?'),
+               (s.disk | default(0) | float) / 1073741824,
+               (s.maxdisk | default(0) | float) / 1073741824,
+               ((s.disk | default(0) | float) / (s.maxdisk | float)) * 100,
+               s.status | default('?')) }}
+          {% else %}
+          {{ '%-20s %-10s %-16s %10s %10s %6s  %s' | format(
+               s.storage, s.plugintype | default('?'), s.node | default('?'),
+               '-', '-', '-', s.status | default('?')) }}
+          {% endif %}
+          {% endfor %}
+
+    # ===== CEPH STATUS =====
+    - name: Get Ceph status
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/cluster/ceph/status"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _ceph_status
+      check_mode: false
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Display Ceph overview
+      ansible.builtin.debug:
+        msg: |
+          === CEPH ===
+          {% if _ceph_status is failed %}
+          Ceph not available (API returned error)
+          {% else %}
+          Health: {{ _ceph_status.json.data.health.status | default('unknown') }}
+          {% if _ceph_status.json.data.health.checks is defined and _ceph_status.json.data.health.checks | length > 0 %}
+          Checks:
+          {% for check_name, check_data in (_ceph_status.json.data.health.checks | default({})).items() %}
+            {{ check_name }}: {{ check_data.summary.message | default('') }}
+          {% endfor %}
+          {% endif %}
+          OSDs: {{ _ceph_status.json.data.osdmap.osdmap.num_osds | default(_ceph_status.json.data.osdmap.num_osds | default('?')) }} total, {{ _ceph_status.json.data.osdmap.osdmap.num_up_osds | default(_ceph_status.json.data.osdmap.num_up_osds | default('?')) }} up, {{ _ceph_status.json.data.osdmap.osdmap.num_in_osds | default(_ceph_status.json.data.osdmap.num_in_osds | default('?')) }} in
+          Monitors: {{ _ceph_status.json.data.monmap.mons | default([]) | map(attribute='name') | join(', ') }}
+          {% if _ceph_status.json.data.pgmap is defined %}
+          Usage: {{ '%.1f' | format((_ceph_status.json.data.pgmap.bytes_used | default(0) | float) / 1073741824) }} GB / {{ '%.1f' | format((_ceph_status.json.data.pgmap.bytes_total | default(0) | float) / 1073741824) }} GB ({{ '%.0f' | format(((_ceph_status.json.data.pgmap.bytes_used | default(0) | float) / (_ceph_status.json.data.pgmap.bytes_total | default(1) | float)) * 100) }}%)
+          {% endif %}
+          {% endif %}
+
+    # ===== HA STATUS =====
+    - name: Get HA status
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/cluster/ha/status/current"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _ha_status
+      check_mode: false
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Display HA overview
+      ansible.builtin.debug:
+        msg: |
+          === HIGH AVAILABILITY ===
+          {% if _ha_status is failed %}
+          HA status not available (API returned error)
+          {% elif (_ha_status.json.data | default([]) | selectattr('type', 'defined') | selectattr('type', 'equalto', 'service') | list | length) == 0 %}
+          No HA resources configured
+          {% else %}
+          {{ '%-20s %-12s %-16s %s' | format('Resource', 'State', 'Node', 'Request') }}
+          {{ '%-20s %-12s %-16s %s' | format('--------', '-----', '----', '-------') }}
+          {% for r in _ha_status.json.data | selectattr('type', 'defined') | selectattr('type', 'equalto', 'service') | list %}
+          {{ '%-20s %-12s %-16s %s' | format(r.sid | default('?'), r.state | default('?'), r.node | default('?'), r.request_state | default('-')) }}
+          {% endfor %}
+          {% endif %}
+
+    # ===== REPLICATION STATUS =====
+    - name: Get replication status
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/cluster/replication"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _replication_status
+      check_mode: false
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Display replication overview
+      ansible.builtin.debug:
+        msg: |
+          === REPLICATION ===
+          {% if _replication_status is failed %}
+          Replication status not available (API returned error)
+          {% elif (_replication_status.json.data | default([])) | length == 0 %}
+          No replication jobs configured
+          {% else %}
+          {{ '%-12s %-16s %-16s %-12s %s' | format('Guest', 'Source', 'Target', 'Schedule', 'Status') }}
+          {{ '%-12s %-16s %-16s %-12s %s' | format('-----', '------', '------', '--------', '------') }}
+          {% for r in _replication_status.json.data %}
+          {{ '%-12s %-16s %-16s %-12s %s' | format(r.guest | default('?'), r.source | default('?'), r.target | default('?'), r.schedule | default('?'), r.error | default('OK')) }}
+          {% endfor %}
+          {% endif %}
+
+    # ===== VM SUMMARY =====
+    - name: Display VM summary
+      vars:
+        _vms: >-
+          {{ _cluster_resources.json.data
+             | selectattr('type', 'equalto', 'qemu')
+             | sort(attribute='vmid')
+             | list }}
+      ansible.builtin.debug:
+        msg: |
+          === VIRTUAL MACHINES ({{ _vms | length }} total) ===
+          {{ '%-6s %-20s %-16s %-10s %6s %18s %10s' | format('VMID', 'Name', 'Node', 'Status', 'CPU', 'Memory', 'Disk') }}
+          {{ '%-6s %-20s %-16s %-10s %6s %18s %10s' | format('----', '----', '----', '------', '---', '------', '----') }}
+          {% for v in _vms %}
+          {{ '%-6s %-20s %-16s %-10s %3d/%-2d %7.1f / %5.1f GB %7.1f GB' | format(
+               v.vmid,
+               v.name | default('?'),
+               v.node | default('?'),
+               v.status | default('?'),
+               (v.cpu | default(0) | float * (v.maxcpu | default(1) | int)) | round(0) | int,
+               v.maxcpu | default(0),
+               (v.mem | default(0) | float) / 1073741824,
+               (v.maxmem | default(0) | float) / 1073741824,
+               (v.maxdisk | default(0) | float) / 1073741824) }}
+          {% endfor %}
+
+    # ===== CLUSTER FIREWALL RULES =====
+    - name: Get cluster firewall rules
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/cluster/firewall/rules"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _fw_rules
+      check_mode: false
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Display cluster firewall rules
+      ansible.builtin.debug:
+        msg: |
+          === CLUSTER FIREWALL RULES ===
+          {% if _fw_rules is failed %}
+          Firewall rules not available (API returned error)
+          {% elif (_fw_rules.json.data | default([])) | length == 0 %}
+          No cluster-level firewall rules
+          {% else %}
+          {{ '%-5s %-8s %-8s %-20s %-20s %-8s %s' | format('Pos', 'Type', 'Action', 'Source', 'Dest', 'Enable', 'Comment') }}
+          {{ '%-5s %-8s %-8s %-20s %-20s %-8s %s' | format('---', '----', '------', '------', '----', '------', '-------') }}
+          {% for r in _fw_rules.json.data | sort(attribute='pos') %}
+          {{ '%-5s %-8s %-8s %-20s %-20s %-8s %s' | format(
+               r.pos | default('?'),
+               r.type | default('?'),
+               r.action | default('?'),
+               r.source | default('-'),
+               r.dest | default('-'),
+               r.enable | default('?'),
+               r.comment | default('')) }}
+          {% endfor %}
+          {% endif %}
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Review PVE per-node network configuration
+# Queries each node's network interfaces to show bridge, bond, and
+# VLAN configuration.
+# ═══════════════════════════════════════════════════════════════════
+- name: Review PVE per-node network configuration
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+    - vars/vm_definitions.yaml
+  vars:
+    _api_base: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json"
+    _api_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+
+  tasks:
+    - name: Get cluster node list
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/cluster/status"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _cluster_nodes_raw
+      check_mode: false
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Derive node names
+      ansible.builtin.set_fact:
+        _node_names: >-
+          {{ _cluster_nodes_raw.json.data
+             | selectattr('type', 'equalto', 'node')
+             | map(attribute='name')
+             | sort
+             | list }}
+
+    - name: Get network config for each node
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/nodes/{{ item }}/network"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _node_networks
+      loop: "{{ _node_names }}"
+      loop_control:
+        label: "{{ item }}"
+      check_mode: false
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Display per-node network summary
+      ansible.builtin.debug:
+        msg: |
+          === NETWORK — {{ item.item }} ===
+          {% if item is failed %}
+          Network config not available (API returned error)
+          {% else %}
+          {{ '%-16s %-10s %-20s %-8s %s' | format('Interface', 'Type', 'CIDR', 'Active', 'Bridge Ports / Slaves') }}
+          {{ '%-16s %-10s %-20s %-8s %s' | format('---------', '----', '----', '------', '---------------------') }}
+          {% for iface in item.json.data | sort(attribute='iface') %}
+          {{ '%-16s %-10s %-20s %-8s %s' | format(
+               iface.iface | default('?'),
+               iface.type | default('?'),
+               (iface.cidr | default(iface.address | default('-') + ('/' + (iface.netmask | default('')) if iface.netmask is defined else ''))),
+               iface.active | default('?'),
+               iface.bridge_ports | default(iface.slaves | default('-'))) }}
+          {% endfor %}
+          {% endif %}
+      loop: "{{ _node_networks.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 3 — Review PBS backup server state
+# Connects to PBS via SSH and queries proxmox-backup-manager CLI for
+# datastore topology, job configuration, and recent task history.
+# ═══════════════════════════════════════════════════════════════════
+- name: Review PBS backup server state
+  hosts: pbs
+  become: true
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+
+  tasks:
+    # ===== PBS VERSION =====
+    - name: Get PBS version
+      ansible.builtin.shell: proxmox-backup-manager versions --output-format json 2>/dev/null || echo "[]"
+      register: _pbs_versions
+      changed_when: false
+      check_mode: false
+
+    - name: Display PBS version
+      ansible.builtin.debug:
+        msg: |
+          === PBS VERSION ({{ inventory_hostname }}) ===
+          {% for pkg in (_pbs_versions.stdout | from_json) %}
+          {{ '%-30s %s' | format(pkg.package | default('?'), pkg.version | default('?')) }}
+          {% endfor %}
+
+    # ===== DATASTORES =====
+    - name: List PBS datastores
+      ansible.builtin.shell: proxmox-backup-manager datastore list --output-format json 2>/dev/null || echo "[]"
+      register: _pbs_datastores
+      changed_when: false
+      check_mode: false
+
+    - name: Get disk usage for each datastore path
+      ansible.builtin.command: df -B1 {{ item.path }}
+      register: _pbs_ds_usage
+      loop: "{{ _pbs_datastores.stdout | from_json }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Display datastore overview
+      vars:
+        _datastores: "{{ _pbs_datastores.stdout | from_json }}"
+      ansible.builtin.debug:
+        msg: |
+          === PBS DATASTORES ===
+          {% for ds in _datastores %}
+          {% set _df_result = _pbs_ds_usage.results[loop.index0] %}
+          {% set _df_line = _df_result.stdout_lines[1] | default('') %}
+          {% set _df_parts = _df_line.split() %}
+          {% if _df_parts | length >= 4 %}
+          {% set _used_gb = (_df_parts[2] | float) / 1073741824 %}
+          {% set _total_gb = (_df_parts[1] | float) / 1073741824 %}
+          {% set _pct = _df_parts[4] | default('?') %}
+          {{ '%-16s path=%-24s %8.1f / %7.1f GB (%s)  gc-schedule: %s' | format(
+               ds.name, ds.path | default('?'),
+               _used_gb, _total_gb, _pct,
+               ds['gc-schedule'] | default('-')) }}
+          {% else %}
+          {{ '%-16s path=%-24s (disk usage unavailable)  gc-schedule: %s' | format(
+               ds.name, ds.path | default('?'),
+               ds['gc-schedule'] | default('-')) }}
+          {% endif %}
+          {% endfor %}
+          {% if _datastores | length == 0 %}
+          No datastores configured
+          {% endif %}
+
+    # ===== VERIFY JOBS =====
+    - name: List verify jobs
+      ansible.builtin.shell: proxmox-backup-manager verify-job list --output-format json 2>/dev/null || echo "[]"
+      register: _pbs_verify_jobs
+      changed_when: false
+      check_mode: false
+
+    # ===== SYNC JOBS =====
+    - name: List sync jobs
+      ansible.builtin.shell: proxmox-backup-manager sync-job list --output-format json 2>/dev/null || echo "[]"
+      register: _pbs_sync_jobs
+      changed_when: false
+      check_mode: false
+
+    # ===== PRUNE JOBS =====
+    - name: List prune jobs
+      ansible.builtin.shell: proxmox-backup-manager prune-job list --output-format json 2>/dev/null || echo "[]"
+      register: _pbs_prune_jobs
+      changed_when: false
+      check_mode: false
+
+    - name: Display PBS job summary
+      vars:
+        _verify: "{{ _pbs_verify_jobs.stdout | from_json }}"
+        _sync: "{{ _pbs_sync_jobs.stdout | from_json }}"
+        _prune: "{{ _pbs_prune_jobs.stdout | from_json }}"
+      ansible.builtin.debug:
+        msg: |
+          === PBS JOBS ===
+          Verify Jobs: {{ _verify | length }}
+          {% for j in _verify %}
+            {{ j.id | default('?') }}  schedule: {{ j.schedule | default('-') }}  store: {{ j.store | default('-') }}
+          {% endfor %}
+          {% if _verify | length == 0 %}  (none){% endif %}
+
+          Sync Jobs: {{ _sync | length }}
+          {% for j in _sync %}
+            {{ j.id | default('?') }}  schedule: {{ j.schedule | default('-') }}  store: {{ j.store | default('-') }}  remote: {{ j.remote | default('-') }}
+          {% endfor %}
+          {% if _sync | length == 0 %}  (none){% endif %}
+
+          Prune Jobs: {{ _prune | length }}
+          {% for j in _prune %}
+            {{ j.id | default('?') }}  schedule: {{ j.schedule | default('-') }}  store: {{ j.store | default('-') }}  keep-last: {{ j['keep-last'] | default('-') }}  keep-daily: {{ j['keep-daily'] | default('-') }}  keep-weekly: {{ j['keep-weekly'] | default('-') }}  keep-monthly: {{ j['keep-monthly'] | default('-') }}
+          {% endfor %}
+          {% if _prune | length == 0 %}  (none){% endif %}
+
+    # ===== RECENT TASK HISTORY =====
+    - name: Get recent PBS task history
+      ansible.builtin.shell: proxmox-backup-manager task list --output-format json --limit 50 2>/dev/null || echo "[]"
+      register: _pbs_recent_tasks
+      changed_when: false
+      check_mode: false
+
+    - name: Display recent PBS tasks
+      vars:
+        _tasks: "{{ _pbs_recent_tasks.stdout | from_json }}"
+        _failed_count: >-
+          {{ _tasks
+             | selectattr('status', 'defined')
+             | rejectattr('status', 'equalto', 'OK')
+             | rejectattr('status', 'equalto', '')
+             | list | length }}
+      ansible.builtin.debug:
+        msg: |
+          === PBS RECENT TASKS (last {{ _tasks | length }}) ===
+          {{ '%-14s %-8s %-22s %10s  %s' | format('Type', 'Status', 'Start', 'Duration', 'ID') }}
+          {{ '%-14s %-8s %-22s %10s  %s' | format('----', '------', '-----', '--------', '--') }}
+          {% for t in _tasks %}
+          {% set _dur = ((t.endtime | default(0) | int) - (t.starttime | default(0) | int)) %}
+          {{ '%-14s %-8s %-22s %7dm %2ds  %s' | format(
+               t.worker_type | default(t.type | default('?')),
+               t.status | default('?'),
+               (t.starttime | default(0) | int) | strftime('%Y-%m-%d %H:%M:%S'),
+               _dur // 60,
+               _dur % 60,
+               t.worker_id | default(t.id | default('-'))) }}
+          {% endfor %}
+
+          Summary: {{ _tasks | length }} tasks, {{ _failed_count }} with errors/warnings

@@ -165,7 +165,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── deploy_single_stack.yaml     # Per-stack deploy loop body (mkdir, template .env, copy compose, validate, pull, up); retries transient image pull failures
 │   ├── provision_vm.yaml            # Provision VM on Proxmox via cloud-init template clone + API config; optional QEMU args (pve_args)
 │   ├── resolve_or_provision_vm.yaml # Resolve existing test VM or provision new one — shared by test/verify playbooks
-│   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS server/client, CephFS (test VMs only), desktop env (desktop role)
+│   ├── bootstrap_vm.yaml            # Bootstrap Ubuntu VM: apt, Docker, SSH hardening, UFW, NFS server/client, desktop env (desktop role)
 │   ├── ssh_hardening.yaml           # Passwordless sudo + SSH config hardening + service restart
 │   ├── docker_stop.yaml             # Stop Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── docker_start.yaml            # Start Docker containers/stacks (selective, stack, or unRAID mode)
@@ -186,9 +186,8 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── rollback_restore_stack.yaml  # Per-stack appdata restore during rollback with_backup (find→verify→extract→clean)
 │   ├── rollback_restore_dbs.yaml    # Per-app DB restore during rollback with_backup (load config→find dumps→restore→clean)
 │   ├── verify_docker_health.yaml    # Poll Docker container health until all healthy or timeout
-│   ├── assert_test_vm.yaml          # Safety gate — assert /opt CephFS mount is not a production directory before destructive writes
 │   ├── verify_docker_network.yaml   # Verify cross-stack DNS resolution and TCP connectivity on shared Docker network
-│   ├── verify_network_isolation.yaml # Verify test VLAN isolation — PVE VIP unreachable, CephFS monitors + public DNS reachable
+│   ├── verify_network_isolation.yaml # Verify test VLAN isolation — PVE VIP unreachable, public DNS reachable
 │   ├── verify_vip.yaml             # Verify keepalived VIP is active on expected interface (skips if no role assigned)
 │   ├── pre_task_assertions.yaml    # Pre-task bundle: assert_config_file (optional) → assert_db_connectivity → log_run_context; used by 26 playbooks
 │   ├── pre_test_assertions.yaml   # Shared pre-flight assertions for test/DR playbooks: vm_name in vm_definitions, source_host/role validation
@@ -223,6 +222,7 @@ history, restore results, playbook runs) belongs in the database.
 ├── maintain_health.yaml            # Scheduled health monitoring — 26 checks across all SSH hosts + DB/API; Uptime Kuma dead man's switch
 ├── maintain_guacamole.yaml          # Declarative Guacamole connection + user group permission management — converges from definition files via docker exec
 ├── maintain_pve.yaml               # Idempotent Proxmox node config (keepalived VIP, ansible user, SSH hardening); stale snapshot check (>14d alert); PBS task error check (last 2d via proxmox-backup-manager); notification + MariaDB logging
+├── review_pve.yaml                # Read-only PVE cluster + PBS audit — cluster status, nodes, storage, Ceph, HA, replication, VMs, firewall, per-node network, PBS datastores/jobs/tasks; stdout only
 ├── download_videos.yaml            # MeTube yt-dlp downloads — per-video notifications + temp file cleanup; parameterized on config_file; hosts via hosts_variable
 ├── setup_ansible_user.yaml         # One-time utility: create ansible user on PVE/PBS/unRAID hosts (SSH key from vault, ansible_remote_tmp dir, validation assertions)
 ├── setup_pve_vip.yaml              # One-time VIP setup: install and configure keepalived on PVE nodes; verifies VIP reachable on port 22
@@ -234,7 +234,6 @@ history, restore results, playbook runs) belongs in the database.
 ├── restore_app.yaml               # Production single-app restore — stop stack, restore DB(s) + appdata inplace, restart, health check; requires confirm=yes
 ├── test_restore.yaml              # Automated restore testing — provision disposable VM, deploy stacks, health check, revert; vm_name defaults to test-vm; role can substitute for source_host
 ├── test_backup_restore.yaml          # Test all app_definitions apps on disposable VM — per-app DB+appdata restore, OOM auto-recovery, notification summary, revert
-├── verify_cephfs.yaml             # Verify CephFS mount on a target VM — checks mount source, writes/reads marker file; requires -e vm_name=<key>
 ├── verify_isolation.yaml          # Lightweight test VLAN isolation verification — provisions bare test VM, runs network checks, then destroys
 ├── deploy_grafana.yaml            # Deploy Grafana dashboard + Ansible-Logging datasource via API (localhost — no SSH)
 │
@@ -430,8 +429,7 @@ plays: Play 1 (localhost) manages VM via Proxmox API; Play 2 (new VM) bootstraps
 Docker, SSH hardening, UFW. Supports four `vm_state` values: `present` (default — clone template,
 cloud-init config, resize disk, start), `absent` (destroy), `snapshot` (disk-only), `revert`
 (rollback + restart). VM specs from `vars/vm_definitions.yaml` via `-e vm_name=<key>`.
-`tasks/provision_vm.yaml` is idempotent — resumes from partial failures. CephFS caveat: PVE
-snapshots only revert RBD disk, not CephFS data.
+`tasks/provision_vm.yaml` is idempotent — resumes from partial failures.
 
 **`restore_amp.yaml`** — AMP game server instance restore. Safety-gated with `confirm=yes`. Stops
 each instance, removes the existing data directory, extracts the latest archive from the
@@ -727,7 +725,7 @@ Semaphore template (task) names follow `Verb — Target [Subtype]`:
 | `Setup — {Target} [{Subtype}]` | `Setup — Ansible User [SSH]` |
 | `Backup — {Target} [{Subtype}]` | `Backup — Proxmox [Config]`, `Backup — unRAID [Offline]` |
 | `Backup — Database [{Role} {Engine}]` | `Backup — Database [Primary PostgreSQL]`, `Backup — Database [Secondary PostgreSQL]` |
-| `Build — {Target} [{Subtype}]` | `Build — Ubuntu [VM]`, `Build — Ubuntu [VM] (CephFS)` |
+| `Build — {Target} [{Subtype}]` | `Build — Ubuntu [VM]` |
 | `Deploy — {Target} [{Subtype}]` | `Deploy — Docker Stacks`, `Deploy — Grafana [Dashboard]` |
 | `Download — {Target} [{Subtype}]` | `Download — Videos [Channels]`, `Download — Videos [On Demand]` |
 | `Maintain — {Target} [{Subtype}]` | `Maintain — AMP [Cleanup]`, `Maintain — Docker [Cleanup]`, `Maintain — Health [Check]` |
@@ -735,21 +733,15 @@ Semaphore template (task) names follow `Verb — Target [Subtype]`:
 | `DR — {Target} [{Subtype}]` | `DR — Rebuild [Core]`, `DR — Rebuild [All]` |
 | `Restore — {Target} [{Subtype}]` | `Restore — Database [Primary PostgreSQL]`, `Restore — Docker Run [Appdata]` |
 | `Rollback — {Target} [{Subtype}]` | `Rollback — Docker [Containers]` |
-| `Test — {Target} [{Subtype}]` | `Test — Restore [VM]`, `Test — Backup Restore [VM]`, `Test — Restore [CephFS VM]` |
+| `Test — {Target} [{Subtype}]` | `Test — Restore [VM]`, `Test — Backup Restore [VM]` |
 | `Update — {Target} [{Subtype}]` | `Update — Proxmox [Appliance]`, `Update — Ubuntu [OS]`, `Update — Docker Stacks [Containers]` |
-| `Verify — {Target} [{Subtype}]` | `Verify — Database [Primary PostgreSQL]`, `Verify — Proxmox [Config]`, `Verify — CephFS [Mount]` |
+| `Verify — {Target} [{Subtype}]` | `Verify — Database [Primary PostgreSQL]`, `Verify — Proxmox [Config]` |
 
 The `[Subtype]` suffix makes templates instantly distinguishable when a target has more than one
 variant (e.g., `Backup — unRAID [Config]` vs `Backup — unRAID [Offline]`, or `Download — Videos [Channels]`
 vs `Download — Videos [On Demand]`). Database templates use `Database` as the target so all DB
 operations cluster together alphabetically, with `[Role Engine]` (e.g., `[Primary PostgreSQL]`,
 `[Secondary PostgreSQL]`) as the subtype.
-
-Both `Build — Ubuntu [VM]` templates run the same `build_ubuntu.yaml` playbook. The base
-template targets standard VMs (local RBD `/opt`), while the `(CephFS)` variant targets
-CephFS-backed VMs (where `/opt` is a shared CephFS mount). The playbook adapts automatically
-based on whether `cephfs_host_dir` is defined in the VM's entry in `vars/vm_definitions.yaml`.
-Having separate templates lets operators rebuild CephFS-backed and standard VMs independently.
 
 ### Template views
 
@@ -759,11 +751,11 @@ Templates are organized into views (tabs in the Semaphore UI) by verb:
 |------|-----------|-------------|
 | Backups | 15 | `Backup —` |
 | Updates | 6 | `Update —` |
-| Maintenance | 7 | `Maintain —` |
+| Maintenance | 8 | `Maintain —` |
 | Downloads | 2 | `Download —` |
-| Verify | 11 | `Verify —` |
-| Restore | 14 | `Restore —`, `Rollback —`, `Test —` |
-| Deploy | 8 | `Deploy —`, `Build —`, `Apply —`, `DR —` |
+| Verify | 10 | `Verify —` |
+| Restore | 13 | `Restore —`, `Rollback —`, `Test —` |
+| Deploy | 6 | `Deploy —`, `Build —`, `Apply —`, `DR —` |
 | Setup | 3 | `Setup —` |
 
 When adding a new template, assign it to the matching view. Views are stored in the
@@ -1556,7 +1548,7 @@ CREATE TABLE maintenance (
   application VARCHAR(100) NOT NULL,   -- System maintained (e.g., 'AMP', 'Docker', 'Semaphore')
   hostname    VARCHAR(255) NOT NULL,   -- FQDN of host that ran the task
   type        VARCHAR(50)  NOT NULL,   -- 'Servers', 'Appliances', or 'Local'
-  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy', 'Build', 'Test Restore', 'Test Backup Restore', 'CephFS Migration', 'CephFS Verify'
+  subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy', 'Build', 'Test Restore', 'Test Backup Restore'
   status      VARCHAR(20)  NOT NULL DEFAULT 'success',  -- 'success', 'failed', or 'partial'
   timestamp   DATETIME,            -- UTC_TIMESTAMP() — always UTC regardless of server timezone
   INDEX idx_application (application),
@@ -1732,7 +1724,7 @@ Narrows the category. Current values:
 
 - Backups: `Config`, `Appdata`, `Database`, `Offline`
 - Updates: `PVE`, `PBS`, `OS`, `Game Server`, `KVM`, `Container`
-- Maintenance: `Cleanup`, `Prune`, `Cache`, `Restart`, `Maintenance`, `Health Check`, `Verify`, `Deploy`, `Build`, `Test Restore`, `Test Backup Restore`, `CephFS Migration`, `CephFS Verify`
+- Maintenance: `Cleanup`, `Prune`, `Cache`, `Restart`, `Maintenance`, `Health Check`, `Verify`, `Deploy`, `Build`, `Test Restore`, `Test Backup Restore`
 
   (`Health Check` is reserved for `maintain_health.yaml` — its subtype value regardless of how many
   checks are added to that playbook)
@@ -1849,8 +1841,6 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 | `test_backup_restore.yaml` | Docker | Servers | Test Backup Restore |
 | `apply_role.yaml` | Docker | Servers | Apply Role |
 | `dr_rebuild.yaml` | Docker | Servers | DR Rebuild |
-| `verify_cephfs.yaml` | (vm_name) | Servers | CephFS Verify |
-
 **Restores** (type/subtype reuse the backup vars file values):
 
 | vars file source | application | restore_type | restore_subtype | operation |
@@ -2414,17 +2404,13 @@ never hardcode numeric IDs:
 | VM definition | VMID expression | IP last-octet expression | Notes |
 |---|---|---|---|
 | `test-vm` | `vm_test_slot_base + vm_index` | `vault_test_vm_ip_offset + vm_index` | isolated VLAN; `ip_aliases` for container prod-IP routing |
-| `cephfs-migrate-test` | `vm_test_slot_base + vm_index` | `vault_test_vm_ip_offset + vm_index` | same isolated VLAN; CephFS monitor access via "Allow Test to Ceph" zone policy (ports 3300/6789/6800-7300) |
 
 All VMs in the pool share the same VMID and IP expressions. Definitions differ only in optional fields
-(`vm_vlan_tag`, `vm_gateway`, `vm_dns`, `ip_aliases`, `cephfs_host_dir`). Never use a literal VMID or IP number.
+(`vm_vlan_tag`, `vm_gateway`, `vm_dns`, `ip_aliases`). Never use a literal VMID or IP number.
 
 The playbook:
 1. Provisions the VM if it doesn't exist (idempotent — resumes if VMID already exists from a prior partial run)
 2. Snapshots it (`pre-test-restore`), runs the restore, then reverts — leaving the VM ready for the next test.
-   For CephFS-backed VMs (`cephfs-migrate-test`), revert restores OS/Docker state but CephFS data
-   persists — test playbooks explicitly clean CephFS appdata before each run to replace the
-   clean-slate behavior that PVE revert provides for local-`/opt` VMs (`test-vm`).
 3. In `dr_mode=yes` mode, keeps the restored state (no revert) for real DR recovery
 
 **Do not use permanent VM keys** (`core`, `apps`, `amp`) with `test_restore.yaml` — those
@@ -2450,30 +2436,3 @@ running containers; the default fallback is 120 s. Services with slow startup (e
 block. If any app fails due to OOM, after the full app loop it doubles VM memory via the PVE API,
 reboots the VM, and retries only the OOM-failed apps with the new memory ceiling.
 
----
-
-## CephFS (Test VMs Only)
-
-CephFS is used **only for test VMs** (`cephfs-migrate-test`). Production VMs use local Ceph RBD
-disk — CephFS proved too slow for production workloads. Dev VM uses NFS mounts from core/apps
-for code-server workspace access.
-
-### Storage Architecture
-
-| VM type | `/opt` storage | Notes |
-|---------|---------------|-------|
-| Production (core, apps, dev) | Ceph RBD disk | Standard local storage |
-| Dev VM extras | NFS from core/apps (`/mnt/nfs/core`, `/mnt/nfs/apps`) | Read-only workspace access |
-| `cephfs-migrate-test` | CephFS mount | Test-only; `cephfs_host_dir` defined in `vm_definitions` |
-| `test-vm`, `amp`, `desktop` | Ceph RBD disk | No CephFS (snapshot revert / I/O sensitivity) |
-
-**Vault variables** for CephFS test VMs: `vault_ceph_mons` (monitor IPs) and
-`vault_ceph_vm_appdata_key` (client key).
-
-### How It Works
-
-- `bootstrap_vm.yaml` auto-mounts CephFS at `/opt` when `_vm.cephfs_host_dir` is defined
-- `test_restore.yaml -e vm_name=cephfs-migrate-test` validates backup/restore on CephFS
-  - Auto-creates CephFS dir, wipes appdata before each run, restores archives onto CephFS
-- `verify_cephfs.yaml` checks mount status, read/write, and logs to MariaDB + sends notification
-- If CephFS goes down, test VMs hang at boot; production VMs are unaffected
