@@ -297,6 +297,14 @@
         # ═══════════════════════════════════════════════════════════════
         # Step 6 — Converge connections (create or update)
         # ═══════════════════════════════════════════════════════════════
+
+        # Pre-escape SSH private key for SQL (avoids quote nesting in heredoc)
+        - name: Escape SSH private key for SQL
+          ansible.builtin.set_fact:
+            _ssh_private_key_sql: "{{ guacamole_ssh_defaults.private_key | replace(_sq, _sq ~ _sq) }}"
+          vars:
+            _sq: "'"
+
         - name: Create or update connections
           ansible.builtin.shell: |
             docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
@@ -337,7 +345,7 @@
               VALUES (conn_id, 'password', '{{ item.password }}');
               {% else %}
               INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
-              VALUES (conn_id, 'private-key', '{{ guacamole_ssh_defaults.private_key | regex_replace("'", "''") }}');
+              VALUES (conn_id, 'private-key', '{{ _ssh_private_key_sql }}');
               {% endif %}
 
               INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
