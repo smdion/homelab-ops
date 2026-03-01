@@ -399,7 +399,7 @@
           become: true
           ansible.builtin.shell: |
             for dir in {{ _validated_backup_paths | default(src_raw_files) | join(' ') }}; do
-              count=$(find "$dir" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)
+              count=$(find -L "$dir" -maxdepth 1 -mindepth 1 2>/dev/null | wc -l)
               echo "$dir: $count top-level entries"
             done
           register: _src_dir_content
@@ -504,7 +504,7 @@
           become: true
           ansible.builtin.shell: |
             {{ _gz_detect }}
-            tar -I "$_gz -1" -cf "{{ backup_tmp_file }}" \
+            tar -I "$_gz -1" -h -cf "{{ backup_tmp_file }}" \
               {% for excl in (backup_exclude_dirs | default([])) %}
               --exclude='{{ excl }}' \
               {% endfor %}
