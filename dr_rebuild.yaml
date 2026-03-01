@@ -533,6 +533,24 @@
             restore_status: "{{ 'failed' if _restore_test_failed else 'success' }}"
             restore_detail: "{{ _restore_test_detail | default('check Semaphore logs') }}"
 
+        - name: Stop test VM on restore failure (free the slot)
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm.pve_target_node) }}"
+            vmid: "{{ hostvars['localhost']._vm.vm_id }}"
+            state: stopped
+            force: true
+          delegate_to: localhost
+          when: >-
+            _restore_test_failed | bool and
+            (hostvars['localhost']._vm.vm_id | int) >= (vm_test_slot_base | int) and
+            (hostvars['localhost']._vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
+          ignore_errors: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
         - name: Fail play if restore failed
           ansible.builtin.fail:
             msg: "Restore failed: {{ _restore_test_detail }}"
