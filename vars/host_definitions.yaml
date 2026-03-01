@@ -8,17 +8,38 @@
 #   vm_hostname    — FQDN for cloud-init/DNS. Use domain_ext for internet-facing
 #                    hosts, vault_vm_search_domain for LAN hosts.
 #                    host_roles automatically maps both domains for all hosts.
-#   stacks         — ordered stack list (same as vm_definitions stacks key)
+#
+# Conditional fields:
+#   stacks         — ordered stack list (same as vm_definitions stacks key).
+#                    Required for docker_stacks hosts (compose-based).
+#                    Omit for docker_run hosts (unRAID) and infrastructure nodes.
+#                    Entries without stacks are safely filtered from stack_roles
+#                    and host_roles derivations.
+#
+# Optional fields:
+#   guacamole      — metadata for maintain_guacamole.yaml auto-discovery
+#                    { name: "Display Name", group: "Connection Group" }
 
 host_definitions:
   vps:
     vm_hostname: "vps.{{ domain_ext }}"
     stacks: [vpn]
+    guacamole: { name: VPS, group: Tools }
 
   # Legacy hosts — remove after migration to core/apps/dev VMs is complete.
   tantiveiv:
     vm_hostname: "tantiveiv.{{ vault_vm_search_domain }}"
     stacks: [infra, databases, auth, monitoring, dev]
+    guacamole: { name: Tantive-IV, group: Docker }
   odyssey:
     vm_hostname: "odyssey.{{ vault_vm_search_domain }}"
     stacks: [infra, apps, media]
+    guacamole: { name: Odyssey, group: Docker }
+
+  # unRAID servers (docker_run — no stacks, managed via docker_run inventory group)
+  redemption:
+    vm_hostname: "redemption.{{ vault_vm_search_domain }}"
+    guacamole: { name: Redemption, group: unRAID }
+  liberty:
+    vm_hostname: "liberty.{{ vault_vm_search_domain }}"
+    guacamole: { name: Liberty, group: unRAID }

@@ -84,6 +84,7 @@ vm_definitions:
       - path: /opt
         clients: "{{ vault_vm_dev_ip | default('') }}(ro,no_subtree_check,no_root_squash)"
     stacks: [infra, databases, auth, media]
+    guacamole: { name: Core, group: Docker }
 
   apps:
     vm_id: 301
@@ -100,6 +101,7 @@ vm_definitions:
       - path: /opt
         clients: "{{ vault_vm_dev_ip | default('') }}(ro,no_subtree_check,no_root_squash)"
     stacks: [infra, apps, monitoring]
+    guacamole: { name: Apps, group: Docker }
 
   dev:
     vm_id: 302
@@ -118,6 +120,7 @@ vm_definitions:
       - src: "{{ vault_vm_apps_ip | default('') }}:/opt"
         path: "/mnt/nfs/apps"
     stacks: [infra, dev]
+    guacamole: { name: Dev, group: Docker }
 
   amp:
     vm_id: 110
@@ -129,6 +132,7 @@ vm_definitions:
     vm_memory_mb: 8192
     vm_disk_gb: 100
     pve_target_node: "{{ vault_vm_amp_node | default('') }}"
+    guacamole: { name: AMP, group: Game Server }
 
   # Native graphical desktop VM — ubuntu-desktop-minimal installed during bootstrap.
   # Access via Proxmox VNC (pve_args) through Guacamole + Authentik groups.
@@ -145,7 +149,46 @@ vm_definitions:
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_desktop_node | default('') }}"
     deploy_ssh_key: true
-    pve_args: "-vnc 0.0.0.0:XX"       # set display number before provisioning (e.g. :78 = port 5978)
+    vnc_display: 78                    # display :78 = port 5978 — merged into QEMU args by provision_vm.yaml
+    guacamole: { name: Desktop, group: Hosted Desktops, protocol: vnc }
+
+  # Hosted desktop VMs — VNC-only access through Guacamole + Authentik groups.
+  # Not provisioned via build_ubuntu.yaml (manually created in Proxmox).
+  # vm_id + vnc_display are the minimum fields needed for VNC connection resolution.
+  macos:
+    vm_id: 103
+    vm_hostname: "macos.{{ vault_vm_search_domain }}"
+    vnc_display: 79
+    pve_args: >-
+      -device isa-applesmc,osk="ourhardworkbythesewordsguardedpleasedontsteal(c)AppleComputerInc"
+      -smbios type=2 -device usb-kbd,bus=ehci.0,port=2
+      -global nec-usb-xhci.msi=off
+      -global ICH9-LPC.acpi-pci-hotplug-with-bridge-support=off
+      -cpu Haswell-noTSX,vendor=GenuineIntel,+invtsc,+hypervisor,kvm=on,vmware-cpuid-freq=on
+    guacamole:
+      name: MacOS
+      group: Hosted Desktops
+      protocol: vnc
+      user_groups: [Guac-MacOS]
+
+  freshjams:
+    vm_id: 108
+    vm_hostname: "freshjams.{{ vault_vm_search_domain }}"
+    vnc_display: 77
+    guacamole:
+      name: FreshJams
+      group: Hosted Desktops
+      protocol: vnc
+      user_groups: [Guac-FreshJams]
+
+  personalfinance:
+    vm_id: 100
+    vm_hostname: "personalfinance.{{ vault_vm_search_domain }}"
+    vnc_display: 80
+    guacamole:
+      name: PersonalFinance
+      group: Hosted Desktops
+      protocol: vnc
 
   # VM for testing restore on CephFS-backed /opt (test_restore.yaml -e vm_name=cephfs-migrate-test).
   # Draws a slot from the same test-vm pool via resolve_test_vm_index.yaml (no fixed VMID).
@@ -213,8 +256,18 @@ vm_definitions:
 #   vm_gateway: "192.0.2.1"             # overrides global vm_gateway (used in cloud-init ipconfig0)
 #   vm_dns: "8.8.8.8,8.8.4.4"          # overrides global vm_dns (comma-separated, no spaces)
 #   vm_vlan_tag: 88                      # if defined, sets VLAN tag on net0 via PVE API
-#   pve_args: "-vnc 0.0.0.0:77"         # QEMU args — applied via PVE API during provisioning
-#                                        # e.g. VNC listener for Guacamole access (display :77 = port 5977)
+#   vnc_display: 77                      # VNC display number — merged into QEMU args by provision_vm.yaml
+#                                        # produces "-vnc 0.0.0.0:77" (port = 5900 + display)
+#                                        # if pve_args is also defined, -vnc is appended to it
+#   pve_args: "-cpu host"                # raw QEMU args — applied via PVE API during provisioning
+#                                        # prefer vnc_display over pve_args for VNC-only use cases
+#
+#   guacamole:                           # metadata for maintain_guacamole.yaml auto-discovery
+#     name: "Display Name"              # connection name in Guacamole UI
+#     group: "Connection Group"         # connection group (Proxmox, Docker, unRAID, etc.)
+#     protocol: vnc                     # optional — default is ssh; set vnc for VNC connections
+#     user_groups: [Guac-MacOS]         # optional — Authentik user groups granted READ access
+#                                       # omit for admin-only connections (guacamole_admin_groups)
 #
 #   stacks: [infra, databases, auth]     # ordered stack list — defines this VM as a Docker VM
 #                                        # must be non-empty list or absent entirely (no stacks: [])

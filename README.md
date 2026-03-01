@@ -180,10 +180,12 @@ for platforms you don't have are automatically skipped.
 │   ├── example.yaml              # Template — copy for new platform vars files
 │   ├── semaphore_check.yaml      # Health thresholds, controller config, retention
 │   ├── vm_definitions.yaml       # Consolidated VM specs (stacks, VIPs, deploy config)
-│   ├── host_definitions.yaml     # NAS/appliance definitions (unRAID, Synology)
+│   ├── host_definitions.yaml     # Non-VM host definitions (VPS, unRAID, legacy Docker)
+│   ├── pve_definitions.yaml      # PVE cluster node definitions (IPs, FQDNs)
 │   ├── app_definitions.yaml      # Per-app metadata (DB mappings, health endpoints)
 │   ├── docker_stacks.yaml        # Docker stack host config (backup paths, display names)
 │   ├── docker_vips.yaml          # VIP-to-role mapping for keepalived
+│   ├── guacamole.yaml            # Guacamole connection groups, SSH defaults, extra connections
 │   └── <platform>.yaml           # One per platform (proxmox, amp, unraid_os, etc.)
 ├── tasks/                        # 51 shared task files — assertions, DB ops, backup/restore
 │                                 #   orchestration, VM provisioning, Docker management, notifications

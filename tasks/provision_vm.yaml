@@ -237,6 +237,17 @@
       when: (_vm.vm_mac is defined or _vm.vm_vlan_tag is defined) and not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
+    # Derive effective QEMU args from vnc_display and/or pve_args
+    - name: Derive effective QEMU args
+      ansible.builtin.set_fact:
+        _effective_pve_args: >-
+          {{ (_vm.pve_args ~ ' -vnc 0.0.0.0:' ~ _vm.vnc_display)
+             if _vm.vnc_display is defined and _vm.pve_args is defined
+             else ('-vnc 0.0.0.0:' ~ _vm.vnc_display)
+             if _vm.vnc_display is defined
+             else _vm.pve_args | default('') }}
+      when: _vm.vnc_display is defined or _vm.pve_args is defined
+
     # Configure QEMU args (e.g. VNC listener for Guacamole access)
     - name: Configure VM QEMU args
       ansible.builtin.uri:
@@ -246,9 +257,9 @@
           Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
         body_format: form-urlencoded
         body:
-          args: "{{ _vm.pve_args }}"
+          args: "{{ _effective_pve_args }}"
         validate_certs: false
-      when: _vm.pve_args is defined and not ansible_check_mode
+      when: _effective_pve_args is defined and _effective_pve_args | length > 0 and not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     # Start VM

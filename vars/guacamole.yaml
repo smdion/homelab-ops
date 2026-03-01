@@ -1,0 +1,52 @@
+---
+# Guacamole connection management — used by maintain_guacamole.yaml
+#
+# Connection groups organize connections in the Guacamole UI.
+# Admin groups get READ on every managed connection automatically.
+# SSH defaults apply to all connections without explicit credentials.
+# Extra connections define entries not derivable from definition files.
+# Per-connection user_groups grant READ access to specific Authentik groups.
+
+# Admin user groups — get READ permission on ALL managed connections.
+# Matched by name in Authentik via OpenID Connect SSO.
+guacamole_admin_groups:
+  - Guac-Admin
+
+# Managed connection groups — auto-created in Guacamole DB.
+# Connections in other groups are never touched by maintain_guacamole.yaml.
+guacamole_connection_groups:
+  - Proxmox
+  - Docker
+  - unRAID
+  - Hosted Desktops
+  - Tools
+  - Game Server
+
+# Default SSH connection parameters — applied to all SSH connections
+# unless overridden by a guacamole block's username/password fields.
+guacamole_ssh_defaults:
+  port: 22
+  username: ansible
+  private_key: "{{ ansible_user_ssh_private_key }}"
+  enable_sftp: true
+  sftp_root_directory: /
+
+# Connections not derivable from definition files (special cases).
+# Protocol defaults to ssh if omitted.
+guacamole_extra_connections:
+  - name: Firefox
+    protocol: vnc
+    hostname: "{{ vault_vm_apps_ip }}"
+    group: Tools
+    port: 7914
+    user_groups: [Guac-Firefox]
+  - name: Red-5
+    protocol: vnc
+    hostname: "{{ vault_red5_ip }}"
+    group: Hosted Desktops
+    port: 5900
+    password: "{{ vault_red5_vnc_password }}"
+  - name: Crowdsec
+    hostname: "tantiveiv.{{ vault_vm_search_domain }}"
+    group: Tools
+    command: "sudo docker exec -it crowdsec /bin/bash"

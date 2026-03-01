@@ -1,0 +1,642 @@
+---
+# Manage Guacamole connections and user group permissions declaratively.
+# Scans pve_definitions, vm_definitions, host_definitions for guacamole
+# metadata blocks, merges with guacamole_extra_connections, and converges
+# the Guacamole embedded Postgres DB via docker exec.
+# User groups from guacamole_admin_groups + per-connection user_groups
+# are synced to the DB with READ permissions on their declared connections.
+#
+# Three modes:
+#   Default (additive)                          — create/update, leave others alone
+#   -e remove_unmanaged=yes                     — move orphans to "Unmanaged" group
+#   -e remove_unmanaged=yes -e confirm=yes      — delete orphans instead
+#
+# Semaphore: Maintenance view → "Maintain — Guacamole [Connections]"
+
+- name: Manage Guacamole connections
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/semaphore_check.yaml
+    - vars/pve_definitions.yaml
+    - vars/vm_definitions.yaml
+    - vars/host_definitions.yaml
+    - vars/proxmox.yaml
+    - vars/guacamole.yaml
+  vars:
+    maintenance_name: "Guacamole"
+    maintenance_type: "Local"
+    maintenance_subtype: "Connections"
+    maintenance_url: ""
+    maintenance_description: "Converge Guacamole connection config from definition files"
+    _guac_host: "{{ vault_vm_apps_hostname }}"
+    _guac_db_user: "guacamole_user"
+    _guac_db_name: "guacamole_db"
+    _guac_container: "guacamole"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "maintain_guacamole.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+        _convergence_changes: []
+
+    - block:
+        # ═══════════════════════════════════════════════════════════════
+        # Step 1 — Safety gate for destructive remove_unmanaged mode
+        # ═══════════════════════════════════════════════════════════════
+        - name: Assert safety gate for remove_unmanaged delete mode
+          ansible.builtin.assert:
+            that: confirm | default('') == 'yes'
+            fail_msg: "Deleting unmanaged connections requires -e remove_unmanaged=yes -e confirm=yes"
+          when:
+            - remove_unmanaged | default('') == 'yes'
+            - confirm | default('') == 'yes'
+
+        # ═══════════════════════════════════════════════════════════════
+        # Step 2 — Add apps host to in-memory inventory for delegation
+        # ═══════════════════════════════════════════════════════════════
+        - name: Add Guacamole host to in-memory inventory
+          ansible.builtin.add_host:
+            name: guac_target
+            ansible_host: "{{ _guac_host }}"
+            ansible_user: ansible
+
+        - name: Verify Guacamole container is running
+          ansible.builtin.shell: docker inspect --format '{{ '{{' }}.State.Running{{ '}}' }}' {{ _guac_container }}
+          delegate_to: guac_target
+          register: _guac_running
+          changed_when: false
+          failed_when: _guac_running.stdout | trim != 'true'
+
+        # ═══════════════════════════════════════════════════════════════
+        # Step 3 — Build desired connection list from definition files
+        # ═══════════════════════════════════════════════════════════════
+
+        # Collect VNC VMs for PVE cluster API resolution
+        - name: Identify VNC connections needing node resolution
+          ansible.builtin.set_fact:
+            _vnc_vms: >-
+              {{ vm_definitions | dict2items
+                 | selectattr('value.vnc_display', 'defined')
+                 | selectattr('value.guacamole', 'defined')
+                 | list }}
+
+        # Query PVE cluster API if any VNC connections exist
+        - name: Query PVE cluster for VM node placement
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          register: _cluster_vms
+          when: _vnc_vms | length > 0
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        # Build complete desired connection list
+        - name: Build desired connections
+          ansible.builtin.set_fact:
+            _desired_connections: "{{ _ssh_connections + _vnc_connections + _extra_connections }}"
+          vars:
+            # SSH connections from all definition files
+            _pve_ssh: >-
+              {% set result = [] %}
+              {% for entry in pve_definitions | dict2items | selectattr('value.guacamole', 'defined') | list %}
+              {% if entry.value.guacamole.protocol | default('ssh') == 'ssh' %}
+              {% set _ = result.append({
+                'name': entry.value.guacamole.name,
+                'group': entry.value.guacamole.group,
+                'protocol': 'ssh',
+                'hostname': entry.value.node_ip,
+                'user_groups': entry.value.guacamole.user_groups | default([]),
+              }) %}
+              {% endif %}
+              {% endfor %}
+              {{ result }}
+            _vm_ssh: >-
+              {% set result = [] %}
+              {% for entry in vm_definitions | dict2items
+                  | selectattr('value.guacamole', 'defined')
+                  | rejectattr('value.vm_vlan_tag', 'defined') | list %}
+              {% if entry.value.guacamole.protocol | default('ssh') == 'ssh' %}
+              {% set _ = result.append({
+                'name': entry.value.guacamole.name,
+                'group': entry.value.guacamole.group,
+                'protocol': 'ssh',
+                'hostname': entry.value.vm_hostname,
+                'user_groups': entry.value.guacamole.user_groups | default([]),
+              }) %}
+              {% endif %}
+              {% endfor %}
+              {{ result }}
+            _host_ssh: >-
+              {% set result = [] %}
+              {% for entry in host_definitions | dict2items | selectattr('value.guacamole', 'defined') | list %}
+              {% if entry.value.guacamole.protocol | default('ssh') == 'ssh' %}
+              {% set _ = result.append({
+                'name': entry.value.guacamole.name,
+                'group': entry.value.guacamole.group,
+                'protocol': 'ssh',
+                'hostname': entry.value.vm_hostname,
+                'user_groups': entry.value.guacamole.user_groups | default([]),
+              }) %}
+              {% endif %}
+              {% endfor %}
+              {{ result }}
+            _ssh_connections: "{{ _pve_ssh + _vm_ssh + _host_ssh }}"
+            # VNC connections from vm_definitions (resolved via PVE cluster API)
+            _vnc_connections: >-
+              {% set result = [] %}
+              {% for entry in _vnc_vms %}
+              {% set vm_data = _cluster_vms.json.data | default([])
+                   | selectattr('vmid', 'equalto', entry.value.vm_id | int) | list %}
+              {% set node_name = vm_data[0].node if vm_data | length > 0 else '' %}
+              {% set node_ip = pve_definitions[node_name].node_ip if node_name in pve_definitions else '' %}
+              {% if node_ip %}
+              {% set _ = result.append({
+                'name': entry.value.guacamole.name,
+                'group': entry.value.guacamole.group,
+                'protocol': 'vnc',
+                'hostname': node_ip,
+                'port': (5900 + entry.value.vnc_display | int) | string,
+                'user_groups': entry.value.guacamole.user_groups | default([]),
+              }) %}
+              {% endif %}
+              {% endfor %}
+              {{ result }}
+            # Extra connections (already normalized)
+            _extra_connections: >-
+              {% set result = [] %}
+              {% for item in guacamole_extra_connections %}
+              {% set conn = {
+                'name': item.name,
+                'group': item.group,
+                'protocol': item.protocol | default('ssh'),
+                'hostname': item.hostname,
+              } %}
+              {% if item.port is defined %}{% set conn = conn | combine({'port': item.port | string}) %}{% endif %}
+              {% if item.password is defined %}{% set conn = conn | combine({'password': item.password}) %}{% endif %}
+              {% if item.command is defined %}{% set conn = conn | combine({'command': item.command}) %}{% endif %}
+              {% set conn = conn | combine({'user_groups': item.user_groups | default([])}) %}
+              {% set _ = result.append(conn) %}
+              {% endfor %}
+              {{ result }}
+
+        - name: Show desired connections
+          ansible.builtin.debug:
+            msg: "{{ _desired_connections | length }} connections to converge"
+
+        # ═══════════════════════════════════════════════════════════════
+        # Step 4 — Ensure connection groups exist
+        # ═══════════════════════════════════════════════════════════════
+        - name: Get current connection groups
+          ansible.builtin.shell: >-
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
+            -d {{ _guac_db_name }} -t -A -F'|'
+            -c "SELECT connection_group_id, connection_group_name FROM guacamole_connection_group
+                WHERE parent_id IS NULL ORDER BY connection_group_name"
+          delegate_to: guac_target
+          register: _current_groups_raw
+          changed_when: false
+
+        - name: Parse current groups
+          ansible.builtin.set_fact:
+            _current_groups: >-
+              {% set result = {} %}
+              {% for line in _current_groups_raw.stdout_lines | default([]) %}
+              {% if '|' in line %}
+              {% set parts = line.split('|') %}
+              {% set _ = result.update({parts[1]: parts[0] | int}) %}
+              {% endif %}
+              {% endfor %}
+              {{ result }}
+
+        - name: Collect all required groups
+          ansible.builtin.set_fact:
+            _required_groups: >-
+              {{ (guacamole_connection_groups + _desired_connections | map(attribute='group') | unique | list) | unique }}
+
+        - name: Create missing connection groups
+          ansible.builtin.shell: >-
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
+            -d {{ _guac_db_name }}
+            -c "INSERT INTO guacamole_connection_group (connection_group_name, type)
+                VALUES ('{{ item }}', 'ORGANIZATIONAL')
+                ON CONFLICT DO NOTHING"
+          delegate_to: guac_target
+          loop: "{{ _required_groups | difference(_current_groups.keys() | list) }}"
+          register: _groups_created
+          changed_when: true
+
+        # Refresh group IDs after creation
+        - name: Refresh connection group IDs
+          ansible.builtin.shell: >-
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
+            -d {{ _guac_db_name }} -t -A -F'|'
+            -c "SELECT connection_group_id, connection_group_name FROM guacamole_connection_group
+                WHERE parent_id IS NULL ORDER BY connection_group_name"
+          delegate_to: guac_target
+          register: _refreshed_groups_raw
+          changed_when: false
+          when: _groups_created.results | default([]) | selectattr('changed', 'defined') | selectattr('changed') | list | length > 0
+
+        - name: Update group ID map
+          ansible.builtin.set_fact:
+            _group_ids: >-
+              {% set result = {} %}
+              {% set source = _refreshed_groups_raw.stdout_lines | default(_current_groups_raw.stdout_lines | default([])) %}
+              {% for line in source %}
+              {% if '|' in line %}
+              {% set parts = line.split('|') %}
+              {% set _ = result.update({parts[1]: parts[0] | int}) %}
+              {% endif %}
+              {% endfor %}
+              {{ result }}
+
+        # ═══════════════════════════════════════════════════════════════
+        # Step 5 — Get current connections from Guacamole DB
+        # ═══════════════════════════════════════════════════════════════
+        - name: Get current connections
+          ansible.builtin.shell: >-
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
+            -d {{ _guac_db_name }} -t -A -F'|'
+            -c "SELECT c.connection_id, c.connection_name, c.protocol,
+                       COALESCE(g.connection_group_name, '') as group_name
+                FROM guacamole_connection c
+                LEFT JOIN guacamole_connection_group g ON c.parent_id = g.connection_group_id
+                ORDER BY c.connection_name"
+          delegate_to: guac_target
+          register: _current_connections_raw
+          changed_when: false
+
+        - name: Parse current connections
+          ansible.builtin.set_fact:
+            _current_connections: >-
+              {% set result = {} %}
+              {% for line in _current_connections_raw.stdout_lines | default([]) %}
+              {% if '|' in line %}
+              {% set parts = line.split('|') %}
+              {% set _ = result.update({parts[1]: {
+                'id': parts[0] | int,
+                'protocol': parts[2],
+                'group': parts[3],
+              }}) %}
+              {% endif %}
+              {% endfor %}
+              {{ result }}
+
+        # ═══════════════════════════════════════════════════════════════
+        # Step 6 — Converge connections (create or update)
+        # ═══════════════════════════════════════════════════════════════
+        - name: Create or update connections
+          ansible.builtin.shell: |
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
+            -- Upsert connection
+            INSERT INTO guacamole_connection (connection_name, parent_id, protocol)
+            VALUES ('{{ item.name }}', {{ _group_ids[item.group] }}, '{{ item.protocol }}')
+            ON CONFLICT (connection_name, parent_id) DO UPDATE
+              SET protocol = EXCLUDED.protocol;
+
+            -- Get connection_id for parameter upsert
+            DO $$
+            DECLARE
+              conn_id INTEGER;
+            BEGIN
+              SELECT connection_id INTO conn_id
+              FROM guacamole_connection
+              WHERE connection_name = '{{ item.name }}'
+                AND parent_id = {{ _group_ids[item.group] }};
+
+              -- Clear existing parameters and re-insert
+              DELETE FROM guacamole_connection_parameter WHERE connection_id = conn_id;
+
+              -- Hostname
+              INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+              VALUES (conn_id, 'hostname', '{{ item.hostname }}');
+
+              -- Port
+              INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+              VALUES (conn_id, 'port', '{{ item.port | default("22" if item.protocol == "ssh" else "5900") }}');
+
+              {% if item.protocol == 'ssh' %}
+              -- SSH defaults
+              INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+              VALUES (conn_id, 'username', '{{ item.username | default(guacamole_ssh_defaults.username) }}');
+
+              {% if item.password | default('') %}
+              INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+              VALUES (conn_id, 'password', '{{ item.password }}');
+              {% else %}
+              INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+              VALUES (conn_id, 'private-key', '{{ guacamole_ssh_defaults.private_key | regex_replace("'", "''") }}');
+              {% endif %}
+
+              INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+              VALUES (conn_id, 'enable-sftp', '{{ guacamole_ssh_defaults.enable_sftp | string | lower }}');
+
+              INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+              VALUES (conn_id, 'sftp-root-directory', '{{ guacamole_ssh_defaults.sftp_root_directory }}');
+
+              {% if item.command | default('') %}
+              INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+              VALUES (conn_id, 'command', '{{ item.command }}');
+              {% endif %}
+              {% endif %}
+
+              {% if item.protocol == 'vnc' %}
+              {% if item.password | default('') %}
+              INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+              VALUES (conn_id, 'password', '{{ item.password }}');
+              {% endif %}
+              {% endif %}
+            END $$;
+            ENDSQL
+          delegate_to: guac_target
+          loop: "{{ _desired_connections }}"
+          loop_control:
+            label: "{{ item.name }} ({{ item.protocol }})"
+          register: _conn_results
+          changed_when: true
+          when: not ansible_check_mode
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        # ═══════════════════════════════════════════════════════════════
+        # Step 7 — Converge user group permissions
+        # ═══════════════════════════════════════════════════════════════
+
+        # 7a. Collect all unique user groups from definitions + admin groups
+        - name: Collect all required user groups
+          ansible.builtin.set_fact:
+            _all_user_groups: >-
+              {{ (guacamole_admin_groups | default([])
+                  + _desired_connections | map(attribute='user_groups') | flatten | unique | list)
+                 | unique }}
+
+        - name: Show user groups to converge
+          ansible.builtin.debug:
+            msg: "{{ _all_user_groups | length }} user groups: {{ _all_user_groups }}"
+
+        # 7b. Ensure each user group exists in Guacamole DB (entity + user_group)
+        - name: Ensure user group entities exist
+          ansible.builtin.shell: |
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
+            INSERT INTO guacamole_entity (name, type)
+            VALUES ('{{ item }}', 'USER_GROUP')
+            ON CONFLICT (type, name) DO NOTHING;
+
+            INSERT INTO guacamole_user_group (entity_id)
+            SELECT entity_id FROM guacamole_entity
+            WHERE name = '{{ item }}' AND type = 'USER_GROUP'
+            ON CONFLICT (entity_id) DO NOTHING;
+            ENDSQL
+          delegate_to: guac_target
+          loop: "{{ _all_user_groups }}"
+          loop_control:
+            label: "{{ item }}"
+          changed_when: true
+          when:
+            - _all_user_groups | length > 0
+            - not ansible_check_mode
+
+        # 7c. Converge connection READ permissions (per connection)
+        # Each connection's declared user_groups + admin_groups is the source of truth.
+        # Stale USER_GROUP READ permissions are removed; declared ones are added.
+        # Individual user grants (type='USER') are never touched.
+        - name: Converge user group permissions per connection
+          ansible.builtin.shell: |
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
+            DO $$
+            DECLARE
+              conn_id INTEGER;
+            BEGIN
+              SELECT connection_id INTO conn_id
+              FROM guacamole_connection
+              WHERE connection_name = '{{ item.name }}'
+                AND parent_id = {{ _group_ids[item.group] }};
+
+              IF conn_id IS NULL THEN
+                RAISE NOTICE 'Connection not found: {{ item.name }}';
+                RETURN;
+              END IF;
+
+              {% set declared = ((item.user_groups | default([])) + (guacamole_admin_groups | default([]))) | unique | list %}
+              {% if declared | length > 0 %}
+              -- Remove stale USER_GROUP READ permissions
+              DELETE FROM guacamole_connection_permission
+              WHERE connection_id = conn_id AND permission = 'READ'
+                AND entity_id IN (
+                  SELECT entity_id FROM guacamole_entity WHERE type = 'USER_GROUP'
+                )
+                AND entity_id NOT IN (
+                  SELECT entity_id FROM guacamole_entity
+                  WHERE type = 'USER_GROUP'
+                    AND name IN ({{ declared | map('regex_replace', '^(.*)$', "'\1'") | join(',') }})
+                );
+
+              -- Insert declared permissions
+              INSERT INTO guacamole_connection_permission (entity_id, connection_id, permission)
+              SELECT e.entity_id, conn_id, 'READ'
+              FROM guacamole_entity e
+              WHERE e.type = 'USER_GROUP'
+                AND e.name IN ({{ declared | map('regex_replace', '^(.*)$', "'\1'") | join(',') }})
+              ON CONFLICT DO NOTHING;
+              {% else %}
+              -- No user groups declared — remove all USER_GROUP READ permissions
+              DELETE FROM guacamole_connection_permission
+              WHERE connection_id = conn_id AND permission = 'READ'
+                AND entity_id IN (
+                  SELECT entity_id FROM guacamole_entity WHERE type = 'USER_GROUP'
+                );
+              {% endif %}
+            END $$;
+            ENDSQL
+          delegate_to: guac_target
+          loop: "{{ _desired_connections }}"
+          loop_control:
+            label: "{{ item.name }}"
+          changed_when: true
+          when: not ansible_check_mode
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        # 7d. Grant connection group READ for folder visibility
+        # User groups need READ on a connection group to see it in the UI.
+        # Derive: for each connection group, which user groups have connections in it.
+        - name: Build connection group to user group mapping
+          ansible.builtin.set_fact:
+            _group_user_groups: >-
+              {% set result = {} %}
+              {% for conn in _desired_connections %}
+              {% set groups = ((conn.user_groups | default([])) + (guacamole_admin_groups | default([]))) | unique | list %}
+              {% if groups | length > 0 %}
+              {% set existing = result.get(conn.group, []) %}
+              {% set _ = result.update({conn.group: (existing + groups) | unique}) %}
+              {% endif %}
+              {% endfor %}
+              {{ result }}
+
+        - name: Grant connection group READ for folder visibility
+          ansible.builtin.shell: |
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
+            INSERT INTO guacamole_connection_group_permission (entity_id, connection_group_id, permission)
+            SELECT e.entity_id, {{ _group_ids[item.key] }}, 'READ'
+            FROM guacamole_entity e
+            WHERE e.type = 'USER_GROUP'
+              AND e.name IN ({{ item.value | map('regex_replace', '^(.*)$', "'\1'") | join(',') }})
+            ON CONFLICT DO NOTHING;
+            ENDSQL
+          delegate_to: guac_target
+          loop: "{{ _group_user_groups | dict2items }}"
+          loop_control:
+            label: "{{ item.key }} → {{ item.value }}"
+          changed_when: true
+          when:
+            - _group_user_groups | length > 0
+            - item.key in _group_ids
+            - not ansible_check_mode
+
+        # ═══════════════════════════════════════════════════════════════
+        # Step 8 — Handle unmanaged connections
+        # ═══════════════════════════════════════════════════════════════
+        - name: Identify unmanaged connections
+          ansible.builtin.set_fact:
+            _managed_names: "{{ _desired_connections | map(attribute='name') | list }}"
+            _managed_group_ids: "{{ guacamole_connection_groups | map('extract', _group_ids) | select('defined') | list }}"
+          when: remove_unmanaged | default('') == 'yes'
+
+        - name: Find orphaned connections in managed groups
+          ansible.builtin.shell: >-
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
+            -d {{ _guac_db_name }} -t -A -F'|'
+            -c "SELECT c.connection_id, c.connection_name, g.connection_group_name
+                FROM guacamole_connection c
+                JOIN guacamole_connection_group g ON c.parent_id = g.connection_group_id
+                WHERE g.connection_group_name IN ({{ guacamole_connection_groups | map('regex_replace', '^(.*)$', \"'\\1'\") | join(',') }})
+                ORDER BY c.connection_name"
+          delegate_to: guac_target
+          register: _all_managed_group_connections
+          changed_when: false
+          when: remove_unmanaged | default('') == 'yes'
+
+        - name: Parse orphaned connections
+          ansible.builtin.set_fact:
+            _orphaned_connections: >-
+              {% set result = [] %}
+              {% for line in _all_managed_group_connections.stdout_lines | default([]) %}
+              {% if '|' in line %}
+              {% set parts = line.split('|') %}
+              {% if parts[1] not in _managed_names %}
+              {% set _ = result.append({'id': parts[0] | int, 'name': parts[1], 'group': parts[2]}) %}
+              {% endif %}
+              {% endif %}
+              {% endfor %}
+              {{ result }}
+          when: remove_unmanaged | default('') == 'yes'
+
+        - name: Show orphaned connections
+          ansible.builtin.debug:
+            msg: "{{ _orphaned_connections | length }} orphaned connections found: {{ _orphaned_connections | map(attribute='name') | list }}"
+          when:
+            - remove_unmanaged | default('') == 'yes'
+            - _orphaned_connections | default([]) | length > 0
+
+        # Move mode — relocate orphans to "Unmanaged" group
+        - name: Ensure Unmanaged group exists
+          ansible.builtin.shell: >-
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
+            -d {{ _guac_db_name }} -t -A
+            -c "INSERT INTO guacamole_connection_group (connection_group_name, type)
+                VALUES ('Unmanaged', 'ORGANIZATIONAL')
+                ON CONFLICT DO NOTHING
+                RETURNING connection_group_id"
+          delegate_to: guac_target
+          register: _unmanaged_group
+          changed_when: _unmanaged_group.stdout | trim | length > 0
+          when:
+            - remove_unmanaged | default('') == 'yes'
+            - confirm | default('') != 'yes'
+            - _orphaned_connections | default([]) | length > 0
+            - not ansible_check_mode
+
+        - name: Get Unmanaged group ID
+          ansible.builtin.shell: >-
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
+            -d {{ _guac_db_name }} -t -A
+            -c "SELECT connection_group_id FROM guacamole_connection_group
+                WHERE connection_group_name = 'Unmanaged' AND parent_id IS NULL"
+          delegate_to: guac_target
+          register: _unmanaged_group_id
+          changed_when: false
+          when:
+            - remove_unmanaged | default('') == 'yes'
+            - confirm | default('') != 'yes'
+            - _orphaned_connections | default([]) | length > 0
+
+        - name: Move orphaned connections to Unmanaged group
+          ansible.builtin.shell: >-
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
+            -d {{ _guac_db_name }}
+            -c "UPDATE guacamole_connection SET parent_id = {{ _unmanaged_group_id.stdout | trim }}
+                WHERE connection_id = {{ item.id }}"
+          delegate_to: guac_target
+          loop: "{{ _orphaned_connections }}"
+          loop_control:
+            label: "{{ item.name }}"
+          when:
+            - remove_unmanaged | default('') == 'yes'
+            - confirm | default('') != 'yes'
+            - _orphaned_connections | default([]) | length > 0
+            - not ansible_check_mode
+
+        # Delete mode — remove orphans entirely (requires confirm=yes)
+        - name: Delete orphaned connections
+          ansible.builtin.shell: |
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
+            DELETE FROM guacamole_connection_parameter WHERE connection_id = {{ item.id }};
+            DELETE FROM guacamole_connection WHERE connection_id = {{ item.id }};
+            ENDSQL
+          delegate_to: guac_target
+          loop: "{{ _orphaned_connections }}"
+          loop_control:
+            label: "{{ item.name }}"
+          when:
+            - remove_unmanaged | default('') == 'yes'
+            - confirm | default('') == 'yes'
+            - _orphaned_connections | default([]) | length > 0
+            - not ansible_check_mode
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send alert on failure
+          include_tasks: tasks/notify.yaml
+          when: maintenance_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Maintenance"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+            discord_author: "{{ controller_fqdn }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ controller_fqdn }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"

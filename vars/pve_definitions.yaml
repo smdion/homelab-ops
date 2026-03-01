@@ -1,0 +1,26 @@
+---
+# PVE node definitions — Proxmox VE cluster members.
+# Consumed by maintain_guacamole.yaml (VNC node resolution) and future PVE IaC phases.
+# Note: maintain_pve.yaml uses inventory groups (hosts: "pve:pbs"), not this file.
+#
+# Required fields:
+#   node_ip        — IP address (from vault_pve_nodes dict)
+#   node_fqdn      — FQDN for DNS/reference
+#
+# Optional fields:
+#   guacamole      — metadata for maintain_guacamole.yaml auto-discovery
+#                    { name: "Display Name", group: "Connection Group" }
+
+pve_definitions:
+  homeone:
+    node_ip: "{{ vault_pve_nodes.homeone }}"
+    node_fqdn: "homeone.{{ vault_vm_search_domain }}"
+    guacamole: { name: Homeone, group: Proxmox }
+  defiance:
+    node_ip: "{{ vault_pve_nodes.defiance }}"
+    node_fqdn: "defiance.{{ vault_vm_search_domain }}"
+    guacamole: { name: Defiance, group: Proxmox }
+  independence:
+    node_ip: "{{ vault_pve_nodes.independence }}"
+    node_fqdn: "independence.{{ vault_vm_search_domain }}"
+    guacamole: { name: Independence, group: Proxmox }
