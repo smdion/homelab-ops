@@ -598,7 +598,7 @@
           {{ '%-14s %-8s %-22s %10s  %s' | format('----', '------', '-----', '--------', '--') }}
           {% for t in _recent %}
           {% set _epoch = t.starttime | default(0) | int %}
-          {% set _start = _epoch | strftime('%Y-%m-%d %H:%M') if _epoch > 0 else '?' %}
+          {% set _start = '%Y-%m-%d %H:%M' | strftime(_epoch) if _epoch > 0 else '?' %}
           {% set _dur = ((t.endtime | default(_epoch) | int) - _epoch) if _epoch > 0 else 0 %}
           {{ '%-14s %-8s %-22s %7dm %2ds  %s' | format(
                t.worker_type | default(t.type | default('?')),
