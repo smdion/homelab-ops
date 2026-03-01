@@ -343,15 +343,27 @@
       become: false
 
     - block:
-        - name: Bootstrap Ubuntu with Docker and security hardening
+        - name: Bootstrap Ubuntu with security hardening
           include_tasks: tasks/bootstrap_vm.yaml
           vars:
             _vm: "{{ hostvars['localhost']._vm }}"
+            _install_docker: "{{ hostvars['localhost']._vm.install_docker | default(true) | bool }}"
           when: hostvars[inventory_hostname]._needs_bootstrap | default(false) or _docker_check.rc != 0
 
         - name: Record bootstrap detail
+          vars:
+            _lvm: "{{ hostvars['localhost']._vm }}"
+            _detail_items:
+              - "SSH hardening"
+              - "UFW"
+              - "{{ 'Docker' if _lvm.install_docker | default(true) | bool else '' }}"
+              - "{{ 'VIP/Keepalived' if (host_roles is defined and inventory_hostname in (host_roles | default({})) and (host_roles[inventory_hostname] | default('')) in (docker_vips | default({}))) else '' }}"
+              - "{{ 'SSH key' if _lvm.deploy_ssh_key | default(false) | bool else '' }}"
+              - "{{ 'NFS server' if _lvm.nfs_exports is defined else '' }}"
+              - "{{ 'NFS mounts' if _lvm.nfs_mounts is defined else '' }}"
+              - "{{ 'IP aliases' if _lvm.ip_aliases is defined else '' }}"
           ansible.builtin.set_fact:
-            _bootstrap_detail: "Bootstrap complete — Docker, security hardening"
+            _bootstrap_detail: "{{ _detail_items | select | join(', ') }}"
 
       rescue:
         - name: Set bootstrap failed flag

@@ -164,10 +164,11 @@
       changed_when: false
       become: false
 
-    - name: Bootstrap Ubuntu with Docker and security hardening
+    - name: Bootstrap Ubuntu with security hardening
       include_tasks: tasks/bootstrap_vm.yaml
       vars:
         _vm: "{{ hostvars['localhost']._vm }}"
+        _install_docker: "{{ hostvars['localhost']._vm.install_docker | default(true) | bool }}"
       when: hostvars[inventory_hostname]._needs_bootstrap | default(false) or _docker_check.rc != 0
 
 # ═══════════════════════════════════════════════════════════════════
