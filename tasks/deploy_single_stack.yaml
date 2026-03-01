@@ -98,6 +98,17 @@
     - _override_j2_stat.stat.exists
     - not (_test_mode | default(false) | bool and _test_override_j2_stat.stat.exists | default(false))
 
+- name: "Ensure bind-mount device directories exist — {{ _current_stack }}"
+  become: true
+  ansible.builtin.shell: |
+    grep -A2 'o: bind' "{{ stacks_base_path }}/{{ _current_stack }}/docker-compose.override.yaml" \
+      | grep 'device:' | awk '{print $2}' | while read -r dir; do
+        [ -n "$dir" ] && mkdir -p "$dir"
+      done
+  changed_when: false
+  when:
+    - _override_j2_stat.stat.exists or (_test_override_j2_stat.stat.exists | default(false))
+
 - name: "Patch compose for homelab network — {{ _current_stack }}"
   include_tasks: tasks/patch_compose_networks.yaml
   vars:
