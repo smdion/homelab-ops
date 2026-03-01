@@ -170,25 +170,24 @@
 
     - name: Filter skipped DBs from restore lists
       ansible.builtin.set_fact:
-        _db_postgres_all_names: "{{ _db_postgres_all_names | difference(skip_dbs.split(',')) }}"
-        _db_mariadb_all_names: "{{ _db_mariadb_all_names | difference(skip_dbs.split(',')) }}"
-        _db_secondary_postgres_all_names: "{{ _db_secondary_postgres_all_names | difference(skip_dbs.split(',')) }}"
+        _db_postgres_all_names: "{{ _db_postgres_all_names | default([]) | difference(skip_dbs.split(',')) }}"
+        _db_mariadb_all_names: "{{ _db_mariadb_all_names | default([]) | difference(skip_dbs.split(',')) }}"
+        _db_secondary_postgres_all_names: "{{ _db_secondary_postgres_all_names | default([]) | difference(skip_dbs.split(',')) }}"
       when:
         - skip_dbs | default('') | length > 0
         - "'databases' in _stacks"
 
-    - name: Default DB facts when databases stack absent
+    - name: Default DB facts for absent containers or stacks
       ansible.builtin.set_fact:
-        _db_postgres_all_names: []
-        _db_mariadb_all_names: []
-        _db_secondary_postgres_all_names: []
-        _db_postgres_container: ""
-        _db_mariadb_container: ""
-        _db_secondary_postgres_container: ""
-        _db_postgres_username: ""
-        _db_mariadb_username: ""
-        _db_secondary_postgres_username: ""
-      when: "'databases' not in _stacks"
+        _db_postgres_all_names: "{{ _db_postgres_all_names | default([]) }}"
+        _db_mariadb_all_names: "{{ _db_mariadb_all_names | default([]) }}"
+        _db_secondary_postgres_all_names: "{{ _db_secondary_postgres_all_names | default([]) }}"
+        _db_postgres_container: "{{ _db_postgres_container | default('') }}"
+        _db_mariadb_container: "{{ _db_mariadb_container | default('') }}"
+        _db_secondary_postgres_container: "{{ _db_secondary_postgres_container | default('') }}"
+        _db_postgres_username: "{{ _db_postgres_username | default('') }}"
+        _db_mariadb_username: "{{ _db_mariadb_username | default('') }}"
+        _db_secondary_postgres_username: "{{ _db_secondary_postgres_username | default('') }}"
 
     - name: Find latest SQL dump per database — {{ item }}
       ansible.builtin.shell: >
