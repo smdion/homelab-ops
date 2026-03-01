@@ -358,6 +358,7 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
+    - vars/proxmox.yaml
     - vars/docker_stacks.yaml
     - vars/docker_vips.yaml
     - vars/vm_definitions.yaml
