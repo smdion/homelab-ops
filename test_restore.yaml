@@ -117,6 +117,15 @@
     # Load each DB vars file and capture config into explicit facts (include_vars
     # with name: has scoping issues where the namespaced dict is empty in
     # subsequent loop expressions).
+    # Only restore DBs whose container is defined in one of the deployed stacks
+    # (e.g. postgres-immich on Unraid is skipped when restoring core).
+    - name: Collect container names from deployed stacks
+      ansible.builtin.shell: >
+        grep -h 'container_name:' {% for s in _stacks %}stacks/{{ s }}/docker-compose.yaml {% endfor %}
+        2>/dev/null | awk '{print $2}' | sort -u
+      register: _stack_containers
+      changed_when: false
+
     - name: Load postgres DB config from vars
       ansible.builtin.include_vars:
         file: vars/db_primary_postgres.yaml
@@ -127,7 +136,9 @@
         _db_postgres_all_names: "{{ db_names }}"
         _db_postgres_container: "{{ db_container_name }}"
         _db_postgres_username: "{{ db_username }}"
-      when: "'databases' in _stacks"
+      when:
+        - "'databases' in _stacks"
+        - db_container_name in _stack_containers.stdout_lines
 
     - name: Load mariadb DB config from vars
       ansible.builtin.include_vars:
@@ -139,7 +150,9 @@
         _db_mariadb_all_names: "{{ db_names }}"
         _db_mariadb_container: "{{ db_container_name }}"
         _db_mariadb_username: "{{ db_username }}"
-      when: "'databases' in _stacks"
+      when:
+        - "'databases' in _stacks"
+        - db_container_name in _stack_containers.stdout_lines
 
     - name: Load secondary postgres DB config from vars
       ansible.builtin.include_vars:
@@ -151,7 +164,9 @@
         _db_secondary_postgres_all_names: "{{ db_names }}"
         _db_secondary_postgres_container: "{{ db_container_name }}"
         _db_secondary_postgres_username: "{{ db_username }}"
-      when: "'databases' in _stacks"
+      when:
+        - "'databases' in _stacks"
+        - db_container_name in _stack_containers.stdout_lines
 
     - name: Filter skipped DBs from restore lists
       ansible.builtin.set_fact:
