@@ -38,7 +38,7 @@
     # LinuxServer MariaDB starts briefly for init, stops, then restarts.
     # A single mysqladmin ping can catch the first (ephemeral) startup.
     # Loop until GRANT succeeds — covers both socket readiness and auth reset.
-    for i in $(seq 1 60); do
+    for i in $(seq 1 120); do
       if docker exec "$MARIA_CONTAINER" mariadb -u root --skip-password -e "
         GRANT ALL PRIVILEGES ON *.* TO 'root'@'localhost'
           IDENTIFIED BY '$DB_PASSWORD' WITH GRANT OPTION;
