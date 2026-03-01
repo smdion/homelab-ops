@@ -20,6 +20,9 @@
 #   vault_prod_lan_subnet      — production LAN CIDR to block from test VLAN (e.g. "192.168.1.0/24")
 #   vault_pve_port_profile_name — Unifi switch port profile used by Proxmox uplinks
 #   vault_test_vm_ip_prefix    — first 3 octets of test VM IPs (update to isolated subnet, e.g. "192.168.88.")
+#   vault_hosted_vm_ip_prefix  — first 3 octets of hosted desktop VM IPs (e.g. "10.10.10.")
+#   vault_hosted_vm_ip_offset  — last octet of the first hosted VM (e.g. 50)
+#   vault_hosted_vm_node       — PVE node for hosted desktop VMs (e.g. "homeone")
 pve_api_host: "{{ vault_pve_vip }}"
 pve_storage: "replicated"
 
@@ -40,6 +43,16 @@ pve_template_name: "ubuntu-cloud-template"
 pve_cloud_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 vm_template_memory: 2048
 vm_template_cores: 2
+
+# Hosted desktop VM pool — permanent VMs with offset-based VMID and IP addressing.
+# VMIDs: vm_hosted_slot_base + per-VM offset (hardcoded in each definition)
+# IPs:   vault_hosted_vm_ip_prefix + (vault_hosted_vm_ip_offset + per-VM offset)
+# Node:  vault_hosted_vm_node (or pve_template_node if unset)
+# Vault secrets required:
+#   vault_hosted_vm_ip_prefix  — first 3 octets with trailing dot (e.g. "10.10.10.")
+#   vault_hosted_vm_ip_offset  — last octet of the first hosted VM (e.g. 50)
+#   vault_hosted_vm_node       — PVE node to place hosted VMs on (e.g. "homeone")
+vm_hosted_slot_base: 400
 
 # Test VM slot pool — used by test-vm (and any future slot-based VMs).
 # VMIDs: vm_test_slot_base .. vm_test_slot_base + vm_test_slot_count - 1
@@ -127,17 +140,17 @@ vm_definitions:
   # Native graphical desktop VM — ubuntu-desktop-minimal installed during bootstrap.
   # Access via Proxmox VNC (pve_args) through Guacamole + Authentik groups.
   # No stacks — basic VM (OS + Network layers only via apply_role).
-  # Vault secrets required before provisioning: vault_vm_desktop_ip, vault_vm_desktop_node
+  # Uses hosted desktop pool addressing (vm_hosted_slot_base + offset 0).
   desktop:
-    vm_id: 400
+    vm_id: "{{ (vm_hosted_slot_base + 0) | int }}"
     vm_name: desktop
-    vm_mac: "02:00:00:00:01:07"       # static MAC — stable Unifi device identity across rebuilds
+    vm_mac: "02:00:00:00:04:00"       # static MAC — stable Unifi device identity; encodes VMID 400
     vm_hostname: "desktop.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_vm_desktop_ip | default('') }}"
+    vm_ip: "{{ vault_hosted_vm_ip_prefix }}{{ (vault_hosted_vm_ip_offset | int) + 0 }}"
     vm_cores: 4
     vm_memory_mb: 8192
     vm_disk_gb: 64
-    pve_target_node: "{{ vault_vm_desktop_node | default('') }}"
+    pve_target_node: "{{ vault_hosted_vm_node | default(pve_template_node) }}"
     deploy_ssh_key: true
     vnc_display: 78                    # display :78 = port 5978 — merged into QEMU args by provision_vm.yaml
     guacamole: { name: Desktop, group: Hosted Desktops, protocol: vnc }
