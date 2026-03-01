@@ -179,11 +179,15 @@
     label: "{{ item.port }}/{{ item.proto | default('tcp') }}"
   when: _vm.ufw_rules is defined
 
-- name: Allow NFS through UFW
+- name: Allow NFS through UFW from export clients
   community.general.ufw:
     rule: allow
     port: "2049"
     proto: tcp
+    src: "{{ item.clients.split('(')[0] }}"
+  loop: "{{ _vm.nfs_exports }}"
+  loop_control:
+    label: "{{ item.clients.split('(')[0] }}"
   when: _vm.nfs_exports is defined
 
 - name: Install NFS server
