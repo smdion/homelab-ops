@@ -70,9 +70,9 @@ vm_definitions:
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_core_node | default('') }}"
     deploy_ssh_key: true
-    nfs_exports:                       # export /opt to dev VM for code-server workspace access
+    nfs_exports:                       # export /opt to dev VIP (test VIP in DR, prod VIP in prod)
       - path: /opt
-        clients: "{{ vault_vm_dev_ip | default('') }}(ro,no_subtree_check,no_root_squash)"
+        clients: "{{ vault_dev_vip }}(ro,no_subtree_check,no_root_squash)"
     stacks: [infra, databases, auth, media]
     guacamole: { name: Core, group: Docker }
 
@@ -87,9 +87,9 @@ vm_definitions:
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_apps_node | default('') }}"
     deploy_ssh_key: true
-    nfs_exports:                       # export /opt to dev VM for code-server workspace access
+    nfs_exports:                       # export /opt to dev VIP (test VIP in DR, prod VIP in prod)
       - path: /opt
-        clients: "{{ vault_vm_dev_ip | default('') }}(ro,no_subtree_check,no_root_squash)"
+        clients: "{{ vault_dev_vip }}(ro,no_subtree_check,no_root_squash)"
     stacks: [infra, apps, monitoring]
     guacamole: { name: Apps, group: Docker }
 
@@ -104,10 +104,10 @@ vm_definitions:
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_dev_node | default('') }}"
     deploy_ssh_key: true
-    nfs_mounts:                        # NFS mounts from core/apps for code-server workspace access
-      - src: "{{ vault_vm_core_ip | default('') }}:/opt"
+    nfs_mounts:                        # NFS mounts from core/apps VIPs (test VIP in DR, prod VIP in prod)
+      - src: "{{ vault_core_vip }}:/opt"
         path: "/mnt/nfs/core"
-      - src: "{{ vault_vm_apps_ip | default('') }}:/opt"
+      - src: "{{ vault_apps_vip }}:/opt"
         path: "/mnt/nfs/apps"
     stacks: [infra, dev]
     guacamole: { name: Dev, group: Docker }
