@@ -391,54 +391,43 @@
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         # Remove duplicate connections (same name, multiple rows).
-        # Runs as a separate task so it succeeds even if parameter
-        # insertion in Step 6 caused a rollback in the DO $$ block.
+        # Uses plain SQL (no DO $$ wrapper) so each DELETE commits
+        # independently — a single FK miss won't roll back everything.
+        # Temp table pins the duplicate IDs for all statements.
         - name: Remove duplicate connections
           ansible.builtin.shell: |
-            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
-            DO $$
-            DECLARE
-              r RECORD;
-            BEGIN
-              FOR r IN
-                SELECT connection_name, MIN(connection_id) AS keep_id
-                FROM guacamole_connection
-                GROUP BY connection_name
-                HAVING COUNT(*) > 1
-              LOOP
-                DELETE FROM guacamole_connection_history
-                WHERE connection_id IN (
-                  SELECT connection_id FROM guacamole_connection
-                  WHERE connection_name = r.connection_name AND connection_id != r.keep_id
-                );
-                DELETE FROM guacamole_sharing_profile
-                WHERE primary_connection_id IN (
-                  SELECT connection_id FROM guacamole_connection
-                  WHERE connection_name = r.connection_name AND connection_id != r.keep_id
-                );
-                DELETE FROM guacamole_connection_attribute
-                WHERE connection_id IN (
-                  SELECT connection_id FROM guacamole_connection
-                  WHERE connection_name = r.connection_name AND connection_id != r.keep_id
-                );
-                DELETE FROM guacamole_connection_permission
-                WHERE connection_id IN (
-                  SELECT connection_id FROM guacamole_connection
-                  WHERE connection_name = r.connection_name AND connection_id != r.keep_id
-                );
-                DELETE FROM guacamole_connection_parameter
-                WHERE connection_id IN (
-                  SELECT connection_id FROM guacamole_connection
-                  WHERE connection_name = r.connection_name AND connection_id != r.keep_id
-                );
-                DELETE FROM guacamole_connection
-                WHERE connection_name = r.connection_name AND connection_id != r.keep_id;
-              END LOOP;
-            END $$;
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} -e <<'ENDSQL'
+            CREATE TEMP TABLE _dupes AS
+            SELECT c.connection_id
+            FROM guacamole_connection c
+            INNER JOIN (
+              SELECT connection_name, MIN(connection_id) AS keep_id
+              FROM guacamole_connection
+              GROUP BY connection_name
+              HAVING COUNT(*) > 1
+            ) d ON c.connection_name = d.connection_name AND c.connection_id != d.keep_id;
+
+            DELETE FROM guacamole_connection_history WHERE connection_id IN (SELECT connection_id FROM _dupes);
+            DELETE FROM guacamole_sharing_profile WHERE primary_connection_id IN (SELECT connection_id FROM _dupes);
+            DELETE FROM guacamole_connection_attribute WHERE connection_id IN (SELECT connection_id FROM _dupes);
+            DELETE FROM guacamole_connection_permission WHERE connection_id IN (SELECT connection_id FROM _dupes);
+            DELETE FROM guacamole_connection_parameter WHERE connection_id IN (SELECT connection_id FROM _dupes);
+            DELETE FROM guacamole_connection WHERE connection_id IN (SELECT connection_id FROM _dupes);
+
+            DROP TABLE _dupes;
             ENDSQL
           delegate_to: guac_target
-          changed_when: true
+          register: _dedup_result
+          changed_when: "'DELETE' in _dedup_result.stdout"
+          failed_when: _dedup_result.rc != 0
           when: not ansible_check_mode
+
+        - name: Show duplicate removal result
+          ansible.builtin.debug:
+            msg: "{{ _dedup_result.stdout_lines | default([]) }}"
+          when:
+            - not ansible_check_mode
+            - _dedup_result.stdout | default('') | length > 0
 
         # ═══════════════════════════════════════════════════════════════
         # Step 7 — Converge user group permissions
