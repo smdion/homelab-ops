@@ -597,13 +597,9 @@
           {{ '%-14s %-8s %-22s %10s  %s' | format('Type', 'Status', 'Start', 'Duration', 'ID') }}
           {{ '%-14s %-8s %-22s %10s  %s' | format('----', '------', '-----', '--------', '--') }}
           {% for t in _recent %}
-          {% if t.starttime is defined and t.starttime is number %}
-          {% set _start = (t.starttime | int) | strftime('%Y-%m-%d %H:%M') %}
-          {% set _dur = ((t.endtime | default(t.starttime) | int) - (t.starttime | int)) %}
-          {% else %}
-          {% set _start = t.starttime | default('?') | string %}
-          {% set _dur = 0 %}
-          {% endif %}
+          {% set _epoch = t.starttime | default(0) | int %}
+          {% set _start = _epoch | strftime('%Y-%m-%d %H:%M') if _epoch > 0 else '?' %}
+          {% set _dur = ((t.endtime | default(_epoch) | int) - _epoch) if _epoch > 0 else 0 %}
           {{ '%-14s %-8s %-22s %7dm %2ds  %s' | format(
                t.worker_type | default(t.type | default('?')),
                t.status | default('?'),
