@@ -43,3 +43,9 @@ host_definitions:
   liberty:
     vm_hostname: "liberty.{{ vault_vm_search_domain }}"
     guacamole: { name: Liberty, group: unRAID }
+
+  # Proxmox Backup Server
+  backup:
+    vm_hostname: "backup.{{ vault_vm_search_domain }}"
+    guacamole: { name: Backup, group: Proxmox }
+
