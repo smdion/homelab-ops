@@ -1,6 +1,6 @@
 ---
 # Poll Docker containers until all are healthy (or no health checks defined).
-# Fails if any container remains unhealthy after timeout.
+# Warns (does not fail) if any container remains unhealthy/starting after timeout.
 #
 # Optional:
 #   _health_timeout  — seconds to poll (overrides label discovery; default: auto-discover from labels, min docker_health_poll_timeout)
@@ -8,6 +8,7 @@
 #   _test_mode       — when true, containers with homelab.test.skip_health=true are excluded
 # Sets:
 #   _health_summary  — human-readable container status summary for logging
+#   _health_warning  — true if containers were still unhealthy/starting after timeout
 
 - name: Wait for containers to become healthy
   become: true
@@ -55,7 +56,23 @@
       exit 1
   register: _health_poll
   changed_when: false
+  failed_when: false
   when: not ansible_check_mode
+
+- name: Set health warning flag
+  ansible.builtin.set_fact:
+    _health_warning: "{{ _health_poll.rc | default(0) | int != 0 }}"
+  when: not ansible_check_mode
+
+- name: Warn about containers not yet healthy
+  ansible.builtin.debug:
+    msg: >-
+      WARNING — Some containers are still unhealthy or starting after timeout.
+      {{ _health_poll.stdout_lines | default([]) | join('; ') }}
+      This may resolve once dependencies finish starting.
+  when:
+    - not ansible_check_mode
+    - _health_warning | default(false) | bool
 
 - name: Build health summary
   ansible.builtin.shell: |
