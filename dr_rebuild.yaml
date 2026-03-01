@@ -36,6 +36,7 @@
     - vars/proxmox.yaml
     - vars/docker_stacks.yaml
     - vars/vm_definitions.yaml
+    - vars/app_definitions.yaml
     - vars/docker_vips.yaml
     - vars/semaphore_check.yaml
   vars:
@@ -95,6 +96,14 @@
         fail_msg: "No per-stack backup archives found in {{ backup_base_dir }}/ for stacks: {{ _stacks | join(', ') }}"
 
     # ===== FIND DB SQL DUMP ARCHIVES =====
+    # Only restore DBs whose container is defined in one of the deployed stacks.
+    - name: Collect container names from deployed stacks
+      ansible.builtin.shell: >
+        grep -h 'container_name:' {% for s in _stacks %}stacks/{{ s }}/docker-compose.yaml {% endfor %}
+        2>/dev/null | awk '{print $2}' | sort -u
+      register: _stack_containers
+      changed_when: false
+
     - name: Load postgres DB config
       ansible.builtin.include_vars:
         file: vars/db_primary_postgres.yaml
@@ -105,7 +114,9 @@
         _db_postgres_all_names: "{{ db_names }}"
         _db_postgres_container: "{{ db_container_name }}"
         _db_postgres_username: "{{ db_username }}"
-      when: "'databases' in _stacks"
+      when:
+        - "'databases' in _stacks"
+        - db_container_name in _stack_containers.stdout_lines
 
     - name: Load mariadb DB config
       ansible.builtin.include_vars:
@@ -117,7 +128,9 @@
         _db_mariadb_all_names: "{{ db_names }}"
         _db_mariadb_container: "{{ db_container_name }}"
         _db_mariadb_username: "{{ db_username }}"
-      when: "'databases' in _stacks"
+      when:
+        - "'databases' in _stacks"
+        - db_container_name in _stack_containers.stdout_lines
 
     - name: Load secondary postgres DB config
       ansible.builtin.include_vars:
@@ -129,29 +142,30 @@
         _db_secondary_postgres_all_names: "{{ db_names }}"
         _db_secondary_postgres_container: "{{ db_container_name }}"
         _db_secondary_postgres_username: "{{ db_username }}"
-      when: "'databases' in _stacks"
+      when:
+        - "'databases' in _stacks"
+        - db_container_name in _stack_containers.stdout_lines
 
     - name: Filter skipped DBs from restore lists
       ansible.builtin.set_fact:
-        _db_postgres_all_names: "{{ _db_postgres_all_names | difference(skip_dbs.split(',')) }}"
-        _db_mariadb_all_names: "{{ _db_mariadb_all_names | difference(skip_dbs.split(',')) }}"
-        _db_secondary_postgres_all_names: "{{ _db_secondary_postgres_all_names | difference(skip_dbs.split(',')) }}"
+        _db_postgres_all_names: "{{ _db_postgres_all_names | default([]) | difference(skip_dbs.split(',')) }}"
+        _db_mariadb_all_names: "{{ _db_mariadb_all_names | default([]) | difference(skip_dbs.split(',')) }}"
+        _db_secondary_postgres_all_names: "{{ _db_secondary_postgres_all_names | default([]) | difference(skip_dbs.split(',')) }}"
       when:
         - skip_dbs | default('') | length > 0
         - "'databases' in _stacks"
 
-    - name: Default DB facts when databases stack absent
+    - name: Default DB facts for absent containers or stacks
       ansible.builtin.set_fact:
-        _db_postgres_all_names: []
-        _db_mariadb_all_names: []
-        _db_secondary_postgres_all_names: []
-        _db_postgres_container: ""
-        _db_mariadb_container: ""
-        _db_secondary_postgres_container: ""
-        _db_postgres_username: ""
-        _db_mariadb_username: ""
-        _db_secondary_postgres_username: ""
-      when: "'databases' not in _stacks"
+        _db_postgres_all_names: "{{ _db_postgres_all_names | default([]) }}"
+        _db_mariadb_all_names: "{{ _db_mariadb_all_names | default([]) }}"
+        _db_secondary_postgres_all_names: "{{ _db_secondary_postgres_all_names | default([]) }}"
+        _db_postgres_container: "{{ _db_postgres_container | default('') }}"
+        _db_mariadb_container: "{{ _db_mariadb_container | default('') }}"
+        _db_secondary_postgres_container: "{{ _db_secondary_postgres_container | default('') }}"
+        _db_postgres_username: "{{ _db_postgres_username | default('') }}"
+        _db_mariadb_username: "{{ _db_mariadb_username | default('') }}"
+        _db_secondary_postgres_username: "{{ _db_secondary_postgres_username | default('') }}"
 
     - name: Find latest SQL dump per database — {{ item }}
       ansible.builtin.shell: >
@@ -412,9 +426,11 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
+    - vars/proxmox.yaml
     - vars/docker_stacks.yaml
     - vars/docker_vips.yaml
     - vars/vm_definitions.yaml
+    - vars/container_definitions.yaml
     - vars/semaphore_check.yaml
   vars:
     maintenance_name: "Docker"
