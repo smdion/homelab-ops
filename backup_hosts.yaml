@@ -672,13 +672,15 @@
             discord_status: "{{ 'failed' if backup_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if backup_failed else discord_color_success }}"
             discord_url: "{{ _original_backup_url }}"
-            discord_fields:
-              - name: "Stacks"
-                value: "{{ stack_assignments[inventory_hostname] | default([]) | join(', ') }}"
-              - name: "Backup Name"
-                value: "{{ backup_file }}"
-              - name: "Backup Size"
-                value: "{{ (file_size.stat.size / 1024 / 1024) | round(2) }}MB"
+            discord_fields: >-
+              {{
+                ([{"name": "Stacks", "value": stack_assignments[inventory_hostname] | join(", ")}]
+                 if (stack_assignments[inventory_hostname] | default([]) | length > 0)
+                 else [])
+                +
+                [{"name": "Backup Name", "value": backup_file},
+                 {"name": "Backup Size", "value": ((file_size.stat.size / 1024 / 1024) | round(2) | string) ~ "MB"}]
+              }}
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
