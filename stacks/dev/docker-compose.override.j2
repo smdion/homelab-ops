@@ -30,3 +30,9 @@ volumes:
       type: nfs4
       o: "addr={{ vault_vps_nfs_ip }},soft,timeo=50,retrans=3"
       device: :/
+  homelab-ops:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/homelab-ops
