@@ -99,7 +99,7 @@
              else stack_roles[role] if role is defined and source_host is not defined
              else stack_assignments[source_host] }}
 
-    - name: Rewrite NFS VIPs for test VM network isolation
+    - name: Rewrite NFS addresses for test VM network isolation
       vars:
         _tp: "{{ vault_test_vm_ip_prefix }}"
         _core_tvip: "{{ _tp }}{{ docker_test_vip_offsets['core'] }}"
@@ -118,6 +118,7 @@
           {%- set _exports = [] -%}
           {%- for e in _vm.nfs_exports | default([]) -%}
           {%-   set _cl = e.clients
+                  | replace(vault_prod_lan_subnet, vault_test_vlan_subnet)
                   | replace(vault_core_vip, _core_tvip)
                   | replace(vault_apps_vip, _apps_tvip)
                   | replace(vault_dev_vip, _dev_tvip) -%}
