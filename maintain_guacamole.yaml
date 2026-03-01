@@ -575,12 +575,50 @@
             docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
             -d {{ _guac_db_name }} -t -A
             -c "INSERT INTO guacamole_connection_group (connection_group_name, type)
-                VALUES ('Unmanaged', 'ORGANIZATIONAL')
-                ON CONFLICT DO NOTHING
-                RETURNING connection_group_id"
+                SELECT 'Unmanaged', 'ORGANIZATIONAL'
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM guacamole_connection_group
+                  WHERE connection_group_name = 'Unmanaged' AND parent_id IS NULL
+                )"
           delegate_to: guac_target
           register: _unmanaged_group
-          changed_when: _unmanaged_group.stdout | trim | length > 0
+          changed_when: "'INSERT 0 1' in _unmanaged_group.stderr or 'INSERT 0 1' in _unmanaged_group.stdout"
+          when:
+            - remove_unmanaged | default('') == 'yes'
+            - confirm | default('') != 'yes'
+            - _orphaned_connections | default([]) | length > 0
+            - not ansible_check_mode
+
+        - name: Consolidate duplicate Unmanaged groups
+          ansible.builtin.shell: |
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
+            DO $$
+            DECLARE
+              keep_id INTEGER;
+            BEGIN
+              SELECT MIN(connection_group_id) INTO keep_id
+              FROM guacamole_connection_group
+              WHERE connection_group_name = 'Unmanaged' AND parent_id IS NULL;
+
+              IF keep_id IS NULL THEN RETURN; END IF;
+
+              -- Move connections from duplicates to the kept group
+              UPDATE guacamole_connection
+              SET parent_id = keep_id
+              WHERE parent_id IN (
+                SELECT connection_group_id FROM guacamole_connection_group
+                WHERE connection_group_name = 'Unmanaged' AND parent_id IS NULL
+                  AND connection_group_id != keep_id
+              );
+
+              -- Delete duplicate groups
+              DELETE FROM guacamole_connection_group
+              WHERE connection_group_name = 'Unmanaged' AND parent_id IS NULL
+                AND connection_group_id != keep_id;
+            END $$;
+            ENDSQL
+          delegate_to: guac_target
+          changed_when: true
           when:
             - remove_unmanaged | default('') == 'yes'
             - confirm | default('') != 'yes'
@@ -592,7 +630,8 @@
             docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
             -d {{ _guac_db_name }} -t -A
             -c "SELECT connection_group_id FROM guacamole_connection_group
-                WHERE connection_group_name = 'Unmanaged' AND parent_id IS NULL"
+                WHERE connection_group_name = 'Unmanaged' AND parent_id IS NULL
+                LIMIT 1"
           delegate_to: guac_target
           register: _unmanaged_group_id
           changed_when: false
@@ -605,7 +644,7 @@
           ansible.builtin.shell: >-
             docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
             -d {{ _guac_db_name }}
-            -c "UPDATE guacamole_connection SET parent_id = {{ _unmanaged_group_id.stdout | trim }}
+            -c "UPDATE guacamole_connection SET parent_id = {{ _unmanaged_group_id.stdout_lines[0] | trim }}
                 WHERE connection_id = {{ item.id }}"
           delegate_to: guac_target
           loop: "{{ _orphaned_connections }}"
