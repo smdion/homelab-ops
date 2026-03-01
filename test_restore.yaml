@@ -59,7 +59,7 @@
     - vars/app_definitions.yaml
     - vars/semaphore_check.yaml
   vars:
-    maintenance_name: "Docker"
+    maintenance_name: "{{ role | default('DR') | capitalize }}"
     maintenance_type: "Servers"
     maintenance_subtype: "Test Restore"
 
@@ -516,7 +516,7 @@
     - vars/container_definitions.yaml
     - vars/semaphore_check.yaml
   vars:
-    maintenance_name: "Docker"
+    maintenance_name: "{{ role | default('DR') | capitalize }}"
     maintenance_type: "Servers"
     maintenance_subtype: "Test Restore"
     backup_tmp_dir: "/tmp"
