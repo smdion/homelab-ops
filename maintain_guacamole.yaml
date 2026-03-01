@@ -673,6 +673,23 @@
             - _orphaned_connections | default([]) | length > 0
             - not ansible_check_mode
 
+        # Clean up empty connection groups not in the managed list
+        - name: Remove empty unmanaged connection groups
+          ansible.builtin.shell: |
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
+            DELETE FROM guacamole_connection_group
+            WHERE parent_id IS NULL
+              AND connection_group_name NOT IN ({{ (guacamole_connection_groups + ['Unmanaged']) | map('regex_replace', '^(.*)$', "'\1'") | join(',') }})
+              AND connection_group_id NOT IN (
+                SELECT DISTINCT parent_id FROM guacamole_connection WHERE parent_id IS NOT NULL
+              );
+            ENDSQL
+          delegate_to: guac_target
+          changed_when: true
+          when:
+            - remove_unmanaged | default('') == 'yes'
+            - not ansible_check_mode
+
       rescue:
         - name: Set maintenance failed
           ansible.builtin.set_fact:
