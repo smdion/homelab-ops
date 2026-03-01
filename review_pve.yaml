@@ -471,10 +471,17 @@
       failed_when: false
 
     - name: Display PBS version
+      vars:
+        _pkgs: "{{ _pbs_versions.stdout | default('[]') | from_json }}"
       ansible.builtin.debug:
         msg: |
           === PBS VERSION ({{ inventory_hostname }}) ===
-          {{ _pbs_versions.stdout | default('(no output)') }}
+          {% for pkg in _pkgs %}
+          {{ '%-35s %s' | format(pkg.Package | default(pkg.package | default('?')), pkg.Version | default(pkg.version | default('?'))) }}
+          {% endfor %}
+          {% if _pkgs | length == 0 %}
+          (no version data)
+          {% endif %}
 
     # ===== DATASTORES =====
     - name: List PBS datastores
@@ -569,16 +576,35 @@
 
     # ===== RECENT TASK HISTORY =====
     - name: Get recent PBS task history
-      ansible.builtin.shell: proxmox-backup-manager task list --output-format json --limit 50
+      ansible.builtin.shell: proxmox-backup-manager task list --output-format json --all 2>/dev/null || echo "[]"
       register: _pbs_recent_tasks
       changed_when: false
       check_mode: false
-      failed_when: false
 
-    - name: Display recent PBS tasks raw
+    - name: Display recent PBS tasks
+      vars:
+        _tasks: "{{ _pbs_recent_tasks.stdout | from_json }}"
+        _recent: "{{ _tasks[:50] }}"
+        _failed_count: >-
+          {{ _recent
+             | selectattr('status', 'defined')
+             | rejectattr('status', 'equalto', 'OK')
+             | rejectattr('status', 'equalto', '')
+             | list | length }}
       ansible.builtin.debug:
         msg: |
-          === PBS RECENT TASKS (raw) ===
-          stdout: {{ _pbs_recent_tasks.stdout | default('(empty)') }}
-          stderr: {{ _pbs_recent_tasks.stderr | default('(empty)') }}
-          rc: {{ _pbs_recent_tasks.rc | default('?') }}
+          === PBS RECENT TASKS ({{ _recent | length }} of {{ _tasks | length }} total) ===
+          {{ '%-14s %-8s %-22s %10s  %s' | format('Type', 'Status', 'Start', 'Duration', 'ID') }}
+          {{ '%-14s %-8s %-22s %10s  %s' | format('----', '------', '-----', '--------', '--') }}
+          {% for t in _recent %}
+          {% set _dur = ((t.endtime | default(0) | int) - (t.starttime | default(0) | int)) %}
+          {{ '%-14s %-8s %-22s %7dm %2ds  %s' | format(
+               t.worker_type | default(t.type | default('?')),
+               t.status | default('?'),
+               (t.starttime | default(0) | int) | strftime('%Y-%m-%d %H:%M:%S'),
+               _dur // 60,
+               _dur % 60,
+               t.worker_id | default(t.id | default('-'))) }}
+          {% endfor %}
+
+          Summary: {{ _recent | length }} tasks shown, {{ _failed_count }} with errors/warnings
