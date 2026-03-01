@@ -11,9 +11,6 @@
 #   # Persistent DR recovery (keeps restored state, no revert)
 #   ansible-playbook test_restore.yaml -e role=apps -e dr_mode=yes
 #
-#   # CephFS-backed test VM (explicit vm_name override)
-#   ansible-playbook test_restore.yaml -e vm_name=cephfs-migrate-test -e role=core
-#
 #   # Test single app restore
 #   ansible-playbook test_restore.yaml -e role=core -e restore_app=authentik
 #
@@ -24,8 +21,8 @@
 #   ansible-playbook test_restore.yaml -e source_host=<controller-fqdn>
 #
 # Extra vars:
-#   vm_name      — VM key from vm_definitions (default: test-vm). Use "cephfs-migrate-test"
-#                  for CephFS-backed /opt. Do NOT use permanent VM keys (core, apps, dev).
+#   vm_name      — VM key from vm_definitions (default: test-vm).
+#                  Do NOT use permanent VM keys (core, apps, dev).
 #   source_host  — inventory_hostname in stack_assignments (OR use role instead)
 #   role         — stack role name (e.g. core, apps, dev) — alternative to source_host
 #   deploy_ssh_key=yes — install ansible SSH private key on VM (for cross-host operations)
@@ -58,6 +55,7 @@
     - vars/proxmox.yaml
     - vars/docker_stacks.yaml
     - vars/vm_definitions.yaml
+    - vars/app_definitions.yaml
     - vars/semaphore_check.yaml
   vars:
     maintenance_name: "Docker"
@@ -84,7 +82,7 @@
   tasks:
     - name: Auto-detect free vm_index for test-vm pool
       include_tasks: tasks/resolve_test_vm_index.yaml
-      when: vm_name in ['test-vm', 'cephfs-migrate-test']
+      when: vm_name == 'test-vm'
 
     - name: Resolve test VM and target stack configuration
       ansible.builtin.set_fact:
@@ -93,38 +91,6 @@
           {{ [stack] if stack is defined
              else stack_roles[role] if role is defined and source_host is not defined
              else stack_assignments[source_host] }}
-
-    # ===== AUTO-CREATE CEPHFS DIR (when vm has cephfs_host_dir) =====
-    - name: Add PVE host to in-memory inventory (for CephFS dir creation)
-      ansible.builtin.add_host:
-        name: pve_builder
-        ansible_host: "{{ pve_api_host }}"
-        ansible_user: ansible
-      when: _vm.cephfs_host_dir is defined
-
-    - name: Ensure test VM CephFS directory exists (isolated from production)
-      ansible.builtin.shell: |
-        set -e
-        MOUNT_DIR=$(mktemp -d)
-        ADMIN_KEY=$(ceph auth print-key client.admin)
-        mount -t ceph {{ vault_ceph_mons }}:/ "$MOUNT_DIR" \
-          -o "name=admin,secret=${ADMIN_KEY}"
-        if [ -d "$MOUNT_DIR/{{ _vm.cephfs_host_dir }}" ]; then
-          echo "exists"
-        else
-          mkdir "$MOUNT_DIR/{{ _vm.cephfs_host_dir }}"
-          echo "created"
-        fi
-        umount "$MOUNT_DIR"
-        rmdir "$MOUNT_DIR"
-      args:
-        executable: /bin/bash
-      delegate_to: pve_builder
-      become: true
-      register: _cephfs_dir_result
-      changed_when: "'created' in _cephfs_dir_result.stdout"
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: _vm.cephfs_host_dir is defined
 
     # ===== FIND BACKUP ARCHIVES =====
     # Requires the container user to have read access to the /backup/ bind
@@ -402,9 +368,6 @@
     backup_tmp_dir: "/tmp"
 
   tasks:
-    - name: Assert /opt is not production CephFS (safety gate)
-      include_tasks: tasks/assert_test_vm.yaml
-
     - name: Assert sufficient disk space on /tmp (staging)
       include_tasks: tasks/assert_disk_space.yaml
       vars:
@@ -431,20 +394,6 @@
       ansible.builtin.set_fact:
         _restore_test_failed: false
         _restore_test_detail: ""
-
-    - name: Stop and remove all containers before CephFS cleanup
-      ansible.builtin.shell: |
-        docker ps -aq | xargs -r docker rm -f 2>/dev/null || true
-      become: true
-      when:
-        - hostvars['localhost']._vm.cephfs_host_dir is defined
-
-    - name: Clean test VM CephFS appdata (/opt on test VM only)
-      become: true
-      ansible.builtin.shell: |
-        find /opt -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-      when:
-        - hostvars['localhost']._vm.cephfs_host_dir is defined
 
     - name: Ensure shared Docker network exists on test VM
       community.docker.docker_network:
