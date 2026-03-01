@@ -106,10 +106,10 @@
         # Build complete desired connection list
         - name: Build desired connections
           ansible.builtin.set_fact:
-            _desired_connections: "{{ _ssh_connections + _vnc_connections + _extra_connections }}"
+            _desired_connections: "{{ _ssh_connections + (_vnc_json | trim | from_json) + (_extra_json | trim | from_json) }}"
           vars:
             # SSH connections from all definition files
-            _pve_ssh: >-
+            _pve_json: >-
               {% set result = [] %}
               {% for entry in pve_definitions | dict2items | selectattr('value.guacamole', 'defined') | list %}
               {% if entry.value.guacamole.protocol | default('ssh') == 'ssh' %}
@@ -122,8 +122,8 @@
               }) %}
               {% endif %}
               {% endfor %}
-              {{ result }}
-            _vm_ssh: >-
+              {{ result | to_json }}
+            _vm_json: >-
               {% set result = [] %}
               {% for entry in vm_definitions | dict2items
                   | selectattr('value.guacamole', 'defined')
@@ -138,8 +138,8 @@
               }) %}
               {% endif %}
               {% endfor %}
-              {{ result }}
-            _host_ssh: >-
+              {{ result | to_json }}
+            _host_json: >-
               {% set result = [] %}
               {% for entry in host_definitions | dict2items | selectattr('value.guacamole', 'defined') | list %}
               {% if entry.value.guacamole.protocol | default('ssh') == 'ssh' %}
@@ -152,10 +152,10 @@
               }) %}
               {% endif %}
               {% endfor %}
-              {{ result }}
-            _ssh_connections: "{{ _pve_ssh + _vm_ssh + _host_ssh }}"
+              {{ result | to_json }}
+            _ssh_connections: "{{ (_pve_json | trim | from_json) + (_vm_json | trim | from_json) + (_host_json | trim | from_json) }}"
             # VNC connections from vm_definitions (resolved via PVE cluster API)
-            _vnc_connections: >-
+            _vnc_json: >-
               {% set result = [] %}
               {% for entry in _vnc_vms %}
               {% set vm_data = _cluster_vms.json.data | default([])
@@ -173,9 +173,9 @@
               }) %}
               {% endif %}
               {% endfor %}
-              {{ result }}
+              {{ result | to_json }}
             # Extra connections (already normalized)
-            _extra_connections: >-
+            _extra_json: >-
               {% set result = [] %}
               {% for item in guacamole_extra_connections %}
               {% set conn = {
@@ -190,7 +190,7 @@
               {% set conn = conn | combine({'user_groups': item.user_groups | default([])}) %}
               {% set _ = result.append(conn) %}
               {% endfor %}
-              {{ result }}
+              {{ result | to_json }}
 
         - name: Show desired connections
           ansible.builtin.debug:
