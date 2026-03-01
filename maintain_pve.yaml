@@ -164,6 +164,8 @@
   vars_files:
     - vars/secrets.yaml
     - vars/semaphore_check.yaml
+    - vars/proxmox.yaml
+    - vars/vm_definitions.yaml
   vars:
     snapshot_max_age_days: 14
     maintenance_name: "Proxmox"
@@ -630,6 +632,7 @@
     - vars/secrets.yaml
     - vars/semaphore_check.yaml
     - vars/proxmox.yaml
+    - vars/vm_definitions.yaml
   vars:
     maintenance_name: "Proxmox"
     maintenance_type: "Appliances"
@@ -733,6 +736,7 @@
     - vars/secrets.yaml
     - vars/semaphore_check.yaml
     - vars/proxmox.yaml
+    - vars/vm_definitions.yaml
   vars:
     maintenance_name: "Proxmox"
     maintenance_type: "Appliances"
