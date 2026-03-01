@@ -85,11 +85,7 @@
         # Collect VNC VMs for PVE cluster API resolution
         - name: Identify VNC connections needing node resolution
           ansible.builtin.set_fact:
-            _vnc_vms: >-
-              {{ vm_definitions | dict2items
-                 | selectattr('value.vnc_display', 'defined')
-                 | selectattr('value.guacamole', 'defined')
-                 | list }}
+            _vnc_vms: "{{ vm_definitions | dict2items | selectattr('value.vnc_display', 'defined') | selectattr('value.guacamole', 'defined') | list }}"
 
         # Query PVE cluster API if any VNC connections exist
         - name: Query PVE cluster for VM node placement
@@ -211,7 +207,9 @@
 
         - name: Parse current groups
           ansible.builtin.set_fact:
-            _current_groups: >-
+            _current_groups: "{{ _parsed | trim | from_json }}"
+          vars:
+            _parsed: >-
               {% set result = {} %}
               {% for line in _current_groups_raw.stdout_lines | default([]) %}
               {% if '|' in line %}
@@ -219,12 +217,11 @@
               {% set _ = result.update({parts[1]: parts[0] | int}) %}
               {% endif %}
               {% endfor %}
-              {{ result }}
+              {{ result | to_json }}
 
         - name: Collect all required groups
           ansible.builtin.set_fact:
-            _required_groups: >-
-              {{ (guacamole_connection_groups + _desired_connections | map(attribute='group') | unique | list) | unique }}
+            _required_groups: "{{ (guacamole_connection_groups + (_desired_connections | map(attribute='group') | unique | list)) | unique }}"
 
         - name: Create missing connection groups
           ansible.builtin.shell: >-
@@ -252,7 +249,9 @@
 
         - name: Update group ID map
           ansible.builtin.set_fact:
-            _group_ids: >-
+            _group_ids: "{{ _parsed | trim | from_json }}"
+          vars:
+            _parsed: >-
               {% set result = {} %}
               {% set source = _refreshed_groups_raw.stdout_lines | default(_current_groups_raw.stdout_lines | default([])) %}
               {% for line in source %}
@@ -261,7 +260,7 @@
               {% set _ = result.update({parts[1]: parts[0] | int}) %}
               {% endif %}
               {% endfor %}
-              {{ result }}
+              {{ result | to_json }}
 
         # ═══════════════════════════════════════════════════════════════
         # Step 5 — Get current connections from Guacamole DB
@@ -281,7 +280,9 @@
 
         - name: Parse current connections
           ansible.builtin.set_fact:
-            _current_connections: >-
+            _current_connections: "{{ _parsed | trim | from_json }}"
+          vars:
+            _parsed: >-
               {% set result = {} %}
               {% for line in _current_connections_raw.stdout_lines | default([]) %}
               {% if '|' in line %}
@@ -293,7 +294,7 @@
               }}) %}
               {% endif %}
               {% endfor %}
-              {{ result }}
+              {{ result | to_json }}
 
         # ═══════════════════════════════════════════════════════════════
         # Step 6 — Converge connections (create or update)
@@ -385,10 +386,7 @@
         # 7a. Collect all unique user groups from definitions + admin groups
         - name: Collect all required user groups
           ansible.builtin.set_fact:
-            _all_user_groups: >-
-              {{ (guacamole_admin_groups | default([])
-                  + _desired_connections | map(attribute='user_groups') | flatten | unique | list)
-                 | unique }}
+            _all_user_groups: "{{ ((guacamole_admin_groups | default([])) + (_desired_connections | map(attribute='user_groups') | flatten | unique | list)) | unique }}"
 
         - name: Show user groups to converge
           ansible.builtin.debug:
@@ -481,7 +479,9 @@
         # Derive: for each connection group, which user groups have connections in it.
         - name: Build connection group to user group mapping
           ansible.builtin.set_fact:
-            _group_user_groups: >-
+            _group_user_groups: "{{ _parsed | trim | from_json }}"
+          vars:
+            _parsed: >-
               {% set result = {} %}
               {% for conn in _desired_connections %}
               {% set groups = ((conn.user_groups | default([])) + (guacamole_admin_groups | default([]))) | unique | list %}
@@ -490,7 +490,7 @@
               {% set _ = result.update({conn.group: (existing + groups) | unique}) %}
               {% endif %}
               {% endfor %}
-              {{ result }}
+              {{ result | to_json }}
 
         - name: Grant connection group READ for folder visibility
           ansible.builtin.shell: |
@@ -537,7 +537,9 @@
 
         - name: Parse orphaned connections
           ansible.builtin.set_fact:
-            _orphaned_connections: >-
+            _orphaned_connections: "{{ _parsed | trim | from_json }}"
+          vars:
+            _parsed: >-
               {% set result = [] %}
               {% for line in _all_managed_group_connections.stdout_lines | default([]) %}
               {% if '|' in line %}
@@ -547,7 +549,7 @@
               {% endif %}
               {% endif %}
               {% endfor %}
-              {{ result }}
+              {{ result | to_json }}
           when: remove_unmanaged | default('') == 'yes'
 
         - name: Show orphaned connections
