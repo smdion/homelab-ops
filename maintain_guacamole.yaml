@@ -310,21 +310,31 @@
         - name: Create or update connections
           ansible.builtin.shell: |
             docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
-            -- Upsert connection
-            INSERT INTO guacamole_connection (connection_name, parent_id, protocol)
-            VALUES ('{{ item.name }}', {{ _group_ids[item.group] }}, '{{ item.protocol }}')
-            ON CONFLICT (connection_name, parent_id) DO UPDATE
-              SET protocol = EXCLUDED.protocol;
-
-            -- Get connection_id for parameter upsert
             DO $$
             DECLARE
               conn_id INTEGER;
             BEGIN
+              -- Find existing connection by name (any group)
               SELECT connection_id INTO conn_id
               FROM guacamole_connection
               WHERE connection_name = '{{ item.name }}'
-                AND parent_id = {{ _group_ids[item.group] }};
+              LIMIT 1;
+
+              IF conn_id IS NOT NULL THEN
+                -- Move to correct group and update protocol
+                UPDATE guacamole_connection
+                SET parent_id = {{ _group_ids[item.group] }}, protocol = '{{ item.protocol }}'
+                WHERE connection_id = conn_id;
+              ELSE
+                -- Create new connection
+                INSERT INTO guacamole_connection (connection_name, parent_id, protocol)
+                VALUES ('{{ item.name }}', {{ _group_ids[item.group] }}, '{{ item.protocol }}');
+
+                SELECT connection_id INTO conn_id
+                FROM guacamole_connection
+                WHERE connection_name = '{{ item.name }}'
+                  AND parent_id = {{ _group_ids[item.group] }};
+              END IF;
 
               -- Clear existing parameters and re-insert
               DELETE FROM guacamole_connection_parameter WHERE connection_id = conn_id;
@@ -521,17 +531,17 @@
             _managed_group_ids: "{{ guacamole_connection_groups | map('extract', _group_ids) | select('defined') | list }}"
           when: remove_unmanaged | default('') == 'yes'
 
-        - name: Find orphaned connections in managed groups
+        - name: Find all connections in database
           ansible.builtin.shell: >-
             docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }}
             -d {{ _guac_db_name }} -t -A -F'|'
-            -c "SELECT c.connection_id, c.connection_name, g.connection_group_name
+            -c "SELECT c.connection_id, c.connection_name,
+                       COALESCE(g.connection_group_name, '(no group)')
                 FROM guacamole_connection c
-                JOIN guacamole_connection_group g ON c.parent_id = g.connection_group_id
-                WHERE g.connection_group_name IN ({{ guacamole_connection_groups | map('regex_replace', '^(.*)$', "'\1'") | join(',') }})
+                LEFT JOIN guacamole_connection_group g ON c.parent_id = g.connection_group_id
                 ORDER BY c.connection_name"
           delegate_to: guac_target
-          register: _all_managed_group_connections
+          register: _all_db_connections
           changed_when: false
           when: remove_unmanaged | default('') == 'yes'
 
@@ -541,7 +551,7 @@
           vars:
             _parsed: >-
               {% set result = [] %}
-              {% for line in _all_managed_group_connections.stdout_lines | default([]) %}
+              {% for line in _all_db_connections.stdout_lines | default([]) %}
               {% if '|' in line %}
               {% set parts = line.split('|') %}
               {% if parts[1] not in _managed_names %}
