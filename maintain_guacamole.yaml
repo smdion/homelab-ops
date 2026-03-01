@@ -378,6 +378,20 @@
               VALUES (conn_id, 'password', '{{ item.password }}');
               {% endif %}
               {% endif %}
+
+              -- Remove duplicate connections with the same name
+              DELETE FROM guacamole_connection_permission
+              WHERE connection_id IN (
+                SELECT connection_id FROM guacamole_connection
+                WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id
+              );
+              DELETE FROM guacamole_connection_parameter
+              WHERE connection_id IN (
+                SELECT connection_id FROM guacamole_connection
+                WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id
+              );
+              DELETE FROM guacamole_connection
+              WHERE connection_name = '{{ item.name }}' AND connection_id != conn_id;
             END $$;
             ENDSQL
           delegate_to: guac_target
