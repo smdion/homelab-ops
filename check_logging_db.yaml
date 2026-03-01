@@ -15,7 +15,7 @@
     maintenance_type: "Local"
     maintenance_subtype: "Summary"
     maintenance_url: ""
-    maintenance_description: "7-day activity report for ansible_logging"
+    maintenance_description: "{{ summary_report_days }}-day activity report for ansible_logging"
 
   pre_tasks:
     - name: Run standard pre-flight assertions
@@ -43,12 +43,12 @@
             login_db: "{{ logging_db_name }}"
             query: >-
               SELECT
-                (SELECT COUNT(*) FROM backups       WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS backups_7d,
-                (SELECT COUNT(*) FROM playbook_runs WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS runs_7d,
-                (SELECT COUNT(*) FROM health_checks WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS health_7d,
-                (SELECT COUNT(*) FROM updates       WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS updates_7d,
-                (SELECT COUNT(*) FROM maintenance   WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS maintenance_7d,
-                (SELECT COUNT(*) FROM restores      WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS restores_7d
+                (SELECT COUNT(*) FROM backups       WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS backups_7d,
+                (SELECT COUNT(*) FROM playbook_runs WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS runs_7d,
+                (SELECT COUNT(*) FROM health_checks WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS health_7d,
+                (SELECT COUNT(*) FROM updates       WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS updates_7d,
+                (SELECT COUNT(*) FROM maintenance   WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS maintenance_7d,
+                (SELECT COUNT(*) FROM restores      WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS restores_7d
           register: _counts_result
           when: not ansible_check_mode
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -68,7 +68,7 @@
               SELECT DISTINCT hostname FROM backups
               WHERE hostname NOT IN (
                 SELECT DISTINCT hostname FROM backups
-                WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
+                WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)
               )
               ORDER BY hostname
           register: _no_backup_result
@@ -88,9 +88,9 @@
             login_db: "{{ logging_db_name }}"
             query: >-
               SELECT
-                (SELECT COUNT(*) FROM updates     WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS failed_updates,
-                (SELECT COUNT(*) FROM maintenance WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS failed_maintenance,
-                (SELECT COUNT(*) FROM restores    WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)) AS failed_restores
+                (SELECT COUNT(*) FROM updates     WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS failed_updates,
+                (SELECT COUNT(*) FROM maintenance WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS failed_maintenance,
+                (SELECT COUNT(*) FROM restores    WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS failed_restores
           register: _failures_result
           when: not ansible_check_mode
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -105,28 +105,28 @@
         - name: Build notification summary fields
           ansible.builtin.set_fact:
             _discord_fields:
-              - name: "Backups (7d)"
+              - name: "Backups ({{ summary_report_days }}d)"
                 value: "{{ _counts.backups_7d | string }}"
                 inline: true
-              - name: "Playbook Runs (7d)"
+              - name: "Playbook Runs ({{ summary_report_days }}d)"
                 value: "{{ _counts.runs_7d | string }}"
                 inline: true
-              - name: "Health Checks (7d)"
+              - name: "Health Checks ({{ summary_report_days }}d)"
                 value: "{{ _counts.health_7d | string }}"
                 inline: true
-              - name: "Updates (7d)"
+              - name: "Updates ({{ summary_report_days }}d)"
                 value: "{{ _counts.updates_7d | string }}"
                 inline: true
-              - name: "Maintenance (7d)"
+              - name: "Maintenance ({{ summary_report_days }}d)"
                 value: "{{ _counts.maintenance_7d | string }}"
                 inline: true
-              - name: "Restores (7d)"
+              - name: "Restores ({{ summary_report_days }}d)"
                 value: "{{ _counts.restores_7d | string }}"
                 inline: true
               - name: "No Recent Backup"
                 value: "{{ _no_backup_hosts | join(', ') if _no_backup_hosts | length > 0 else 'All hosts current' }}"
                 inline: false
-              - name: "Failures (7d)"
+              - name: "Failures ({{ summary_report_days }}d)"
                 value: >-
                   {{ 'Updates: ' ~ _failures.failed_updates ~ ' | Maintenance: ' ~ _failures.failed_maintenance ~ ' | Restores: ' ~ _failures.failed_restores
                      if (_failures.failed_updates | int + _failures.failed_maintenance | int + _failures.failed_restores | int) > 0

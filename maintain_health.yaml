@@ -273,7 +273,7 @@
               INNER JOIN (
                 SELECT application, hostname, AVG(file_size) AS avg_size, COUNT(*) AS cnt
                 FROM backups
-                WHERE timestamp > UTC_TIMESTAMP() - INTERVAL 30 DAY
+                WHERE timestamp > UTC_TIMESTAMP() - INTERVAL {{ backup_trend_days }} DAY
                 GROUP BY application, hostname
                 HAVING cnt >= 3
               ) avg_tbl ON b.application = avg_tbl.application AND b.hostname = avg_tbl.hostname

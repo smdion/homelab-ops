@@ -122,7 +122,7 @@
         dest: "/tmp/restore_{{ _test_app }}/{{ _db_archive_map[_db_name_item] | basename }}"
         compress: false
         rsync_opts:
-          - "--timeout=300"
+          - "--timeout={{ rsync_timeout }}"
           - "--whole-file"
       become: true
       ignore_errors: true

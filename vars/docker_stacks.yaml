@@ -53,6 +53,11 @@ docker_restart: "always"
 docker_postgres_user: "postgres"
 docker_postgres_default_db: "postgres"
 docker_adminer_design: "hydra"
+docker_firefox_display_width: 1280
+docker_firefox_display_height: 768
+docker_firefox_secure_connection: 0
+docker_firefox_dark_mode: 1
+docker_firefox_web_audio: 1
 docker_email_host: "smtp.gmail.com"
 docker_email_port: 587
 docker_dozzle_level: "info"

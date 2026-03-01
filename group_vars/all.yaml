@@ -30,6 +30,11 @@ is_postgres: false
 is_mariadb: false
 is_influxdb: false
 
+# Rsync/restore timeouts (seconds) — override per-task where needed
+rsync_timeout: 300               # default for appdata/DB archive transfers
+rsync_timeout_amp: 1800          # AMP instances can be multi-GB
+docker_health_poll_timeout: 120  # default Docker health check poll ceiling
+
 # Discord embed colors (decimal integers)
 discord_color_success: 32768
 discord_color_failure: 16711680
