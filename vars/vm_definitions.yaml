@@ -70,9 +70,9 @@ vm_definitions:
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_core_node | default('') }}"
     deploy_ssh_key: true
-    nfs_exports:                       # export /opt to dev VIP (test VIP in DR, prod VIP in prod)
+    nfs_exports:                       # export /opt to LAN subnet (prod or test VLAN)
       - path: /opt
-        clients: "{{ vault_dev_vip }}(ro,no_subtree_check,no_root_squash)"
+        clients: "{{ vault_prod_lan_subnet }}(ro,no_subtree_check,no_root_squash)"
     stacks: [infra, databases, auth, media]
     guacamole: { name: Core, group: Docker }
 
@@ -87,9 +87,9 @@ vm_definitions:
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_apps_node | default('') }}"
     deploy_ssh_key: true
-    nfs_exports:                       # export /opt to dev VIP (test VIP in DR, prod VIP in prod)
+    nfs_exports:                       # export /opt to LAN subnet (prod or test VLAN)
       - path: /opt
-        clients: "{{ vault_dev_vip }}(ro,no_subtree_check,no_root_squash)"
+        clients: "{{ vault_prod_lan_subnet }}(ro,no_subtree_check,no_root_squash)"
     stacks: [infra, apps, monitoring]
     guacamole: { name: Apps, group: Docker }
 
