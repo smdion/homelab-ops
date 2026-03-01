@@ -31,7 +31,7 @@
     maintenance_subtype: "Connections"
     maintenance_url: ""
     maintenance_description: "Converge Guacamole connection config from definition files"
-    _guac_host: "{{ vault_vm_apps_hostname }}"
+    _guac_host: "{{ host_definitions.odyssey.vm_hostname }}"  # TODO: move to apps VM after migration
     _guac_db_user: "guacamole_user"
     _guac_db_name: "guacamole_db"
     _guac_container: "guacamole"
