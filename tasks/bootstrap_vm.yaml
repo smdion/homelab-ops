@@ -179,6 +179,13 @@
     label: "{{ item.port }}/{{ item.proto | default('tcp') }}"
   when: _vm.ufw_rules is defined
 
+- name: Allow NFS through UFW
+  community.general.ufw:
+    rule: allow
+    port: "2049"
+    proto: tcp
+  when: _vm.nfs_exports is defined
+
 - name: Install NFS server
   ansible.builtin.apt:
     name: nfs-kernel-server
