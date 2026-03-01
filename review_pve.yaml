@@ -471,25 +471,10 @@
       failed_when: false
 
     - name: Display PBS version
-      vars:
-        _raw: "{{ _pbs_versions.stdout | default('[]') | from_json }}"
       ansible.builtin.debug:
         msg: |
           === PBS VERSION ({{ inventory_hostname }}) ===
-          {% if _raw is mapping %}
-          {% for key, val in _raw.items() %}
-          {{ '%-35s %s' | format(key, val) }}
-          {% endfor %}
-          {% elif _raw is iterable and _raw is not string %}
-          {% for pkg in _raw %}
-          {{ '%-35s %s' | format(pkg.package | default(pkg.name | default('?')), pkg.version | default(pkg.old_version | default('?'))) }}
-          {% endfor %}
-          {% else %}
           {{ _pbs_versions.stdout | default('(no output)') }}
-          {% endif %}
-          {% if _pbs_versions.stderr | default('') | length > 0 %}
-          stderr: {{ _pbs_versions.stderr }}
-          {% endif %}
 
     # ===== DATASTORES =====
     - name: List PBS datastores
@@ -590,33 +575,10 @@
       check_mode: false
       failed_when: false
 
-    - name: Display recent PBS tasks
-      vars:
-        _raw: "{{ _pbs_recent_tasks.stdout | default('[]') | from_json }}"
-        _tasks: "{{ _raw if _raw is iterable and _raw is not mapping and _raw is not string else (_raw.data | default([])) }}"
-        _failed_count: >-
-          {{ _tasks
-             | selectattr('status', 'defined')
-             | rejectattr('status', 'equalto', 'OK')
-             | rejectattr('status', 'equalto', '')
-             | list | length }}
+    - name: Display recent PBS tasks raw
       ansible.builtin.debug:
         msg: |
-          === PBS RECENT TASKS (last {{ _tasks | length }}) ===
-          {{ '%-14s %-8s %-22s %10s  %s' | format('Type', 'Status', 'Start', 'Duration', 'ID') }}
-          {{ '%-14s %-8s %-22s %10s  %s' | format('----', '------', '-----', '--------', '--') }}
-          {% for t in _tasks %}
-          {% set _dur = ((t.endtime | default(0) | int) - (t.starttime | default(0) | int)) %}
-          {{ '%-14s %-8s %-22s %7dm %2ds  %s' | format(
-               t.worker_type | default(t.type | default('?')),
-               t.status | default('?'),
-               (t.starttime | default(0) | int) | strftime('%Y-%m-%d %H:%M:%S'),
-               _dur // 60,
-               _dur % 60,
-               t.worker_id | default(t.id | default('-'))) }}
-          {% endfor %}
-          {% if _pbs_recent_tasks.stderr | default('') | length > 0 %}
-          stderr: {{ _pbs_recent_tasks.stderr }}
-          {% endif %}
-
-          Summary: {{ _tasks | length }} tasks, {{ _failed_count }} with errors/warnings
+          === PBS RECENT TASKS (raw) ===
+          stdout: {{ _pbs_recent_tasks.stdout | default('(empty)') }}
+          stderr: {{ _pbs_recent_tasks.stderr | default('(empty)') }}
+          rc: {{ _pbs_recent_tasks.rc | default('?') }}
