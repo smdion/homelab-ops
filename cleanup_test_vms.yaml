@@ -1,0 +1,78 @@
+---
+# Remove all test VMs from the Proxmox cluster.
+# Queries the cluster API for VMs in the test-vm slot pool (VMIDs 500–509),
+# stops any that are running, and destroys them.
+#
+# Usage:
+#   ansible-playbook cleanup_test_vms.yaml
+#
+# No extra vars required. Safe to run at any time — skips slots with no VM.
+
+- name: Clean up all test VMs
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+    - vars/vm_definitions.yaml
+  vars:
+    _pool_start: "{{ vm_test_slot_base | int }}"
+    _pool_end: "{{ (vm_test_slot_base + vm_test_slot_count) | int }}"
+
+  tasks:
+    - name: Query cluster VMs
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _cluster_vms
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Find test VMs in slot pool
+      ansible.builtin.set_fact:
+        _test_vms: >-
+          {{ _cluster_vms.json.data
+             | selectattr('vmid', 'ge', _pool_start | int)
+             | selectattr('vmid', 'lt', _pool_end | int)
+             | list }}
+
+    - name: Show test VMs found
+      ansible.builtin.debug:
+        msg: >-
+          Found {{ _test_vms | length }} test VM(s):
+          {{ _test_vms | map(attribute='name') | list | join(', ') | default('none') }}
+
+    - name: Stop running test VMs
+      community.general.proxmox_kvm:
+        api_host: "{{ pve_api_host }}"
+        api_user: "{{ pve_api_user }}"
+        api_token_id: "{{ pve_api_token_id }}"
+        api_token_secret: "{{ pve_api_token_secret }}"
+        node: "{{ item.node }}"
+        vmid: "{{ item.vmid }}"
+        state: stopped
+        force: true
+      loop: "{{ _test_vms | selectattr('status', 'equalto', 'running') | list }}"
+      loop_control:
+        label: "{{ item.name }} (VMID {{ item.vmid }})"
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Remove test VMs
+      community.general.proxmox_kvm:
+        api_host: "{{ pve_api_host }}"
+        api_user: "{{ pve_api_user }}"
+        api_token_id: "{{ pve_api_token_id }}"
+        api_token_secret: "{{ pve_api_token_secret }}"
+        node: "{{ item.node }}"
+        vmid: "{{ item.vmid }}"
+        state: absent
+      loop: "{{ _test_vms }}"
+      loop_control:
+        label: "{{ item.name }} (VMID {{ item.vmid }})"
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg: "Removed {{ _test_vms | length }} test VM(s)"
