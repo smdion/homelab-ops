@@ -312,6 +312,68 @@
           {% endfor %}
           {% endif %}
 
+    # ===== DATACENTER BACKUP JOBS (push to PBS) =====
+    - name: Get datacenter backup jobs
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/cluster/backup"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _backup_jobs
+      check_mode: false
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Get included VMs for each backup job
+      ansible.builtin.uri:
+        url: "{{ _api_base }}/cluster/backup/{{ item.id }}/included_volumes"
+        method: GET
+        headers:
+          Authorization: "{{ _api_auth }}"
+        validate_certs: false
+      register: _backup_job_vms
+      loop: "{{ _backup_jobs.json.data | default([]) }}"
+      loop_control:
+        label: "{{ item.id | default('?') }}"
+      check_mode: false
+      ignore_errors: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _backup_jobs is not failed
+
+    - name: Display datacenter backup jobs
+      ansible.builtin.debug:
+        msg: |
+          === DATACENTER BACKUP JOBS ===
+          {% if _backup_jobs is failed %}
+          Backup jobs not available (API returned error)
+          {% elif (_backup_jobs.json.data | default([])) | length == 0 %}
+          No datacenter backup jobs configured
+          {% else %}
+          {% for job in _backup_jobs.json.data | sort(attribute='id') %}
+          Job {{ job.id }}:
+            Schedule:  {{ job.schedule | default('-') }}
+            Storage:   {{ job.storage | default('-') }}
+            Mode:      {{ job.mode | default('-') }}
+            Pool:      {{ job.pool | default('(all)') }}
+            Enabled:   {{ job.enabled | default('?') }}
+            Compress:  {{ job.compress | default('-') }}
+            Mail-to:   {{ job.mailnotification | default(job.mailto | default('-')) }}
+            Notes:     {{ job['notes-template'] | default(job.comment | default('-')) }}
+          {% if _backup_job_vms is defined and _backup_job_vms.results is defined %}
+          {% set _job_result = _backup_job_vms.results[loop.index0] %}
+          {% if _job_result is not failed and _job_result.json is defined %}
+          {% set _children = _job_result.json.data.children | default([]) %}
+            Included VMs ({{ _children | length }} guests):
+          {% for guest in _children | sort(attribute='id') %}
+              {{ '%-6s %-20s %s' | format(guest.id | default('?'), guest.name | default('?'), guest.type | default('?')) }}
+          {% endfor %}
+          {% endif %}
+          {% endif %}
+
+          {% endfor %}
+          {% endif %}
+
 # ═══════════════════════════════════════════════════════════════════
 # Play 2 — Review PVE per-node network configuration
 # Queries each node's network interfaces to show bridge, bond, and
@@ -402,18 +464,32 @@
   tasks:
     # ===== PBS VERSION =====
     - name: Get PBS version
-      ansible.builtin.shell: proxmox-backup-manager versions --output-format json 2>/dev/null || echo "[]"
+      ansible.builtin.shell: proxmox-backup-manager versions --output-format json
       register: _pbs_versions
       changed_when: false
       check_mode: false
+      failed_when: false
 
     - name: Display PBS version
+      vars:
+        _raw: "{{ _pbs_versions.stdout | default('[]') | from_json }}"
       ansible.builtin.debug:
         msg: |
           === PBS VERSION ({{ inventory_hostname }}) ===
-          {% for pkg in (_pbs_versions.stdout | from_json) %}
-          {{ '%-30s %s' | format(pkg.package | default('?'), pkg.version | default('?')) }}
+          {% if _raw is mapping %}
+          {% for key, val in _raw.items() %}
+          {{ '%-35s %s' | format(key, val) }}
           {% endfor %}
+          {% elif _raw is iterable and _raw is not string %}
+          {% for pkg in _raw %}
+          {{ '%-35s %s' | format(pkg.package | default(pkg.name | default('?')), pkg.version | default(pkg.old_version | default('?'))) }}
+          {% endfor %}
+          {% else %}
+          {{ _pbs_versions.stdout | default('(no output)') }}
+          {% endif %}
+          {% if _pbs_versions.stderr | default('') | length > 0 %}
+          stderr: {{ _pbs_versions.stderr }}
+          {% endif %}
 
     # ===== DATASTORES =====
     - name: List PBS datastores
@@ -508,14 +584,16 @@
 
     # ===== RECENT TASK HISTORY =====
     - name: Get recent PBS task history
-      ansible.builtin.shell: proxmox-backup-manager task list --output-format json --limit 50 2>/dev/null || echo "[]"
+      ansible.builtin.shell: proxmox-backup-manager task list --output-format json --limit 50
       register: _pbs_recent_tasks
       changed_when: false
       check_mode: false
+      failed_when: false
 
     - name: Display recent PBS tasks
       vars:
-        _tasks: "{{ _pbs_recent_tasks.stdout | from_json }}"
+        _raw: "{{ _pbs_recent_tasks.stdout | default('[]') | from_json }}"
+        _tasks: "{{ _raw if _raw is iterable and _raw is not mapping and _raw is not string else (_raw.data | default([])) }}"
         _failed_count: >-
           {{ _tasks
              | selectattr('status', 'defined')
@@ -537,5 +615,8 @@
                _dur % 60,
                t.worker_id | default(t.id | default('-'))) }}
           {% endfor %}
+          {% if _pbs_recent_tasks.stderr | default('') | length > 0 %}
+          stderr: {{ _pbs_recent_tasks.stderr }}
+          {% endif %}
 
           Summary: {{ _tasks | length }} tasks, {{ _failed_count }} with errors/warnings
