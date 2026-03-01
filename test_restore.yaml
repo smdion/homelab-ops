@@ -284,10 +284,45 @@
       check_mode: false
 
     # ===== RESOLVE OR PROVISION VM =====
-    - name: Resolve or provision test VM
-      include_tasks: tasks/resolve_or_provision_vm.yaml
-      vars:
-        _provision_target_group: test_target
+    - name: Initialize build state
+      ansible.builtin.set_fact:
+        _build_failed: false
+        _build_detail: ""
+
+    - block:
+        - name: Resolve or provision test VM
+          include_tasks: tasks/resolve_or_provision_vm.yaml
+          vars:
+            _provision_target_group: test_target
+
+      rescue:
+        - name: Set build failed flag
+          ansible.builtin.set_fact:
+            _build_failed: true
+            _build_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Stop test VM on build failure (free the slot)
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm_actual_node | default(_vm.pve_target_node) }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: stopped
+            force: true
+          when: >-
+            _build_failed | bool and
+            (_vm.vm_id | int) >= (vm_test_slot_base | int) and
+            (_vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
+          ignore_errors: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Fail play if build failed
+          ansible.builtin.fail:
+            msg: "Build failed: {{ _build_detail }}"
+          when: _build_failed
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 2 — Bootstrap (new VM or Docker missing)
@@ -302,36 +337,72 @@
     - vars/docker_vips.yaml
 
   tasks:
-    - name: Wait for test VM system boot to complete
-      ansible.builtin.wait_for_connection:
-        delay: 5
-        timeout: 300
-
-    - name: Gather Ansible facts for test VM
-      ansible.builtin.setup:
-
-    - name: Resolve Docker stack scope via role injection
-      include_tasks: tasks/resolve_scope.yaml
-
-    - name: Inject VRRP priority for unmapped hosts (test VMs)
+    - name: Initialize bootstrap state
       ansible.builtin.set_fact:
-        vault_docker_vrrp_priorities: >-
-          {{ vault_docker_vrrp_priorities | default({})
-             | combine({inventory_hostname.split('.')[0]: 100}) }}
-      when: _role_injected | default(false)
+        _bootstrap_failed: false
+        _bootstrap_detail: ""
 
-    - name: Check if Docker is installed on test VM
-      ansible.builtin.command: docker --version
-      register: _docker_check
-      failed_when: false
-      changed_when: false
-      become: false
+    - block:
+        - name: Wait for test VM system boot to complete
+          ansible.builtin.wait_for_connection:
+            delay: 5
+            timeout: 300
 
-    - name: Bootstrap Ubuntu with Docker and security hardening
-      include_tasks: tasks/bootstrap_vm.yaml
-      vars:
-        _vm: "{{ hostvars['localhost']._vm }}"
-      when: hostvars[inventory_hostname]._needs_bootstrap | default(false) or _docker_check.rc != 0
+        - name: Gather Ansible facts for test VM
+          ansible.builtin.setup:
+
+        - name: Resolve Docker stack scope via role injection
+          include_tasks: tasks/resolve_scope.yaml
+
+        - name: Inject VRRP priority for unmapped hosts (test VMs)
+          ansible.builtin.set_fact:
+            vault_docker_vrrp_priorities: >-
+              {{ vault_docker_vrrp_priorities | default({})
+                 | combine({inventory_hostname.split('.')[0]: 100}) }}
+          when: _role_injected | default(false)
+
+        - name: Check if Docker is installed on test VM
+          ansible.builtin.command: docker --version
+          register: _docker_check
+          failed_when: false
+          changed_when: false
+          become: false
+
+        - name: Bootstrap Ubuntu with Docker and security hardening
+          include_tasks: tasks/bootstrap_vm.yaml
+          vars:
+            _vm: "{{ hostvars['localhost']._vm }}"
+          when: hostvars[inventory_hostname]._needs_bootstrap | default(false) or _docker_check.rc != 0
+
+      rescue:
+        - name: Set bootstrap failed flag
+          ansible.builtin.set_fact:
+            _bootstrap_failed: true
+            _bootstrap_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Stop test VM on bootstrap failure (free the slot)
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm.pve_target_node) }}"
+            vmid: "{{ hostvars['localhost']._vm.vm_id }}"
+            state: stopped
+            force: true
+          delegate_to: localhost
+          when: >-
+            _bootstrap_failed | bool and
+            (hostvars['localhost']._vm.vm_id | int) >= (vm_test_slot_base | int) and
+            (hostvars['localhost']._vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
+          ignore_errors: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Fail play if bootstrap failed
+          ansible.builtin.fail:
+            msg: "Bootstrap failed: {{ _bootstrap_detail }}"
+          when: _bootstrap_failed
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 3 — Snapshot clean post-bootstrap state for revert
@@ -345,57 +416,86 @@
     - vars/vm_definitions.yaml
 
   tasks:
-    - name: Get existing Proxmox snapshots for test VM
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
-        method: GET
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        validate_certs: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      register: _vm_snapshots
-      when: not (dr_mode | default('') == 'yes')
+    - name: Initialize snapshot state
+      ansible.builtin.set_fact:
+        _snapshot_failed: false
 
-    - name: Delete existing pre-test snapshot if present
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore"
-        method: DELETE
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        validate_certs: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when:
-        - not (dr_mode | default('') == 'yes')
-        - _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
+    - block:
+        - name: Get existing Proxmox snapshots for test VM
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          register: _vm_snapshots
 
-    - name: Wait for VM lock to clear after snapshot delete
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/status/current"
-        method: GET
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        validate_certs: false
-      register: _vm_lock_status
-      until: _vm_lock_status.json.data.lock is not defined
-      retries: 20
-      delay: 3
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when:
-        - not (dr_mode | default('') == 'yes')
-        - _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
+        - name: Delete existing pre-test snapshot if present
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot/pre-test-restore"
+            method: DELETE
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
 
-    - name: Create pre-test snapshot (post-bootstrap clean state)
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
-        method: POST
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        body_format: form-urlencoded
-        body:
-          snapname: pre-test-restore
-          vmstate: 0
-        validate_certs: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+        - name: Wait for VM lock to clear after snapshot delete
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/status/current"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          register: _vm_lock_status
+          until: _vm_lock_status.json.data.lock is not defined
+          retries: 20
+          delay: 3
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
+
+        - name: Create pre-test snapshot (post-bootstrap clean state)
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ vm_definitions[vm_name].vm_id }}/snapshot"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              snapname: pre-test-restore
+              vmstate: 0
+            validate_certs: false
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+      rescue:
+        - name: Set snapshot failed flag
+          ansible.builtin.set_fact:
+            _snapshot_failed: true
+
+      always:
+        - name: Stop test VM on snapshot failure (free the slot)
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm_actual_node | default(vm_definitions[vm_name].pve_target_node) }}"
+            vmid: "{{ vm_definitions[vm_name].vm_id }}"
+            state: stopped
+            force: true
+          when: >-
+            _snapshot_failed | bool and
+            (vm_definitions[vm_name].vm_id | int) >= (vm_test_slot_base | int) and
+            (vm_definitions[vm_name].vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
+          ignore_errors: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Fail play if snapshot failed
+          ansible.builtin.fail:
+            msg: "Snapshot creation failed — test VM stopped to free slot"
+          when: _snapshot_failed
+
       when: not (dr_mode | default('') == 'yes')
 
 # ═══════════════════════════════════════════════════════════════════
