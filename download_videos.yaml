@@ -80,8 +80,6 @@
                 with open(batch_file, 'a') as bf:
                     for url in urls:
                         bf.write(url + '\n')
-                for f in files:
-                    os.remove(f)
                 print(f'processed {len(urls)} url(s) from {len(files)} capture(s)')
             "
           register: _capture_result
@@ -229,6 +227,18 @@
             discord_fields:
               - name: "Config"
                 value: "{{ config_name }}"
+
+        # -- Clean up bookmarklet captures after successful download -----------
+        - name: Remove processed bookmarklet captures
+          become: true
+          ansible.builtin.shell: >
+            docker exec {{ metube_container }}
+            find {{ metube_capture_dir }} -name '*.desktop' -type f -delete
+          changed_when: true
+          when:
+            - metube_capture_dir is defined
+            - not download_failed
+            - _capture_result.stdout | default('') is search('processed')
 
         # -- Clean up manifest -----------------------------------------------
         - name: Clean up download manifest
