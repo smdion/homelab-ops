@@ -1,0 +1,5 @@
+#!/bin/bash
+echo "Installing Claude Code..."
+npm install -g @anthropic-ai/claude-code
+echo "Claude Code Installed Successfully"
+su - abc -c "which claude"

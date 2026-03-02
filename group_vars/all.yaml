@@ -35,6 +35,21 @@ rsync_timeout: 300               # default for appdata/DB archive transfers
 rsync_timeout_amp: 1800          # AMP instances can be multi-GB
 docker_health_poll_timeout: 120  # default Docker health check poll ceiling
 
+# NFS standard port — used by bootstrap_vm, backup_offline, verify checks
+nfs_port: 2049
+
+# Restic offsite retention policy
+restic_keep_weekly: 8
+restic_keep_monthly: 6
+restic_backup_timeout: 7200      # 2 hours
+
+# Offsite dashboard URL (shown in Discord notifications)
+offsite_dashboard_url: "https://secure.backblaze.com/b2_buckets.htm"
+
+# Discord notification defaults (notify.yaml)
+discord_default_avatar: "https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png"
+discord_default_thumbnail: "https://craftassets.unraid.net/uploads/discord/notify-normal.png"
+
 # Discord embed colors (decimal integers)
 discord_color_success: 32768
 discord_color_failure: 16711680

@@ -64,6 +64,25 @@
       ansible.builtin.command: systemctl set-default graphical.target
       changed_when: true
 
+- name: Install dev tools
+  when: _vm.vm_name == 'dev'
+  block:
+    - name: Install MySQL client and Ansible
+      ansible.builtin.apt:
+        name:
+          - mysql-client
+          - ansible-core
+          - nano
+        state: present
+
+    - name: Set nano as default ansible-vault editor
+      ansible.builtin.lineinfile:
+        path: "/home/{{ vm_user }}/.bashrc"
+        line: 'export EDITOR=nano'
+        regexp: '^export EDITOR='
+        state: present
+      become_user: "{{ vm_user }}"
+
 - name: Configure Docker and VIPs
   when: _install_docker | default(true) | bool
   block:

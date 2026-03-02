@@ -84,6 +84,25 @@
             loop_var: _current_db
           when: not ansible_check_mode
 
+        - name: Dump MariaDB grants
+          include_tasks: tasks/db_dump_grants.yaml
+          vars:
+            _db_container: "{{ db_container_name }}"
+            _db_username: "{{ db_username }}"
+            _db_password: "{{ db_password | default('') }}"
+            _db_dest_file: "{{ backup_tmp_dir }}/grants_{{ ansible_date_time.date }}.sql.gz"
+          when:
+            - is_mariadb | default(false) | bool
+            - not ansible_check_mode
+
+        - name: Fetch MariaDB grants to controller
+          ansible.builtin.fetch:
+            src: "{{ backup_tmp_dir }}/grants_{{ ansible_date_time.date }}.sql.gz"
+            dest: "{{ backup_base_dir }}/{{ backup_stack | default(inventory_hostname) }}/grants_{{ ansible_date_time.date }}.sql.gz"
+            flat: true
+          become: false
+          when: is_mariadb | default(false) | bool
+
       rescue:
         - name: Set database backup failed flag
           ansible.builtin.set_fact:

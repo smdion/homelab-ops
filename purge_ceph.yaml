@@ -110,7 +110,7 @@
         - name: Discover removable Ceph packages
           ansible.builtin.shell: |
             dpkg -l 2>/dev/null | grep -i ceph | grep '^ii' | awk '{print $2}' \
-              | grep -v -E '^(ceph-common|ceph-fuse|libcephfs2|python3-ceph|python3-cephfs|python3-rados|python3-rbd|python3-rgw)$' \
+              | grep -v -E '^(ceph-common|ceph-fuse|libcephfs2|python3-ceph|python3-ceph-argparse|python3-ceph-common|python3-cephfs|python3-rados|python3-rbd|python3-rgw)$' \
               || true
           register: _ceph_removable
           changed_when: false
@@ -265,7 +265,7 @@
         - name: Verify no Ceph daemon packages remain
           ansible.builtin.shell: |
             dpkg -l 2>/dev/null | grep -i ceph | grep '^ii' \
-              | grep -v -E '(ceph-common|ceph-fuse|libcephfs2|python3-ceph|python3-cephfs|python3-rados|python3-rbd|python3-rgw)' \
+              | grep -v -E '(ceph-common|ceph-fuse|libcephfs2|python3-ceph|python3-ceph-argparse|python3-ceph-common|python3-cephfs|python3-rados|python3-rbd|python3-rgw)' \
               || true
           register: _verify_pkgs
           changed_when: false

@@ -1,0 +1,34 @@
+---
+# Dump MariaDB user accounts and grants to a standalone SQL file.
+# Produces a file that can be sourced with: mysql -u root -p < grants.sql
+#
+# Expects:
+#   _db_container  — MariaDB container name
+#   _db_username   — DB admin user (typically root)
+#   _db_password   — DB admin password
+#   _db_dest_file  — full path for the output .sql.gz file
+# Optional:
+#   _db_delegate_host — target host (default: inventory_hostname)
+# Registers: _db_grant_dump_result
+
+- name: "Dump MariaDB grants"
+  ansible.builtin.shell: |
+    {{ _gz_detect }}
+    docker exec -e MYSQL_PWD="$DB_PASSWORD" {{ _db_container }} sh -c '
+      mysql --skip-column-names -u {{ _db_username }} -e "
+        SELECT DISTINCT CONCAT(
+          \"SHOW GRANTS FOR \", QUOTE(user), \"@\", QUOTE(host), \";\"
+        ) FROM mysql.user
+        WHERE user NOT IN (\"root\", \"mariadb.sys\", \"\")
+      " | while IFS= read -r stmt; do
+        mysql --skip-column-names -u {{ _db_username }} -e "$stmt" 2>/dev/null \
+          | sed "s/$/;/"
+      done
+    ' | $_gz -1 > {{ _db_dest_file }}
+  environment:
+    DB_PASSWORD: "{{ _db_password | default('') }}"
+  register: _db_grant_dump_result
+  become: true
+  delegate_to: "{{ _db_delegate_host | default(inventory_hostname) }}"
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  changed_when: true

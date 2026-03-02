@@ -1,11 +1,16 @@
 ---
-# Guacamole connection management — used by maintain_guacamole.yaml
+# Guacamole connection management — used by maintain_guacamole.yaml and build_ubuntu.yaml
 #
 # Connection groups organize connections in the Guacamole UI.
 # Admin groups get READ on every managed connection automatically.
 # SSH defaults apply to all connections without explicit credentials.
 # Extra connections define entries not derivable from definition files.
 # Per-connection user_groups grant READ access to specific Authentik groups.
+
+# Guacamole DB/container identity — shared by maintain_guacamole.yaml and build_ubuntu.yaml
+guacamole_db_user: "guacamole"
+guacamole_db_name: "guacamole_db"
+guacamole_container: "guacamole"
 
 # Admin user groups — get READ permission on ALL managed connections.
 # Matched by name in Authentik via OpenID Connect SSO.

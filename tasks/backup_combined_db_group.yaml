@@ -40,6 +40,25 @@
     backup_tmp_dir: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
     _db_delegate_host: "{{ db_host }}"
 
+- name: "Dump MariaDB grants — {{ _db_config_file }}"
+  include_tasks: tasks/db_dump_grants.yaml
+  vars:
+    _db_container: "{{ db_container_name }}"
+    _db_username: "{{ db_username }}"
+    _db_password: "{{ db_password | default('') }}"
+    _db_dest_file: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}/grants_{{ ansible_date_time.date }}.sql.gz"
+    _db_delegate_host: "{{ db_host }}"
+  when: is_mariadb | default(false) | bool
+
+- name: "Fetch MariaDB grants to controller — {{ _db_config_file }}"
+  ansible.builtin.fetch:
+    src: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}/grants_{{ ansible_date_time.date }}.sql.gz"
+    dest: "{{ backup_base_dir }}/{{ backup_stack | default(inventory_hostname) }}/grants_{{ ansible_date_time.date }}.sql.gz"
+    flat: true
+  become: false
+  delegate_to: "{{ db_host }}"
+  when: is_mariadb | default(false) | bool
+
 - name: "Sync results — {{ _db_config_file }}"
   ansible.builtin.set_fact:
     _db_combined_results: "{{ combined_results }}"
