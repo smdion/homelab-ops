@@ -102,42 +102,24 @@
           failed_when: false
 
         # ── Phase 3: Package removal (all nodes) ───────────────────
-        - name: Purge Ceph packages
-          ansible.builtin.apt:
-            name:
-              - ceph
-              - ceph-mon
-              - ceph-osd
-              - ceph-mgr
-              - ceph-mds
-              - ceph-base
-              - ceph-common
-              - ceph-fuse
-              - ceph-volume
-              - ceph-mgr-modules-core
-              - libsqlite3-mod-ceph
-            state: absent
-            purge: true
-          failed_when: false
+        # apt module with a flat list silently fails on PVE's cross-dependent
+        # Ceph packages. Use shell with apt-get which resolves the dependency
+        # chain correctly in a single pass.
+        - name: Purge all Ceph packages
+          ansible.builtin.shell: >-
+            apt-get purge -y
+            ceph ceph-base ceph-common ceph-fuse ceph-mds ceph-mgr
+            ceph-mgr-modules-core ceph-mon ceph-osd ceph-volume
+            libcephfs2 librados2 librbd1 librgw2 libsqlite3-mod-ceph
+            python3-ceph python3-ceph-argparse python3-ceph-common
+            python3-cephfs python3-rados python3-rbd python3-rgw
+            2>&1 || true
+          register: _apt_purge
+          changed_when: "'is not installed' not in _apt_purge.stdout"
 
-        - name: Purge Ceph library packages missed by main purge
-          ansible.builtin.apt:
-            name:
-              - libcephfs2
-              - librados2
-              - librbd1
-              - librgw2
-              - libcephfs-dev
-              - python3-ceph
-              - python3-ceph-argparse
-              - python3-ceph-common
-              - python3-cephfs
-              - python3-rados
-              - python3-rbd
-              - python3-rgw
-            state: absent
-            purge: true
-          failed_when: false
+        - name: Display package purge result
+          ansible.builtin.debug:
+            msg: "{{ _apt_purge.stdout_lines[-5:] | default(['no output']) }}"
 
         # ── Phase 4: Local filesystem cleanup (all nodes) ──────────
         - name: Remove Ceph data directories
