@@ -105,6 +105,7 @@
         - name: Purge Ceph packages
           ansible.builtin.apt:
             name:
+              - ceph
               - ceph-mon
               - ceph-osd
               - ceph-mgr
@@ -114,6 +115,7 @@
               - ceph-fuse
               - ceph-volume
               - ceph-mgr-modules-core
+              - libsqlite3-mod-ceph
             state: absent
             purge: true
           failed_when: false
