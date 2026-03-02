@@ -240,6 +240,17 @@
             - not download_failed
             - _capture_result.stdout | default('') is search('processed')
 
+        # -- Clean up batch file after successful download ----------------------
+        - name: Truncate on-demand batch file
+          become: true
+          ansible.builtin.command: >
+            docker exec {{ metube_container }}
+            truncate -s 0 {{ ytdlp_batch_file }}
+          changed_when: true
+          when:
+            - metube_capture_dir is defined
+            - not download_failed
+
         # -- Clean up manifest -----------------------------------------------
         - name: Clean up download manifest
           become: true
