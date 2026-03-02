@@ -102,24 +102,31 @@
           failed_when: false
 
         # ── Phase 3: Package removal (all nodes) ───────────────────
-        # apt module with a flat list silently fails on PVE's cross-dependent
-        # Ceph packages. Use shell with apt-get which resolves the dependency
-        # chain correctly in a single pass.
-        - name: Purge all Ceph packages
+        # PVE's pve-apt-hook blocks apt-get from removing Ceph packages.
+        # Use dpkg --purge --force-depends to bypass the hook, then clean
+        # up with apt-get to fix any dangling dependency state.
+        - name: Discover installed Ceph packages
+          ansible.builtin.shell: dpkg -l 2>/dev/null | grep -i ceph | grep '^ii' | awk '{print $2}' || true
+          register: _ceph_installed
+          changed_when: false
+          check_mode: false
+
+        - name: Purge Ceph packages via dpkg
           ansible.builtin.shell: >-
-            apt-get purge -y
-            ceph ceph-base ceph-common ceph-fuse ceph-mds ceph-mgr
-            ceph-mgr-modules-core ceph-mon ceph-osd ceph-volume
-            libcephfs2 librados2 librbd1 librgw2 libsqlite3-mod-ceph
-            python3-ceph python3-ceph-argparse python3-ceph-common
-            python3-cephfs python3-rados python3-rbd python3-rgw
+            dpkg --purge --force-depends {{ _ceph_installed.stdout_lines | join(' ') }}
             2>&1 || true
-          register: _apt_purge
-          changed_when: "'is not installed' not in _apt_purge.stdout"
+          register: _dpkg_purge
+          when: _ceph_installed.stdout_lines | length > 0
+
+        - name: Clean apt dependency state after dpkg purge
+          ansible.builtin.shell: apt-get -f install -y 2>&1 || true
+          when: _ceph_installed.stdout_lines | length > 0
+          changed_when: false
 
         - name: Display package purge result
           ansible.builtin.debug:
-            msg: "{{ _apt_purge.stdout_lines[-5:] | default(['no output']) }}"
+            msg: "{{ _dpkg_purge.stdout_lines[-10:] | default(['no ceph packages found']) }}"
+          when: _dpkg_purge is defined
 
         # ── Phase 4: Local filesystem cleanup (all nodes) ──────────
         - name: Remove Ceph data directories
