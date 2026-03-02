@@ -103,29 +103,29 @@
 
         # ── Phase 3: Package removal (all nodes) ───────────────────
         # PVE's pve-apt-hook blocks apt-get from removing Ceph packages.
-        # Use dpkg --purge --force-depends to bypass the hook, then clean
-        # up with apt-get to fix any dangling dependency state.
-        - name: Discover installed Ceph packages
-          ansible.builtin.shell: dpkg -l 2>/dev/null | grep -i ceph | grep '^ii' | awk '{print $2}' || true
-          register: _ceph_installed
+        # Use dpkg --purge --force-depends to bypass the hook.
+        # NOTE: ceph-common, ceph-fuse, and their lib/python deps are
+        # required by libpve-storage-perl (PVE core) and CANNOT be removed.
+        # Only Ceph daemon/server packages are purged.
+        - name: Discover removable Ceph packages
+          ansible.builtin.shell: |
+            dpkg -l 2>/dev/null | grep -i ceph | grep '^ii' | awk '{print $2}' \
+              | grep -v -E '^(ceph-common|ceph-fuse|libcephfs2|python3-ceph|python3-cephfs|python3-rados|python3-rbd|python3-rgw)$' \
+              || true
+          register: _ceph_removable
           changed_when: false
           check_mode: false
 
-        - name: Purge Ceph packages via dpkg
+        - name: Purge Ceph daemon packages via dpkg
           ansible.builtin.shell: >-
-            dpkg --purge --force-depends {{ _ceph_installed.stdout_lines | join(' ') }}
+            dpkg --purge --force-depends {{ _ceph_removable.stdout_lines | join(' ') }}
             2>&1 || true
           register: _dpkg_purge
-          when: _ceph_installed.stdout_lines | length > 0
-
-        - name: Clean apt dependency state after dpkg purge
-          ansible.builtin.shell: apt-get -f install -y 2>&1 || true
-          when: _ceph_installed.stdout_lines | length > 0
-          changed_when: false
+          when: _ceph_removable.stdout_lines | length > 0
 
         - name: Display package purge result
           ansible.builtin.debug:
-            msg: "{{ _dpkg_purge.stdout_lines[-10:] | default(['no ceph packages found']) }}"
+            msg: "{{ _dpkg_purge.stdout_lines[-10:] | default(['no removable ceph packages found']) }}"
           when: _dpkg_purge is defined
 
         # ── Phase 4: Local filesystem cleanup (all nodes) ──────────
@@ -262,8 +262,11 @@
           failed_when: false
 
         # ── Phase 7: Verification (all nodes) ──────────────────────
-        - name: Verify no Ceph packages remain
-          ansible.builtin.shell: dpkg -l 2>/dev/null | grep -i ceph | grep -v '^rc' || true
+        - name: Verify no Ceph daemon packages remain
+          ansible.builtin.shell: |
+            dpkg -l 2>/dev/null | grep -i ceph | grep '^ii' \
+              | grep -v -E '(ceph-common|ceph-fuse|libcephfs2|python3-ceph|python3-cephfs|python3-rados|python3-rbd|python3-rgw)' \
+              || true
           register: _verify_pkgs
           changed_when: false
           check_mode: false
@@ -291,7 +294,7 @@
           ansible.builtin.debug:
             msg: |
               === CEPH PURGE VERIFICATION ===
-              Ceph packages remaining: {{ _verify_pkgs.stdout_lines | default([]) | length }} (expect 0)
+              Ceph daemon packages remaining: {{ _verify_pkgs.stdout_lines | default([]) | length }} (expect 0, client libs kept for PVE)
               {% if _verify_pkgs.stdout_lines | default([]) | length > 0 %}
               {{ _verify_pkgs.stdout }}
               {% endif %}
