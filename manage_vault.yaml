@@ -202,7 +202,7 @@
       register: _example_raw
       when: action == 'validate'
 
-    - name: Parse required keys from example (uncommented key: lines)
+    - name: "Parse required keys from example (uncommented key: lines)"
       ansible.builtin.set_fact:
         _required_keys: >-
           {{ (_example_raw.content | b64decode).split('\n')
@@ -211,7 +211,7 @@
              | list }}
       when: action == 'validate'
 
-    - name: Parse optional keys from example (commented # key: lines)
+    - name: "Parse optional keys from example (commented # key: lines)"
       ansible.builtin.set_fact:
         _optional_keys: >-
           {{ (_example_raw.content | b64decode).split('\n')
