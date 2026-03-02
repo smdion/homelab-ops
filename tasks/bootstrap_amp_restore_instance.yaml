@@ -43,12 +43,11 @@
       changed_when: true
 
     - name: Set ownership for {{ _amp_instance }}
-      ansible.builtin.file:
-        path: "{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}"
-        state: directory
-        owner: "{{ amp_user }}"
-        group: "{{ amp_user }}"
-        recurse: true
+      ansible.builtin.command:
+        cmd: >-
+          chown -hR {{ amp_user }}:{{ amp_user }}
+          {{ amp_home }}/.ampdata/instances/{{ _amp_instance }}
+      changed_when: true
 
     - name: Record success for {{ _amp_instance }}
       ansible.builtin.set_fact:
