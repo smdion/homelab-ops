@@ -1,0 +1,338 @@
+---
+# One-time complete Ceph removal from all PVE cluster nodes.
+# Removes services, packages, configs, cluster-filesystem entries, and
+# optionally wipes former OSD disks so they are clean for Ceph reinstall.
+#
+# Prerequisites:
+#   - All VMs on local-lvm (no Ceph storage backends configured)
+#   - All PVE nodes online and cluster quorate
+#
+# Usage:
+#   # Dry-run — preview every action, change nothing
+#   ansible-playbook purge_ceph.yaml --check
+#
+#   # Execute purge (services + packages + configs) — report OSD disks but skip wipe
+#   ansible-playbook purge_ceph.yaml
+#
+#   # Execute purge AND wipe former OSD disks
+#   ansible-playbook purge_ceph.yaml -e confirm_disk_wipe=yes
+#
+# Required vault vars: logging DB credentials (for pre_task_assertions)
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Purge Ceph from PVE cluster nodes
+# ═══════════════════════════════════════════════════════════════════
+- name: Purge Ceph from PVE cluster
+  hosts: pve
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+  vars:
+    maintenance_name: "Proxmox"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Ceph Purge"
+    maintenance_url: ""
+    maintenance_description: "Complete Ceph removal from PVE cluster nodes"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "purge_ceph.yaml"
+
+  tasks:
+    - name: Initialize purge state
+      ansible.builtin.set_fact:
+        purge_failed: false
+
+    - block:
+        # ── Phase 0: Safety checks ──────────────────────────────────
+        - name: Check for Ceph storage backends in PVE
+          ansible.builtin.shell: pvesm status 2>/dev/null | grep -Ei 'rbd|cephfs' || true
+          register: _ceph_storage_check
+          changed_when: false
+          check_mode: false
+
+        - name: Fail if Ceph storage backends still configured
+          ansible.builtin.fail:
+            msg: >-
+              Ceph storage backends are still configured in PVE — remove them
+              before purging Ceph: {{ _ceph_storage_check.stdout }}
+          when: _ceph_storage_check.stdout | length > 0
+
+        # ── Phase 1: Stop services (all nodes, parallel) ───────────
+        - name: Stop Ceph service targets
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            state: stopped
+          loop:
+            - ceph-osd.target
+            - ceph-mds.target
+            - ceph-mgr.target
+            - ceph-mon.target
+            - ceph.target
+          failed_when: false
+
+        - name: Disable Ceph service targets
+          ansible.builtin.systemd:
+            name: "{{ item }}"
+            enabled: false
+          loop:
+            - ceph-osd.target
+            - ceph-mds.target
+            - ceph-mgr.target
+            - ceph-mon.target
+            - ceph.target
+          failed_when: false
+
+        - name: Kill lingering Ceph processes
+          ansible.builtin.shell: killall -9 ceph-mon ceph-mgr ceph-mds ceph-osd ceph-fuse radosgw 2>/dev/null || true
+          changed_when: false
+
+        - name: Unmount Ceph OSD mount points
+          ansible.builtin.shell: mount | grep '/var/lib/ceph' | awk '{print $3}' | xargs -r umount 2>/dev/null || true
+          changed_when: false
+
+        # ── Phase 2: pveceph purge (run_once — cluster-wide) ───────
+        - name: Purge Ceph via PVE tooling
+          ansible.builtin.command: pveceph purge --crash --logs
+          run_once: true
+          failed_when: false
+
+        # ── Phase 3: Package removal (all nodes) ───────────────────
+        - name: Purge Ceph packages
+          ansible.builtin.apt:
+            name:
+              - ceph-mon
+              - ceph-osd
+              - ceph-mgr
+              - ceph-mds
+              - ceph-base
+              - ceph-common
+              - ceph-fuse
+              - ceph-volume
+              - ceph-mgr-modules-core
+            state: absent
+            purge: true
+          failed_when: false
+
+        - name: Preview autoremove candidates
+          ansible.builtin.shell: apt-get --dry-run autoremove 2>/dev/null | grep -E '^Remv ' || echo "nothing to autoremove"
+          register: _autoremove_preview
+          changed_when: false
+          check_mode: false
+
+        - name: Display autoremove preview
+          ansible.builtin.debug:
+            msg: "{{ _autoremove_preview.stdout_lines }}"
+
+        - name: Autoremove unused dependencies
+          ansible.builtin.apt:
+            autoremove: true
+            purge: true
+
+        # ── Phase 4: Local filesystem cleanup (all nodes) ──────────
+        - name: Remove Ceph data directories
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /var/lib/ceph
+            - /var/log/ceph
+            - /run/ceph
+
+        - name: Clean /etc/ceph contents (preserve empty directory)
+          ansible.builtin.shell: rm -rf /etc/ceph/* 2>/dev/null || true
+          changed_when: false
+
+        - name: Ensure /etc/ceph directory exists for future reinstall
+          ansible.builtin.file:
+            path: /etc/ceph
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+
+        - name: Remove stale Ceph systemd overrides
+          ansible.builtin.shell: |
+            rm -rf /etc/systemd/system/ceph* 2>/dev/null || true
+            rm -rf /etc/systemd/system/*/ceph* 2>/dev/null || true
+          changed_when: false
+
+        - name: Reload systemd daemon
+          ansible.builtin.systemd:
+            daemon_reload: true
+
+        - name: Remove Ceph APT source list
+          ansible.builtin.file:
+            path: /etc/apt/sources.list.d/ceph.list
+            state: absent
+
+        # ── Phase 5: Cluster filesystem cleanup (run_once) ─────────
+        - name: Remove /etc/pve/ceph.conf
+          ansible.builtin.file:
+            path: /etc/pve/ceph.conf
+            state: absent
+          run_once: true
+          failed_when: false
+
+        - name: Remove /etc/pve/ceph directory
+          ansible.builtin.file:
+            path: /etc/pve/ceph
+            state: absent
+          run_once: true
+          failed_when: false
+
+        - name: Remove /etc/pve/priv/ceph directory
+          ansible.builtin.file:
+            path: /etc/pve/priv/ceph
+            state: absent
+          run_once: true
+          failed_when: false
+
+        # ── Phase 6: OSD disk cleanup (auto-discover + gate) ──────
+        - name: Discover Ceph device-mapper entries
+          ansible.builtin.shell: dmsetup ls 2>/dev/null | grep -i ceph | awk '{print $1}' || true
+          register: _ceph_dm
+          changed_when: false
+          check_mode: false
+
+        - name: Discover Ceph LVM volume groups
+          ansible.builtin.shell: vgs --noheadings -o vg_name 2>/dev/null | grep -i ceph | sed 's/ //g' || true
+          register: _ceph_vgs
+          changed_when: false
+          check_mode: false
+
+        - name: Discover Ceph LVM physical volumes
+          ansible.builtin.shell: pvs --noheadings -o pv_name,vg_name 2>/dev/null | grep -i ceph | awk '{print $1}' || true
+          register: _ceph_pvs
+          changed_when: false
+          check_mode: false
+
+        - name: Discover former OSD disk devices
+          ansible.builtin.shell: pvs --noheadings -o pv_name,vg_name 2>/dev/null | grep -i ceph | awk '{print $1}' | sed 's/[0-9]*$//' | sort -u || true
+          register: _ceph_osd_disks
+          changed_when: false
+          check_mode: false
+
+        - name: Report discovered Ceph disk artifacts
+          ansible.builtin.debug:
+            msg:
+              - "Device-mapper entries: {{ _ceph_dm.stdout_lines | default([]) }}"
+              - "LVM volume groups: {{ _ceph_vgs.stdout_lines | default([]) }}"
+              - "LVM physical volumes: {{ _ceph_pvs.stdout_lines | default([]) }}"
+              - "Former OSD disks: {{ _ceph_osd_disks.stdout_lines | default([]) }}"
+              - "Disk wipe: {{ 'ENABLED (confirm_disk_wipe=yes)' if (confirm_disk_wipe | default('no') | bool) else 'SKIPPED — re-run with -e confirm_disk_wipe=yes to wipe' }}"
+
+        - name: Remove Ceph device-mapper entries
+          ansible.builtin.command: "dmsetup remove -f {{ item }}"
+          loop: "{{ _ceph_dm.stdout_lines | default([]) }}"
+          when:
+            - confirm_disk_wipe | default('no') | bool
+            - _ceph_dm.stdout_lines | default([]) | length > 0
+          failed_when: false
+
+        - name: Remove Ceph LVM volume groups
+          ansible.builtin.command: "vgremove -y {{ item }}"
+          loop: "{{ _ceph_vgs.stdout_lines | default([]) }}"
+          when:
+            - confirm_disk_wipe | default('no') | bool
+            - _ceph_vgs.stdout_lines | default([]) | length > 0
+          failed_when: false
+
+        - name: Remove Ceph LVM physical volumes
+          ansible.builtin.command: "pvremove -f {{ item }}"
+          loop: "{{ _ceph_pvs.stdout_lines | default([]) }}"
+          when:
+            - confirm_disk_wipe | default('no') | bool
+            - _ceph_pvs.stdout_lines | default([]) | length > 0
+          failed_when: false
+
+        - name: Wipe former OSD disk signatures
+          ansible.builtin.command: "wipefs -af {{ item }}"
+          loop: "{{ _ceph_osd_disks.stdout_lines | default([]) }}"
+          when:
+            - confirm_disk_wipe | default('no') | bool
+            - _ceph_osd_disks.stdout_lines | default([]) | length > 0
+          failed_when: false
+
+        - name: Zap former OSD disk partition tables
+          ansible.builtin.command: "sgdisk --zap-all {{ item }}"
+          loop: "{{ _ceph_osd_disks.stdout_lines | default([]) }}"
+          when:
+            - confirm_disk_wipe | default('no') | bool
+            - _ceph_osd_disks.stdout_lines | default([]) | length > 0
+          failed_when: false
+
+        # ── Phase 7: Verification (all nodes) ──────────────────────
+        - name: Verify no Ceph packages remain
+          ansible.builtin.shell: dpkg -l 2>/dev/null | grep -i ceph | grep -v '^rc' || true
+          register: _verify_pkgs
+          changed_when: false
+          check_mode: false
+
+        - name: Verify no Ceph processes running
+          ansible.builtin.shell: pgrep -a ceph || true
+          register: _verify_procs
+          changed_when: false
+          check_mode: false
+
+        - name: Verify /etc/pve/ceph.conf is absent
+          ansible.builtin.stat:
+            path: /etc/pve/ceph.conf
+          register: _verify_pve_conf
+          run_once: true
+          check_mode: false
+
+        - name: Verify no Ceph LVM volume groups remain
+          ansible.builtin.shell: vgs 2>/dev/null | grep -i ceph || true
+          register: _verify_vgs
+          changed_when: false
+          check_mode: false
+
+        - name: Display purge verification report
+          ansible.builtin.debug:
+            msg: |
+              === CEPH PURGE VERIFICATION ===
+              Ceph packages remaining: {{ _verify_pkgs.stdout_lines | default([]) | length }} (expect 0)
+              {% if _verify_pkgs.stdout_lines | default([]) | length > 0 %}
+              {{ _verify_pkgs.stdout }}
+              {% endif %}
+              Ceph processes running: {{ _verify_procs.stdout_lines | default([]) | length }} (expect 0)
+              {% if _verify_procs.stdout_lines | default([]) | length > 0 %}
+              {{ _verify_procs.stdout }}
+              {% endif %}
+              /etc/pve/ceph.conf exists: {{ _verify_pve_conf.stat.exists | default(false) }} (expect false)
+              Ceph VGs remaining: {{ _verify_vgs.stdout_lines | default([]) | length }} (expect 0)
+              {% if _verify_vgs.stdout_lines | default([]) | length > 0 %}
+              {{ _verify_vgs.stdout }}
+              {% endif %}
+
+      rescue:
+        - name: Set purge failed
+          ansible.builtin.set_fact:
+            purge_failed: true
+
+      always:
+        - name: Send alert on failure
+          include_tasks: tasks/notify.yaml
+          when: purge_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Ceph Purge"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+
+        - name: Log purge to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if purge_failed else 'success' }}"

@@ -8,6 +8,7 @@
 # Ansible temporary files
 *.retry
 .ansible/
+__pycache__/
 
 # Claude
 .claude/

@@ -194,6 +194,16 @@
             - inventory_hostname in groups['pve'] | default([])
             - _pve_maint_enabled is not skipped
 
+        - name: Check if Ceph is available
+          ansible.builtin.shell: command -v ceph >/dev/null 2>&1
+          register: _ceph_available
+          changed_when: false
+          failed_when: false
+          check_mode: false
+          when:
+            - _version_scope == 'os'
+            - inventory_hostname in groups['pve'] | default([])
+
         - name: Set Ceph maintenance flags before PVE reboot
           ansible.builtin.shell: ceph osd set noout; ceph osd set nobackfill; ceph osd set norebalance
           become: true
@@ -202,6 +212,7 @@
             - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
             - _pve_maint_enabled is not skipped
+            - _ceph_available.rc | default(1) == 0
 
         - name: Reboot machines that require
           ansible.builtin.reboot:
@@ -228,6 +239,7 @@
             - inventory_hostname in groups['pve'] | default([])
             - _ceph_noout_set is defined
             - not (_ceph_noout_set is skipped)
+            - _ceph_available.rc | default(1) == 0
 
         - name: Unset Ceph maintenance flags after PVE reboot
           ansible.builtin.shell: ceph osd unset noout; ceph osd unset nobackfill; ceph osd unset norebalance
@@ -237,6 +249,7 @@
             - inventory_hostname in groups['pve'] | default([])
             - _ceph_noout_set is defined
             - not (_ceph_noout_set is skipped)
+            - _ceph_available.rc | default(1) == 0
 
         - name: Disable PVE node maintenance mode
           ansible.builtin.shell: ha-manager crm-command node-maintenance disable {{ ansible_hostname }}
@@ -584,7 +597,9 @@
 
         - name: Best-effort cleanup — unset Ceph flags and disable node maintenance
           ansible.builtin.shell: |
+            {% if _ceph_available.rc | default(1) == 0 %}
             ceph osd unset noout; ceph osd unset nobackfill; ceph osd unset norebalance
+            {% endif %}
             ha-manager crm-command node-maintenance disable {{ ansible_hostname }}
           become: true
           failed_when: false
