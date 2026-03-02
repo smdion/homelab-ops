@@ -10,8 +10,13 @@ update_name: "AMP"
 update_description: "Automatic AMP Update"
 update_subtype: "Game Server"
 
-# Maintenance config — used by maintain_amp.yaml
+# Maintenance config — used by maintain_amp.yaml and bootstrap_amp.yaml
 amp_user: "amp"
 amp_home: "/home/amp"
 amp_versions_keep: 2
 amp_journal_max_age: "3d"
+
+# Unattended install defaults — used by bootstrap_amp.yaml
+amp_admin_user: "admin"
+amp_admin_password: "{{ vault_amp_admin_password | default(pve_vm_password) }}"
+amp_system_password: "{{ vault_amp_system_password | default(pve_vm_password) }}"

@@ -1,0 +1,366 @@
+---
+# Bootstrap AMP game server: install software, restore instances from backup,
+# and optionally reactivate the license.
+#
+# The VM must already be provisioned and bootstrapped via build_ubuntu.yaml.
+# This playbook installs AMP (CubeCoders) in unattended mode, restores the
+# .ampdata directory from per-instance backup archives on the controller,
+# and brings the service online.
+#
+# Required extra vars:
+#   confirm=yes         — safety gate
+#
+# Optional extra vars:
+#   amp_licence_key     — CubeCoders license UUID; skips reactivation if omitted
+#   restore_host        — inventory_hostname of old AMP host for backup lookup
+#                         (default: first host in amp group)
+#
+# Usage:
+#   ansible-playbook bootstrap_amp.yaml -e confirm=yes
+#   ansible-playbook bootstrap_amp.yaml -e confirm=yes -e amp_licence_key=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Install AMP software on target host
+# ═══════════════════════════════════════════════════════════════════
+- name: Install AMP game server manager
+  hosts: amp
+  become: true
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/amp.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "AMP"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Build"
+
+  pre_tasks:
+    - name: Assert safety gate
+      ansible.builtin.assert:
+        that:
+          - confirm | default('no') == 'yes'
+        fail_msg: "Safety gate not set. Usage: -e confirm=yes"
+
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "bootstrap_amp.yaml"
+        pre_hostname: "{{ inventory_hostname }}"
+
+  tasks:
+    - name: Initialize build state
+      ansible.builtin.set_fact:
+        _bootstrap_failed: false
+        _bootstrap_detail: ""
+
+    - block:
+        - name: Create AMP system user
+          ansible.builtin.user:
+            name: "{{ amp_user }}"
+            home: "{{ amp_home }}"
+            shell: /bin/bash
+            create_home: true
+            system: true
+
+        - name: Install AMP game server manager (unattended)
+          ansible.builtin.shell: bash <(wget -qO- getamp.sh)
+          args:
+            executable: /bin/bash
+            creates: /usr/bin/ampinstmgr
+          environment:
+            USE_ANSWERS: "y"
+            ANSWER_SYSPASSWORD: "{{ amp_system_password }}"
+            ANSWER_AMPUSER: "{{ amp_admin_user }}"
+            ANSWER_AMPPASS: "{{ amp_admin_password }}"
+            ANSWER_INSTALLJAVA: "y"
+            ANSWER_INSTALLSRCDSLIBS: "y"
+            ANSWER_INSTALLDOCKER: "n"
+            ANSWER_HTTPS: "n"
+            SKIP_INSTALL: "y"
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Stop ampinstmgr service
+          ansible.builtin.service:
+            name: ampinstmgr
+            state: stopped
+          ignore_errors: true
+
+        - name: Remove installer-created .ampdata (will restore from backup)
+          ansible.builtin.file:
+            path: "{{ amp_home }}/.ampdata"
+            state: absent
+
+        - name: Record install detail
+          ansible.builtin.set_fact:
+            _bootstrap_detail: "AMP installed, ready for restore"
+
+      rescue:
+        - name: Set install failed flag
+          ansible.builtin.set_fact:
+            _bootstrap_failed: true
+            _bootstrap_detail: "AMP install failed — {{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Send notification on install failure
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Build"
+            discord_status: "failed"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ backup_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "❌ Install"
+                value: "{{ _bootstrap_detail }}"
+          when: _bootstrap_failed
+
+        - name: Log install to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if _bootstrap_failed else 'success' }}"
+
+        - name: Fail play if install failed
+          ansible.builtin.fail:
+            msg: "AMP install failed: {{ _bootstrap_detail }}"
+          when: _bootstrap_failed
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Discover backup archives on controller
+# ═══════════════════════════════════════════════════════════════════
+- name: Discover AMP backup archives
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/amp.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    _restore_host: "{{ restore_host | default(groups['amp'][0]) }}"
+
+  tasks:
+    - name: Find latest instances.json registry
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ _restore_host }}/amp_instances_*.json
+        2>/dev/null | head -1
+      args:
+        executable: /bin/bash
+      register: _amp_registry_file
+      changed_when: false
+
+    - name: Assert instances.json backup exists
+      ansible.builtin.assert:
+        that: _amp_registry_file.stdout | length > 0
+        fail_msg: "No instances.json backup found in {{ backup_base_dir }}/{{ _restore_host }}/"
+
+    - name: Slurp instances.json registry from controller
+      ansible.builtin.slurp:
+        src: "{{ _amp_registry_file.stdout }}"
+      register: _amp_registry_content
+
+    - name: Discover instances with backups
+      ansible.builtin.shell: |
+        ls {{ backup_base_dir }}/{{ _restore_host }}/backup_amp_*_*.tar.gz 2>/dev/null \
+          | sed 's|.*backup_amp_\(.*\)_[0-9-]*\.tar\.gz|\1|' | sort -u
+      args:
+        executable: /bin/bash
+      register: _amp_controller_instances
+      changed_when: false
+
+    - name: Set instance list to restore
+      ansible.builtin.set_fact:
+        _restore_instances: "{{ _amp_controller_instances.stdout_lines | default([]) }}"
+
+    - name: Assert at least one instance to restore
+      ansible.builtin.assert:
+        that: _restore_instances | length > 0
+        fail_msg: "No AMP backup archives found for {{ _restore_host }} on controller"
+
+    - name: Find latest archive for each instance
+      ansible.builtin.shell: >
+        ls -t {{ backup_base_dir }}/{{ _restore_host }}/backup_amp_{{ item }}_*.tar.gz
+        2>/dev/null | head -1
+      loop: "{{ _restore_instances }}"
+      register: _amp_archive_results
+      changed_when: false
+
+    - name: Assert archive found for each instance
+      ansible.builtin.assert:
+        that: item.stdout | length > 0
+        fail_msg: "No archive found for AMP instance '{{ item.item }}'"
+      loop: "{{ _amp_archive_results.results }}"
+
+    - name: Set restore archive map
+      ansible.builtin.set_fact:
+        _restore_archive_map: >-
+          {{ dict(_restore_instances
+                  | zip(_amp_archive_results.results | map(attribute='stdout') | list)) }}
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 3 — Restore instances on AMP host
+# ═══════════════════════════════════════════════════════════════════
+- name: Restore AMP instances from backup
+  hosts: amp
+  become: true
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/amp.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "AMP"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Build"
+    _restore_instances: "{{ hostvars['localhost']._restore_instances }}"
+    _restore_archive_map: "{{ hostvars['localhost']._restore_archive_map }}"
+    _amp_registry_content: "{{ hostvars['localhost']._amp_registry_content }}"
+
+  tasks:
+    - name: Initialize restore state
+      ansible.builtin.set_fact:
+        _restore_failed: false
+        _restore_detail: ""
+        _amp_restore_results: []
+
+    - block:
+        - name: Create .ampdata directory structure
+          ansible.builtin.file:
+            path: "{{ amp_home }}/.ampdata/instances"
+            state: directory
+            owner: "{{ amp_user }}"
+            group: "{{ amp_user }}"
+            mode: "0755"
+
+        - name: Restore instances.json registry
+          ansible.builtin.copy:
+            content: "{{ _amp_registry_content.content | b64decode }}"
+            dest: "{{ amp_home }}/.ampdata/instances.json"
+            owner: "{{ amp_user }}"
+            group: "{{ amp_user }}"
+            mode: "0644"
+
+        - name: Restore AMP instance {{ _amp_instance }}
+          include_tasks: tasks/bootstrap_amp_restore_instance.yaml
+          loop: "{{ _restore_instances }}"
+          loop_control:
+            loop_var: _amp_instance
+
+        - name: Fix AMP file permissions
+          ansible.builtin.command: ampinstmgr fixperms
+          changed_when: true
+
+        - name: Start ampinstmgr service
+          ansible.builtin.service:
+            name: ampinstmgr
+            state: started
+            enabled: true
+
+        - name: Wait for ampinstmgr service to be active
+          ansible.builtin.command: systemctl is-active ampinstmgr
+          register: _ampinstmgr_active
+          until: _ampinstmgr_active.rc == 0
+          retries: 12
+          delay: 5
+          changed_when: false
+
+        - name: Set restore success flag
+          ansible.builtin.set_fact:
+            _restore_detail: >-
+              {{ _restore_instances | length }} instance(s) restored:
+              {{ _restore_instances | join(', ') }}
+
+      rescue:
+        - name: Set restore failed flag
+          ansible.builtin.set_fact:
+            _restore_failed: true
+            _restore_detail: "Restore failed — {{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Build per-instance notification fields
+          ansible.builtin.set_fact:
+            _amp_restore_discord_fields: >-
+              [
+               {% for r in _amp_restore_results %}
+               {% if not loop.first %},{% endif %}
+               {"name": "{{ ('❌ ' if r.failed else '✅ ') + r.instance }}", "value": "{{ 'FAILED' if r.failed else (r.archive | basename | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2})\\.tar\\.gz$', '\\1')) }}", "inline": true}
+               {% endfor %}]
+          when: _amp_restore_results | length > 0
+
+        - name: Send notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Build"
+            discord_status: "{{ 'failed' if _restore_failed else 'successful' }}"
+            discord_color: "{{ discord_color_failure if _restore_failed else discord_color_success }}"
+            discord_url: "{{ backup_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields: >-
+              {{ _amp_restore_discord_fields | default([]) +
+                 [{'name': 'Detail', 'value': _restore_detail}] }}
+
+        - name: Log per-instance restore to MariaDB
+          include_tasks: tasks/log_restore.yaml
+          loop: "{{ _amp_restore_results }}"
+          loop_control:
+            loop_var: _amp_result
+          vars:
+            log_hostname: "{{ inventory_hostname }}"
+            restore_application: "{{ maintenance_name }} — {{ _amp_result.instance }}"
+            restore_source_file: "{{ _amp_result.archive }}"
+            restore_type: "{{ maintenance_type }}"
+            restore_subtype: "{{ maintenance_subtype }}"
+            restore_operation: "restore"
+            restore_status: "{{ 'failed' if _amp_result.failed else 'success' }}"
+            restore_detail: >-
+              {{ 'restore failed — check Semaphore logs' if _amp_result.failed
+                 else 'AMP instance ' + _amp_result.instance + ' restored from backup' }}
+          when: _amp_restore_results | length > 0
+
+        - name: Fail play if restore failed
+          ansible.builtin.fail:
+            msg: "AMP restore failed: {{ _restore_detail }}"
+          when: _restore_failed
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 4 — Reactivate license (optional)
+# ═══════════════════════════════════════════════════════════════════
+- name: Reactivate AMP license
+  hosts: amp
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/amp.yaml
+  vars:
+    _restore_instances: "{{ hostvars['localhost']._restore_instances }}"
+
+  tasks:
+    - name: Skip license reactivation (no key provided)
+      ansible.builtin.debug:
+        msg: "No amp_licence_key provided — skipping license reactivation. Run manually with: ampinstmgr reactivateall"
+      when: amp_licence_key is not defined
+
+    - name: Reactivate license for each instance
+      become: true
+      become_user: "{{ amp_user }}"
+      become_method: su
+      become_exe: sudo su -l
+      ansible.builtin.command:
+        argv:
+          - ampinstmgr
+          - reactivate
+          - "{{ item }}"
+          - "{{ amp_licence_key }}"
+      loop: "{{ _restore_instances }}"
+      changed_when: true
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: amp_licence_key is defined

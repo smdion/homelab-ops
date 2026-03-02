@@ -1,0 +1,72 @@
+---
+# Restore a single AMP instance from backup during bootstrap.
+# Called in a loop from bootstrap_amp.yaml with loop_var: _amp_instance.
+#
+# Unlike restore_single_amp_instance.yaml (which handles running instances),
+# this task assumes AMP is freshly installed with no running instances.
+# It copies the archive from the controller, extracts it, and records the result.
+#
+# Required (from caller scope):
+#   _amp_instance          — instance name (e.g. 'ADS01', 'Minecraft01')
+#   _restore_archive_map   — dict: instance → archive path on controller
+#   amp_home               — AMP user home dir (e.g. /home/amp)
+#   amp_user               — AMP unix user (e.g. amp)
+#   _amp_restore_results   — list to append results to (caller initializes to [])
+
+- name: Set restore paths for {{ _amp_instance }}
+  ansible.builtin.set_fact:
+    _amp_restore_archive: "{{ _restore_archive_map[_amp_instance] }}"
+    _amp_restore_tmp: "/tmp/restore_amp_{{ _amp_instance }}"
+
+- block:
+    - name: Create temp restore staging dir for {{ _amp_instance }}
+      ansible.builtin.file:
+        path: "{{ _amp_restore_tmp }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy archive from controller for {{ _amp_instance }}
+      ansible.builtin.synchronize:
+        src: "{{ _amp_restore_archive }}"
+        dest: "{{ _amp_restore_tmp }}/{{ _amp_restore_archive | basename }}"
+        compress: false
+        rsync_opts:
+          - "--timeout={{ rsync_timeout_amp }}"
+
+    - name: Extract archive for {{ _amp_instance }}
+      ansible.builtin.shell: |
+        {{ _gz_detect }}
+        tar -I "$_gz" -xf "{{ _amp_restore_tmp }}/{{ _amp_restore_archive | basename }}" \
+            -C "{{ amp_home }}/.ampdata/instances"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Set ownership for {{ _amp_instance }}
+      ansible.builtin.file:
+        path: "{{ amp_home }}/.ampdata/instances/{{ _amp_instance }}"
+        state: directory
+        owner: "{{ amp_user }}"
+        group: "{{ amp_user }}"
+        recurse: true
+
+    - name: Record success for {{ _amp_instance }}
+      ansible.builtin.set_fact:
+        _amp_restore_results: >-
+          {{ _amp_restore_results + [{'instance': _amp_instance,
+             'archive': _amp_restore_archive | basename,
+             'failed': false}] }}
+
+  rescue:
+    - name: Record failure for {{ _amp_instance }}
+      ansible.builtin.set_fact:
+        _amp_restore_results: >-
+          {{ _amp_restore_results + [{'instance': _amp_instance,
+             'archive': _amp_restore_archive | basename,
+             'failed': true}] }}
+
+  always:
+    - name: Delete temp restore staging dir for {{ _amp_instance }}
+      ansible.builtin.file:
+        path: "{{ _amp_restore_tmp }}"
+        state: absent
