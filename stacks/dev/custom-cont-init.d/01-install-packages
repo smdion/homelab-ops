@@ -24,6 +24,7 @@ apt-get install -y --no-install-recommends \
   python3-venv \
   python3-requests \
   python3-pymysql \
+  ansible-core \
   nodejs \
   npm \
   shellcheck \
@@ -44,6 +45,10 @@ chmod +x /usr/local/bin/yq
 # Clean up apt cache
 apt-get clean
 rm -rf /var/lib/apt/lists/*
+
+# Ensure Ansible tmp dir exists and is owned by abc (LSIO container user)
+mkdir -p /config/.ansible/tmp
+chown -R abc:abc /config/.ansible
 
 echo "$SCRIPT_HASH" > "$MARKER"
 echo "[custom-init] Development packages installed successfully"
