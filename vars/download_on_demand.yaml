@@ -9,6 +9,11 @@
 # Profile name — shared with default (same config directory and archive)
 config_name: "default"
 
+# Bookmarklet capture directory (inside metube container)
+# MeTube writes .desktop link files here via YTDL_OPTIONS (skip_download + writedesktoplink).
+# The playbook extracts URLs from these files into the batch file before running yt-dlp.
+metube_capture_dir: "/configs/on_demand"
+
 # Mode: on_demand — verbose output, allow live streams
 ytdlp_quiet: false
 ytdlp_filter_live: false

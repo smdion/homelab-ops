@@ -60,6 +60,44 @@
           changed_when: true
           check_mode: false
 
+        # -- Bridge: bookmarklet captures → batch file -------------------------
+        - name: Process bookmarklet captures into batch file
+          become: true
+          ansible.builtin.shell: |
+            docker exec {{ metube_container }} python3 -c "
+            import os, glob
+            capture_dir = '{{ metube_capture_dir }}'
+            batch_file = '{{ ytdlp_batch_file }}'
+            files = glob.glob(os.path.join(capture_dir, '*.desktop'))
+            if not files:
+                print('no_captures')
+            else:
+                urls = []
+                for f in files:
+                    for line in open(f):
+                        if line.startswith('URL='):
+                            urls.append(line[4:].strip())
+                with open(batch_file, 'a') as bf:
+                    for url in urls:
+                        bf.write(url + '\n')
+                for f in files:
+                    os.remove(f)
+                print(f'processed {len(urls)} url(s) from {len(files)} capture(s)')
+            "
+          register: _capture_result
+          changed_when: "'processed' in _capture_result.stdout"
+          when: metube_capture_dir is defined
+
+        # -- Check batch file has URLs -----------------------------------------
+        - name: Check batch file for URLs
+          become: true
+          ansible.builtin.shell: >
+            docker exec {{ metube_container }}
+            grep -c '^http' {{ ytdlp_batch_file }} 2>/dev/null || echo 0
+          register: _batch_url_count
+          changed_when: false
+          check_mode: false
+
         # -- Run yt-dlp ------------------------------------------------------
         - name: Run yt-dlp via Docker exec
           become: true
@@ -69,6 +107,7 @@
           register: _ytdlp_result
           changed_when: true
           failed_when: _ytdlp_result.rc >= 2
+          when: _batch_url_count.stdout | int > 0
 
         # -- Read download manifest ------------------------------------------
         - name: Check manifest file size
