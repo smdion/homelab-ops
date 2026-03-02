@@ -412,7 +412,7 @@ resolves VM definitions and adds targets to the `apply_target` inventory group; 
 VMs, `serial: 1`) applies layered reconciliation: OS + Network (bootstrap) → Docker (shared
 network) → Application (stack deployment) → Hardware (PVE resize, off by default) → Verification
 (health, network, VIP). Omit `-e role` to target all production Docker VMs in VMID order
-(core=300, apps=301, dev=302), respecting NFS dependencies. Pass `-e role=core` to target a
+(core=400, apps=401, dev=402), respecting NFS dependencies. Pass `-e role=core` to target a
 single role. Basic VMs without stacks (e.g. `amp`, `desktop`) require explicit `-e role=<name>`. Per-layer skip flags (`skip_bootstrap`, `skip_stacks`, `skip_verify`) and
 `validate_only=yes` for dry-run scope resolution. Per-host role data is passed via `add_host`
 hostvars (not `hostvars['localhost']`), enabling true multi-host serial processing.

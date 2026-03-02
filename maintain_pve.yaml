@@ -346,10 +346,10 @@
 # ═══════════════════════════════════════════════════════════════════
 # Play 5 — Manage PVE resource pools
 # Derives pool membership from live VM net0 VLAN tags — no VMID lists
-# to maintain. Adding a friend's VM to VLAN 1682 is enough.
-#   production  — net0 defined, no VLAN tag (minus pve_pool_exclude_vmids)
-#   hosted      — net0 tag=<pve_pool_hosted_vlan>  (1682)
-#   test        — net0 tag=<vault_test_vlan_id>
+# to maintain. Adding a VM to VLAN 1682 (public hosted) or 1683 (test) is enough.
+#   production  — net0 defined, no VLAN tag (Docker, local hosted, game, manual VMs)
+#   hosted      — net0 tag=<pve_pool_hosted_vlan>  (1682 — public hosted)
+#   test        — net0 tag=<vault_test_vlan_id>    (1683)
 # After first run: update PBS backup jobs (Datacenter → Backup) to
 # filter by pool 'production' — one-time manual step.
 # ═══════════════════════════════════════════════════════════════════
@@ -455,7 +455,7 @@
             body_format: form-urlencoded
             body:
               poolid: "{{ pve_pool_production }}"
-              comment: "Production VMs"
+              comment: "Production VMs (Docker, local hosted, game servers, manual)"
             validate_certs: false
           when: pve_pool_production not in _pool_ids
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -469,7 +469,7 @@
             body_format: form-urlencoded
             body:
               poolid: "{{ pve_pool_hosted }}"
-              comment: "Hosted VMs (VLAN {{ pve_pool_hosted_vlan }})"
+              comment: "Public Hosted VMs (VLAN {{ pve_pool_hosted_vlan }})"
             validate_certs: false
           when: pve_pool_hosted not in _pool_ids
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"

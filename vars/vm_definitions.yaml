@@ -44,21 +44,22 @@ pve_cloud_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server
 vm_template_memory: 2048
 vm_template_cores: 2
 
-# Hosted desktop VM pool — permanent VMs with offset-based VMID and IP addressing.
-# VMIDs: vm_hosted_slot_base + per-VM offset (hardcoded in each definition)
+# Local hosted desktop VM pool — permanent VMs with offset-based VMID and IP addressing.
+# VMIDs: vm_hosted_slot_base + per-VM offset (VMID 8xx = IP .8x on prod VLAN)
 # IPs:   vault_hosted_vm_ip_prefix + (vault_hosted_vm_ip_offset + per-VM offset)
 # Node:  vault_hosted_vm_node (or pve_template_node if unset)
 # Vault secrets required:
 #   vault_hosted_vm_ip_prefix  — first 3 octets with trailing dot (e.g. "10.10.10.")
-#   vault_hosted_vm_ip_offset  — last octet of the first hosted VM (e.g. 50)
+#   vault_hosted_vm_ip_offset  — last octet of the first hosted VM (e.g. 80)
 #   vault_hosted_vm_node       — PVE node to place hosted VMs on (e.g. "homeone")
-vm_hosted_slot_base: 400
+vm_hosted_slot_base: 800
 
 # Test VM slot pool — used by test-vm (and any future slot-based VMs).
 # VMIDs: vm_test_slot_base .. vm_test_slot_base + vm_test_slot_count - 1
+#         (VMID 13xx = VLAN 1683 / 192.168.13.x)
 # IPs:   vault_test_vm_ip_prefix + (vault_test_vm_ip_offset + vm_index)
 # To extend the pool or shift the VMID range, change these two values only.
-vm_test_slot_base: 500
+vm_test_slot_base: 1300
 vm_test_slot_count: 10
 
 # vm_definitions: keyed by role name (used as vm_name arg and for stack/role derivation).
@@ -68,14 +69,14 @@ vm_test_slot_count: 10
 #
 # test-vm uses a dedicated IP range to avoid updating secrets per build.
 # Pass vm_index=0..vm_test_slot_count-1 (default 0) to select a slot:
-#   vault_test_vm_ip_prefix   — first 3 octets with trailing dot (e.g. "10.10.10.")
-#   vault_test_vm_ip_offset   — last octet of the first slot (e.g. 90)
-# Resulting IPs: <prefix><offset+vm_index>  (e.g. 192.0.2.90 .. 192.0.2.99)
+#   vault_test_vm_ip_prefix   — first 3 octets with trailing dot (e.g. "192.168.13.")
+#   vault_test_vm_ip_offset   — last octet of the first slot (e.g. 30)
+# Resulting IPs: <prefix><offset+vm_index>  (e.g. 192.168.13.30 .. 192.168.13.39)
 vm_definitions:
   core:
-    vm_id: 300
+    vm_id: 400
     vm_name: core
-    vm_mac: "02:00:00:00:03:00"       # static MAC — stable Unifi device identity across rebuilds
+    vm_mac: "02:00:00:00:04:00"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "core.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_core_ip | default('') }}"
     vm_cores: 4
@@ -90,9 +91,9 @@ vm_definitions:
     guacamole: { name: Core, group: Docker }
 
   apps:
-    vm_id: 301
+    vm_id: 401
     vm_name: apps
-    vm_mac: "02:00:00:00:03:01"       # static MAC — stable Unifi device identity across rebuilds
+    vm_mac: "02:00:00:00:04:01"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "apps.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_apps_ip | default('') }}"
     vm_cores: 4
@@ -107,9 +108,9 @@ vm_definitions:
     guacamole: { name: Apps, group: Docker }
 
   dev:
-    vm_id: 302
+    vm_id: 402
     vm_name: dev
-    vm_mac: "02:00:00:00:03:02"       # static MAC — stable Unifi device identity across rebuilds
+    vm_mac: "02:00:00:00:04:02"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "dev.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_dev_ip | default('') }}"
     vm_cores: 2
@@ -126,9 +127,9 @@ vm_definitions:
     guacamole: { name: Dev, group: Docker }
 
   amp:
-    vm_id: 110
+    vm_id: 700
     vm_name: amp
-    vm_mac: "02:00:00:00:02:00"       # static MAC — stable Unifi device identity across rebuilds
+    vm_mac: "02:00:00:00:07:00"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "amp.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_amp_ip | default('') }}"
     vm_cores: 4
@@ -140,11 +141,11 @@ vm_definitions:
   # Native graphical desktop VM — ubuntu-desktop-minimal installed during bootstrap.
   # Access via Proxmox VNC (pve_args) through Guacamole + Authentik groups.
   # No stacks — basic VM (OS + Network layers only via apply_role).
-  # Uses hosted desktop pool addressing (vm_hosted_slot_base + offset 0).
+  # Uses local hosted desktop pool addressing (vm_hosted_slot_base + offset 0).
   desktop:
     vm_id: "{{ (vm_hosted_slot_base + 0) | int }}"
     vm_name: desktop
-    vm_mac: "02:00:00:00:04:00"       # static MAC — stable Unifi device identity; encodes VMID 400
+    vm_mac: "02:00:00:00:08:00"       # static MAC — stable Unifi device identity; encodes VMID 800
     vm_hostname: "desktop.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_hosted_vm_ip_prefix }}{{ (vault_hosted_vm_ip_offset | int) + 0 }}"
     vm_cores: 4
@@ -160,7 +161,7 @@ vm_definitions:
   # Not provisioned via build_ubuntu.yaml (manually created in Proxmox).
   # vm_id + vnc_display are the minimum fields needed for VNC connection resolution.
   macos:
-    vm_id: 103
+    vm_id: 1213
     vm_hostname: "macos.{{ vault_vm_search_domain }}"
     vnc_display: 79
     pve_args: >-
@@ -176,7 +177,7 @@ vm_definitions:
       user_groups: [Guac-MacOS]
 
   freshjams:
-    vm_id: 108
+    vm_id: 1212
     vm_hostname: "freshjams.{{ vault_vm_search_domain }}"
     vnc_display: 77
     guacamole:
@@ -186,7 +187,7 @@ vm_definitions:
       user_groups: [Guac-FreshJams]
 
   personalfinance:
-    vm_id: 100
+    vm_id: 1211
     vm_hostname: "personalfinance.{{ vault_vm_search_domain }}"
     vnc_display: 80
     guacamole:
@@ -196,7 +197,7 @@ vm_definitions:
 
   test-vm:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
-    vm_mac: "02:00:00:00:05:{{ '%02d' | format(vm_index | default(0) | int) }}"
+    vm_mac: "02:00:00:00:13:{{ '%02d' | format(vm_index | default(0) | int) }}"
     vm_name: "test-vm{{ vm_index | default(0) | int }}"
     vm_hostname: "test-vm{{ vm_index | default(0) | int }}.{{ vault_vm_search_domain | default('') }}"
     vm_ip: "{{ vault_test_vm_ip_prefix | default('') }}{{ (vault_test_vm_ip_offset | default(0) | int) + (vm_index | default(0) | int) }}"

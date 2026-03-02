@@ -1,0 +1,154 @@
+---
+# Re-ID a Proxmox VM on local-lvm storage (rename VMID while preserving all data).
+# Stops the VM, renames the config file and LVM volumes, updates disk references.
+#
+# IMPORTANT: The VM must be stopped before running. This playbook will refuse to
+# touch a running VM. Back up important VMs before re-IDing.
+#
+# Usage:
+#   ansible-playbook reip_vmid.yaml -e old_vmid=300 -e new_vmid=400
+#   ansible-playbook reip_vmid.yaml -e old_vmid=300 -e new_vmid=400 -e pve_node=homeone
+#
+# Required extra vars:
+#   old_vmid  — current VMID of the VM to rename
+#   new_vmid  — target VMID (must not already exist)
+#
+# Optional extra vars:
+#   pve_node  — PVE node where the VM lives (auto-detected from cluster API if omitted)
+#   storage   — LVM VG name (default: pve)
+
+- name: Re-ID Proxmox VM (local-lvm)
+  hosts: "{{ pve_node | default('pve') }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+  vars:
+    _storage: "{{ storage | default('pve') }}"
+
+  pre_tasks:
+    - name: Validate required parameters
+      ansible.builtin.assert:
+        that:
+          - old_vmid is defined
+          - new_vmid is defined
+          - old_vmid | int != new_vmid | int
+        fail_msg: "Required: -e old_vmid=<current> -e new_vmid=<target>"
+      run_once: true
+
+  tasks:
+    # ── Locate the VM ────────────────────────────────────────────────
+    - name: Find VM {{ old_vmid }} in cluster
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _cluster_vms
+      delegate_to: localhost
+      run_once: true
+
+    - name: Resolve VM node and status
+      ansible.builtin.set_fact:
+        _vm_data: >-
+          {{ _cluster_vms.json.data
+             | selectattr('vmid', 'equalto', old_vmid | int)
+             | list | first | default({}) }}
+      run_once: true
+
+    - name: Assert VM exists
+      ansible.builtin.assert:
+        that: _vm_data.vmid is defined
+        fail_msg: "VM {{ old_vmid }} not found in cluster"
+      run_once: true
+
+    - name: Assert VM is stopped
+      ansible.builtin.assert:
+        that: _vm_data.status == 'stopped'
+        fail_msg: >-
+          VM {{ old_vmid }} ({{ _vm_data.name | default('unknown') }}) is {{ _vm_data.status }}.
+          Stop it first: qm shutdown {{ old_vmid }}
+      run_once: true
+
+    - name: Set target node
+      ansible.builtin.set_fact:
+        _target_node: "{{ _vm_data.node }}"
+      run_once: true
+
+    # Only run remaining tasks on the node that owns the VM
+    - name: Check new VMID {{ new_vmid }} does not exist
+      ansible.builtin.stat:
+        path: "/etc/pve/qemu-server/{{ new_vmid }}.conf"
+      register: _new_conf
+      when: inventory_hostname.split('.')[0] == _target_node
+
+    - name: Assert new VMID is free
+      ansible.builtin.assert:
+        that: not _new_conf.stat.exists
+        fail_msg: "VMID {{ new_vmid }} already exists on {{ _target_node }}"
+      when: inventory_hostname.split('.')[0] == _target_node
+
+    # ── Discover LVM volumes ─────────────────────────────────────────
+    - name: Find LVM volumes for VM {{ old_vmid }}
+      ansible.builtin.shell: |
+        lvs --noheadings -o lv_name {{ _storage }} 2>/dev/null | grep -E '^\s*vm-{{ old_vmid }}-' | awk '{print $1}'
+      register: _lv_list
+      changed_when: false
+      when: inventory_hostname.split('.')[0] == _target_node
+
+    - name: Show volumes to rename
+      ansible.builtin.debug:
+        msg: |
+          VM: {{ old_vmid }} → {{ new_vmid }} on {{ _target_node }}
+          Name: {{ _vm_data.name | default('unknown') }}
+          LVM volumes: {{ _lv_list.stdout_lines | default([]) | join(', ') }}
+      when: inventory_hostname.split('.')[0] == _target_node
+
+    # ── Rename LVM volumes ───────────────────────────────────────────
+    - name: Rename LVM volumes
+      ansible.builtin.command: >-
+        lvrename {{ _storage }}
+        {{ item }}
+        {{ item | regex_replace('^vm-' + (old_vmid | string) + '-', 'vm-' + (new_vmid | string) + '-') }}
+      loop: "{{ _lv_list.stdout_lines | default([]) }}"
+      when:
+        - inventory_hostname.split('.')[0] == _target_node
+        - _lv_list.stdout_lines | default([]) | length > 0
+
+    # ── Rename config and update disk references ─────────────────────
+    - name: Update disk references in config (old VMID → new)
+      ansible.builtin.replace:
+        path: "/etc/pve/qemu-server/{{ old_vmid }}.conf"
+        regexp: "vm-{{ old_vmid }}-"
+        replace: "vm-{{ new_vmid }}-"
+      when: inventory_hostname.split('.')[0] == _target_node
+
+    - name: Rename config file
+      ansible.builtin.command: >-
+        mv /etc/pve/qemu-server/{{ old_vmid }}.conf
+           /etc/pve/qemu-server/{{ new_vmid }}.conf
+      when: inventory_hostname.split('.')[0] == _target_node
+
+    # ── Verify ───────────────────────────────────────────────────────
+    - name: Verify new config exists
+      ansible.builtin.stat:
+        path: "/etc/pve/qemu-server/{{ new_vmid }}.conf"
+      register: _verify_conf
+      when: inventory_hostname.split('.')[0] == _target_node
+
+    - name: Verify old config is gone
+      ansible.builtin.stat:
+        path: "/etc/pve/qemu-server/{{ old_vmid }}.conf"
+      register: _verify_old
+      when: inventory_hostname.split('.')[0] == _target_node
+
+    - name: Report result
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'SUCCESS' if (_verify_conf.stat.exists and not _verify_old.stat.exists) else 'FAILED' }}:
+          VM {{ old_vmid }} → {{ new_vmid }} on {{ _target_node }}.
+          {{ _lv_list.stdout_lines | default([]) | length }} LVM volume(s) renamed.
+          Start with: qm start {{ new_vmid }}
+      when: inventory_hostname.split('.')[0] == _target_node

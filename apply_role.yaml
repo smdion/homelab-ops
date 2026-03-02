@@ -6,7 +6,7 @@
 # Play 1 (localhost): Validate inputs, look up VM definition(s), determine scope.
 # Play 2 (target VMs): Apply each layer idempotently, skip layers via flags.
 # When multiple roles are targeted, Play 2 processes them sequentially (serial: 1)
-# in VMID order (core=300, apps=301, dev=302) to respect NFS dependencies.
+# in VMID order (core=400, apps=401, dev=402) to respect NFS dependencies.
 #
 # Usage:
 #   ansible-playbook apply_role.yaml                          # all Docker VMs

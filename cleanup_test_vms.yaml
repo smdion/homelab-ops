@@ -1,6 +1,6 @@
 ---
 # Remove all test VMs from the Proxmox cluster.
-# Queries the cluster API for VMs in the test-vm slot pool (VMIDs 500–509),
+# Queries the cluster API for VMs in the test-vm slot pool (VMIDs 1300–1309),
 # stops any that are running, and destroys them.
 #
 # Usage:
