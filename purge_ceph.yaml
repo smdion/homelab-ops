@@ -118,20 +118,24 @@
             purge: true
           failed_when: false
 
-        - name: Preview autoremove candidates
-          ansible.builtin.shell: apt-get --dry-run autoremove 2>/dev/null | grep -E '^Remv ' || echo "nothing to autoremove"
-          register: _autoremove_preview
-          changed_when: false
-          check_mode: false
-
-        - name: Display autoremove preview
-          ansible.builtin.debug:
-            msg: "{{ _autoremove_preview.stdout_lines }}"
-
-        - name: Autoremove unused dependencies
+        - name: Purge Ceph library packages missed by main purge
           ansible.builtin.apt:
-            autoremove: true
+            name:
+              - libcephfs2
+              - librados2
+              - librbd1
+              - librgw2
+              - libcephfs-dev
+              - python3-ceph
+              - python3-ceph-argparse
+              - python3-ceph-common
+              - python3-cephfs
+              - python3-rados
+              - python3-rbd
+              - python3-rgw
+            state: absent
             purge: true
+          failed_when: false
 
         # ── Phase 4: Local filesystem cleanup (all nodes) ──────────
         - name: Remove Ceph data directories
