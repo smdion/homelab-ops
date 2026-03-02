@@ -36,7 +36,9 @@
 {% endif %}
 --playlist-end {{ ytdlp_playlist_end }}
 --reject-title "{{ ytdlp_reject_title }}"
+{% if ytdlp_dateafter | default('') | length > 0 %}
 --dateafter {{ ytdlp_dateafter }}
+{% endif %}
 
 # Video format
 --merge-output-format '{{ ytdlp_format }}'

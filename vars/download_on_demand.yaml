@@ -30,4 +30,3 @@ ytdlp_format: "mp4"
 ytdlp_rate_limit: "50M"
 ytdlp_playlist_end: 2
 ytdlp_reject_title: "TMS|The Morning Stream|TWBD|Be Dungeons"
-ytdlp_dateafter: "now-1weeks"
