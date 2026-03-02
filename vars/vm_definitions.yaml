@@ -24,10 +24,10 @@
 #   vault_hosted_vm_ip_offset  — last octet of the first hosted VM (e.g. 50)
 #   vault_hosted_vm_node       — PVE node for hosted desktop VMs (e.g. "homeone")
 pve_api_host: "{{ vault_pve_vip }}"
-pve_storage: "local"
+pve_storage: "local-lvm"
 
 pve_bridge: "vmbr0"
-vm_user: "local-lvm"
+vm_user: "ansible"
 vm_gateway: "{{ vault_vm_gateway }}"
 vm_dns: "{{ vault_vm_dns }}"
 vm_search_domain: "{{ vault_vm_search_domain }}"
