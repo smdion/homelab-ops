@@ -23,7 +23,7 @@
     vault_file: "{{ playbook_dir }}/vars/secrets.yaml"
     example_file: "{{ playbook_dir }}/vars/secrets.yaml.example"
     action: status
-    _pass_file: "{{ vault_pass_file | default(lookup('env', 'ANSIBLE_VAULT_PASSWORD_FILE'), true) | default('', true) }}"
+    _pass_file: "{{ vault_pass_file | default(lookup('env', 'ANSIBLE_VAULT_PASSWORD_FILE'), true) | default(lookup('config', 'DEFAULT_VAULT_PASSWORD_FILE', on_missing='skip'), true) | default('', true) }}"
 
   tasks:
     # ── Common: check vault file state ──────────────────────────────
