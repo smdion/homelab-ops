@@ -1,0 +1,40 @@
+---
+# Destroy a VM on Proxmox: stop → pause → delete.
+# Reusable task — called from build_ubuntu, bootstrap_amp, verify_isolation,
+# cleanup_test_vms, and any future playbook that needs to remove a VM.
+#
+# Expects (set as vars by caller):
+#   _destroy_vmid  — VMID to destroy
+#   _destroy_node  — PVE node where VM resides
+#   _destroy_name  — VM name for task labels (optional, default: 'VM')
+#
+# Requires in scope:
+#   pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret
+
+- name: Stop {{ _destroy_name | default('VM') }} (VMID {{ _destroy_vmid }})
+  community.general.proxmox_kvm:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_token_id: "{{ pve_api_token_id }}"
+    api_token_secret: "{{ pve_api_token_secret }}"
+    node: "{{ _destroy_node }}"
+    vmid: "{{ _destroy_vmid }}"
+    state: stopped
+    force: true
+  ignore_errors: true
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+- name: Wait for VM to stop
+  ansible.builtin.pause:
+    seconds: 5
+
+- name: Remove {{ _destroy_name | default('VM') }} (VMID {{ _destroy_vmid }})
+  community.general.proxmox_kvm:
+    api_host: "{{ pve_api_host }}"
+    api_user: "{{ pve_api_user }}"
+    api_token_id: "{{ pve_api_token_id }}"
+    api_token_secret: "{{ pve_api_token_secret }}"
+    node: "{{ _destroy_node }}"
+    vmid: "{{ _destroy_vmid }}"
+    state: absent
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"

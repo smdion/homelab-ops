@@ -52,34 +52,15 @@
           Found {{ _test_vms | length }} test VM(s):
           {{ _test_vms | map(attribute='name') | list | join(', ') | default('none') }}
 
-    - name: Stop running test VMs
-      community.general.proxmox_kvm:
-        api_host: "{{ pve_api_host }}"
-        api_user: "{{ pve_api_user }}"
-        api_token_id: "{{ pve_api_token_id }}"
-        api_token_secret: "{{ pve_api_token_secret }}"
-        node: "{{ item.node }}"
-        vmid: "{{ item.vmid }}"
-        state: stopped
-        force: true
-      loop: "{{ _test_vms | selectattr('status', 'equalto', 'running') | list }}"
-      loop_control:
-        label: "{{ item.name }} (VMID {{ item.vmid }})"
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-
-    - name: Remove test VMs
-      community.general.proxmox_kvm:
-        api_host: "{{ pve_api_host }}"
-        api_user: "{{ pve_api_user }}"
-        api_token_id: "{{ pve_api_token_id }}"
-        api_token_secret: "{{ pve_api_token_secret }}"
-        node: "{{ item.node }}"
-        vmid: "{{ item.vmid }}"
-        state: absent
+    - name: Destroy test VM — {{ item.name }} (VMID {{ item.vmid }})
+      include_tasks: tasks/destroy_vm.yaml
+      vars:
+        _destroy_vmid: "{{ item.vmid }}"
+        _destroy_node: "{{ item.node }}"
+        _destroy_name: "{{ item.name }}"
       loop: "{{ _test_vms }}"
       loop_control:
         label: "{{ item.name }} (VMID {{ item.vmid }})"
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Summary
       ansible.builtin.debug:

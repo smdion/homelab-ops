@@ -105,29 +105,12 @@
             msg: "VM {{ _vm.vm_name }} (VMID {{ _vm.vm_id }}) does not exist — skipping destroy"
           when: _vm_state == 'absent' and not (_vm_exists | default(false) | bool)
 
-        - name: Stop VM
-          community.general.proxmox_kvm:
-            api_host: "{{ pve_api_host }}"
-            api_user: "{{ pve_api_user }}"
-            api_token_id: "{{ pve_api_token_id }}"
-            api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm_actual_node }}"
-            vmid: "{{ _vm.vm_id }}"
-            state: stopped
-            force: true
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-          when: _vm_state == 'absent' and (_vm_exists | default(false) | bool)
-
-        - name: Remove VM
-          community.general.proxmox_kvm:
-            api_host: "{{ pve_api_host }}"
-            api_user: "{{ pve_api_user }}"
-            api_token_id: "{{ pve_api_token_id }}"
-            api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm_actual_node }}"
-            vmid: "{{ _vm.vm_id }}"
-            state: absent
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+        - name: Destroy AMP VM
+          include_tasks: tasks/destroy_vm.yaml
+          vars:
+            _destroy_vmid: "{{ _vm.vm_id }}"
+            _destroy_node: "{{ _vm_actual_node }}"
+            _destroy_name: "{{ _vm.vm_name }}"
           when: _vm_state == 'absent' and (_vm_exists | default(false) | bool)
 
         - name: Record build detail

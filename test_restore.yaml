@@ -1,42 +1,26 @@
 ---
+# DEPRECATED — Use build_ubuntu.yaml with -e role= instead.
+#
+# This playbook's functionality has been consolidated into build_ubuntu.yaml:
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e role=apps
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e role=core -e restore_app=authentik
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e role=core -e deploy_ssh_key=yes
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e role=apps -e skip_dbs=nextcloud
+#
+# For DR recovery, use dr_rebuild.yaml (separate operational intent).
+#
+# This file is kept temporarily for reference. It will be removed in a future commit.
+#
+# --- Original description ---
 # Automated restore testing on a disposable VM.
 # Builds VM if needed, restores source host's appdata, deploys stacks,
 # verifies container health, and reverts to clean state.
-# Also serves as a DR recovery tool via -e dr_mode=yes.
-#
-# Usage:
-#   # Test a role's stacks (vm_name defaults to test-vm, vm_index auto-detected)
-#   ansible-playbook test_restore.yaml -e role=apps
-#
-#   # Persistent DR recovery (keeps restored state, no revert)
-#   ansible-playbook test_restore.yaml -e role=apps -e dr_mode=yes
-#
-#   # Test single app restore
-#   ansible-playbook test_restore.yaml -e role=core -e restore_app=authentik
-#
-#   # Deploy SSH key for cross-host delegate_to (e.g. DB restores)
-#   ansible-playbook test_restore.yaml -e role=core -e deploy_ssh_key=yes
-#
-#   # Test a specific host's stacks (legacy — prefer role=)
-#   ansible-playbook test_restore.yaml -e source_host=<controller-fqdn>
 #
 # Extra vars:
 #   vm_name      — VM key from vm_definitions (default: test-vm).
-#                  Do NOT use permanent VM keys (core, apps, dev).
 #   source_host  — inventory_hostname in stack_assignments (OR use role instead)
 #   role         — stack role name (e.g. core, apps, dev) — alternative to source_host
 #   deploy_ssh_key=yes — install ansible SSH private key on VM (for cross-host operations)
-#
-# VM lifecycle (provision_vm.yaml is idempotent):
-#   - If the VMID doesn't exist, the VM is provisioned from the cloud-init template
-#   - If the VMID already exists (e.g. from a prior partial run), clone is skipped and
-#     provisioning resumes from configure/start — no manual cleanup needed
-#   - Node resolution uses the cluster resources API — VIP-safe regardless of which
-#     PVE node is currently MASTER
-#   - After restore: snapshot is reverted, VM stays running and ready for next test
-#   - In dr_mode=yes: no revert — VM keeps the restored state for real DR recovery
-#
-# Optional extra vars:
 #   vm_index=N    — test-vm slot 0..9; auto-detected (lowest non-running slot) if omitted
 #   restore_app   — single app name to selectively extract from archive
 #   stack         — single stack to deploy (instead of all assigned stacks)

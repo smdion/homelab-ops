@@ -1,22 +1,28 @@
 ---
-# Manage Ubuntu VMs on Proxmox via API.
+# Unified VM lifecycle orchestrator for Proxmox.
 # Play 1 (localhost): Create, destroy, snapshot, or revert a VM.
 # Play 2 (new VM): Bootstrap Ubuntu with security hardening (Docker optional per VM def).
 # Play 3 (localhost): Auto-sync Guacamole connections for VNC VMs.
-# Deploy stacks separately via deploy_stacks.yaml after provisioning.
+# Play 4 (localhost): Discover backups and snapshot clean state (restore test, role required).
+# Play 5 (build_target): Restore, deploy stacks, and verify health (restore test).
+# Play 6 (localhost): Revert to clean snapshot after restore test.
+# Play 7 (localhost): Auto-destroy ephemeral test VMs after successful build.
 #
 # The cloud-init template is created automatically on first run (one-time per cluster).
 # It downloads the Ubuntu Noble cloud image and converts it to a Proxmox template
-# on Ceph (replicated) storage, accessible from all nodes.
+# on local-lvm storage. Cross-node cloning copies the disk over the network.
 #
 # Usage:
-#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm
-#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=absent -e confirm=yes
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm                          # build + auto-destroy
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_cleanup=no         # build + keep
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e role=apps             # build + restore test + revert
+#   ansible-playbook build_ubuntu.yaml -e vm_name=core                             # build prod (keep)
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=absent -e confirm=yes  # destroy
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=snapshot -e snapshot_name=post-bootstrap
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=revert -e snapshot_name=post-bootstrap
 #
 # Required extra vars:
-#   vm_name — key in vm_definitions (tantiveiv, odyssey, amp, test-vm)
+#   vm_name — key in vm_definitions (core, apps, dev, amp, test-vm, etc.)
 #
 # Optional extra vars:
 #   vm_state=absent   — destroy VM instead of creating
@@ -24,6 +30,12 @@
 #   vm_state=revert   — revert to a named snapshot, restart VM, wait for SSH
 #   snapshot_name     — required when vm_state is snapshot or revert
 #   confirm=yes       — safety gate, required for vm_state=absent (destroy)
+#   role=core|apps|dev — run restore test after build (snapshot → restore → verify → revert)
+#   vm_cleanup=no     — keep test VM after build (default: auto-destroy test VMs)
+#   restore_app=<name> — single app from archive (with role)
+#   deploy_ssh_key=yes — inject SSH key for cross-host operations (with role)
+#   skip_dbs=<csv>    — exclude DBs from restore (with role)
+#   stack=<name>      — single stack to deploy (with role)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Manage VM on Proxmox (create / destroy / snapshot / revert)
@@ -124,29 +136,12 @@
         # ═════════════════════════════════════════════════════════
         # DESTROY PATH — vm_state == 'absent'
         # ═════════════════════════════════════════════════════════
-        - name: Stop VM
-          community.general.proxmox_kvm:
-            api_host: "{{ pve_api_host }}"
-            api_user: "{{ pve_api_user }}"
-            api_token_id: "{{ pve_api_token_id }}"
-            api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm_actual_node }}"
-            vmid: "{{ _vm.vm_id }}"
-            state: stopped
-            force: true
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-          when: _vm_state == 'absent'
-
-        - name: Remove VM
-          community.general.proxmox_kvm:
-            api_host: "{{ pve_api_host }}"
-            api_user: "{{ pve_api_user }}"
-            api_token_id: "{{ pve_api_token_id }}"
-            api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm_actual_node }}"
-            vmid: "{{ _vm.vm_id }}"
-            state: absent
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+        - name: Destroy VM
+          include_tasks: tasks/destroy_vm.yaml
+          vars:
+            _destroy_vmid: "{{ _vm.vm_id }}"
+            _destroy_node: "{{ _vm_actual_node }}"
+            _destroy_name: "{{ _vm.vm_name }}"
           when: _vm_state == 'absent'
 
         # ═════════════════════════════════════════════════════════
@@ -429,3 +424,529 @@
               Error: {{ ansible_failed_result.msg | default('unknown') }}
 
       when: _guacamole_sync_needed | default(false) | bool
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 4 — Prepare restore test: discover backups, snapshot clean state
+#          (skipped unless role is defined and vm_state == 'present')
+# ═══════════════════════════════════════════════════════════════════
+- name: Prepare restore test
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+    - vars/docker_stacks.yaml
+    - vars/vm_definitions.yaml
+    - vars/docker_vips.yaml
+    - vars/app_definitions.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "{{ role | default('DR') | capitalize }}"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Test Restore"
+
+  tasks:
+    - name: Skip restore test (role not set)
+      ansible.builtin.debug:
+        msg: "No role specified — skipping restore test plays"
+      when: role is not defined
+
+    - name: Discover backups and snapshot clean state
+      when: role is defined and (vm_state | default('present')) == 'present'
+      block:
+        - name: Run shared test pre-flight assertions
+          include_tasks: tasks/pre_test_assertions.yaml
+          vars:
+            _require_source_or_role: true
+
+        - name: Resolve test VM and target stack configuration
+          vars:
+            _role_vm: "{{ vm_definitions[role] | default({}) if role is defined else {} }}"
+            _role_nfs: >-
+              {{ {}
+                 | combine({'nfs_mounts': _role_vm.nfs_mounts} if _role_vm.nfs_mounts is defined else {})
+                 | combine({'nfs_exports': _role_vm.nfs_exports} if _role_vm.nfs_exports is defined else {}) }}
+          ansible.builtin.set_fact:
+            _vm: "{{ _vm | combine(_role_nfs) }}"
+            _stacks: >-
+              {{ [stack] if stack is defined
+                 else stack_roles[role] if role is defined and source_host is not defined
+                 else stack_assignments[source_host] }}
+
+        - name: Rewrite NFS addresses for test VM network isolation
+          vars:
+            _tp: "{{ vault_test_vm_ip_prefix }}"
+            _core_tvip: "{{ _tp }}{{ docker_test_vip_offsets['core'] }}"
+            _apps_tvip: "{{ _tp }}{{ docker_test_vip_offsets['apps'] }}"
+            _dev_tvip: "{{ _tp }}{{ docker_test_vip_offsets['dev'] }}"
+          ansible.builtin.set_fact:
+            _vm: >-
+              {%- set _mounts = [] -%}
+              {%- for m in _vm.nfs_mounts | default([]) -%}
+              {%-   set _src = m.src
+                      | replace(vault_core_vip, _core_tvip)
+                      | replace(vault_apps_vip, _apps_tvip)
+                      | replace(vault_dev_vip, _dev_tvip) -%}
+              {%-   set _ = _mounts.append(m | combine({'src': _src})) -%}
+              {%- endfor -%}
+              {%- set _exports = [] -%}
+              {%- for e in _vm.nfs_exports | default([]) -%}
+              {%-   set _cl = e.clients
+                      | replace(vault_prod_lan_subnet, vault_test_vlan_subnet)
+                      | replace(vault_core_vip, _core_tvip)
+                      | replace(vault_apps_vip, _apps_tvip)
+                      | replace(vault_dev_vip, _dev_tvip) -%}
+              {%-   set _ = _exports.append(e | combine({'clients': _cl})) -%}
+              {%- endfor -%}
+              {{ _vm
+                 | combine({'nfs_mounts': _mounts} if _vm.nfs_mounts is defined else {})
+                 | combine({'nfs_exports': _exports} if _vm.nfs_exports is defined else {}) }}
+          when: vm_name | default('test-vm') == 'test-vm'
+
+        # ===== FIND BACKUP ARCHIVES =====
+        - name: Find per-stack backup archives from production backups
+          ansible.builtin.shell: >
+            ls -t {{ backup_base_dir }}/{{ item }}/backup_{{ item }}_*.tar.gz 2>/dev/null | head -1
+          loop: "{{ _stacks }}"
+          register: _per_stack_archives
+          become: false
+          changed_when: false
+          check_mode: false
+
+        - name: Set per-stack archive list
+          ansible.builtin.set_fact:
+            _archive_files: "{{ _per_stack_archives.results | selectattr('stdout', 'ne', '') | map(attribute='stdout') | list }}"
+
+        - name: Assert backup archives exist
+          ansible.builtin.assert:
+            that: _archive_files | length > 0
+            fail_msg: "No per-stack backup archives found in {{ backup_base_dir }}/ for stacks: {{ _stacks | join(', ') }}"
+
+        # ===== FIND DB SQL DUMP ARCHIVES =====
+        - name: Collect container names from deployed stacks
+          ansible.builtin.shell: >
+            grep -h 'container_name:' {% for s in _stacks %}stacks/{{ s }}/docker-compose.yaml {% endfor %}
+            2>/dev/null | awk '{print $2}' | sort -u
+          register: _stack_containers
+          changed_when: false
+
+        - name: Load postgres DB config from vars
+          ansible.builtin.include_vars:
+            file: vars/db_primary_postgres.yaml
+          when: "'databases' in _stacks"
+
+        - name: Save postgres DB config to Ansible facts
+          ansible.builtin.set_fact:
+            _db_postgres_all_names: "{{ db_names }}"
+            _db_postgres_container: "{{ db_container_name }}"
+            _db_postgres_username: "{{ db_username }}"
+          when:
+            - "'databases' in _stacks"
+            - db_container_name in _stack_containers.stdout_lines
+
+        - name: Load mariadb DB config from vars
+          ansible.builtin.include_vars:
+            file: vars/db_primary_mariadb.yaml
+          when: "'databases' in _stacks"
+
+        - name: Save mariadb DB config to Ansible facts
+          ansible.builtin.set_fact:
+            _db_mariadb_all_names: "{{ db_names }}"
+            _db_mariadb_container: "{{ db_container_name }}"
+            _db_mariadb_username: "{{ db_username }}"
+          when:
+            - "'databases' in _stacks"
+            - db_container_name in _stack_containers.stdout_lines
+
+        - name: Load secondary postgres DB config from vars
+          ansible.builtin.include_vars:
+            file: vars/db_secondary_postgres.yaml
+          when: "'databases' in _stacks"
+
+        - name: Save secondary postgres DB config to Ansible facts
+          ansible.builtin.set_fact:
+            _db_secondary_postgres_all_names: "{{ db_names }}"
+            _db_secondary_postgres_container: "{{ db_container_name }}"
+            _db_secondary_postgres_username: "{{ db_username }}"
+          when:
+            - "'databases' in _stacks"
+            - db_container_name in _stack_containers.stdout_lines
+
+        - name: Filter skipped DBs from restore lists
+          ansible.builtin.set_fact:
+            _db_postgres_all_names: "{{ _db_postgres_all_names | default([]) | difference(skip_dbs.split(',')) }}"
+            _db_mariadb_all_names: "{{ _db_mariadb_all_names | default([]) | difference(skip_dbs.split(',')) }}"
+            _db_secondary_postgres_all_names: "{{ _db_secondary_postgres_all_names | default([]) | difference(skip_dbs.split(',')) }}"
+          when:
+            - skip_dbs | default('') | length > 0
+            - "'databases' in _stacks"
+
+        - name: Default DB facts for absent containers or stacks
+          ansible.builtin.set_fact:
+            _db_postgres_all_names: "{{ _db_postgres_all_names | default([]) }}"
+            _db_mariadb_all_names: "{{ _db_mariadb_all_names | default([]) }}"
+            _db_secondary_postgres_all_names: "{{ _db_secondary_postgres_all_names | default([]) }}"
+            _db_postgres_container: "{{ _db_postgres_container | default('') }}"
+            _db_mariadb_container: "{{ _db_mariadb_container | default('') }}"
+            _db_secondary_postgres_container: "{{ _db_secondary_postgres_container | default('') }}"
+            _db_postgres_username: "{{ _db_postgres_username | default('') }}"
+            _db_mariadb_username: "{{ _db_mariadb_username | default('') }}"
+            _db_secondary_postgres_username: "{{ _db_secondary_postgres_username | default('') }}"
+
+        - name: Find latest SQL dump per database — {{ item }}
+          ansible.builtin.shell: >
+            ls -t {{ backup_base_dir }}/databases/backup_{{ item }}_*.sql {{ backup_base_dir }}/databases/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
+          loop: "{{ _db_postgres_all_names + _db_mariadb_all_names + _db_secondary_postgres_all_names }}"
+          register: _db_dump_results
+          become: false
+          changed_when: false
+          check_mode: false
+          when: (_db_postgres_all_names + _db_mariadb_all_names + _db_secondary_postgres_all_names) | length > 0
+
+        - name: Build DB archive map and name lists
+          ansible.builtin.set_fact:
+            _db_archive_map: >-
+              {{ dict(_db_dump_results.results | default([])
+                      | selectattr('stdout', 'defined')
+                      | selectattr('stdout', 'ne', '')
+                      | map(attribute='item') | list
+                      | zip(_db_dump_results.results | default([])
+                            | selectattr('stdout', 'defined')
+                            | selectattr('stdout', 'ne', '')
+                            | map(attribute='stdout') | list)) }}
+            _db_postgres_names: >-
+              {{ _db_dump_results.results | default([])
+                 | selectattr('stdout', 'defined')
+                 | selectattr('stdout', 'ne', '')
+                 | map(attribute='item') | list
+                 | intersect(_db_postgres_all_names) }}
+            _db_mariadb_names: >-
+              {{ _db_dump_results.results | default([])
+                 | selectattr('stdout', 'defined')
+                 | selectattr('stdout', 'ne', '')
+                 | map(attribute='item') | list
+                 | intersect(_db_mariadb_all_names) }}
+            _db_secondary_postgres_names: >-
+              {{ _db_dump_results.results | default([])
+                 | selectattr('stdout', 'defined')
+                 | selectattr('stdout', 'ne', '')
+                 | map(attribute='item') | list
+                 | intersect(_db_secondary_postgres_all_names) }}
+
+        - name: Report DB backup discovery
+          ansible.builtin.debug:
+            msg: >-
+              DB dumps found: {{ _db_archive_map | length }}/{{ (_db_postgres_all_names + _db_mariadb_all_names + _db_secondary_postgres_all_names) | length }}.
+              Postgres: {{ _db_postgres_names | join(', ') or 'none' }}.
+              MariaDB: {{ _db_mariadb_names | join(', ') or 'none' }}.
+              Secondary Postgres: {{ _db_secondary_postgres_names | join(', ') or 'none' }}.
+              {{ _db_archive_map | to_nice_yaml if _db_archive_map | length > 0 else '' }}
+
+        - name: Verify archive integrity
+          ansible.builtin.shell: |
+            {{ _gz_detect }}
+            $_gz -t "{{ item }}"
+          loop: "{{ _archive_files }}"
+          become: false
+          changed_when: false
+          check_mode: false
+
+        # ===== SNAPSHOT CLEAN STATE =====
+        - name: Get existing Proxmox snapshots for test VM
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          register: _vm_snapshots
+
+        - name: Delete existing pre-test snapshot if present
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot/pre-test-restore"
+            method: DELETE
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
+
+        - name: Wait for VM lock to clear after snapshot delete
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/status/current"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          register: _vm_lock_status
+          until: _vm_lock_status.json.data.lock is not defined
+          retries: 20
+          delay: 3
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
+
+        - name: Create pre-test snapshot (post-bootstrap clean state)
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              snapname: pre-test-restore
+              vmstate: 0
+            validate_certs: false
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+      rescue:
+        - name: Set restore prep failed flag
+          ansible.builtin.set_fact:
+            _restore_prep_failed: true
+            _restore_prep_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Stop test VM on restore prep failure (free the slot)
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: stopped
+            force: true
+          when: >-
+            (_restore_prep_failed | default(false)) | bool and
+            (_vm.vm_id | int) >= (vm_test_slot_base | int) and
+            (_vm.vm_id | int) < ((vm_test_slot_base + vm_test_slot_count) | int)
+          ignore_errors: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Fail play if restore prep failed
+          ansible.builtin.fail:
+            msg: "Restore prep failed: {{ _restore_prep_detail | default('check Semaphore logs') }}"
+          when: _restore_prep_failed | default(false)
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 5 — Restore, deploy stacks, and verify health (restore test)
+# ═══════════════════════════════════════════════════════════════════
+- name: Restore and verify on test VM
+  hosts: build_target
+  become: true
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+    - vars/docker_stacks.yaml
+    - vars/docker_vips.yaml
+    - vars/vm_definitions.yaml
+    - vars/container_definitions.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "{{ role | default('DR') | capitalize }}"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Test Restore"
+    backup_tmp_dir: "/tmp"
+
+  tasks:
+    - name: Skip restore (role not set)
+      ansible.builtin.meta: end_host
+      when: role is not defined or (vm_state | default('present')) != 'present'
+
+    - name: Assert sufficient disk space on /tmp (staging)
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: /tmp
+        assert_disk_min_gb: 2
+
+    - name: Assert sufficient disk space on /opt (appdata)
+      include_tasks: tasks/assert_disk_space.yaml
+      vars:
+        assert_disk_path: /opt
+        assert_disk_min_gb: 5
+
+    - name: Resolve Docker stack scope via role injection
+      include_tasks: tasks/resolve_scope.yaml
+
+    - name: Inject VRRP priority for unmapped hosts (test VMs)
+      ansible.builtin.set_fact:
+        vault_docker_vrrp_priorities: >-
+          {{ vault_docker_vrrp_priorities | default({})
+             | combine({inventory_hostname.split('.')[0]: 100}) }}
+      when: _role_injected | default(false)
+
+    - name: Initialize restore test state
+      ansible.builtin.set_fact:
+        _restore_test_failed: false
+        _restore_test_detail: ""
+
+    - name: Ensure shared Docker network exists on test VM
+      community.docker.docker_network:
+        name: "{{ docker_network_name }}"
+        state: present
+      become: true
+
+    - block:
+        - name: Run restore-deploy-verify pipeline
+          include_tasks: tasks/restore_and_deploy.yaml
+          vars:
+            _test_mode: true
+
+      rescue:
+        - name: Set restore test failed flag
+          ansible.builtin.set_fact:
+            _restore_test_failed: true
+            _restore_test_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}{{ (' | ' + ansible_failed_result.stdout | trim) if ansible_failed_result.stdout | default('') | trim | length > 0 else '' }}"
+
+      always:
+        - name: Clean up temp restore archive on test VM
+          ansible.builtin.file:
+            path: "/tmp/restore_inplace.tar.gz"
+            state: absent
+
+        - name: Send restore test notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Restore Test"
+            discord_status: "{{ 'failed' if _restore_test_failed else 'successful' }}"
+            discord_detail: >-
+              {{ source_host | default(role | default('unknown')) }}{{ ' (' + restore_app + ')' if restore_app | default('') | length > 0 else '' }}
+            discord_color: "{{ discord_color_failure if _restore_test_failed else discord_color_success }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Source"
+                value: "{{ source_host | default('role: ' + role | default('unknown')) }}"
+                inline: true
+              - name: "Test VM"
+                value: "{{ hostvars['localhost']._vm.vm_name }}"
+                inline: true
+              - name: "Stacks"
+                value: "{{ hostvars['localhost']._stacks | join(', ') }}"
+              - name: "Detail"
+                value: "{{ _restore_test_detail }}"
+
+        - name: Log restore test to restores table
+          include_tasks: tasks/log_restore.yaml
+          vars:
+            log_hostname: "{{ controller_fqdn }}"
+            restore_application: "{{ maintenance_name }}"
+            restore_source_file: "{{ hostvars['localhost']._archive_files | map('basename') | join(', ') }}"
+            restore_type: "{{ maintenance_type }}"
+            restore_subtype: "Appdata"
+            restore_operation: "test_restore"
+            restore_status: "{{ 'failed' if _restore_test_failed else 'success' }}"
+            restore_detail: "{{ _restore_test_detail | default('check Semaphore logs') }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 6 — Revert to clean state after restore test
+# ═══════════════════════════════════════════════════════════════════
+- name: Revert test VM to clean state
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+    - vars/vm_definitions.yaml
+
+  tasks:
+    - name: Skip revert (role not set)
+      ansible.builtin.debug:
+        msg: "No role specified — skipping revert"
+      when: role is not defined or (vm_state | default('present')) != 'present'
+
+    - name: Revert test VM to pre-test snapshot
+      block:
+        - name: Stop test VM for snapshot revert
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm_actual_node }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: stopped
+            force: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          ignore_errors: true
+
+        - name: Revert to pre-test snapshot
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot/pre-test-restore/rollback"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Wait for snapshot rollback to complete
+          ansible.builtin.pause:
+            seconds: 20
+
+        - name: Delete pre-test snapshot
+          ansible.builtin.uri:
+            url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/snapshot/pre-test-restore"
+            method: DELETE
+            headers:
+              Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+            validate_certs: false
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: role is defined and (vm_state | default('present')) == 'present'
+
+    - name: Fail if restore test failed
+      ansible.builtin.fail:
+        msg: "Restore test failed: {{ hostvars[_vm.vm_hostname]._restore_test_detail | default('check Semaphore logs') }}"
+      when: >-
+        role is defined and (vm_state | default('present')) == 'present' and
+        (hostvars[_vm.vm_hostname]._restore_test_failed | default(false))
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 7 — Auto-destroy ephemeral test VM after successful build
+#          (skipped for prod VMs, restore tests, failures, or vm_cleanup=no)
+# ═══════════════════════════════════════════════════════════════════
+- name: Cleanup ephemeral test VM
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/proxmox.yaml
+    - vars/vm_definitions.yaml
+  vars:
+    _is_test_vm: >-
+      {{ (_vm.vm_id | int) >= (vm_test_slot_base | int) and
+         (_vm.vm_id | int) < ((vm_test_slot_base + vm_test_slot_count) | int) }}
+    _do_cleanup: "{{ vm_cleanup | default('yes') == 'yes' }}"
+
+  tasks:
+    - name: Skip cleanup (not applicable)
+      ansible.builtin.debug:
+        msg: >-
+          Skipping cleanup — {{ 'not a test VM' if not (_is_test_vm | bool)
+            else 'vm_cleanup=no' if not (_do_cleanup | bool)
+            else 'role set (revert handles cleanup)' if role is defined
+            else 'vm_state is not present' if (vm_state | default('present')) != 'present'
+            else 'build or bootstrap failed' }}
+      when: >-
+        not (_is_test_vm | bool) or
+        not (_do_cleanup | bool) or
+        role is defined or
+        (vm_state | default('present')) != 'present' or
+        (build_failed | default(false) | bool) or
+        (hostvars[_vm.vm_hostname | default('')].bootstrap_failed | default(false) | bool)
+
+    - name: Destroy ephemeral test VM
+      include_tasks: tasks/destroy_vm.yaml
+      vars:
+        _destroy_vmid: "{{ _vm.vm_id }}"
+        _destroy_node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
+        _destroy_name: "{{ _vm.vm_name }}"
+      when: >-
+        (_is_test_vm | bool) and
+        (_do_cleanup | bool) and
+        role is not defined and
+        (vm_state | default('present')) == 'present' and
+        not (build_failed | default(false) | bool) and
+        not (hostvars[_vm.vm_hostname | default('')].bootstrap_failed | default(false) | bool)
