@@ -621,3 +621,42 @@
       changed_when: true
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when: amp_licence_key is defined
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 7 — Start all instances and verify AMP web panel
+# ═══════════════════════════════════════════════════════════════════
+- name: Start AMP instances and verify web panel
+  hosts: amp
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/amp.yaml
+
+  pre_tasks:
+    - name: Skip play on destroy
+      ansible.builtin.meta: end_play
+      when: vm_state | default('present') == 'absent'
+
+  tasks:
+    - name: Start all AMP instances
+      ansible.builtin.shell: sudo -u {{ amp_user }} ampinstmgr startall
+      changed_when: true
+
+    - name: Wait for AMP web panel on port 8080
+      ansible.builtin.wait_for:
+        port: 8080
+        host: 0.0.0.0
+        timeout: 60
+        state: started
+
+    - name: Verify AMP web panel responds
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8080/"
+        method: GET
+        status_code: [200, 302]
+        timeout: 10
+      register: _amp_web_check
+      retries: 3
+      delay: 5
+      until: _amp_web_check is not failed
