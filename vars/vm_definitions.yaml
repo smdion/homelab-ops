@@ -307,3 +307,11 @@ host_roles: >-
     | map('regex_replace', '$', '.' ~ domain_ext) | list
     | zip(_host_entries | map(attribute='key') | list)
   )) }}
+
+# all_definitions: combined role → definition dict.
+# Merges all definition sources into a single lookup for playbooks that need
+# to resolve a role without knowing which file it came from.
+# Add new definition files here (e.g. cloud_definitions) to extend coverage.
+all_definitions: >-
+  {{ vm_definitions
+     | combine(host_definitions | default({})) }}

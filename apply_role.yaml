@@ -1,22 +1,26 @@
 ---
-# Idempotent VM state reconciliation — single command to make a VM match its definition.
+# Idempotent host state reconciliation — single command to make a host match its definition.
+# Supports both Proxmox VMs (vm_definitions) and non-VM hosts (host_definitions).
 # Layers: OS -> Network -> Docker -> Application -> Verification.
 # Basic VMs (no stacks) get OS + Network only; Docker/Application/Verification auto-skipped.
+# Non-VM hosts skip OS + Network + VIP layers; Docker/Application layers apply normally.
 #
-# Play 1 (localhost): Validate inputs, look up VM definition(s), determine scope.
-# Play 2 (target VMs): Apply each layer idempotently, skip layers via flags.
+# Play 1 (localhost): Validate inputs, look up definition(s), determine scope.
+# Play 2 (target hosts): Apply each layer idempotently, skip layers via flags.
 # When multiple roles are targeted, Play 2 processes them sequentially (serial: 1)
-# in VMID order (core=400, apps=401, dev=402) to respect NFS dependencies.
+# — VMs first in VMID order (core=400, apps=401, dev=402) to respect NFS dependencies,
+# then non-VM hosts.
 #
 # Usage:
-#   ansible-playbook apply_role.yaml                          # all Docker VMs
-#   ansible-playbook apply_role.yaml -e role=core             # single role
+#   ansible-playbook apply_role.yaml                          # all roles with stacks
+#   ansible-playbook apply_role.yaml -e role=core             # single VM role
+#   ansible-playbook apply_role.yaml -e role=vps              # hosted server (non-VM)
 #   ansible-playbook apply_role.yaml -e role=core -e stack=auth
 #   ansible-playbook apply_role.yaml -e role=core -e skip_stacks=yes
 #   ansible-playbook apply_role.yaml -e validate_only=yes     # dry-run all roles
 #
 # Optional extra vars:
-#   role                 — VM role filter (core, apps, dev, amp). Omit for all Docker VMs.
+#   role                 — role filter (any key from vm/host definitions). Omit for all roles with stacks.
 #   deploy_ssh_key=yes   — install ansible SSH key (default: from VM spec)
 #   debug_no_log=yes     — show template output in logs
 #   validate_only=yes    — dry-run: resolve scope, skip apply
@@ -47,12 +51,12 @@
     maintenance_subtype: "Apply Role"
 
   pre_tasks:
-    - name: Assert role exists in vm_definitions
+    - name: Assert role exists in definitions
       ansible.builtin.assert:
-        that: role in vm_definitions
+        that: role in all_definitions
         fail_msg: >-
-          role '{{ role }}' not found in vm_definitions.
-          Valid roles: {{ vm_definitions.keys() | list | join(', ') }}
+          role '{{ role }}' not found in any definition file.
+          Valid roles: {{ all_definitions.keys() | list | join(', ') }}
       when: role is defined
 
     - name: Run standard pre-flight assertions
@@ -67,11 +71,16 @@
       ansible.builtin.set_fact:
         _target_roles: >-
           {{ [role] if role is defined
-             else vm_definitions | dict2items
-                  | selectattr('value.stacks', 'defined')
-                  | rejectattr('value.vm_vlan_tag', 'defined')
-                  | sort(attribute='value.vm_id')
-                  | map(attribute='key') | list }}
+             else (all_definitions | dict2items
+                   | selectattr('value.stacks', 'defined')
+                   | rejectattr('value.vm_vlan_tag', 'defined')
+                   | selectattr('value.vm_id', 'defined')
+                   | sort(attribute='value.vm_id')
+                   | map(attribute='key') | list)
+                  + (all_definitions | dict2items
+                     | selectattr('value.stacks', 'defined')
+                     | rejectattr('value.vm_id', 'defined')
+                     | map(attribute='key') | list) }}
 
     - name: "Resolve and add target — {{ _current_role }}"
       include_tasks: tasks/apply_role_resolve.yaml
@@ -137,7 +146,9 @@
           vars:
             _vm: "{{ _target_vm }}"
             _install_docker: "{{ _target_is_docker_vm }}"
-          when: not (skip_bootstrap | default(false) | bool)
+          when:
+            - _target_is_vm | bool
+            - not (skip_bootstrap | default(false) | bool)
 
         # ===== DOCKER LAYER =====
         - name: Ensure shared Docker network exists
@@ -180,6 +191,7 @@
         - name: Verify VIP is active
           include_tasks: tasks/verify_vip.yaml
           when:
+            - _target_is_vm | bool
             - _target_is_docker_vm | bool
             - not (skip_verify | default(false) | bool)
 
@@ -207,7 +219,7 @@
             discord_author: "{{ controller_fqdn }}"
             discord_fields:
               - name: "{{ '❌ ' if _apply_failed else '✅ ' }}{{ _target_role }}"
-                value: "{{ _target_vm.vm_name }}"
+                value: "{{ _target_vm.vm_name | default(_target_vm.vm_hostname) }}"
                 inline: true
               - name: "Detail"
                 value: "{{ _apply_detail }}"

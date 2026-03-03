@@ -1,37 +1,41 @@
 ---
-# Resolve a single role and add its target VM to apply_target.
+# Resolve a single role and add its target host to apply_target.
 # Called in a loop from apply_role.yaml Play 1.
+# Supports both vm_definitions and host_definitions entries via all_definitions.
 #
 # Expected loop var:
-#   _current_role — role name (key in vm_definitions)
+#   _current_role — role name (key in all_definitions)
 
-- name: "Resolve VM definition — {{ _current_role }}"
+- name: "Resolve definition — {{ _current_role }}"
   ansible.builtin.set_fact:
-    _resolve_vm: "{{ vm_definitions[_current_role] }}"
+    _resolve_def: "{{ all_definitions[_current_role] }}"
+    _resolve_is_vm: "{{ all_definitions[_current_role].vm_id is defined }}"
 
 - name: "Display reconciliation scope — {{ _current_role }}"
   ansible.builtin.debug:
     msg: |
       Role:           {{ _current_role }}
-      VM:             {{ _resolve_vm.vm_name }} ({{ _resolve_vm.vm_ip }})
-      Docker VM:      {{ _resolve_vm.stacks is defined }}
-      Stacks:         {{ _resolve_vm.stacks | default([]) | join(', ') or 'none' }}
-      Deploy SSH key: {{ (deploy_ssh_key | default(false) | bool) or (_resolve_vm.deploy_ssh_key | default(false) | bool) }}
+      Host:           {{ _resolve_def.vm_name | default(_current_role) }} ({{ _resolve_def.vm_ip | default(_resolve_def.vm_hostname) }})
+      VM:             {{ _resolve_is_vm }}
+      Docker host:    {{ _resolve_def.stacks is defined }}
+      Stacks:         {{ _resolve_def.stacks | default([]) | join(', ') or 'none' }}
+      Deploy SSH key: {{ (deploy_ssh_key | default(false) | bool) or (_resolve_def.deploy_ssh_key | default(false) | bool) }}
       Skip bootstrap: {{ skip_bootstrap | default(false) | bool }}
       Skip stacks:    {{ skip_stacks | default(false) | bool }}
       Skip verify:    {{ skip_verify | default(false) | bool }}
       Resize:         {{ resize | default(false) | bool }}
       Validate only:  {{ validate_only | default(false) | bool }}
 
-- name: "Add target VM to inventory — {{ _current_role }}"
+- name: "Add target to inventory — {{ _current_role }}"
   ansible.builtin.add_host:
-    name: "{{ _resolve_vm.vm_hostname }}"
-    ansible_host: "{{ _resolve_vm.vm_ip }}"
+    name: "{{ _resolve_def.vm_hostname }}"
+    ansible_host: "{{ _resolve_def.vm_ip | default(omit) }}"
     ansible_user: "{{ vm_user }}"
     groups: apply_target
     _target_role: "{{ _current_role }}"
-    _target_vm: "{{ _resolve_vm }}"
-    _target_is_docker_vm: "{{ _resolve_vm.stacks is defined }}"
-    _target_stacks: "{{ _resolve_vm.stacks | default([]) }}"
-    _target_deploy_ssh_key: "{{ (deploy_ssh_key | default(false) | bool) or (_resolve_vm.deploy_ssh_key | default(false) | bool) }}"
+    _target_vm: "{{ _resolve_def }}"
+    _target_is_vm: "{{ _resolve_is_vm }}"
+    _target_is_docker_vm: "{{ _resolve_def.stacks is defined }}"
+    _target_stacks: "{{ _resolve_def.stacks | default([]) }}"
+    _target_deploy_ssh_key: "{{ (deploy_ssh_key | default(false) | bool) or (_resolve_def.deploy_ssh_key | default(false) | bool) }}"
   when: not (validate_only | default(false) | bool)
