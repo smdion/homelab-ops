@@ -37,6 +37,7 @@ services:
     - vps:/workspace/vps
     - homelab-ops:/workspace/homelab-ops
     - homelab-docs:/workspace/homelab-docs
+    - /opt/CLAUDE.md:/workspace/CLAUDE.md:ro
     - ${APPSDIR}/code-server:/config
     - ./custom-cont-init.d:/custom-cont-init.d:ro
     healthcheck:
