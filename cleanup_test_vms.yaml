@@ -4,9 +4,10 @@
 # stops any that are running, and destroys them.
 #
 # Usage:
-#   ansible-playbook cleanup_test_vms.yaml
+#   ansible-playbook cleanup_test_vms.yaml -e confirm=yes
 #
-# No extra vars required. Safe to run at any time — skips slots with no VM.
+# Required extra vars:
+#   confirm=yes  — safety gate (this playbook destroys all test VMs in the pool)
 
 - name: Clean up all test VMs
   hosts: localhost
@@ -18,6 +19,13 @@
   vars:
     _pool_start: "{{ vm_test_slot_base | int }}"
     _pool_end: "{{ (vm_test_slot_base + vm_test_slot_count) | int }}"
+
+  pre_tasks:
+    - name: Assert safety gate
+      ansible.builtin.assert:
+        that:
+          - confirm | default('no') == 'yes'
+        fail_msg: "Safety gate not set. This playbook destroys all test VMs in the pool. Usage: -e confirm=yes"
 
   tasks:
     - name: Query cluster VMs

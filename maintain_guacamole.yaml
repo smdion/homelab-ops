@@ -59,7 +59,6 @@
             fail_msg: "Deleting unmanaged connections requires -e remove_unmanaged=yes -e confirm=yes"
           when:
             - remove_unmanaged | default('') == 'yes'
-            - confirm | default('') == 'yes'
 
         # ═══════════════════════════════════════════════════════════════
         # Steps 2-7 — Converge connections (shared tasks)

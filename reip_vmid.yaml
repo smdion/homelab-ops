@@ -6,12 +6,13 @@
 # touch a running VM. Back up important VMs before re-IDing.
 #
 # Usage:
-#   ansible-playbook reip_vmid.yaml -e old_vmid=300 -e new_vmid=400
-#   ansible-playbook reip_vmid.yaml -e old_vmid=300 -e new_vmid=400 -e pve_node=homeone
+#   ansible-playbook reip_vmid.yaml -e old_vmid=300 -e new_vmid=400 -e confirm=yes
+#   ansible-playbook reip_vmid.yaml -e old_vmid=300 -e new_vmid=400 -e pve_node=homeone -e confirm=yes
 #
 # Required extra vars:
 #   old_vmid  — current VMID of the VM to rename
 #   new_vmid  — target VMID (must not already exist)
+#   confirm=yes — safety gate (VMID rename modifies LVM volumes and config files)
 #
 # Optional extra vars:
 #   pve_node  — PVE node where the VM lives (auto-detected from cluster API if omitted)
@@ -28,6 +29,13 @@
     _storage: "{{ storage | default('pve') }}"
 
   pre_tasks:
+    - name: Assert safety gate
+      ansible.builtin.assert:
+        that:
+          - confirm | default('no') == 'yes'
+        fail_msg: "Safety gate not set. Re-ID modifies LVM volumes and VM config. Usage: -e confirm=yes"
+      run_once: true
+
     - name: Validate required parameters
       ansible.builtin.assert:
         that:

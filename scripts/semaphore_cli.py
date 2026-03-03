@@ -408,6 +408,32 @@ def cmd_inventory_list(args, config):
     output(invs, args, columns=columns, headers=headers)
 
 
+def cmd_inventory_get(args, config):
+    """Get inventory details."""
+    base = f"/api/project/{args.project}/inventory/{args.inventory_id}"
+    data = api_get(base, config)
+    output(data, args)
+
+
+def cmd_inventory_update(args, config):
+    """Update an inventory."""
+    base = f"/api/project/{args.project}/inventory/{args.inventory_id}"
+    current = api_get(base, config)
+    if args.name is not None:
+        current["name"] = args.name
+    if args.inv_type is not None:
+        current["type"] = args.inv_type
+    if args.inventory is not None:
+        current["inventory"] = args.inventory
+    if args.ssh_key_id is not None:
+        current["ssh_key_id"] = args.ssh_key_id
+    if args.repository_id is not None:
+        current["repository_id"] = args.repository_id
+    api_put(base, config, current)
+    updated = api_get(base, config)
+    output(updated, args)
+
+
 def cmd_view_list(args, config):
     """List views."""
     base = f"/api/project/{args.project}/views"
@@ -831,6 +857,21 @@ def build_parser():
     inv_sub = inv.add_subparsers(dest="inventory_action", required=True)
     inv_sub.add_parser("list", help="List inventories")
 
+    inv_get = inv_sub.add_parser("get", help="Get inventory details")
+    inv_get.add_argument("inventory_id", type=int, help="Inventory ID")
+
+    inv_update = inv_sub.add_parser("update", help="Update an inventory")
+    inv_update.add_argument("inventory_id", type=int, help="Inventory ID")
+    inv_update.add_argument("--name", help="Inventory name")
+    inv_update.add_argument("--type", dest="inv_type",
+                            help="Inventory type (static/file)")
+    inv_update.add_argument("--inventory",
+                            help="Inventory content or file path")
+    inv_update.add_argument("--ssh-key-id", dest="ssh_key_id", type=int,
+                            help="SSH key ID")
+    inv_update.add_argument("--repository-id", dest="repository_id", type=int,
+                            help="Repository ID")
+
     # --- view ---
     view = sub.add_parser("view", help="View operations")
     view_sub = view.add_subparsers(dest="view_action", required=True)
@@ -909,6 +950,8 @@ COMMANDS = {
     },
     "inventory": {
         "list": cmd_inventory_list,
+        "get": cmd_inventory_get,
+        "update": cmd_inventory_update,
     },
     "view": {
         "list": cmd_view_list,

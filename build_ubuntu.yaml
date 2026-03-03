@@ -11,7 +11,7 @@
 #
 # Usage:
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm
-#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=absent
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=absent -e confirm=yes
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=snapshot -e snapshot_name=post-bootstrap
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e vm_state=revert -e snapshot_name=post-bootstrap
 #
@@ -23,6 +23,7 @@
 #   vm_state=snapshot — create a named Proxmox snapshot (disk only, no RAM)
 #   vm_state=revert   — revert to a named snapshot, restart VM, wait for SSH
 #   snapshot_name     — required when vm_state is snapshot or revert
+#   confirm=yes       — safety gate, required for vm_state=absent (destroy)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Manage VM on Proxmox (create / destroy / snapshot / revert)
@@ -59,6 +60,13 @@
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
         _vm_state: "{{ vm_state | default('present') }}"
+
+    - name: Assert safety gate for VM destroy
+      ansible.builtin.assert:
+        that:
+          - confirm | default('no') == 'yes'
+        fail_msg: "Destroying a VM requires -e confirm=yes. Usage: -e vm_state=absent -e confirm=yes"
+      when: _vm_state == 'absent'
 
     - name: Assert snapshot_name is defined for snapshot/revert
       ansible.builtin.assert:

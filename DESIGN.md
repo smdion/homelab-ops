@@ -650,13 +650,13 @@ root, which a FUSE-mounted backup share (using `default_permissions`) may block.
 
 ### Inventories
 
-Inventories are stored in **Semaphore's database**, not in this repository. `inventory.yaml` is
-committed vault-encrypted as a local reference — but Semaphore reads inventories from its own
-database, not from this file. To update an inventory, edit it in the Semaphore UI or via its
-database.
+All Semaphore inventories are **file-based** (`type: file`), reading from `inventory.yaml` in this
+repository. The file is vault-encrypted; Semaphore decrypts it via the Key Store vault password.
+To update host definitions, edit `inventory.yaml` and commit — Semaphore picks up changes on the
+next template run.
 
-Semaphore inventories are organized by **authentication method** — each inventory groups hosts
-that share the same SSH key or login password. Within each inventory, hosts belong to
+Semaphore inventories are organized by **authentication method** — each inventory uses a different
+SSH key or login credential from the Key Store. Within each inventory, hosts belong to
 **functional groups** (`[ubuntu]`, `[pve]`, `[docker_stacks]`, etc.) that determine which
 playbook logic applies. The `hosts_variable` in each template's variable group scopes the
 playbook to the correct functional group.
@@ -810,7 +810,7 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 **Safety gates (required for destructive operations, intentionally never pre-set):**
 | Var | Playbooks |
 |-----|-----------|
-| `confirm=yes` | All restore playbooks (`restore_databases`, `restore_hosts`, `restore_app`, `restore_amp`) and `rollback_docker` |
+| `confirm=yes` | All restore playbooks (`restore_databases`, `restore_hosts`, `restore_app`, `restore_amp`), `rollback_docker`, `bootstrap_amp`, `build_ubuntu` (vm_state=absent only), `cleanup_test_vms`, `dr_rebuild`, `reip_vmid`, `purge_ceph`; conditional in `maintain_logging_db` (purge_all) and `maintain_guacamole` (remove_unmanaged) |
 
 **Opt-in behaviours (`=yes` to enable, omit to skip):**
 | Var | Purpose |
@@ -1948,7 +1948,7 @@ Then update Key Store id=30 in Semaphore UI to match.
 
 ### Add a new host
 
-1. Add the host to the inventory in Semaphore (each inventory is stored in the Semaphore DB, not in this repo)
+1. Add the host to `inventory.yaml` (vault-encrypted — decrypt, edit, re-encrypt, commit)
 2. Create or reuse a `vars/<config>.yaml` with `backup_type`/`backup_subtype` set
 3. Create a Semaphore template with the correct inventory and variable group
 4. If the host's group should be health-monitored, add the group to `health_check_groups` in `vars/semaphore_check.yaml`

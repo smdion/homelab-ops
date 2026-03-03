@@ -9,12 +9,13 @@
 #
 # Usage:
 #   # Production DR rebuild (vm_name derived from role)
-#   ansible-playbook dr_rebuild.yaml -e role=core -e deploy_ssh_key=yes -e debug_no_log=yes
-#   ansible-playbook dr_rebuild.yaml -e role=apps -e deploy_ssh_key=yes -e debug_no_log=yes
-#   ansible-playbook dr_rebuild.yaml -e role=dev  -e deploy_ssh_key=yes -e debug_no_log=yes
+#   ansible-playbook dr_rebuild.yaml -e role=core -e confirm=yes -e deploy_ssh_key=yes -e debug_no_log=yes
+#   ansible-playbook dr_rebuild.yaml -e role=apps -e confirm=yes -e deploy_ssh_key=yes -e debug_no_log=yes
+#   ansible-playbook dr_rebuild.yaml -e role=dev  -e confirm=yes -e deploy_ssh_key=yes -e debug_no_log=yes
 #
 # Required extra vars:
 #   role         — stack role name (core, apps, dev)
+#   confirm=yes  — safety gate
 #
 # Optional extra vars:
 #   vm_name      — VM key from vm_definitions (default: same as role). Override for test VMs.
@@ -45,6 +46,12 @@
     maintenance_subtype: "DR Rebuild"
 
   pre_tasks:
+    - name: Assert safety gate
+      ansible.builtin.assert:
+        that:
+          - confirm | default('no') == 'yes'
+        fail_msg: "Safety gate not set. DR rebuild provisions VMs and restores data. Usage: -e confirm=yes"
+
     - name: Default vm_name to role
       ansible.builtin.set_fact:
         vm_name: "{{ vm_name | default(role) }}"

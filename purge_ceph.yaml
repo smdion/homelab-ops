@@ -11,11 +11,11 @@
 #   # Dry-run — preview every action, change nothing
 #   ansible-playbook purge_ceph.yaml --check
 #
-#   # Execute purge (services + packages + configs) — report OSD disks but skip wipe
-#   ansible-playbook purge_ceph.yaml
+#   # Execute full Ceph purge (services, packages, configs, OSD disk wipe)
+#   ansible-playbook purge_ceph.yaml -e confirm=yes
 #
-#   # Execute purge AND wipe former OSD disks
-#   ansible-playbook purge_ceph.yaml -e confirm_disk_wipe=yes
+# Required extra vars:
+#   confirm=yes  — safety gate (removes all Ceph components and wipes OSD disks)
 #
 # Required vault vars: logging DB credentials (for pre_task_assertions)
 
@@ -37,6 +37,12 @@
     maintenance_description: "Complete Ceph removal from PVE cluster nodes"
 
   pre_tasks:
+    - name: Assert safety gate
+      ansible.builtin.assert:
+        that:
+          - confirm | default('no') == 'yes'
+        fail_msg: "Safety gate not set. This playbook purges all Ceph components and wipes OSD disks. Usage: -e confirm=yes"
+
     - name: Run standard pre-flight assertions
       include_tasks: tasks/pre_task_assertions.yaml
       vars:
@@ -219,13 +225,13 @@
               - "LVM volume groups: {{ _ceph_vgs.stdout_lines | default([]) }}"
               - "LVM physical volumes: {{ _ceph_pvs.stdout_lines | default([]) }}"
               - "Former OSD disks: {{ _ceph_osd_disks.stdout_lines | default([]) }}"
-              - "Disk wipe: {{ 'ENABLED (confirm_disk_wipe=yes)' if (confirm_disk_wipe | default('no') | bool) else 'SKIPPED — re-run with -e confirm_disk_wipe=yes to wipe' }}"
+              - "Disk wipe: ENABLED (confirm=yes)"
 
         - name: Remove Ceph device-mapper entries
           ansible.builtin.command: "dmsetup remove -f {{ item }}"
           loop: "{{ _ceph_dm.stdout_lines | default([]) }}"
           when:
-            - confirm_disk_wipe | default('no') | bool
+            - confirm | default('no') == 'yes'
             - _ceph_dm.stdout_lines | default([]) | length > 0
           failed_when: false
 
@@ -233,7 +239,7 @@
           ansible.builtin.command: "vgremove -y {{ item }}"
           loop: "{{ _ceph_vgs.stdout_lines | default([]) }}"
           when:
-            - confirm_disk_wipe | default('no') | bool
+            - confirm | default('no') == 'yes'
             - _ceph_vgs.stdout_lines | default([]) | length > 0
           failed_when: false
 
@@ -241,7 +247,7 @@
           ansible.builtin.command: "pvremove -f {{ item }}"
           loop: "{{ _ceph_pvs.stdout_lines | default([]) }}"
           when:
-            - confirm_disk_wipe | default('no') | bool
+            - confirm | default('no') == 'yes'
             - _ceph_pvs.stdout_lines | default([]) | length > 0
           failed_when: false
 
@@ -249,7 +255,7 @@
           ansible.builtin.command: "wipefs -af {{ item }}"
           loop: "{{ _ceph_osd_disks.stdout_lines | default([]) }}"
           when:
-            - confirm_disk_wipe | default('no') | bool
+            - confirm | default('no') == 'yes'
             - _ceph_osd_disks.stdout_lines | default([]) | length > 0
           failed_when: false
 
@@ -257,7 +263,7 @@
           ansible.builtin.command: "sgdisk --zap-all {{ item }}"
           loop: "{{ _ceph_osd_disks.stdout_lines | default([]) }}"
           when:
-            - confirm_disk_wipe | default('no') | bool
+            - confirm | default('no') == 'yes'
             - _ceph_osd_disks.stdout_lines | default([]) | length > 0
           failed_when: false
 

@@ -1,8 +1,9 @@
 # inventory.example.yaml — copy to inventory.yaml and replace hostnames with your own
 #
-# Inventories are NOT stored in this repo — see DESIGN.md for the full explanation.
-# This file documents the expected group structure so you can recreate the inventory
-# in Semaphore (UI or DB) for your own environment.
+# inventory.yaml is the single source of truth for all Semaphore inventories.
+# All 6 Semaphore inventories are type: "file" pointing to this file; they differ
+# only by ssh_key_id (which credential Semaphore uses to connect).
+# Vault-encrypt inventory.yaml before committing.
 #
 # Replace home.local / example.com with your own domain(s).
 # Replace hostnames with your actual host names.
