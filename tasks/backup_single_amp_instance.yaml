@@ -87,7 +87,11 @@
       ansible.builtin.shell: sudo -u {{ amp_user }} ampinstmgr StartInstance {{ _amp_instance }}
       args:
         executable: /bin/bash
-      changed_when: true
+      register: _amp_early_start
+      until: _amp_early_start.rc == 0
+      retries: 3
+      delay: 10
+      changed_when: _amp_early_start.rc == 0
       ignore_errors: true
       when: _amp_was_running | default(false)
 
@@ -123,12 +127,16 @@
              'failed': true}] }}
 
   always:
-    - name: Start AMP instance {{ _amp_instance }}
+    - name: Start AMP instance {{ _amp_instance }} (retry for post-activation restart)
       become: true
       ansible.builtin.shell: sudo -u {{ amp_user }} ampinstmgr StartInstance {{ _amp_instance }}
       args:
         executable: /bin/bash
-      changed_when: true
+      register: _amp_start_result
+      until: _amp_start_result.rc == 0
+      retries: 3
+      delay: 10
+      changed_when: _amp_start_result.rc == 0
       ignore_errors: true
       when: _amp_was_running | default(false)
 
