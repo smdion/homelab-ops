@@ -1,7 +1,8 @@
 ---
 # Deploy homelab-docs MkDocs site to the docs container on the dev VM.
-# Pulls latest homelab-docs on the dev host, generates auto-pages from homelab-ops,
-# builds with mkdocs, and the site/ directory is served directly by the docs container.
+# The local /opt/homelab-docs (bind-mounted into code-server at /workspace/homelab-docs)
+# is the source of truth. Generates auto-pages from homelab-ops, builds with mkdocs,
+# and the site/ directory is served directly by the docs container.
 #
 # The homelab-docs repo lives at /opt/homelab-docs on the dev VM (bind-mounted
 # into code-server at /workspace/homelab-docs). The docs Nginx container serves
@@ -10,16 +11,12 @@
 # Required extra vars:
 #   hosts_variable        — inventory group (pre-filled by Semaphore environment)
 #
-# Optional extra vars:
-#   docs_branch=main      — homelab-docs branch to build (default: main)
-#
 # Scope selectors:
 #   stack=<name>          — deploy a single stack (auto-resolves host)
 #   role=<name>           — deploy all stacks in a role (auto-resolves host)
 #
 # Usage:
 #   ansible-playbook deploy_docs.yaml -e hosts_variable=docker_stacks -e stack=dev
-#   ansible-playbook deploy_docs.yaml -e hosts_variable=docker_stacks -e stack=dev -e docs_branch=main
 
 - name: Deploy homelab-docs site
   hosts: "{{ hosts_variable }}"
@@ -39,7 +36,6 @@
     maintenance_name: "Docs"
     maintenance_type: "Servers"
     maintenance_subtype: "Deploy"
-    docs_branch: main
     _docs_dir: "{{ docker_appsdir }}/homelab-docs"
     _ops_dir: "{{ docker_appsdir }}/homelab-ops"
 
@@ -60,22 +56,6 @@
         _deploy_detail: ""
 
     - block:
-        # ── Pull latest homelab-docs ─────────────────────────────────
-        - name: Pull latest homelab-docs
-          ansible.builtin.git:
-            repo: "{{ docs_repo_url }}"
-            dest: "{{ _docs_dir }}"
-            version: "{{ docs_branch }}"
-            force: true
-
-        # ── Pull latest homelab-ops ──────────────────────────────────
-        - name: Pull latest homelab-ops
-          ansible.builtin.git:
-            repo: "{{ docs_ops_repo_url }}"
-            dest: "{{ _ops_dir }}"
-            version: main
-            force: true
-
         # ── Install Python dependencies ──────────────────────────────
         - name: Install mkdocs-material and dependencies
           ansible.builtin.pip:
@@ -102,6 +82,13 @@
             path: "{{ _docs_dir }}/site/index.html"
           register: _site_index
           failed_when: not _site_index.stat.exists
+
+        # ── Push to GitHub (backup) ────────────────────────────────
+        - name: Push homelab-docs to GitHub
+          ansible.builtin.command:
+            cmd: "git push origin main"
+            chdir: "{{ _docs_dir }}"
+          changed_when: true
 
       rescue:
         - name: Record failure
