@@ -175,8 +175,7 @@
 - name: Bootstrap AMP Ubuntu VM
   hosts: amp
   become: true
-  gather_facts: true
-  gather_subset: ['!all', 'date_time']
+  gather_facts: false
   vars_files:
     - vars/secrets.yaml
     - vars/vm_definitions.yaml
@@ -186,6 +185,15 @@
     maintenance_name: "AMP"
     maintenance_type: "Servers"
     maintenance_subtype: "Build"
+
+  pre_tasks:
+    - name: Skip play on destroy
+      ansible.builtin.meta: end_play
+      when: vm_state | default('present') == 'absent'
+
+    - name: Gather facts
+      ansible.builtin.setup:
+        gather_subset: ['!all', 'date_time']
 
   tasks:
     - name: Initialize bootstrap state
@@ -248,8 +256,7 @@
 - name: Install AMP game server manager
   hosts: amp
   become: true
-  gather_facts: true
-  gather_subset: ['!all', 'date_time']
+  gather_facts: false
   vars_files:
     - vars/secrets.yaml
     - vars/amp.yaml
@@ -260,6 +267,14 @@
     maintenance_subtype: "Build"
 
   pre_tasks:
+    - name: Skip play on destroy
+      ansible.builtin.meta: end_play
+      when: vm_state | default('present') == 'absent'
+
+    - name: Gather facts
+      ansible.builtin.setup:
+        gather_subset: ['!all', 'date_time']
+
     - name: Run standard pre-flight assertions
       include_tasks: tasks/pre_task_assertions.yaml
       vars:
@@ -368,6 +383,11 @@
   vars:
     _restore_host: "{{ restore_host | default(groups['amp'][0]) }}"
 
+  pre_tasks:
+    - name: Skip play on destroy
+      ansible.builtin.meta: end_play
+      when: vm_state | default('present') == 'absent'
+
   tasks:
     - name: Find latest instances.json registry
       ansible.builtin.shell: >
@@ -432,8 +452,7 @@
 - name: Restore AMP instances from backup
   hosts: amp
   become: true
-  gather_facts: true
-  gather_subset: ['!all', 'date_time']
+  gather_facts: false
   vars_files:
     - vars/secrets.yaml
     - vars/amp.yaml
@@ -445,6 +464,15 @@
     _restore_instances: "{{ hostvars['localhost']._restore_instances }}"
     _restore_archive_map: "{{ hostvars['localhost']._restore_archive_map }}"
     _amp_registry_content: "{{ hostvars['localhost']._amp_registry_content }}"
+
+  pre_tasks:
+    - name: Skip play on destroy
+      ansible.builtin.meta: end_play
+      when: vm_state | default('present') == 'absent'
+
+    - name: Gather facts
+      ansible.builtin.setup:
+        gather_subset: ['!all', 'date_time']
 
   tasks:
     - name: Initialize restore state
@@ -565,6 +593,11 @@
     - vars/amp.yaml
   vars:
     _restore_instances: "{{ hostvars['localhost']._restore_instances }}"
+
+  pre_tasks:
+    - name: Skip play on destroy
+      ansible.builtin.meta: end_play
+      when: vm_state | default('present') == 'absent'
 
   tasks:
     - name: Skip license reactivation (no key provided)
