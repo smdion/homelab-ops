@@ -13,6 +13,10 @@
 # Optional extra vars:
 #   docs_branch=main      — homelab-docs branch to build (default: main)
 #
+# Scope selectors:
+#   stack=<name>          — deploy a single stack (auto-resolves host)
+#   role=<name>           — deploy all stacks in a role (auto-resolves host)
+#
 # Usage:
 #   ansible-playbook deploy_docs.yaml -e hosts_variable=docker_stacks -e stack=dev
 #   ansible-playbook deploy_docs.yaml -e hosts_variable=docker_stacks -e stack=dev -e docs_branch=main
@@ -36,8 +40,8 @@
     maintenance_type: "Servers"
     maintenance_subtype: "Deploy"
     docs_branch: main
-    _docs_dir: "/opt/homelab-docs"
-    _ops_dir: "/opt/homelab-ops"
+    _docs_dir: "{{ docker_appsdir }}/homelab-docs"
+    _ops_dir: "{{ docker_appsdir }}/homelab-ops"
 
   pre_tasks:
     - name: Resolve scope (role injection + stack/role filtering)
@@ -59,7 +63,7 @@
         # ── Pull latest homelab-docs ─────────────────────────────────
         - name: Pull latest homelab-docs
           ansible.builtin.git:
-            repo: "https://github.com/smdion/homelab-docs.git"
+            repo: "{{ docs_repo_url }}"
             dest: "{{ _docs_dir }}"
             version: "{{ docs_branch }}"
             force: true
@@ -67,7 +71,7 @@
         # ── Pull latest homelab-ops ──────────────────────────────────
         - name: Pull latest homelab-ops
           ansible.builtin.git:
-            repo: "https://github.com/smdion/homelab-ops.git"
+            repo: "{{ docs_ops_repo_url }}"
             dest: "{{ _ops_dir }}"
             version: main
             force: true
