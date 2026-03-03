@@ -146,7 +146,7 @@
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
-            discord_operation: "Build"
+            discord_operation: "Provision"
             discord_status: "failed"
             discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ semaphore_ext_url }}"
@@ -232,7 +232,7 @@
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
-            discord_operation: "Build"
+            discord_operation: "Bootstrap"
             discord_status: "{{ 'failed' if bootstrap_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if bootstrap_failed else discord_color_success }}"
             discord_url: "{{ semaphore_ext_url }}"
@@ -354,7 +354,7 @@
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
-            discord_operation: "Build"
+            discord_operation: "Install"
             discord_status: "failed"
             discord_color: "{{ discord_color_failure }}"
             discord_url: "{{ backup_url }}"
@@ -558,7 +558,7 @@
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
-            discord_operation: "Build"
+            discord_operation: "Restore"
             discord_status: "{{ 'failed' if _restore_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if _restore_failed else discord_color_success }}"
             discord_url: "{{ backup_url }}"
