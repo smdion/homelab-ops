@@ -16,6 +16,8 @@ import os
 import sys
 import time
 
+import pymysql
+import pymysql.cursors
 import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -32,6 +34,7 @@ DEFAULT_TIMEOUT = 30
 LONG_TIMEOUT = 120
 DEFAULT_POLL_INTERVAL = 5
 TERMINAL_STATUSES = {"success", "error", "stopped", "rejected"}
+DEFAULT_SEMAPHORE_DB = "semaphore"
 
 VIEW_MAP = {
     "Backup": 2, "Update": 3, "Maintain": 4, "Download": 5,
@@ -72,6 +75,23 @@ def save_config(path, url, token):
     with open(path, "w") as f:
         cp.write(f)
     os.chmod(path, 0o600)
+
+
+def load_db_config(path):
+    """Load [database] section from INI config for direct DB operations."""
+    path = os.path.expanduser(path)
+    cp = configparser.RawConfigParser()
+    cp.read(path)
+    if "database" not in cp:
+        error(f"Missing [database] section in {path}")
+    s = cp["database"]
+    return {
+        "host": s.get("host", ""),
+        "port": int(s.get("port", 3306)),
+        "user": s.get("user", ""),
+        "password": s.get("password", ""),
+        "semaphore_db": s.get("semaphore_db", DEFAULT_SEMAPHORE_DB),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -330,60 +350,62 @@ def cmd_task_stop(args, config):
 
 def cmd_task_clean(args, config):
     """Delete successful task runs for a template, keeping the last N."""
-    # Fetch all tasks for this template (Semaphore paginates, grab plenty)
-    base = f"/api/project/{args.project}/tasks"
-    tasks = api_get(f"{base}/last", config, params={"count": 10000})
-    if not isinstance(tasks, list):
-        tasks = []
+    db_cfg = load_db_config(args.config)
+    conn = pymysql.connect(
+        host=db_cfg["host"], port=db_cfg["port"],
+        user=db_cfg["user"], password=db_cfg["password"],
+        database=db_cfg["semaphore_db"],
+        cursorclass=pymysql.cursors.DictCursor,
+    )
+    try:
+        with conn.cursor() as cur:
+            # Count successful tasks for this template
+            cur.execute(
+                "SELECT id FROM task "
+                "WHERE template_id = %s AND status = 'success' "
+                "ORDER BY id DESC",
+                (args.template_id,),
+            )
+            successful = cur.fetchall()
 
-    # Filter to this template's successful tasks, sorted newest-first
-    successful = [
-        t for t in tasks
-        if t.get("template_id") == args.template_id
-        and t.get("status") == "success"
-    ]
-    successful.sort(key=lambda t: t.get("id", 0), reverse=True)
+            to_delete = successful[args.keep:]
 
-    # Keep the N most recent successful runs
-    to_delete = successful[args.keep:]
+            if not to_delete:
+                print(json.dumps({
+                    "status": "ok",
+                    "message": f"Nothing to clean — only {len(successful)} successful "
+                               f"task(s) found (keep={args.keep})",
+                }))
+                return
 
-    if not to_delete:
-        print(json.dumps({
-            "status": "ok",
-            "message": f"Nothing to clean — only {len(successful)} successful "
-                       f"task(s) found (keep={args.keep})",
-        }))
-        return
+            if args.dry_run:
+                ids = [r["id"] for r in to_delete]
+                print(json.dumps({
+                    "status": "dry_run",
+                    "template_id": args.template_id,
+                    "would_delete": len(to_delete),
+                    "task_ids": ids,
+                    "keeping": len(successful) - len(to_delete),
+                }, indent=2))
+                return
 
-    if args.dry_run:
-        ids = [t["id"] for t in to_delete]
-        print(json.dumps({
-            "status": "dry_run",
-            "template_id": args.template_id,
-            "would_delete": len(to_delete),
-            "task_ids": ids,
-            "keeping": len(successful) - len(to_delete),
-        }, indent=2))
-        return
+            # Atomic delete via single SQL statement
+            delete_ids = [r["id"] for r in to_delete]
+            placeholders = ",".join(["%s"] * len(delete_ids))
+            cur.execute(
+                f"DELETE FROM task WHERE id IN ({placeholders})",
+                delete_ids,
+            )
+            conn.commit()
 
-    deleted = []
-    errors = []
-    for t in to_delete:
-        tid = t["id"]
-        try:
-            api_delete(f"{base}/{tid}", config)
-            deleted.append(tid)
-        except SystemExit:
-            errors.append(tid)
-
-    print(json.dumps({
-        "status": "ok",
-        "template_id": args.template_id,
-        "deleted": len(deleted),
-        "errors": len(errors),
-        "error_task_ids": errors,
-        "kept": len(successful) - len(to_delete),
-    }, indent=2))
+            print(json.dumps({
+                "status": "ok",
+                "template_id": args.template_id,
+                "deleted": len(delete_ids),
+                "kept": len(successful) - len(delete_ids),
+            }, indent=2))
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
