@@ -1,14 +1,14 @@
 ---
 # Resolve the PVE target node for VM provisioning.
 # If pve_target_node == 'auto', queries cluster resources and selects the
-# least-loaded online node that has the cloud-init template (VMID 9000).
+# least-loaded online node.  The clone step in provision_vm.yaml handles
+# cross-node cloning from the template node (local-lvm, full copy).
 # Otherwise, passes through the explicit node name unchanged.
 #
 # Expects:
 #   _vm.pve_target_node          — 'auto' or a concrete PVE node name
 #   pve_api_host, pve_api_port   — PVE API endpoint
 #   pve_api_user, pve_api_token_id, pve_api_token_secret — PVE API credentials
-#   pve_template_vmid            — cloud-init template VMID (e.g. 9000)
 #
 # Sets:
 #   _vm_resolved_node            — concrete PVE node name (never 'auto')
@@ -31,38 +31,19 @@
       register: _pve_nodes
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-    - name: Query PVE cluster VM resources for template location
-      ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
-        method: GET
-        headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
-        validate_certs: false
-      register: _pve_vms
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-
-    - name: Derive template-hosting nodes
-      ansible.builtin.set_fact:
-        _template_nodes: >-
-          {{ _pve_vms.json.data
-             | selectattr('vmid', 'equalto', pve_template_vmid | int)
-             | map(attribute='node') | list }}
-
-    - name: Derive online candidate nodes (online + have template)
+    - name: Derive online candidate nodes
       ansible.builtin.set_fact:
         _candidate_nodes: >-
           {{ _pve_nodes.json.data
              | selectattr('status', 'equalto', 'online')
-             | selectattr('node', 'in', _template_nodes)
              | list }}
 
-    - name: Assert at least one eligible node exists
+    - name: Assert at least one online node exists
       ansible.builtin.assert:
         that: _candidate_nodes | length > 0
         fail_msg: >-
-          Auto-placement failed: no online PVE nodes have template VMID {{ pve_template_vmid }}.
-          Template exists on: {{ _template_nodes | join(', ') | default('none') }}.
-          Online nodes: {{ _pve_nodes.json.data | selectattr('status', 'equalto', 'online') | map(attribute='node') | join(', ') }}.
+          Auto-placement failed: no online PVE nodes found.
+          Node statuses: {{ _pve_nodes.json.data | map(attribute='node') | zip(_pve_nodes.json.data | map(attribute='status')) | map('join', '=') | join(', ') }}.
 
     - name: Score candidate nodes by available resources
       ansible.builtin.set_fact:

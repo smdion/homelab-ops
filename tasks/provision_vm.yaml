@@ -24,8 +24,8 @@
 - name: Resolve PVE target node
   include_tasks: tasks/resolve_pve_node.yaml
 
-# --- Ensure cloud-init template exists on target node ---
-- name: Check if cloud-init template exists on target node
+# --- Ensure cloud-init template exists in cluster ---
+- name: Check if cloud-init template exists in cluster
   ansible.builtin.uri:
     url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
     method: GET
@@ -37,13 +37,12 @@
 
 - name: Set template existence fact
   ansible.builtin.set_fact:
-    _template_exists_on_target: >-
+    _template_exists: >-
       {{ _template_check.json.data
          | selectattr('vmid', 'equalto', pve_template_vmid | int)
-         | selectattr('node', 'equalto', _vm_resolved_node)
          | list | length > 0 }}
 
-- name: Create cloud-init template on {{ _vm_resolved_node }}
+- name: Create cloud-init template on {{ pve_template_node }}
   delegate_to: pve_builder
   become: true
   ansible.builtin.shell: |
@@ -66,7 +65,7 @@
     echo "Template created"
   register: _template_result
   changed_when: "'Template created' in _template_result.stdout"
-  when: not _template_exists_on_target | bool
+  when: not _template_exists | bool
 
 # --- Check if VMID already exists anywhere in the cluster (partial/failed prior run) ---
 - name: Check if VMID already exists in cluster
