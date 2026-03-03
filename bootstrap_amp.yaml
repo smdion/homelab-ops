@@ -357,16 +357,8 @@
       when: amp_licence_key is not defined
 
     - name: Reactivate license for each instance
-      become: true
-      become_user: "{{ amp_user }}"
-      become_method: su
-      become_exe: sudo su -l
-      ansible.builtin.command:
-        argv:
-          - ampinstmgr
-          - reactivate
-          - "{{ item }}"
-          - "{{ amp_licence_key }}"
+      ansible.builtin.shell: >
+        sudo -u {{ amp_user }} ampinstmgr reactivate {{ item }} {{ amp_licence_key }}
       loop: "{{ _restore_instances }}"
       changed_when: true
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
