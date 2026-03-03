@@ -948,8 +948,11 @@ comment documents the full dict shape.
 **Semaphore task link.** `tasks/notify.yaml` auto-appends a "🔗 Task Log" field with a
 clickable link to the Semaphore task page when `_semaphore_task_url` is set. This fact is
 resolved by `tasks/resolve_semaphore_task.yaml` (called from `pre_task_assertions.yaml`),
-which queries `GET /api/project/{id}/tasks/last?count=1` for the current task ID. The link
-is omitted gracefully when running outside Semaphore or in check mode.
+which queries `GET /api/project/{id}/tasks/last?count=1` for the current task ID. The task
+is self-contained — it derives `semaphore_url` and `semaphore_ext_url` from `vars/secrets.yaml`
+vars (`semaphore_host_url`, `semaphore_controller_hostname`, `domain_ext`) so it works in all
+playbooks regardless of whether `vars/semaphore_check.yaml` is loaded. The link is omitted
+gracefully when running outside Semaphore or in check mode.
 
 **Emoji prefix on result fields.** The primary subject field in every notification uses
 `✅` (success), `❌` (failure), or `⚠️` (warning) as a prefix on the field name.

@@ -2,14 +2,21 @@
 # Resolve the current Semaphore task URL for inclusion in Discord notifications.
 # Sets _semaphore_task_url fact. Silently skipped if API unavailable or vars missing.
 #
-# Requires (from vars/semaphore_check.yaml + vars/secrets.yaml):
-#   semaphore_url, semaphore_api_token, semaphore_ext_url, semaphore_project_id
+# Self-contained — derives all needed values from vars/secrets.yaml (loaded by every
+# playbook), so this works even when vars/semaphore_check.yaml is not in vars_files.
+#
+# Requires (from vars/secrets.yaml):
+#   semaphore_host_url, semaphore_api_token, semaphore_controller_hostname,
+#   domain_ext, domain_local
 
 - name: Query Semaphore API for current task
+  vars:
+    _sem_url: "{{ semaphore_host_url | regex_replace('/$', '') }}"
+    _sem_project: "{{ semaphore_project_id | default(1) }}"
   become: false
   connection: local
   ansible.builtin.uri:
-    url: "{{ semaphore_url }}/api/project/{{ semaphore_project_id }}/tasks/last?count=1"
+    url: "{{ _sem_url }}/api/project/{{ _sem_project }}/tasks/last?count=1"
     method: GET
     headers:
       Authorization: "Bearer {{ semaphore_api_token }}"
@@ -19,16 +26,18 @@
   register: _semaphore_task_response
   failed_when: false
   when:
-    - semaphore_url is defined
+    - semaphore_host_url is defined
     - semaphore_api_token is defined
-    - semaphore_ext_url is defined
     - _semaphore_task_url is not defined
     - not ansible_check_mode
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
 - name: Set Semaphore task URL fact
+  vars:
+    _sem_ext: "https://{{ semaphore_controller_hostname }}.{{ domain_ext }}"
+    _sem_project: "{{ semaphore_project_id | default(1) }}"
   ansible.builtin.set_fact:
-    _semaphore_task_url: "{{ semaphore_ext_url }}/project/{{ semaphore_project_id }}/history/{{ (_semaphore_task_response.content | from_json)[0].id }}"
+    _semaphore_task_url: "{{ _sem_ext }}/project/{{ _sem_project }}/history/{{ (_semaphore_task_response.content | from_json)[0].id }}"
   when:
     - _semaphore_task_response is defined
     - _semaphore_task_response is succeeded
