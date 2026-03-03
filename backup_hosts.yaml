@@ -4,15 +4,16 @@
 # Other hosts: monolithic archive (stop Docker, archive all paths, restart).
 # Sends notification + logs each backup to MariaDB.
 #
-# Scope selectors (docker_stacks only):
-#   stack=<name>  — back up a single stack (auto-resolves host)
-#   app=<name>    — back up a single app's stack (resolves via app_definitions)
-#   role=<name>   — back up all stacks in a role (auto-resolves host)
+# Required extra vars:
+#   hosts_variable  — inventory group to target (pre-filled by Semaphore environment)
 #
-# Combined mode (docker_stacks / docker_run only):
-#   with_databases=yes — also dump MariaDB + Postgres after appdata backup
-#   DB backups always run ALL databases (no role/stack/app scoping).
-#   Replaces the old backup_stacks.yaml wrapper.
+# Scope selectors:
+#   stack=<name>        — back up a single stack, auto-resolves host (docker_stacks only)
+#   app=<name>          — back up a single app's stack, resolves via app_definitions (docker_stacks only)
+#   role=<name>         — back up all stacks in a role, auto-resolves host (docker_stacks only)
+#
+# Options:
+#   with_databases=yes  — also dump MariaDB + Postgres after appdata backup (docker_stacks/docker_run only)
 #
 # Usage:
 #   ansible-playbook backup_hosts.yaml -e hosts_variable=proxmox

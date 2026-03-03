@@ -3,6 +3,9 @@
 # Templates .env from vault, copies compose files, validates, and starts stacks.
 # Stacks deploy in stack_assignments order — databases before auth, etc.
 #
+# Required extra vars:
+#   hosts_variable        — inventory group to target (pre-filled by Semaphore environment)
+#
 # Scope selectors:
 #   stack=<name>          — deploy a single stack (auto-resolves host)
 #   app=<name>            — deploy a single app's stack (resolves via app_definitions)

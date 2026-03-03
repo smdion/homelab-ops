@@ -6,10 +6,14 @@
 # User groups from guacamole_admin_groups + per-connection user_groups
 # are synced to the DB with READ permissions on their declared connections.
 #
-# Three modes:
-#   Default (additive)                          — create/update, leave others alone
-#   -e remove_unmanaged=yes                     — move orphans to "Unmanaged" group
-#   -e remove_unmanaged=yes -e confirm=yes      — delete orphans instead
+# Optional extra vars:
+#   remove_unmanaged=yes  — move orphans to "Unmanaged" group (additive mode by default)
+#   confirm=yes           — delete orphans instead of grouping (requires remove_unmanaged=yes)
+#
+# Usage:
+#   ansible-playbook maintain_guacamole.yaml
+#   ansible-playbook maintain_guacamole.yaml -e remove_unmanaged=yes
+#   ansible-playbook maintain_guacamole.yaml -e remove_unmanaged=yes -e confirm=yes
 #
 # Semaphore: Maintenance view → "Maintain — Guacamole [Connections]"
 

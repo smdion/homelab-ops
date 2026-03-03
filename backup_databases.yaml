@@ -3,6 +3,9 @@
 # PostgreSQL/MariaDB: SQL dump piped through gzip. InfluxDB: portable backup → tar.gz.
 # Sends notification and logs result to MariaDB.
 #
+# Required extra vars:
+#   hosts_variable  — inventory group to target (pre-filled by Semaphore environment)
+#
 # Usage:
 #   ansible-playbook backup_databases.yaml -e hosts_variable=db_primary_postgres
 #   ansible-playbook backup_databases.yaml -e hosts_variable=db_primary_influxdb

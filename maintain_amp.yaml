@@ -9,6 +9,7 @@
 #
 # Optional extra vars:
 #   amp_scope=versions|cleanup|coredumps|prune|journal  — run only this scope (default: all)
+#   amp_versions_keep=<N>   — number of old AMP versions to keep (default: 3)
 #
 # Schedule with Semaphore to run weekly.
 

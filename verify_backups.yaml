@@ -5,10 +5,13 @@
 # Config backups (monolithic): verify gzip integrity, extract to staging dir, count files.
 # Sends notification and logs result to restores table.
 #
-# Scope selectors (docker_stacks only):
-#   stack=<name>  — verify a single stack's archive
-#   app=<name>    — verify a single app's stack archive (resolves via app_definitions)
-#   role=<name>   — verify all stacks in a role
+# Required extra vars:
+#   hosts_variable  — inventory group to target (pre-filled by Semaphore environment)
+#
+# Scope selectors:
+#   stack=<name>  — verify a single stack's archive (docker_stacks only)
+#   app=<name>    — verify a single app's stack archive, resolves via app_definitions (docker_stacks only)
+#   role=<name>   — verify all stacks in a role (docker_stacks only)
 #
 # Usage:
 #   ansible-playbook verify_backups.yaml -e hosts_variable=db_primary_postgres

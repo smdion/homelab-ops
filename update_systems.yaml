@@ -5,14 +5,16 @@
 # Saves a rollback snapshot before Docker Compose updates (see rollback_docker.yaml).
 # Sends notification and logs version changes to MariaDB.
 #
-# Usage:
-#   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu       (OS scope — auto-detected)
-#   ansible-playbook update_systems.yaml -e hosts_variable=docker_stacks (Docker scope — auto-detected)
-#   ansible-playbook update_systems.yaml -e hosts_variable=amp          (Software scope — auto-detected)
+# Required extra vars:
+#   hosts_variable                   — inventory group to target (pre-filled by Semaphore environment)
 #
-# Scope is auto-derived from hosts_variable:
-#   docker_stacks, docker_run → docker | amp → software | everything else → os
-#   Override: -e update_scope=os|docker|software
+# Optional extra vars:
+#   update_scope=os|docker|software  — override auto-detected scope (auto-derived from hosts_variable)
+#
+# Usage:
+#   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu
+#   ansible-playbook update_systems.yaml -e hosts_variable=docker_stacks
+#   ansible-playbook update_systems.yaml -e hosts_variable=amp
 
 - name: Update OS packages and Docker containers
   gather_facts: true

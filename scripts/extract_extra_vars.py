@@ -17,7 +17,42 @@ import sys
 from pathlib import Path
 
 # Playbooks that are not runnable (requirements files, etc.)
-SKIP_FILES = {"requirements.yaml"}
+SKIP_FILES = {"requirements.yaml", "inventory.yaml", "inventory.example.yaml"}
+
+
+def _all_var_names(result: dict) -> set:
+    """Return set of base var names (without =value) already captured."""
+    names = set()
+    for v in result["required_vars"] + result["optional_vars"]:
+        names.add(v["name"].split("=")[0])
+    return names
+
+
+# Section header patterns that signal optional extra vars
+_OPTIONAL_HEADERS = re.compile(
+    r"^(optional(\s+extra\s+var\w*)?|scope\s+selectors?|options?|extra\s+var\w*|modes?)"
+    r"\s*(\(.*\))?\s*:?\s*$",
+    re.IGNORECASE,
+)
+
+# Section header patterns that signal required extra vars
+_REQUIRED_HEADERS = re.compile(
+    r"^required(\s+extra\s+var\w*)?\s*:", re.IGNORECASE
+)
+
+# Section headers for vault/internal vars (NOT extra vars — skip these)
+_SKIP_HEADERS = re.compile(
+    r"^required\s+(variables?|vault\s+var)", re.IGNORECASE
+)
+
+# Inline -e var pattern: `-e var=value`
+_INLINE_EVAR = re.compile(r"-e\s+(\w+=\S+)")
+
+# Safety-gate mention: "requires confirm=yes" or "safety-gated: requires -e confirm=yes"
+_SAFETY_GATE = re.compile(
+    r"(?:safety[- ]gated|requires)\s*[:.]?\s*(?:-e\s+)?confirm=yes",
+    re.IGNORECASE,
+)
 
 
 def parse_header(filepath: Path) -> dict:
@@ -56,63 +91,99 @@ def parse_header(filepath: Path) -> dict:
             result["description"] = line.strip()
             break
 
-    # Extract required extra vars
+    # --- Multi-pass extraction ---
+
     required_section = False
     optional_section = False
     usage_section = False
+    skip_section = False
+    # Track which line indices are in skip/non-var sections (for fallback filtering)
+    _skip_line_indices = set()
 
-    for line in header_lines:
+    for line_idx, line in enumerate(header_lines):
         lower = line.lower().strip()
 
-        # Detect section headers
-        if "required extra var" in lower or "required:" in lower:
-            required_section = True
-            optional_section = False
-            usage_section = False
+        # Blank lines reset section state (sections are contiguous blocks)
+        if not lower:
+            required_section = optional_section = usage_section = False
             continue
-        elif "optional extra var" in lower or "optional:" in lower:
-            required_section = False
-            optional_section = True
-            usage_section = False
-            continue
-        elif "usage:" in lower:
-            required_section = False
-            optional_section = False
-            usage_section = True
-            continue
-        elif re.match(r"^(vault|vm lifecycle|extra var)", lower):
-            # Detect other section types
-            if "extra var" in lower:
-                optional_section = True
-                required_section = False
-                usage_section = False
-                continue
-            else:
-                required_section = False
-                optional_section = False
-                usage_section = False
-                continue
 
-        # Parse vars from current section
+        # Detect section headers -------------------------------------------------
+        if _SKIP_HEADERS.match(lower):
+            # Vault/internal vars section — skip until next section
+            required_section = optional_section = usage_section = False
+            skip_section = True
+            continue
+
+        if _REQUIRED_HEADERS.match(lower) or lower == "required:":
+            required_section = True
+            optional_section = usage_section = skip_section = False
+            continue
+
+        if _OPTIONAL_HEADERS.match(lower):
+            optional_section = True
+            required_section = usage_section = skip_section = False
+            continue
+
+        if "usage:" in lower:
+            usage_section = True
+            required_section = optional_section = skip_section = False
+            continue
+
+        # Other section-like headers reset parsing
+        if re.match(r"^(vault|vm lifecycle|semaphore|interactive|after|prerequisite)\b", lower):
+            required_section = optional_section = usage_section = False
+            skip_section = True
+            continue
+
+        if skip_section:
+            _skip_line_indices.add(line_idx)
+            continue
+
+        # Parse vars from structured sections ------------------------------------
         if required_section or optional_section:
-            # Match patterns like: var_name  — description
-            # or: var_name=value  — description
-            # or: var_name (with no description)
+            # Strip leading `-e ` prefix (some headers use it inline)
+            clean = re.sub(r"^\s*-e\s+", "", line)
+
+            # Match: var_name — description  OR  var_name=value — description
+            # Accepts: word chars, =, |, /, <, >, - (for date placeholders like YYYY-MM-DD)
             var_match = re.match(
-                r"^\s*(\w[\w=|/]*(?:\s*\|\s*\w+)*)"
-                r"\s*[—–-]?\s*(.*)",
-                line,
+                r"^\s*(\w[\w=|/<>-]*(?:\s*\|\s*\w+)*)"
+                r"\s+[—–-]\s+(.*)",
+                clean,
             )
-            if var_match and not line.startswith("Do NOT"):
+            if not var_match:
+                # Try looser match: var_name with no description
+                var_match = re.match(
+                    r"^\s*(\w[\w=|/<>-]*(?:\s*\|\s*\w+)*)\s*$",
+                    clean,
+                )
+                if var_match:
+                    # Fake the second group
+                    class _M:
+                        def group(self, n):
+                            if n == 1:
+                                return var_match.group(1)
+                            return ""
+                    var_match = _M()
+            if var_match and not line.lstrip().startswith("Do NOT"):
                 var_name = var_match.group(1).strip()
                 var_desc = var_match.group(2).strip()
-                # Skip lines that are clearly not variable definitions
+                # Skip continuation lines and common English words
+                _skip_words = {
+                    "requires", "default", "override", "example",
+                    "note", "see", "the", "this", "that", "when",
+                    "if", "for", "and", "or", "not", "all", "any",
+                    "run", "set", "use",
+                }
                 if (
                     var_name
-                    and not var_name[0].isupper()
-                    and len(var_name) < 40
-                    and "=" not in var_name.split("=")[0]
-                    or "=" in var_name
+                    and len(var_name) < 80
+                    and var_name.lower() not in _skip_words
+                    and (
+                        not var_name[0].isupper()
+                        or "=" in var_name
+                    )
                 ):
                     entry = {"name": var_name, "description": var_desc}
                     if required_section:
@@ -120,20 +191,52 @@ def parse_header(filepath: Path) -> dict:
                     else:
                         result["optional_vars"].append(entry)
 
-        # Parse usage examples
+        # Parse usage examples ---------------------------------------------------
         if usage_section:
             if "ansible-playbook" in line:
                 result["usage_examples"].append(line.strip())
 
-    # Also scan for -e vars in usage examples
+    # --- Fallback: scan entire header for `-e var=value` patterns ---------------
+    for line_idx, line in enumerate(header_lines):
+        if line_idx in _skip_line_indices:
+            continue
+        matches = list(_INLINE_EVAR.finditer(line))
+        for i, m in enumerate(matches):
+            var_expr = m.group(1)
+            var_base = var_expr.split("=")[0]
+            if var_base not in _all_var_names(result):
+                # Description is text between this -e and the next (or end)
+                if i + 1 < len(matches):
+                    after = line[m.end():matches[i + 1].start()]
+                else:
+                    after = line[m.end():]
+                desc = ""
+                desc_match = re.match(r"\s*[—–-]+\s*(.*)", after)
+                if desc_match:
+                    desc = desc_match.group(1).strip()
+                # Strip trailing comment/shell chars
+                var_expr = re.sub(r"[\\#]+$", "", var_expr).rstrip()
+                result["optional_vars"].append({
+                    "name": var_expr,
+                    "description": desc or "(from header)",
+                })
+
+    # --- Fallback: detect safety-gate mentions ----------------------------------
+    if "confirm" not in _all_var_names(result):
+        if _SAFETY_GATE.search(text):
+            result["optional_vars"].append({
+                "name": "confirm=yes",
+                "description": "safety gate",
+            })
+
+    # --- Extract vars from usage examples ---------------------------------------
     for example in result["usage_examples"]:
         for match in re.finditer(r"-e\s+(\w+=\S+)", example):
             var_expr = match.group(1)
             var_name = var_expr.split("=")[0]
-            # Check if already captured
-            all_names = [v["name"].split("=")[0] for v in
-                         result["required_vars"] + result["optional_vars"]]
-            if var_name not in all_names:
+            # Strip trailing shell chars (backslash, comment markers)
+            var_expr = re.sub(r"[\\#]+$", "", var_expr).rstrip()
+            if var_name not in _all_var_names(result):
                 result["optional_vars"].append({
                     "name": var_expr,
                     "description": "(from usage example)",

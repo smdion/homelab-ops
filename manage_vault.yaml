@@ -2,14 +2,16 @@
 # Vault management utility — check status, decrypt, encrypt, change, or validate secrets.yaml.
 # Runs on localhost. No inventory or Semaphore template needed.
 #
+# Optional extra vars:
+#   action=status|change|decrypt|encrypt|validate  — vault operation (default: status)
+#   vault_pass_file=<path>  — path to vault password file (also: ANSIBLE_VAULT_PASSWORD_FILE env var)
+#
 # Usage:
-#   ansible-playbook manage_vault.yaml                                                    # status
-#   ansible-playbook manage_vault.yaml -e action=change -e vault_pass_file=~/.vault_pass  # edit
+#   ansible-playbook manage_vault.yaml
+#   ansible-playbook manage_vault.yaml -e action=change -e vault_pass_file=~/.vault_pass
 #   ansible-playbook manage_vault.yaml -e action=decrypt -e vault_pass_file=~/.vault_pass
 #   ansible-playbook manage_vault.yaml -e action=encrypt -e vault_pass_file=~/.vault_pass
 #   ansible-playbook manage_vault.yaml -e action=validate -e vault_pass_file=~/.vault_pass
-#
-# The vault_pass_file var can also come from ANSIBLE_VAULT_PASSWORD_FILE env var.
 #
 # Interactive commands (not wrapped — use ansible-vault directly):
 #   ansible-vault view vars/secrets.yaml --ask-vault-pass

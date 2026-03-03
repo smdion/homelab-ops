@@ -3,6 +3,9 @@
 # Wakes Synology via WOL, mounts shares, rsyncs backup data, unmounts,
 # shuts down Synology, verifies shutdown. Sends notification + logs to MariaDB.
 #
+# Required extra vars:
+#   hosts_variable  — inventory group to target (pre-filled by Semaphore environment)
+#
 # Usage:
 #   ansible-playbook backup_offline.yaml -e hosts_variable=unraid
 

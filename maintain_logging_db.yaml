@@ -4,9 +4,9 @@
 # warning/critical health checks recorded before this run.
 # Run ad-hoc after testing phases to clear noise from production dashboards.
 #
-# Optional:
-#   -e purge_all=yes  — truncate ALL tables (reset after major arch changes;
-#                        requires confirm=yes safety gate)
+# Optional extra vars:
+#   purge_all=yes  — truncate ALL tables (reset after major arch changes)
+#   confirm=yes    — safety gate, required when purge_all=yes
 
 - name: Purge stale failures from ansible_logging
   hosts: localhost

@@ -19,11 +19,15 @@
 #   rclone: rclone installed on target host,
 #           B2 bucket created, vault keys b2_account_id/b2_application_key/b2_bucket_name
 #
+# Optional extra vars:
+#   offsite_method=restic|rclone  — sync method (default: restic)
+#   dry_run=yes                   — show what would sync without transferring
+#   bwlimit=<rate>                — bandwidth limit for rclone (e.g. 10M)
+#
 # Usage:
-#   ansible-playbook backup_offsite.yaml                                        # restic (default)
-#   ansible-playbook backup_offsite.yaml -e offsite_method=rclone               # rclone
-#   ansible-playbook backup_offsite.yaml -e dry_run=yes                         # restic dry-run
-#   ansible-playbook backup_offsite.yaml -e offsite_method=rclone -e dry_run=yes
+#   ansible-playbook backup_offsite.yaml
+#   ansible-playbook backup_offsite.yaml -e offsite_method=rclone
+#   ansible-playbook backup_offsite.yaml -e dry_run=yes
 #   ansible-playbook backup_offsite.yaml -e offsite_method=rclone -e bwlimit=10M
 
 # ═══════════════════════════════════════════════════════════════════════════

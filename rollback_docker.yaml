@@ -6,12 +6,9 @@
 # Docker Compose hosts (docker_stacks group) only.
 # For unRAID docker_run hosts, see DESIGN.md manual rollback guidance.
 #
-# Safety-gated: requires -e confirm=yes to proceed.
-# Without it, shows snapshot info and exits (dry-run).
-#
-# Required variables (vars/secrets.yaml):
-#   logging_db_host, logging_db_port, logging_db_user, logging_db_password, logging_db_name
-#   discord_webhook_id, discord_webhook_token
+# Required extra vars:
+#   hosts_variable          — inventory group to target (pre-filled by Semaphore environment)
+#   confirm=yes             — safety gate (without it, shows snapshot info and exits dry-run)
 #
 # Scope selectors:
 #   stack=<name>            — rollback a single stack (auto-resolves host)

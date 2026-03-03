@@ -3,6 +3,10 @@
 # Runs yt-dlp inside the metube container, sends per-video notifications,
 # and cleans up old temp download files.
 #
+# Required extra vars:
+#   hosts_variable  — inventory group to target (pre-filled by Semaphore environment)
+#   config_file     — download profile name, loads vars/<config_file>.yaml (pre-filled by Semaphore environment)
+#
 # Parameterized on config_file — each Semaphore template passes a different value
 # (e.g., "download_default"). Adding a new download profile = add vars/download_<name>.yaml
 # with per-user preferences + create a Semaphore template with config_file: download_<name>.
