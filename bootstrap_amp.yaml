@@ -219,7 +219,7 @@
 
         - name: Record bootstrap detail
           ansible.builtin.set_fact:
-            _bootstrap_detail: "SSH hardening, UFW, Ephemeral"
+            _bootstrap_detail: "SSH hardening, UFW, {{ 'Ephemeral' if vm_name is match('test-vm.*') else 'Permanent' }}"
 
       rescue:
         - name: Set bootstrap failed flag
