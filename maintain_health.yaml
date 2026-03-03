@@ -871,8 +871,11 @@
                   'check_name': 'docker_health',
                   'status': 'critical' if (docker_stopped | length > 0 or docker_unhealthy | length > 0) else 'ok',
                   'value': (
-                    docker_stopped | length | string + ' stopped, '
-                    + docker_unhealthy | length | string + ' unhealthy'
+                    ((docker_stopped[:5] | join(', ') + ' stopped')
+                     if docker_stopped | length > 0 else '')
+                    + (', ' if docker_stopped | length > 0 and docker_unhealthy | length > 0 else '')
+                    + ((docker_unhealthy[:5] | join(', ') + ' unhealthy')
+                       if docker_unhealthy | length > 0 else '')
                     if (docker_stopped | length > 0 or docker_unhealthy | length > 0) else 'ok'
                   ),
                   'detail': (
