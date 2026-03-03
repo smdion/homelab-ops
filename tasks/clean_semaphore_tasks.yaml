@@ -1,0 +1,89 @@
+---
+# Delete old successful Semaphore task runs for the currently running template.
+# Prevents task-ID inflation from frequently scheduled playbooks.
+#
+# Optional variables:
+#   clean_keep: number of recent successful runs to retain (default: 1)
+#
+# Requires (from vars/secrets.yaml):
+#   semaphore_host_url, semaphore_api_token
+
+- name: Resolve current Semaphore template ID
+  vars:
+    _sem_url: "{{ semaphore_host_url | regex_replace('/$', '') }}"
+    _sem_project: "{{ semaphore_project_id | default(1) }}"
+  become: false
+  connection: local
+  ansible.builtin.uri:
+    url: "{{ _sem_url }}/api/project/{{ _sem_project }}/tasks/last?count=1"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ semaphore_api_token }}"
+      Accept: "application/json"
+    return_content: true
+    status_code: 200
+  register: _clean_current_task
+  failed_when: false
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when:
+    - semaphore_host_url is defined
+    - semaphore_api_token is defined
+
+- name: Fetch recent tasks from Semaphore
+  vars:
+    _sem_url: "{{ semaphore_host_url | regex_replace('/$', '') }}"
+    _sem_project: "{{ semaphore_project_id | default(1) }}"
+  become: false
+  connection: local
+  ansible.builtin.uri:
+    url: "{{ _sem_url }}/api/project/{{ _sem_project }}/tasks/last?count=10000"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ semaphore_api_token }}"
+      Accept: "application/json"
+    return_content: true
+    status_code: 200
+  register: _clean_all_tasks
+  failed_when: false
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when:
+    - _clean_current_task is defined
+    - _clean_current_task is succeeded
+    - _clean_current_task.status | default(0) == 200
+
+- name: Identify old successful tasks to delete
+  vars:
+    _current_tpl: "{{ (_clean_current_task.content | from_json)[0].template_id | int }}"
+    _keep: "{{ clean_keep | default(1) | int }}"
+    _all: "{{ _clean_all_tasks.content | from_json }}"
+    _successful: >-
+      {{ _all
+         | selectattr('template_id', 'equalto', _current_tpl)
+         | selectattr('status', 'equalto', 'success')
+         | sort(attribute='id', reverse=true)
+         | list }}
+  ansible.builtin.set_fact:
+    _clean_task_ids: "{{ _successful[_keep | int:] | map(attribute='id') | list }}"
+  when:
+    - _clean_all_tasks is defined
+    - _clean_all_tasks is succeeded
+    - _clean_all_tasks.status | default(0) == 200
+
+- name: "Clean Semaphore history: removing {{ _clean_task_ids | default([]) | length }} old successful run(s)"
+  vars:
+    _sem_url: "{{ semaphore_host_url | regex_replace('/$', '') }}"
+    _sem_project: "{{ semaphore_project_id | default(1) }}"
+  become: false
+  connection: local
+  ansible.builtin.uri:
+    url: "{{ _sem_url }}/api/project/{{ _sem_project }}/tasks/{{ item }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ semaphore_api_token }}"
+    status_code: [200, 204, 404]
+  loop: "{{ _clean_task_ids | default([]) }}"
+  loop_control:
+    label: "task #{{ item }}"
+  failed_when: false
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when: _clean_task_ids | default([]) | length > 0

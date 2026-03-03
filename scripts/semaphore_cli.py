@@ -328,6 +328,64 @@ def cmd_task_stop(args, config):
                        "message": "Stop requested"}))
 
 
+def cmd_task_clean(args, config):
+    """Delete successful task runs for a template, keeping the last N."""
+    # Fetch all tasks for this template (Semaphore paginates, grab plenty)
+    base = f"/api/project/{args.project}/tasks"
+    tasks = api_get(f"{base}/last", config, params={"count": 10000})
+    if not isinstance(tasks, list):
+        tasks = []
+
+    # Filter to this template's successful tasks, sorted newest-first
+    successful = [
+        t for t in tasks
+        if t.get("template_id") == args.template_id
+        and t.get("status") == "success"
+    ]
+    successful.sort(key=lambda t: t.get("id", 0), reverse=True)
+
+    # Keep the N most recent successful runs
+    to_delete = successful[args.keep:]
+
+    if not to_delete:
+        print(json.dumps({
+            "status": "ok",
+            "message": f"Nothing to clean — only {len(successful)} successful "
+                       f"task(s) found (keep={args.keep})",
+        }))
+        return
+
+    if args.dry_run:
+        ids = [t["id"] for t in to_delete]
+        print(json.dumps({
+            "status": "dry_run",
+            "template_id": args.template_id,
+            "would_delete": len(to_delete),
+            "task_ids": ids,
+            "keeping": len(successful) - len(to_delete),
+        }, indent=2))
+        return
+
+    deleted = []
+    errors = []
+    for t in to_delete:
+        tid = t["id"]
+        try:
+            api_delete(f"{base}/{tid}", config)
+            deleted.append(tid)
+        except SystemExit:
+            errors.append(tid)
+
+    print(json.dumps({
+        "status": "ok",
+        "template_id": args.template_id,
+        "deleted": len(deleted),
+        "errors": len(errors),
+        "error_task_ids": errors,
+        "kept": len(successful) - len(to_delete),
+    }, indent=2))
+
+
 # ---------------------------------------------------------------------------
 # Phase 2 commands: template, schedule, env, inventory, view
 # ---------------------------------------------------------------------------
@@ -753,6 +811,14 @@ def build_parser():
     task_stop = task_sub.add_parser("stop", help="Stop a task")
     task_stop.add_argument("task_id", type=int, help="Task ID")
 
+    task_clean = task_sub.add_parser(
+        "clean", help="Delete successful runs for a template")
+    task_clean.add_argument("template_id", type=int, help="Template ID")
+    task_clean.add_argument("--keep", type=int, default=1,
+                            help="Keep last N successful runs (default: 1)")
+    task_clean.add_argument("--dry-run", dest="dry_run", action="store_true",
+                            help="Preview what would be deleted")
+
     # --- template ---
     tpl = sub.add_parser("template", help="Template operations")
     tpl_sub = tpl.add_subparsers(dest="template_action", required=True)
@@ -926,6 +992,7 @@ COMMANDS = {
         "output": cmd_task_output,
         "log": cmd_task_log,
         "stop": cmd_task_stop,
+        "clean": cmd_task_clean,
     },
     "template": {
         "list": cmd_template_list,

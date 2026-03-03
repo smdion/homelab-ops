@@ -27,6 +27,9 @@
 
   pre_tasks:
 
+    - name: Clean old successful Semaphore task runs
+      include_tasks: tasks/clean_semaphore_tasks.yaml
+
     - name: Run standard pre-flight assertions
       include_tasks: tasks/pre_task_assertions.yaml
       vars:
