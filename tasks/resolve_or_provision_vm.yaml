@@ -18,6 +18,9 @@
 #   - Adds VM to the _provision_target_group inventory group
 #   - Starts the VM if it was stopped
 
+- name: Resolve PVE target node
+  include_tasks: tasks/resolve_pve_node.yaml
+
 - name: Check if VM exists in cluster
   ansible.builtin.uri:
     url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
@@ -34,7 +37,7 @@
     _vm_actual_node: >-
       {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
          if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
-         else _vm.pve_target_node }}
+         else _vm_resolved_node }}
     _vm_cluster_status: >-
       {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).status
          if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)

@@ -1,0 +1,88 @@
+---
+# Resolve the PVE target node for VM provisioning.
+# If pve_target_node == 'auto', queries cluster resources and selects the
+# least-loaded online node that has the cloud-init template (VMID 9000).
+# Otherwise, passes through the explicit node name unchanged.
+#
+# Expects:
+#   _vm.pve_target_node          — 'auto' or a concrete PVE node name
+#   pve_api_host, pve_api_port   — PVE API endpoint
+#   pve_api_user, pve_api_token_id, pve_api_token_secret — PVE API credentials
+#   pve_template_vmid            — cloud-init template VMID (e.g. 9000)
+#
+# Sets:
+#   _vm_resolved_node            — concrete PVE node name (never 'auto')
+
+- name: Pass through explicit node (not auto)
+  ansible.builtin.set_fact:
+    _vm_resolved_node: "{{ _vm.pve_target_node }}"
+  when: _vm.pve_target_node != 'auto'
+
+- name: Auto-place VM on least-loaded node
+  when: _vm.pve_target_node == 'auto'
+  block:
+    - name: Query PVE cluster node resources
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=node"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _pve_nodes
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Query PVE cluster VM resources for template location
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _pve_vms
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+    - name: Derive template-hosting nodes
+      ansible.builtin.set_fact:
+        _template_nodes: >-
+          {{ _pve_vms.json.data
+             | selectattr('vmid', 'equalto', pve_template_vmid | int)
+             | map(attribute='node') | list }}
+
+    - name: Derive online candidate nodes (online + have template)
+      ansible.builtin.set_fact:
+        _candidate_nodes: >-
+          {{ _pve_nodes.json.data
+             | selectattr('status', 'equalto', 'online')
+             | selectattr('node', 'in', _template_nodes)
+             | list }}
+
+    - name: Assert at least one eligible node exists
+      ansible.builtin.assert:
+        that: _candidate_nodes | length > 0
+        fail_msg: >-
+          Auto-placement failed: no online PVE nodes have template VMID {{ pve_template_vmid }}.
+          Template exists on: {{ _template_nodes | join(', ') | default('none') }}.
+          Online nodes: {{ _pve_nodes.json.data | selectattr('status', 'equalto', 'online') | map(attribute='node') | join(', ') }}.
+
+    - name: Score candidate nodes by available resources
+      ansible.builtin.set_fact:
+        _node_scores: >-
+          [{% for n in _candidate_nodes %}
+          {"node": "{{ n.node }}",
+           "score": {{ ((n.maxmem | float - n.mem | float) * 0.7 +
+                        ((1.0 - n.cpu | float) * n.maxcpu | float * 1073741824.0) * 0.3) | float }}}
+          {{ ',' if not loop.last else '' }}
+          {% endfor %}]
+
+    - name: Select least-loaded node
+      ansible.builtin.set_fact:
+        _vm_resolved_node: "{{ (_node_scores | sort(attribute='score', reverse=true) | first).node }}"
+
+    - name: Show auto-placement result
+      ansible.builtin.debug:
+        msg: >-
+          Auto-placement selected node '{{ _vm_resolved_node }}'
+          from {{ _candidate_nodes | length }} candidate(s):
+          {% for s in _node_scores | sort(attribute='score', reverse=true) %}
+          {{ s.node }} (score: {{ '%.0f' | format(s.score | float) }}){{ ', ' if not loop.last else '' }}
+          {% endfor %}

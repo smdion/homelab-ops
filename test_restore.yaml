@@ -309,7 +309,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm_actual_node | default(_vm.pve_target_node) }}"
+            node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
             force: true
@@ -389,7 +389,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm.pve_target_node) }}"
+            node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm_resolved_node) }}"
             vmid: "{{ hostvars['localhost']._vm.vm_id }}"
             state: stopped
             force: true
@@ -482,7 +482,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm_actual_node | default(vm_definitions[vm_name].pve_target_node) }}"
+            node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
             vmid: "{{ vm_definitions[vm_name].vm_id }}"
             state: stopped
             force: true

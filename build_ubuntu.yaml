@@ -102,12 +102,15 @@
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when: _vm_state != 'present'
 
+    - name: Resolve PVE target node
+      include_tasks: tasks/resolve_pve_node.yaml
+
     - name: Set actual VM node fact
       ansible.builtin.set_fact:
         _vm_actual_node: >-
           {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
              if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
-             else _vm.pve_target_node }}
+             else _vm_resolved_node }}
       when: _vm_state != 'present'
 
     - block:
@@ -214,7 +217,7 @@
           ansible.builtin.set_fact:
             _build_detail: >-
               {% if _vm_state == 'absent' %}VM destroyed{% elif _vm_state == 'snapshot' %}Snapshot '{{ snapshot_name }}' created{% elif _vm_state == 'revert' %}Reverted to '{{ snapshot_name }}'{% else %}VM provisioned{% endif %}:
-              {{ _vm.vm_name }} ({{ _vm.vm_ip }}) on {{ _vm_actual_node | default(_vm.pve_target_node) }}
+              {{ _vm.vm_name }} ({{ _vm.vm_ip }}) on {{ _vm_actual_node | default(_vm_resolved_node) }}
 
       rescue:
         - name: Set build failed flag
@@ -237,7 +240,7 @@
                 value: "{{ _vm.vm_ip }}"
                 inline: true
               - name: "Proxmox Node"
-                value: "{{ _vm_actual_node | default(_vm.pve_target_node) }}"
+                value: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
                 inline: true
               - name: "Detail"
                 value: "{{ _build_detail }}"
@@ -259,7 +262,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ _vm_actual_node | default(_vm.pve_target_node) }}"
+            node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
             force: true
@@ -348,7 +351,7 @@
                 value: "{{ hostvars['localhost']._vm.vm_hostname }}"
                 inline: true
               - name: "Proxmox Node"
-                value: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm.pve_target_node) }}"
+                value: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm_resolved_node) }}"
                 inline: true
               - name: "Role"
                 value: "{{ hostvars['localhost']._vm.role | default(hostvars['localhost']._vm.vm_name) }}"
@@ -372,7 +375,7 @@
             api_user: "{{ pve_api_user }}"
             api_token_id: "{{ pve_api_token_id }}"
             api_token_secret: "{{ pve_api_token_secret }}"
-            node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm.pve_target_node) }}"
+            node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm_resolved_node) }}"
             vmid: "{{ hostvars['localhost']._vm.vm_id }}"
             state: stopped
             force: true

@@ -76,12 +76,15 @@
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when: _vm_state == 'absent'
 
+    - name: Resolve PVE target node
+      include_tasks: tasks/resolve_pve_node.yaml
+
     - name: Set actual VM node fact
       ansible.builtin.set_fact:
         _vm_actual_node: >-
           {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
              if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
-             else _vm.pve_target_node }}
+             else _vm_resolved_node }}
         _vm_exists: >-
           {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0) }}
       when: _vm_state == 'absent'
@@ -133,7 +136,7 @@
               {% if _vm_state == 'absent' and (_vm_exists | default(false) | bool) %}VM destroyed
               {% elif _vm_state == 'absent' %}VM already absent
               {% else %}VM provisioned{% endif %}:
-              {{ _vm.vm_name }} ({{ _vm.vm_ip }}) on {{ _vm_actual_node | default(_vm.pve_target_node) }}
+              {{ _vm.vm_name }} ({{ _vm.vm_ip }}) on {{ _vm_actual_node | default(_vm_resolved_node) }}
 
       rescue:
         - name: Set build failed flag
