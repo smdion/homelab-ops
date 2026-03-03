@@ -86,7 +86,7 @@ vm_definitions:
     deploy_ssh_key: true
     nfs_exports:                       # export /opt to LAN subnet (prod or test VLAN)
       - path: /opt
-        clients: "{{ vault_prod_lan_subnet }}(rw,no_subtree_check,no_root_squash)"
+        clients: "{{ vault_prod_lan_subnet }}(rw,no_subtree_check,all_squash,anonuid=1000,anongid=1000)"
     stacks: [infra, databases, auth, media]
     guacamole: { name: Core, group: Docker }
 
@@ -103,7 +103,7 @@ vm_definitions:
     deploy_ssh_key: true
     nfs_exports:                       # export /opt to LAN subnet (prod or test VLAN)
       - path: /opt
-        clients: "{{ vault_prod_lan_subnet }}(rw,no_subtree_check,no_root_squash)"
+        clients: "{{ vault_prod_lan_subnet }}(rw,no_subtree_check,all_squash,anonuid=1000,anongid=1000)"
     stacks: [infra, apps, monitoring]
     guacamole: { name: Apps, group: Docker }
 
