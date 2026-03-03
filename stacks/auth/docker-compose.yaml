@@ -94,7 +94,9 @@ services:
     container_name: swag
     image: ${SWAG_IMAGE}:${SWAG_TAG}
     networks:
-      - homelab
+      homelab:
+        aliases:
+          - ${SWAG_AUTH_ALIAS}
     labels:
       homelab.backup.paths: "/opt/swag"
     ports:
