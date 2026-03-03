@@ -354,6 +354,29 @@
             - not ansible_check_mode
             - amp_instance_filter is not defined or _amp_instance == amp_instance_filter
 
+        - name: Start all AMP instances after backup
+          become: true
+          ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr startall'
+          args:
+            executable: /bin/bash
+          changed_when: true
+          timeout: 300
+          ignore_errors: true
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - _amp_instances is defined
+
+        - name: Wait for AMP web panel on port 8080
+          ansible.builtin.wait_for:
+            port: 8080
+            host: 0.0.0.0
+            timeout: 120
+            state: started
+          ignore_errors: true
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - _amp_instances is defined
+
         - name: Set failed flag if AMP instance backups failed
           ansible.builtin.set_fact:
             backup_failed: "{{ _amp_backup_results | selectattr('failed') | list | length > 0 }}"

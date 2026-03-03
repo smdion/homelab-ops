@@ -112,6 +112,23 @@
       loop_control:
         loop_var: _amp_instance
 
+    - name: Start all AMP instances after restore
+      become: true
+      ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr startall'
+      args:
+        executable: /bin/bash
+      changed_when: true
+      timeout: 300
+      ignore_errors: true
+
+    - name: Wait for AMP web panel on port 8080
+      ansible.builtin.wait_for:
+        port: 8080
+        host: 0.0.0.0
+        timeout: 120
+        state: started
+      ignore_errors: true
+
     - name: Set failed flag from restore results
       ansible.builtin.set_fact:
         _restore_failed: "{{ _amp_restore_results | selectattr('failed') | list | length > 0 }}"

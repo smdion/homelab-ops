@@ -107,35 +107,6 @@
              'failed': true}] }}
 
   always:
-    - name: Restart AMP instance {{ _amp_instance }} (retry for post-activation restart)
-      become: true
-      ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr RestartInstance {{ _amp_instance }}'
-      args:
-        executable: /bin/bash
-      register: _amp_start_result
-      until: _amp_start_result.rc == 0
-      retries: 3
-      delay: 10
-      changed_when: _amp_start_result.rc == 0
-      ignore_errors: true
-      when: _amp_was_running | default(false)
-
-    - name: Wait for AMP instance {{ _amp_instance }} to be running
-      become: true
-      ansible.builtin.shell: |
-        sudo -u {{ amp_user }} ampinstmgr list 2>/dev/null \
-          | awk -v inst="{{ _amp_instance }}" '$0 ~ inst {found=1} found && /Running/{print; exit}' \
-          | grep -q "Yes"
-      args:
-        executable: /bin/bash
-      register: _amp_start_status
-      until: _amp_start_status.rc == 0
-      retries: 30
-      delay: 5
-      changed_when: false
-      ignore_errors: true
-      when: _amp_was_running | default(false)
-
     - name: Delete temp restore staging dir for {{ _amp_instance }}
       become: true
       ansible.builtin.file:
