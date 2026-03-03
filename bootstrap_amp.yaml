@@ -609,6 +609,14 @@
       when: vm_state | default('present') == 'absent'
 
   tasks:
+    - name: Upgrade all AMP instances to current version
+      ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr upgradeall'
+      args:
+        executable: /bin/bash
+      async: 300
+      poll: 10
+      changed_when: true
+
     - name: Skip license reactivation (no key provided)
       ansible.builtin.debug:
         msg: "No amp_licence_key provided — skipping license reactivation. Run manually with: ampinstmgr reactivateall"

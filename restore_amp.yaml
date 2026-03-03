@@ -112,6 +112,15 @@
       loop_control:
         loop_var: _amp_instance
 
+    - name: Upgrade all AMP instances to current version
+      become: true
+      ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr upgradeall'
+      args:
+        executable: /bin/bash
+      async: 300
+      poll: 10
+      changed_when: true
+
     - name: Kill stale AMP tmux sessions before restart
       become: true
       ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'tmux kill-server' || true
