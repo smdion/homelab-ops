@@ -18,7 +18,7 @@
 # health check excludes this playbook.
 #
 # Usage:
-#   ansible-playbook download_videos.yaml -e hosts_variable=myhostgroup -e config_file=download_default
+#   ansible-playbook download_videos.yaml -e hosts_variable=docker_stacks -e config_file=download_default
 
 - name: Download videos via yt-dlp
   hosts: "{{ hosts_variable }}"

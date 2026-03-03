@@ -21,17 +21,9 @@
 #   with_backup=yes         — also restore appdata from backup + auto-detect DB dependencies
 #
 # Usage:
-#   # Rollback all containers (image-only, fast)
-#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
-#     --limit <hostname> -e confirm=yes
-#
-#   # Rollback one stack (image-only)
-#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
-#     -e stack=auth -e confirm=yes
-#
-#   # Rollback one stack — images + appdata + auto-detected DB restore
-#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
-#     -e stack=auth -e with_backup=yes -e confirm=yes
+#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks --limit <hostname> -e confirm=yes
+#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks -e stack=auth -e confirm=yes
+#   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks -e stack=auth -e with_backup=yes -e confirm=yes
 #
 #   # Rollback all stacks in a role — images + appdata + DB
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
