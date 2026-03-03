@@ -1,16 +1,17 @@
 ---
-# Bootstrap AMP game server: install software, restore instances from backup,
-# and optionally reactivate the license.
+# Bootstrap AMP game server: provision VM, install software, restore instances
+# from backup, and reactivate the license.
 #
-# The VM must already be provisioned and bootstrapped via build_ubuntu.yaml.
-# This playbook installs AMP (CubeCoders) in unattended mode, restores the
+# This playbook handles the full lifecycle: provision the VM on Proxmox,
+# bootstrap Ubuntu, install AMP (CubeCoders) in unattended mode, restore the
 # .ampdata directory from per-instance backup archives on the controller,
-# and brings the service online.
+# and bring the service online.
 #
 # Required extra vars:
 #   confirm=yes         — safety gate
 #
 # Optional extra vars:
+#   vm_state=absent     — destroy VM instead of building (skips all other plays)
 #   restore_host        — inventory_hostname of old AMP host for backup lookup
 #                         (default: first host in amp group)
 #
@@ -19,9 +20,230 @@
 #
 # Usage:
 #   ansible-playbook bootstrap_amp.yaml -e confirm=yes
+#   ansible-playbook bootstrap_amp.yaml -e confirm=yes -e vm_state=absent
 
 # ═══════════════════════════════════════════════════════════════════
-# Play 1 — Install AMP software on target host
+# Play 1 — Provision or destroy AMP VM on Proxmox
+# ═══════════════════════════════════════════════════════════════════
+- name: Provision AMP VM on Proxmox
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+    - vars/proxmox.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "AMP"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Build"
+
+  pre_tasks:
+    - name: Assert safety gate
+      ansible.builtin.assert:
+        that:
+          - confirm | default('no') == 'yes'
+        fail_msg: "Safety gate not set. Usage: -e confirm=yes"
+
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "bootstrap_amp.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
+    - name: Resolve VM definition
+      ansible.builtin.set_fact:
+        _vm: "{{ vm_definitions['amp'] }}"
+        _vm_state: "{{ vm_state | default('present') }}"
+
+  tasks:
+    - name: Initialize build state
+      ansible.builtin.set_fact:
+        build_failed: false
+        _build_detail: ""
+
+    # For absent: resolve actual node via cluster API (VIP-safe).
+    # For present: provision_vm.yaml sets _vm_actual_node after cloning.
+    - name: Query cluster resources for actual VM node
+      ansible.builtin.uri:
+        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+        validate_certs: false
+      register: _cluster_vms
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: _vm_state == 'absent'
+
+    - name: Set actual VM node fact
+      ansible.builtin.set_fact:
+        _vm_actual_node: >-
+          {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
+             if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
+             else _vm.pve_target_node }}
+      when: _vm_state == 'absent'
+
+    - block:
+        # ═════════════════════════════════════════════════════════
+        # CREATE PATH — vm_state == 'present' (default)
+        # ═════════════════════════════════════════════════════════
+        - name: Provision VM on Proxmox
+          include_tasks: tasks/provision_vm.yaml
+          when: _vm_state == 'present'
+
+        # ═════════════════════════════════════════════════════════
+        # DESTROY PATH — vm_state == 'absent'
+        # ═════════════════════════════════════════════════════════
+        - name: Stop VM
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm_actual_node }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: stopped
+            force: true
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          when: _vm_state == 'absent'
+
+        - name: Remove VM
+          community.general.proxmox_kvm:
+            api_host: "{{ pve_api_host }}"
+            api_user: "{{ pve_api_user }}"
+            api_token_id: "{{ pve_api_token_id }}"
+            api_token_secret: "{{ pve_api_token_secret }}"
+            node: "{{ _vm_actual_node }}"
+            vmid: "{{ _vm.vm_id }}"
+            state: absent
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          when: _vm_state == 'absent'
+
+        - name: Record build detail
+          ansible.builtin.set_fact:
+            _build_detail: >-
+              {% if _vm_state == 'absent' %}VM destroyed{% else %}VM provisioned{% endif %}:
+              {{ _vm.vm_name }} ({{ _vm.vm_ip }}) on {{ _vm_actual_node | default(_vm.pve_target_node) }}
+
+      rescue:
+        - name: Set build failed flag
+          ansible.builtin.set_fact:
+            build_failed: true
+            _build_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Send notification on failure
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Build"
+            discord_status: "failed"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "❌ {{ _vm.vm_name }}"
+                value: "{{ _vm.vm_ip }}"
+                inline: true
+              - name: "Detail"
+                value: "{{ _build_detail }}"
+          when: build_failed
+
+        - name: Log build to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ controller_fqdn }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if build_failed else 'success' }}"
+
+        - name: Fail play if build failed
+          ansible.builtin.fail:
+            msg: "Build failed: {{ _build_detail }}"
+          when: build_failed
+
+        - name: End play after destroy
+          ansible.builtin.meta: end_play
+          when: _vm_state == 'absent'
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Bootstrap Ubuntu on AMP VM
+# ═══════════════════════════════════════════════════════════════════
+- name: Bootstrap AMP Ubuntu VM
+  hosts: amp
+  become: true
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+    - vars/docker_vips.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    maintenance_name: "AMP"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Build"
+
+  tasks:
+    - name: Initialize bootstrap state
+      ansible.builtin.set_fact:
+        bootstrap_failed: false
+        _bootstrap_detail: ""
+
+    - block:
+        - name: Bootstrap Ubuntu with security hardening
+          include_tasks: tasks/bootstrap_vm.yaml
+          vars:
+            _vm: "{{ hostvars['localhost']._vm }}"
+            _install_docker: false
+
+        - name: Record bootstrap detail
+          ansible.builtin.set_fact:
+            _bootstrap_detail: "SSH hardening, UFW, Ephemeral"
+
+      rescue:
+        - name: Set bootstrap failed flag
+          ansible.builtin.set_fact:
+            bootstrap_failed: true
+            _bootstrap_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+
+      always:
+        - name: Send notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Build"
+            discord_status: "{{ 'failed' if bootstrap_failed else 'successful' }}"
+            discord_color: "{{ discord_color_failure if bootstrap_failed else discord_color_success }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ hostvars['localhost'].controller_fqdn }}"
+            discord_fields:
+              - name: "{{ '❌ ' if bootstrap_failed else '✅ ' }}{{ hostvars['localhost']._vm.vm_name }}"
+                value: "{{ hostvars['localhost']._vm.vm_ip }}"
+                inline: true
+              - name: "Detail"
+                value: "{{ _bootstrap_detail }}"
+
+        - name: Log bootstrap to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if bootstrap_failed else 'success' }}"
+
+        - name: Fail play if bootstrap failed
+          ansible.builtin.fail:
+            msg: "Bootstrap failed: {{ _bootstrap_detail }}"
+          when: bootstrap_failed
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 3 — Install AMP software on target host
 # ═══════════════════════════════════════════════════════════════════
 - name: Install AMP game server manager
   hosts: amp
@@ -38,12 +260,6 @@
     maintenance_subtype: "Build"
 
   pre_tasks:
-    - name: Assert safety gate
-      ansible.builtin.assert:
-        that:
-          - confirm | default('no') == 'yes'
-        fail_msg: "Safety gate not set. Usage: -e confirm=yes"
-
     - name: Run standard pre-flight assertions
       include_tasks: tasks/pre_task_assertions.yaml
       vars:
@@ -140,7 +356,7 @@
           when: _bootstrap_failed
 
 # ═══════════════════════════════════════════════════════════════════
-# Play 2 — Discover backup archives on controller
+# Play 4 — Discover backup archives on controller
 # ═══════════════════════════════════════════════════════════════════
 - name: Discover AMP backup archives
   hosts: localhost
@@ -211,7 +427,7 @@
                   | zip(_amp_archive_results.results | map(attribute='stdout') | list)) }}
 
 # ═══════════════════════════════════════════════════════════════════
-# Play 3 — Restore instances on AMP host
+# Play 5 — Restore instances on AMP host
 # ═══════════════════════════════════════════════════════════════════
 - name: Restore AMP instances from backup
   hosts: amp
@@ -338,7 +554,7 @@
           when: _restore_failed
 
 # ═══════════════════════════════════════════════════════════════════
-# Play 4 — Reactivate license (optional)
+# Play 6 — Reactivate license (optional)
 # ═══════════════════════════════════════════════════════════════════
 - name: Reactivate AMP license
   hosts: amp
