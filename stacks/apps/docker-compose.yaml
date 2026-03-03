@@ -19,12 +19,16 @@ x-baseuid: &baseuid
   <<: *base
   environment:
     <<: *envuid
+networks:
+  homelab:
+    external: true
 services:
   homeassistant:
     <<: *baseuid
     container_name: homeassistant
     image: ${HA_IMAGE}:${HA_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
     - 8123:8123
     labels:
@@ -43,7 +47,8 @@ services:
     <<: *base
     container_name: guacamole
     image: ${GUAC_IMAGE}:${GUAC_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
     - 8084:8080
     labels:
@@ -59,7 +64,8 @@ services:
     <<: *base
     container_name: firefox
     image: ${FIREFOX_IMAGE}:${FIREFOX_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
     - 7814:5800
     - 7914:5900
@@ -79,7 +85,8 @@ services:
     <<: *baseuid
     container_name: xbackbone
     image: ${XBACKBONE_IMAGE}:${XBACKBONE_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
     - 8088:80
     - 8444:443
@@ -97,7 +104,8 @@ services:
     <<: *base
     container_name: homepage
     image: ${HOMEPAGE_IMAGE}:${HOMEPAGE_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
       - 3003:3000
     labels:
@@ -117,7 +125,8 @@ services:
     <<: *baseenv
     container_name: homebox
     image: ${HOMEBOX_IMAGE}:${HOMEBOX_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
       - 3100:7745
     labels:
@@ -128,14 +137,16 @@ services:
     <<: *baseenv
     container_name: rickroll
     image: ${RICKROLL_IMAGE}:${RICKROLL_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
     - 7344:8080
   cloudflareddns:
     <<: *base
     container_name: cloudflareddns
     image: ${DDNS_IMAGE}:${DDNS_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     labels:
       homelab.backup.paths: "/opt/cloudflareddns"
     environment:

@@ -23,7 +23,8 @@ services:
     <<: *baseuid
     container_name: tautulli
     image: ${TAUTULLI_IMAGE}:${TAUTULLI_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
     - 8181:8181
     labels:

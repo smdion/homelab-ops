@@ -180,8 +180,6 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── verify_app_http.yaml         # Per-app HTTP endpoint verification (used by restore_app.yaml and test_backup_restore.yaml)
 │   ├── backup_single_amp_instance.yaml  # Per-AMP-instance backup loop body (stop→archive→verify→fetch→start)
 │   ├── restore_single_amp_instance.yaml # Per-AMP-instance restore loop body (stop→remove→extract→start); mirrors backup_single_amp_instance
-│   ├── patch_swag_confs.yaml        # Patch SWAG nginx configs after restore — old IPs → Docker DNS (same-VM) / VIPs (cross-VM) + authentik outpost
-│   ├── patch_compose_networks.yaml  # Post-template patching: bridge-to-homelab network + env IP fixes for test/DR deploys
 │   ├── pre_restore_safety_dump.yaml # Create pre-restore safety backup of databases before overwriting — shared by restore/rollback playbooks
 │   ├── rollback_images.yaml         # Shared image rollback — re-tag local or pull from registry; retries transient pull failures (no compose up)
 │   ├── rollback_restore_stack.yaml  # Per-stack appdata restore during rollback with_backup (find→verify→extract→clean)
@@ -193,7 +191,6 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── pre_task_assertions.yaml    # Pre-task bundle: assert_config_file (optional) → assert_db_connectivity → log_run_context; used by 26 playbooks
 │   ├── pre_test_assertions.yaml   # Shared pre-flight assertions for test/DR playbooks: vm_name in vm_definitions, source_host/role validation
 │   ├── apply_role_resolve.yaml     # Per-role resolution loop body: resolve VM definition, display scope, add target to inventory
-│   ├── resolve_effective_vips.yaml # Shared VIP resolution — test VIP offsets vs vault VIPs
 │   ├── resolve_test_vm_index.yaml  # Auto-detect free test-vm slot from vm_test_slot_base pool
 │   └── reset_db_auth.yaml         # Force-reset MariaDB/Postgres passwords via socket auth after backup restore
 │
@@ -827,7 +824,6 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 | `debug_no_log=yes` | Reveal output normally hidden by `no_log` (any playbook; see [no_log pattern](#no_log-pattern)) |
 | `resize=yes` | Enable Hardware layer — PVE API drift detection + reboot (`apply_role`; not yet implemented) |
 | `pull_only=yes` | Render, validate, and pull images, but skip `docker compose up` (`deploy_stacks`) |
-| `patch_swag_migration=yes` | One-time SWAG nginx config patches: old IPs → Docker DNS / VIPs (`deploy_stacks`; remove after migration) |
 
 **Cross-cutting scope selectors (auto-resolve target host, omit for all):**
 | Var | Purpose |
@@ -1176,6 +1172,25 @@ critical because Semaphore runs on the unRAID host and must stay running during 
 are enumerated via `docker ps` with the exclude filter, then stopped/started individually through
 `DockerClient->stopContainer()`/`startContainer()`. Hosts in `docker_run` but NOT `unraid`
 continue to use per-container `docker stop`/`docker start` with the exclusion list (Mode 4b).
+
+### Docker networking convention
+
+All Docker Compose services use the external `homelab` network. Every compose file declares:
+
+```yaml
+networks:
+  homelab:
+    external: true
+```
+
+And each service uses `networks: [homelab]` instead of `network_mode: bridge`. This ensures:
+- `verify_docker_network.yaml` sees all containers on the shared network
+- Cross-stack DNS resolution works (containers can resolve each other by name)
+- Consistent networking across all three Docker VMs (core, apps, dev)
+
+**Exceptions** (never use `network_mode: bridge`):
+- `network_mode: host` — beszel-agent (needs host networking for system monitoring)
+- `network_mode: ${NETWORK_MODE}` — vpn stack services (wireguard network namespace)
 
 ### Check mode (dry-run) support
 

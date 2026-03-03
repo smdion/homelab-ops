@@ -15,7 +15,8 @@ services:
     <<: *base
     container_name: grafana
     image: ${GRAFANA_IMAGE}:${GRAFANA_TAG}
-    network_mode: bridge
+    networks:
+      - homelab
     ports:
     - 3000:3000
     labels:
