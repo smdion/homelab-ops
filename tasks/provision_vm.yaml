@@ -21,7 +21,7 @@
     ansible_host: "{{ pve_api_host }}"
     ansible_user: ansible
 
-- name: Ensure cloud-init template exists on Ceph storage
+- name: Ensure cloud-init template exists on local-lvm storage
   delegate_to: pve_builder
   become: true
   ansible.builtin.shell: |

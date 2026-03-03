@@ -34,9 +34,10 @@ vm_search_domain: "{{ vault_vm_search_domain }}"
 vm_cidr: 24
 
 # Cloud-init template — created automatically on first build.
-# Ceph (replicated) storage is shared across all nodes, so one template serves the entire cluster.
+# Storage is local-lvm (not shared), so the template must exist on pve_template_node.
+# Cloning to a different target node requires the template to be present on that node too.
 # pve_api_host = vault_pve_vip (VIP). provision_vm.yaml resolves the actual node the VM
-# lands on via the cluster resources API — safe regardless of which PVE node holds the VIP.
+# lands on via the cluster resources API.
 pve_template_vmid: 9000
 pve_template_node: "{{ vault_pve_template_node }}"
 pve_template_name: "ubuntu-cloud-template"
