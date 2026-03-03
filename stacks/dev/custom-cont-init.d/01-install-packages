@@ -33,6 +33,7 @@ apt-get install -y --no-install-recommends \
   rsync \
   unzip \
   zip \
+  gh \
   make \
   wget
 

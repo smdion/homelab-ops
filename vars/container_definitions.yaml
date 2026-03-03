@@ -36,6 +36,9 @@ container_definitions:
   crowdsec:
     image: "docker.io/crowdsecurity/crowdsec"
     tag: "latest"
+  docs:
+    image: "nginx"
+    tag: "alpine"
   dozzle:
     image: "amir20/dozzle"
     tag: "latest"
