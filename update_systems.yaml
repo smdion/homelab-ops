@@ -262,11 +262,8 @@
 
         - name: Update AMP
           become: true
-          become_user: amp
-          become_method: su
-          become_exe: sudo su -l
           ansible.builtin.shell: >-
-            {{ 'ampinstmgr UpgradeInstance ' + amp_instance_filter
+            sudo -u amp {{ 'ampinstmgr UpgradeInstance ' + amp_instance_filter
                if amp_instance_filter is defined
                else 'ampinstmgr upgradeall' }}
           when:

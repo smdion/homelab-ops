@@ -23,11 +23,8 @@
 
 - name: Check if AMP instance {{ _amp_instance }} is running before backup
   become: true
-  become_user: "{{ amp_user }}"
-  become_method: su
-  become_exe: sudo su -l
   ansible.builtin.shell: |
-    ampinstmgr list 2>/dev/null \
+    sudo -u {{ amp_user }} ampinstmgr list 2>/dev/null \
       | awk -v inst="{{ _amp_instance }}" '$0 ~ inst {found=1} found && /Running/{print; exit}' \
       | grep -q "Yes"
   args:
@@ -43,21 +40,15 @@
 - block:
     - name: Stop AMP instance {{ _amp_instance }}
       become: true
-      become_user: "{{ amp_user }}"
-      become_method: su
-      become_exe: sudo su -l
-      ansible.builtin.shell: ampinstmgr StopInstance {{ _amp_instance }}
+      ansible.builtin.shell: sudo -u {{ amp_user }} ampinstmgr StopInstance {{ _amp_instance }}
       args:
         executable: /bin/bash
       changed_when: true
 
     - name: Wait for AMP instance {{ _amp_instance }} to fully stop
       become: true
-      become_user: "{{ amp_user }}"
-      become_method: su
-      become_exe: sudo su -l
       ansible.builtin.shell: |
-        ampinstmgr list 2>/dev/null \
+        sudo -u {{ amp_user }} ampinstmgr list 2>/dev/null \
           | awk -v inst="{{ _amp_instance }}" '$0 ~ inst {found=1} found && /Running/{print; exit}' \
           | grep -q "No"
       args:
@@ -93,10 +84,7 @@
 
     - name: Start AMP instance {{ _amp_instance }} (reduce downtime during fetch)
       become: true
-      become_user: "{{ amp_user }}"
-      become_method: su
-      become_exe: sudo su -l
-      ansible.builtin.shell: ampinstmgr StartInstance {{ _amp_instance }}
+      ansible.builtin.shell: sudo -u {{ amp_user }} ampinstmgr StartInstance {{ _amp_instance }}
       args:
         executable: /bin/bash
       changed_when: true
@@ -137,10 +125,7 @@
   always:
     - name: Start AMP instance {{ _amp_instance }}
       become: true
-      become_user: "{{ amp_user }}"
-      become_method: su
-      become_exe: sudo su -l
-      ansible.builtin.shell: ampinstmgr StartInstance {{ _amp_instance }}
+      ansible.builtin.shell: sudo -u {{ amp_user }} ampinstmgr StartInstance {{ _amp_instance }}
       args:
         executable: /bin/bash
       changed_when: true
@@ -149,11 +134,8 @@
 
     - name: Wait for AMP instance {{ _amp_instance }} to be running
       become: true
-      become_user: "{{ amp_user }}"
-      become_method: su
-      become_exe: sudo su -l
       ansible.builtin.shell: |
-        ampinstmgr list 2>/dev/null \
+        sudo -u {{ amp_user }} ampinstmgr list 2>/dev/null \
           | awk -v inst="{{ _amp_instance }}" '$0 ~ inst {found=1} found && /Running/{print; exit}' \
           | grep -q "Yes"
       args:
