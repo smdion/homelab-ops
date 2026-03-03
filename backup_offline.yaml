@@ -60,15 +60,15 @@
             state: directory
             recurse: true
 
-        - name: Find all files older than 31 days
+        - name: Find all files older than {{ synology_cleanup_age }}
           become: true
           ansible.builtin.find:
             paths: "{{ synology_backup_path }}"
-            age: 31d
+            age: "{{ synology_cleanup_age }}"
             recurse: true
           register: _old_files
 
-        - name: Remove files older than 31 days
+        - name: Remove files older than {{ synology_cleanup_age }}
           become: true
           ansible.builtin.file:
             path: "{{ item.path }}"
@@ -77,7 +77,7 @@
 
         - name: Wait for boot
           ansible.builtin.wait_for:
-            timeout: 90
+            timeout: "{{ synology_boot_timeout }}"
           delegate_to: localhost
           when: _ping_result.rc != 0
 
@@ -98,8 +98,8 @@
         - name: Wait for NFS service on Synology
           ansible.builtin.wait_for:
             host: "{{ synology_ip }}"
-            port: 2049
-            timeout: 300
+            port: "{{ nfs_port }}"
+            timeout: "{{ synology_nfs_timeout }}"
           delegate_to: localhost
           when: not ansible_check_mode
 
@@ -110,7 +110,7 @@
           changed_when: true
           ansible.builtin.shell: |
             if /usr/local/sbin/rc.unassigned mount {{ synology_name }}:{{ synology_mount_path }}; then
-              sleep 5
+              sleep {{ synology_mount_settle }}
             else
               exit 1
             fi
@@ -120,14 +120,14 @@
             fi
             rsync -a --stats {{ synology_src_base_path }}{{ item }}/ "$MOUNT_POINT"/ --delete-after
             sync
-            sleep 60
+            sleep {{ synology_post_sync_delay }}
             let "n = {{ umount_timeout }}"
             while ! /usr/local/sbin/rc.unassigned umount {{ synology_name }}:{{ synology_mount_path }}; do
               if [ "$n" -eq 0 ]; then
                 exit 3
               fi
               let "n--"
-              sleep 5
+              sleep {{ synology_umount_retry_delay }}
             done
             exit 0
 

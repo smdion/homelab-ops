@@ -201,7 +201,7 @@
 - name: Allow NFS through UFW from export clients
   community.general.ufw:
     rule: allow
-    port: "2049"
+    port: "{{ nfs_port }}"
     proto: tcp
     src: "{{ item.clients.split('(')[0] }}"
   loop: "{{ _vm.nfs_exports }}"
@@ -238,11 +238,11 @@
 - name: Verify NFS server reachable — {{ item.src.split(':')[0] }}
   ansible.builtin.wait_for:
     host: "{{ item.src.split(':')[0] }}"
-    port: 2049
+    port: "{{ nfs_port }}"
     timeout: 10
     state: started
     msg: >-
-      NFS server {{ item.src.split(':')[0] }} port 2049 unreachable after 10s.
+      NFS server {{ item.src.split(':')[0] }} port {{ nfs_port }} unreachable after 10s.
       Verify the NFS server is running (systemctl status nfs-kernel-server)
       and the IP is correct in vault.
   loop: "{{ _vm.nfs_mounts }}"

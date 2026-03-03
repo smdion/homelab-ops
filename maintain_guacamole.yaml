@@ -32,9 +32,9 @@
     maintenance_url: ""
     maintenance_description: "Converge Guacamole connection config from definition files"
     _guac_host: "{{ vm_definitions.apps.vm_hostname }}"  # TODO: move to apps VM after migration
-    _guac_db_user: "guacamole"
-    _guac_db_name: "guacamole_db"
-    _guac_container: "guacamole"
+    _guac_db_user: "{{ guacamole_db_user }}"
+    _guac_db_name: "{{ guacamole_db_name }}"
+    _guac_container: "{{ guacamole_container }}"
 
   pre_tasks:
     - name: Run standard pre-flight assertions

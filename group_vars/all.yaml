@@ -43,6 +43,12 @@ restic_keep_weekly: 8
 restic_keep_monthly: 6
 restic_backup_timeout: 7200      # 2 hours
 
+# unRAID Docker UI labels — applied to ad-hoc docker run containers (e.g. Restic)
+unraid_docker_labels: >-
+  --label net.unraid.docker.managed=composeman
+  --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
+  --label net.unraid.docker.shell=sh
+
 # Offsite dashboard URL (shown in Discord notifications)
 offsite_dashboard_url: "https://secure.backblaze.com/b2_buckets.htm"
 

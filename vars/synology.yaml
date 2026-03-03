@@ -5,6 +5,12 @@ synology_shares:
   - "Photos"
   - "NextCloudData"
 umount_timeout: 45
+synology_cleanup_age: 31d
+synology_boot_timeout: 90
+synology_nfs_timeout: 300
+synology_mount_settle: 5
+synology_post_sync_delay: 60
+synology_umount_retry_delay: 5
 synology_mount_path: "/volume1/{{ item }}"
 synology_src_base_path: "/mnt/user/"
 synology_backup_path: "/mnt/user/Backup"

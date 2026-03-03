@@ -396,9 +396,9 @@
     - vars/guacamole.yaml
   vars:
     _guac_host: "{{ host_definitions.odyssey.vm_hostname }}"  # TODO: move to apps VM after migration
-    _guac_db_user: "guacamole"
-    _guac_db_name: "guacamole_db"
-    _guac_container: "guacamole"
+    _guac_db_user: "{{ guacamole_db_user }}"
+    _guac_db_name: "{{ guacamole_db_name }}"
+    _guac_container: "{{ guacamole_container }}"
 
   tasks:
     - name: Skip Guacamole sync (no VNC VM provisioned)

@@ -11,9 +11,9 @@
 #
 # Required vars (caller must set or load via vars_files):
 #   _guac_host        — FQDN of the host running Guacamole container
-#   _guac_db_user     — Postgres username (typically "guacamole")
-#   _guac_db_name     — Postgres database (typically "guacamole_db")
-#   _guac_container   — Docker container name (typically "guacamole")
+#   _guac_db_user     — Postgres username (from guacamole_db_user in vars/guacamole.yaml)
+#   _guac_db_name     — Postgres database (from guacamole_db_name in vars/guacamole.yaml)
+#   _guac_container   — Docker container name (from guacamole_container in vars/guacamole.yaml)
 #   pve_definitions, vm_definitions, host_definitions — definition files
 #   guacamole_connection_groups, guacamole_ssh_defaults,
 #   guacamole_admin_groups, guacamole_extra_connections — from vars/guacamole.yaml

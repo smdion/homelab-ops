@@ -202,8 +202,8 @@
               ansible.builtin.command: >-
                 docker compose -f {{ _stack_dir }}/docker-compose.yaml
                 run --rm restic forget
-                --keep-weekly 8
-                --keep-monthly 6
+                --keep-weekly {{ restic_keep_weekly }}
+                --keep-monthly {{ restic_keep_monthly }}
                 --prune
               when: not (dry_run | default(false) | bool)
               no_log: "{{ _no_log }}"
@@ -232,9 +232,7 @@
               become: true
               ansible.builtin.command: >-
                 docker run --rm --name restic
-                --label net.unraid.docker.managed=composeman
-                --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
-                --label net.unraid.docker.shell=sh
+                {{ unraid_docker_labels }}
                 -v {{ _backup_source }}:/data:ro
                 -v {{ _cache_dir }}:/root/.cache/restic
                 -e AWS_ACCESS_KEY_ID
@@ -257,9 +255,7 @@
               become: true
               ansible.builtin.command: >-
                 docker run --rm --name restic
-                --label net.unraid.docker.managed=composeman
-                --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
-                --label net.unraid.docker.shell=sh
+                {{ unraid_docker_labels }}
                 -v {{ _backup_source }}:/data:ro
                 -v {{ _cache_dir }}:/root/.cache/restic
                 -e AWS_ACCESS_KEY_ID
@@ -280,9 +276,7 @@
               become: true
               ansible.builtin.command: >-
                 docker run --rm --name restic
-                --label net.unraid.docker.managed=composeman
-                --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
-                --label net.unraid.docker.shell=sh
+                {{ unraid_docker_labels }}
                 -v {{ _backup_source }}:/data:ro
                 -v {{ _cache_dir }}:/root/.cache/restic
                 -e AWS_ACCESS_KEY_ID
@@ -306,9 +300,7 @@
               become: true
               ansible.builtin.command: >-
                 docker run --rm --name restic
-                --label net.unraid.docker.managed=composeman
-                --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
-                --label net.unraid.docker.shell=sh
+                {{ unraid_docker_labels }}
                 -v {{ _backup_source }}:/data:ro
                 -v {{ _cache_dir }}:/root/.cache/restic
                 -e AWS_ACCESS_KEY_ID
@@ -317,8 +309,8 @@
                 -e RESTIC_PASSWORD
                 {{ _restic_image }}
                 forget
-                --keep-weekly 8
-                --keep-monthly 6
+                --keep-weekly {{ restic_keep_weekly }}
+                --keep-monthly {{ restic_keep_monthly }}
                 --prune
               environment:
                 AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
