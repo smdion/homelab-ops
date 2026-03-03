@@ -1003,6 +1003,7 @@
           become: true
           ansible.builtin.shell: |
             if ! command -v ceph >/dev/null 2>&1; then echo "CEPH_NOT_INSTALLED"; exit 0; fi
+            if [ ! -s /etc/ceph/ceph.conf ] && [ ! -s /etc/pve/ceph.conf ]; then echo "CEPH_NOT_CONFIGURED"; exit 0; fi
             ceph health 2>/dev/null || echo "CEPH_ERROR"
           register: _ceph_raw
           changed_when: false
@@ -1016,15 +1017,15 @@
                 host_health_issues + [{
                   'check_name': 'ceph_health',
                   'status': (
-                    'ok' if _ceph_raw.stdout | trim in ['HEALTH_OK', 'CEPH_NOT_INSTALLED']
+                    'ok' if _ceph_raw.stdout | trim in ['HEALTH_OK', 'CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED']
                     else ('warning' if 'HEALTH_WARN' in _ceph_raw.stdout
                     else 'critical')
                   ),
                   'value': (
-                    'not configured' if _ceph_raw.stdout | trim == 'CEPH_NOT_INSTALLED'
+                    'not configured' if _ceph_raw.stdout | trim in ['CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED']
                     else _ceph_raw.stdout | trim | truncate(60)
                   ),
-                  'detail': '' if _ceph_raw.stdout | trim in ['HEALTH_OK', 'CEPH_NOT_INSTALLED'] else _ceph_raw.stdout | trim
+                  'detail': '' if _ceph_raw.stdout | trim in ['HEALTH_OK', 'CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED'] else _ceph_raw.stdout | trim
                 }]
               }}
 
