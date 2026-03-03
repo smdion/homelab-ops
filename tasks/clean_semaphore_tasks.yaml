@@ -13,7 +13,7 @@
     _sem_url: "{{ semaphore_host_url | regex_replace('/$', '') }}"
     _sem_project: "{{ semaphore_project_id | default(1) }}"
   become: false
-  connection: local
+  delegate_to: localhost
   ansible.builtin.uri:
     url: "{{ _sem_url }}/api/project/{{ _sem_project }}/tasks/last?count=1"
     method: GET
@@ -34,7 +34,7 @@
     _sem_url: "{{ semaphore_host_url | regex_replace('/$', '') }}"
     _sem_project: "{{ semaphore_project_id | default(1) }}"
   become: false
-  connection: local
+  delegate_to: localhost
   ansible.builtin.uri:
     url: "{{ _sem_url }}/api/project/{{ _sem_project }}/tasks/last?count=10000"
     method: GET
@@ -74,7 +74,7 @@
     _sem_url: "{{ semaphore_host_url | regex_replace('/$', '') }}"
     _sem_project: "{{ semaphore_project_id | default(1) }}"
   become: false
-  connection: local
+  delegate_to: localhost
   ansible.builtin.uri:
     url: "{{ _sem_url }}/api/project/{{ _sem_project }}/tasks/{{ item }}"
     method: DELETE
