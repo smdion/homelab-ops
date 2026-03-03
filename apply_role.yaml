@@ -104,6 +104,9 @@
     _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Set role for this host
       ansible.builtin.set_fact:
         role: "{{ _target_role }}"

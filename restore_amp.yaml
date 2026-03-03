@@ -101,6 +101,9 @@
     _restore_archive_map: "{{ hostvars['localhost']._restore_archive_map }}"
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Initialize restore state
       ansible.builtin.set_fact:
         _amp_restore_results: []

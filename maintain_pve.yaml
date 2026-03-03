@@ -177,6 +177,9 @@
       include_tasks: tasks/assert_db_connectivity.yaml
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Initialize stale snapshot state
       ansible.builtin.set_fact:
         _stale_snapshots: []
@@ -285,6 +288,9 @@
       include_tasks: tasks/assert_db_connectivity.yaml
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     # ===== FETCH TASK HISTORY =====
     - name: Get recent PBS task history
       ansible.builtin.shell: |
@@ -372,6 +378,9 @@
       include_tasks: tasks/assert_db_connectivity.yaml
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Initialize pool sync state
       ansible.builtin.set_fact:
         maintenance_failed: false
@@ -643,6 +652,9 @@
       include_tasks: tasks/assert_db_connectivity.yaml
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Initialize unused disk state
       ansible.builtin.set_fact:
         _unused_disks: []
@@ -747,6 +759,9 @@
       include_tasks: tasks/assert_db_connectivity.yaml
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Initialize right-size state
       ansible.builtin.set_fact:
         _flagged_vms: []

@@ -507,6 +507,9 @@
     backup_tmp_dir: "/tmp"
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Assert sufficient disk space on /tmp (staging)
       include_tasks: tasks/assert_disk_space.yaml
       vars:

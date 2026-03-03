@@ -292,6 +292,9 @@
     maintenance_subtype: "Build"
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Initialize bootstrap state
       ansible.builtin.set_fact:
         bootstrap_failed: false
@@ -751,6 +754,9 @@
     backup_tmp_dir: "/tmp"
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Skip restore (role not set)
       ansible.builtin.meta: end_host
       when: role is not defined or (vm_state | default('present')) != 'present'

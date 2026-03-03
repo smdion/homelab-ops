@@ -186,6 +186,9 @@
       ansible.builtin.meta: end_play
       when: vm_state | default('present') == 'absent'
 
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Gather facts
       ansible.builtin.setup:
         gather_subset: ['!all', 'date_time']
@@ -464,6 +467,9 @@
     - name: Skip play on destroy
       ansible.builtin.meta: end_play
       when: vm_state | default('present') == 'absent'
+
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
 
     - name: Gather facts
       ansible.builtin.setup:

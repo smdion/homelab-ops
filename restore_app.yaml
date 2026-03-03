@@ -113,6 +113,9 @@
     _app_restore_tmp: "/tmp/restore_{{ restore_app }}"
 
   tasks:
+    - name: Resolve Semaphore task URL for notifications
+      include_tasks: tasks/resolve_semaphore_task.yaml
+
     - name: Initialize restore state
       ansible.builtin.set_fact:
         _restore_failed: false
