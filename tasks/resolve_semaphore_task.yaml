@@ -32,5 +32,8 @@
   when:
     - _semaphore_task_response is defined
     - _semaphore_task_response is succeeded
+    - _semaphore_task_response.status | default(0) == 200
+    - (_semaphore_task_response.content | default('[]') | from_json) is sequence
+    - (_semaphore_task_response.content | default('[]') | from_json) is not mapping
     - (_semaphore_task_response.content | default('[]') | from_json) | length > 0
   failed_when: false
