@@ -107,9 +107,9 @@
              'failed': true}] }}
 
   always:
-    - name: Start AMP instance {{ _amp_instance }} (retry for post-activation restart)
+    - name: Restart AMP instance {{ _amp_instance }} (retry for post-activation restart)
       become: true
-      ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr StartInstance {{ _amp_instance }}'
+      ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr RestartInstance {{ _amp_instance }}'
       args:
         executable: /bin/bash
       register: _amp_start_result
