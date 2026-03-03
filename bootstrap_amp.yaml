@@ -65,12 +65,6 @@
             create_home: true
             system: true
 
-        - name: Add AMP user to docker group
-          ansible.builtin.user:
-            name: "{{ amp_user }}"
-            groups: docker
-            append: true
-
         - name: Install AMP game server manager (unattended)
           ansible.builtin.shell: bash <(wget -qO- getamp.sh)
           args:
@@ -87,6 +81,12 @@
             ANSWER_HTTPS: "n"
             SKIP_INSTALL: "y"
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Add AMP user to docker group
+          ansible.builtin.user:
+            name: "{{ amp_user }}"
+            groups: docker
+            append: true
 
         - name: Stop ampinstmgr service
           ansible.builtin.service:
