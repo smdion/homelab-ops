@@ -245,7 +245,8 @@ history, restore results, playbook runs) belongs in the database.
 │   └── get_push_epoch.sh           # Helper script for Docker image age checks (deployed to remote hosts by update_systems.yaml)
 │
 ├── sql/
-│   └── init.sql                    # Database schema — run `mysql -u root -p < sql/init.sql` to create all tables
+│   ├── init.sql                    # Database schema — run `mysql -u root -p < sql/init.sql` to create all tables
+│   └── migrate_daily_dedup.sql     # Migration — add daily dedup indexes to existing databases
 │
 ├── grafana/
 │   └── grafana.json                # Grafana dashboard — Backup, Updates & Health Monitoring
@@ -299,7 +300,9 @@ a new platform.
 **`sql/init.sql`** — Standalone database schema file. Creates the `ansible_logging` database and
 all eight tables (`backups`, `updates`, `maintenance`, `health_checks`, `health_check_state`, `restores`, `docker_sizes`, `playbook_runs`).
 Run once with `mysql -u root -p < sql/init.sql`. Uses `CREATE TABLE IF NOT EXISTS` so re-running
-is safe.
+is safe. **`sql/migrate_daily_dedup.sql`** — Migration script for existing databases. Deduplicates
+existing rows, adds `log_date` generated columns, and creates `idx_daily_dedup` UNIQUE indexes.
+Idempotent — safe to re-run.
 
 **`tasks/notify.yaml`** — Shared notification task (Discord + optional Apprise). Called via
 `include_tasks` with `vars:` block. Required: `discord_title`, `discord_color`, `discord_fields`.
@@ -1374,9 +1377,10 @@ The `updates` table is intentionally excluded from retention — it stores one r
 version via `INSERT ... ON DUPLICATE KEY UPDATE`, making it a sparse version history rather than a run log. Rows
 accumulate slowly and are all valuable for long-term version tracking.
 
-The `health_checks` table is the most aggressive grower (~26 checks x ~10 hosts per run). At
-hourly health checks, that's ~1.9M rows/year. Annual pruning keeps the `INNER JOIN ... MAX(timestamp)`
-queries in Grafana performant.
+The `health_checks` table is the most aggressive grower (~26 checks x ~10 hosts per day). With
+daily dedup, re-runs update existing rows rather than creating new ones, so actual growth is
+~260 rows/day (~95K rows/year) regardless of how many times the playbook runs. Annual pruning
+keeps the `INNER JOIN ... MAX(timestamp)` queries in Grafana performant.
 
 ### Health check state management
 
@@ -1482,6 +1486,38 @@ Eight tables (seven operational + one state). All columns are set by Ansible —
 functions, or computed columns. Run `mysql -u root -p < sql/init.sql` to create the database and
 all tables. The init script uses `CREATE TABLE IF NOT EXISTS` so re-running is safe.
 
+#### Daily dedup (idempotent logging)
+
+Five tables (`backups`, `maintenance`, `health_checks`, `docker_sizes`, `restores`) use daily
+dedup — repeated same-day runs update the existing row instead of creating duplicates. This makes
+re-running Semaphore tasks during development/testing safe without inflating row counts or
+corrupting Grafana dashboards.
+
+**Mechanism:** Each table has a `log_date` generated column (`DATE GENERATED ALWAYS AS
+(DATE(timestamp)) STORED`) and a `UNIQUE INDEX idx_daily_dedup` on the natural key + `log_date`.
+All INSERT statements use `ON DUPLICATE KEY UPDATE` so that re-runs overwrite the previous row's
+mutable columns (file sizes, statuses, details) and refresh the timestamp.
+
+| Table | UNIQUE key (+ `log_date`) | Mutable columns on re-run |
+|-------|---------------------------|---------------------------|
+| `backups` | `application, hostname, backup_type, backup_subtype, backup_level` | `file_name`, `file_size`, `timestamp` |
+| `maintenance` | `application, hostname, type, subtype` | `status`, `timestamp` |
+| `health_checks` | `hostname, check_name` | `check_status`, `check_value`, `check_detail`, `timestamp` |
+| `docker_sizes` | `hostname` | all metric columns, `timestamp` |
+| `restores` | `application, hostname, restore_subtype, operation` | `source_file`, `status`, `detail`, `timestamp` |
+
+**Tables without dedup:** `updates` has its own version-based UNIQUE key (not date-based).
+`playbook_runs` is an audit trail — every invocation is a distinct record. `health_check_state`
+is a single-row table with a PK constraint.
+
+**Migration:** For existing databases, run `sql/migrate_daily_dedup.sql` to deduplicate existing
+rows (keeping the latest per group per day), add the `log_date` column, and create the UNIQUE
+indexes. The script is idempotent — safe to re-run.
+
+**`skip_db` flag:** All logging tasks honor `skip_db` — pass `-e skip_db=yes` to suppress all DB
+writes during testing. This includes `log_mariadb.yaml`, `log_restore.yaml`, and
+`log_health_checks_batch.yaml`.
+
 #### Timezone convention
 
 **Storage: always UTC.** All `timestamp` columns are written with `UTC_TIMESTAMP()` — never
@@ -1526,16 +1562,19 @@ CREATE TABLE backups (
   backup_type VARCHAR(50),        -- Set by vars/*.yaml (e.g., 'Appliances', 'Servers')
   backup_subtype VARCHAR(50),     -- Set by vars/*.yaml (e.g., 'Config', 'Appdata', 'Database')
   backup_level VARCHAR(20) NOT NULL DEFAULT 'host',  -- 'host' or 'stack' — granularity of the backup
+  log_date DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_hostname (hostname),
   INDEX idx_timestamp (timestamp),
   INDEX idx_backup_type (backup_type),
   INDEX idx_backup_subtype (backup_subtype),
-  INDEX idx_backup_level (backup_level)
+  INDEX idx_backup_level (backup_level),
+  UNIQUE INDEX idx_daily_dedup (application, hostname, backup_type, backup_subtype, backup_level, log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 ```
 
 All backup attempts are logged — both successes and failures. Failed backups use a `FAILED_`
-prefix in `file_name` and `file_size` of 0 to distinguish them from successful backups.
+prefix in `file_name` and `file_size` of 0 to distinguish them from successful backups. Re-runs
+on the same day update the existing row (daily dedup) — the last run's file name and size win.
 
 #### `updates` table
 
@@ -1574,9 +1613,11 @@ CREATE TABLE maintenance (
   subtype     VARCHAR(50)  NOT NULL,   -- 'Cleanup', 'Prune', 'Cache', 'Restart', 'Maintenance', 'Health Check', 'Verify', 'Deploy', 'Build', 'Test Restore', 'Test Backup Restore'
   status      VARCHAR(20)  NOT NULL DEFAULT 'success',  -- 'success', 'failed', or 'partial'
   timestamp   DATETIME,            -- UTC_TIMESTAMP() — always UTC regardless of server timezone
+  log_date DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_application (application),
   INDEX idx_hostname (hostname),
-  INDEX idx_timestamp (timestamp)
+  INDEX idx_timestamp (timestamp),
+  UNIQUE INDEX idx_daily_dedup (application, hostname, type, subtype, log_date)
 );
 ```
 
@@ -1587,10 +1628,12 @@ three-value status: `success` (all checks passed), `partial` (some per-host chec
 
 #### `health_checks` table
 
-One row per check per host per run. All results (Play 1 localhost checks, unreachable hosts, and
+One row per check per host per day. All results (Play 1 localhost checks, unreachable hosts, and
 per-host SSH checks) are collected into a unified list and inserted via a single multi-row
-`INSERT` statement (`tasks/log_health_checks_batch.yaml`) for efficiency. Enables Grafana trend
-graphs (disk usage growth, memory pressure history, recurring journal errors, OOM patterns over time).
+`INSERT ... ON DUPLICATE KEY UPDATE` statement (`tasks/log_health_checks_batch.yaml`) for
+efficiency. Re-runs on the same day update the existing rows (daily dedup). Enables Grafana
+trend graphs (disk usage growth, memory pressure history, recurring journal errors, OOM patterns
+over time).
 
 ```sql
 CREATE TABLE health_checks (
@@ -1609,10 +1652,12 @@ CREATE TABLE health_checks (
   check_value  VARCHAR(255),            -- e.g. '89%', 'load: 3.2 / 4 vcpus', '2 kills'
   check_detail TEXT,                    -- e.g. '/var at 89% | /home at 72%'
   timestamp    DATETIME,            -- UTC_TIMESTAMP() — always UTC regardless of server timezone
+  log_date DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_hostname     (hostname),
   INDEX idx_check_name   (check_name),
   INDEX idx_check_status (check_status),
-  INDEX idx_timestamp    (timestamp)
+  INDEX idx_timestamp    (timestamp),
+  UNIQUE INDEX idx_daily_dedup (hostname, check_name, log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 ```
 
@@ -1649,9 +1694,11 @@ CREATE TABLE restores (
   status VARCHAR(20) NOT NULL DEFAULT 'success',
   detail TEXT,
   timestamp DATETIME,
+  log_date DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_hostname (hostname),
   INDEX idx_timestamp (timestamp),
-  INDEX idx_operation (operation)
+  INDEX idx_operation (operation),
+  UNIQUE INDEX idx_daily_dedup (application, hostname, restore_subtype, operation, log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 ```
 
@@ -1672,8 +1719,10 @@ CREATE TABLE docker_sizes (
   volumes_count INT,
   volumes_mb    DECIMAL(10,2),
   containers_mb DECIMAL(10,2),
+  log_date DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_hostname  (hostname),
-  INDEX idx_timestamp (timestamp)
+  INDEX idx_timestamp (timestamp),
+  UNIQUE INDEX idx_daily_dedup (hostname, log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 ```
 

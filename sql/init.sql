@@ -23,11 +23,13 @@ CREATE TABLE IF NOT EXISTS backups (
   backup_type VARCHAR(50),
   backup_subtype VARCHAR(50),
   backup_level VARCHAR(20) NOT NULL DEFAULT 'host',
+  log_date DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_hostname (hostname),
   INDEX idx_timestamp (timestamp),
   INDEX idx_backup_type (backup_type),
   INDEX idx_backup_subtype (backup_subtype),
-  INDEX idx_backup_level (backup_level)
+  INDEX idx_backup_level (backup_level),
+  UNIQUE INDEX idx_daily_dedup (application, hostname, backup_type, backup_subtype, backup_level, log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Update records — one row per distinct version (ON DUPLICATE KEY UPDATE refreshes timestamp)
@@ -56,9 +58,11 @@ CREATE TABLE IF NOT EXISTS maintenance (
   subtype     VARCHAR(50)  NOT NULL,
   status      VARCHAR(20)  NOT NULL DEFAULT 'success',
   timestamp   DATETIME,
+  log_date    DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_application (application),
   INDEX idx_hostname (hostname),
-  INDEX idx_timestamp (timestamp)
+  INDEX idx_timestamp (timestamp),
+  UNIQUE INDEX idx_daily_dedup (application, hostname, type, subtype, log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Health check records — one row per check per host per run
@@ -70,10 +74,12 @@ CREATE TABLE IF NOT EXISTS health_checks (
   check_value  VARCHAR(255),
   check_detail TEXT,
   timestamp    DATETIME,
+  log_date     DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_hostname     (hostname),
   INDEX idx_check_name   (check_name),
   INDEX idx_check_status (check_status),
-  INDEX idx_timestamp    (timestamp)
+  INDEX idx_timestamp    (timestamp),
+  UNIQUE INDEX idx_daily_dedup (hostname, check_name, log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Restore / verify records — one row per restore or verification operation
@@ -88,9 +94,11 @@ CREATE TABLE IF NOT EXISTS restores (
   status VARCHAR(20) NOT NULL DEFAULT 'success',
   detail TEXT,
   timestamp DATETIME,
+  log_date  DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_hostname (hostname),
   INDEX idx_timestamp (timestamp),
-  INDEX idx_operation (operation)
+  INDEX idx_operation (operation),
+  UNIQUE INDEX idx_daily_dedup (application, hostname, restore_subtype, operation, log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Health check state — single-row table tracking last successful run
@@ -110,8 +118,10 @@ CREATE TABLE IF NOT EXISTS docker_sizes (
   volumes_count INT,
   volumes_mb    DECIMAL(10,2),
   containers_mb DECIMAL(10,2),
+  log_date      DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_hostname  (hostname),
-  INDEX idx_timestamp (timestamp)
+  INDEX idx_timestamp (timestamp),
+  UNIQUE INDEX idx_daily_dedup (hostname, log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Playbook run audit log — one row per invocation (per target host for distributed playbooks)

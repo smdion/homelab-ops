@@ -31,6 +31,9 @@
       INSERT INTO restores
       (application, hostname, source_file, restore_type, restore_subtype, operation, status, detail, timestamp)
       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP())
+      ON DUPLICATE KEY UPDATE
+        source_file = VALUES(source_file), status = VALUES(status),
+        detail = VALUES(detail), timestamp = UTC_TIMESTAMP()
     positional_args:
       - "{{ restore_application }}"
       - "{{ log_hostname }}"
@@ -44,5 +47,5 @@
   retries: 40
   delay: 10
   until: _log_restore_result is succeeded
-  when: not ansible_check_mode
+  when: not (skip_db | default(false) | bool) and not ansible_check_mode
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"

@@ -34,6 +34,7 @@
     _backup_query: >-
       INSERT INTO backups (application, hostname, file_name, file_size, timestamp, backup_type, backup_subtype, backup_level)
       VALUES (%s, %s, %s, %s, UTC_TIMESTAMP(), %s, %s, %s)
+      ON DUPLICATE KEY UPDATE file_name = VALUES(file_name), file_size = VALUES(file_size), timestamp = UTC_TIMESTAMP()
     _backup_args:
       - "{{ log_application }}"
       - "{{ log_hostname }}"
@@ -56,6 +57,7 @@
     _maintenance_query: >-
       INSERT INTO maintenance (application, hostname, timestamp, type, subtype, status)
       VALUES (%s, %s, UTC_TIMESTAMP(), %s, %s, %s)
+      ON DUPLICATE KEY UPDATE status = VALUES(status), timestamp = UTC_TIMESTAMP()
     _maintenance_args:
       - "{{ log_application }}"
       - "{{ log_hostname }}"
@@ -66,6 +68,10 @@
       INSERT INTO docker_sizes
         (hostname, timestamp, images_count, images_mb, volumes_count, volumes_mb, containers_mb)
       VALUES (%s, UTC_TIMESTAMP(), %s, %s, %s, %s, %s)
+      ON DUPLICATE KEY UPDATE
+        images_count = VALUES(images_count), images_mb = VALUES(images_mb),
+        volumes_count = VALUES(volumes_count), volumes_mb = VALUES(volumes_mb),
+        containers_mb = VALUES(containers_mb), timestamp = UTC_TIMESTAMP()
     _docker_sizes_args:
       - "{{ log_hostname }}"
       - "{{ log_images_count | default(0) }}"

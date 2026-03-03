@@ -25,6 +25,9 @@
       INSERT INTO health_checks
       (hostname, check_name, check_status, check_value, check_detail, timestamp)
       VALUES {% for _ in _all_results %}(%s, %s, %s, %s, %s, UTC_TIMESTAMP()){% if not loop.last %}, {% endif %}{% endfor %}
+      ON DUPLICATE KEY UPDATE
+        check_status = VALUES(check_status), check_value = VALUES(check_value),
+        check_detail = VALUES(check_detail), timestamp = UTC_TIMESTAMP()
     positional_args: "{{ _all_results | json_query('[].[ hostname, check_name, status, value, detail ]') | flatten }}"
-  when: not ansible_check_mode
+  when: not (skip_db | default(false) | bool) and not ansible_check_mode
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
