@@ -138,6 +138,8 @@ vm_definitions:
     vm_disk_gb: 128
     pve_target_node: "{{ vault_vm_amp_node | default('') }}"
     install_docker: false                # AMP installs Docker via its own installer
+    ufw_rules:
+      - port: "8080"                     # AMP web panel
     guacamole: { name: AMP, group: Game Server, command: "sudo su -l amp" }
 
   # Native graphical desktop VM — ubuntu-desktop-minimal installed during bootstrap.
