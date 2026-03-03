@@ -39,3 +39,6 @@
     log_playbook: "{{ pre_playbook }}"
     log_hostname: "{{ pre_hostname | default(inventory_hostname) }}"
     log_run_vars: "{{ _formatted_run_vars }}"
+
+- name: Resolve Semaphore task URL for notifications
+  include_tasks: tasks/resolve_semaphore_task.yaml

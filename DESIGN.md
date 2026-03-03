@@ -170,6 +170,7 @@ history, restore results, playbook runs) belongs in the database.
 │   ├── docker_stop.yaml             # Stop Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── docker_start.yaml            # Start Docker containers/stacks (selective, stack, or unRAID mode)
 │   ├── resolve_scope.yaml           # Shared scope resolution — role injection for unmapped hosts, stack/role meta:end_host filtering
+│   ├── resolve_semaphore_task.yaml  # Resolve current Semaphore task URL for Discord notification links
 │   ├── restore_appdata.yaml         # Restore appdata archive — copy to target, detect root, extract (selective or full)
 │   ├── restore_single_stack.yaml    # Per-stack restore loop body (find→verify→stop→restore→start→record); mirrors backup_single_stack
 │   ├── restore_selective_app.yaml   # Selective app restore from monolithic archive + optional cross-host DB restore
@@ -940,6 +941,12 @@ already the embed author (Line 1). Both fields were removed in the standardizati
 Discord renders up to 3 inline fields per row — use `inline: true` for short identifier fields
 (VM Name, Host IP, instance results) and omit it for longer values. The `tasks/notify.yaml`
 comment documents the full dict shape.
+
+**Semaphore task link.** `tasks/notify.yaml` auto-appends a "🔗 Task Log" field with a
+clickable link to the Semaphore task page when `_semaphore_task_url` is set. This fact is
+resolved by `tasks/resolve_semaphore_task.yaml` (called from `pre_task_assertions.yaml`),
+which queries `GET /api/project/{id}/tasks/last?count=1` for the current task ID. The link
+is omitted gracefully when running outside Semaphore or in check mode.
 
 **Emoji prefix on result fields.** The primary subject field in every notification uses
 `✅` (success), `❌` (failure), or `⚠️` (warning) as a prefix on the field name.
