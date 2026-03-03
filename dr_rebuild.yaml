@@ -369,6 +369,7 @@
               - "{{ 'NFS server' if _lvm.nfs_exports is defined else '' }}"
               - "{{ 'NFS mounts' if _lvm.nfs_mounts is defined else '' }}"
               - "{{ 'IP aliases' if _lvm.ip_aliases is defined else '' }}"
+              - "{{ 'Ephemeral' if _lvm.vm_name is match('test-vm.*') else 'Permanent' }}"
           ansible.builtin.set_fact:
             _bootstrap_detail: "{{ _detail_items | select | join(', ') }}"
 
