@@ -83,12 +83,6 @@
           register: _site_index
           failed_when: not _site_index.stat.exists
 
-        # ── Push to GitHub (backup) ────────────────────────────────
-        - name: Push homelab-docs to GitHub
-          ansible.builtin.command:
-            cmd: "git push origin main"
-            chdir: "{{ _docs_dir }}"
-          changed_when: true
 
       rescue:
         - name: Record failure
