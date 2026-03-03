@@ -1,0 +1,114 @@
+---
+# Deploy homelab-docs MkDocs site to the docs container on the dev VM.
+# Pulls latest homelab-docs on the dev host, generates auto-pages from homelab-ops,
+# builds with mkdocs, and the site/ directory is served directly by the docs container.
+#
+# The homelab-docs repo lives at /opt/homelab-docs on the dev VM (bind-mounted
+# into code-server at /workspace/homelab-docs). The docs Nginx container serves
+# /opt/homelab-docs/site as its webroot.
+#
+# Required extra vars:
+#   hosts_variable        — inventory group (pre-filled by Semaphore environment)
+#
+# Optional extra vars:
+#   docs_branch=main      — homelab-docs branch to build (default: main)
+#
+# Usage:
+#   ansible-playbook deploy_docs.yaml -e hosts_variable=docker_stacks -e stack=dev
+#   ansible-playbook deploy_docs.yaml -e hosts_variable=docker_stacks -e stack=dev -e docs_branch=main
+
+- name: Deploy homelab-docs site
+  hosts: "{{ hosts_variable }}"
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  serial: 1
+  vars_files:
+    - vars/secrets.yaml
+    - vars/vm_definitions.yaml
+    - vars/host_definitions.yaml
+    - vars/app_definitions.yaml
+    - vars/container_definitions.yaml
+    - vars/{{ config_file }}.yaml
+    - vars/semaphore_check.yaml
+  vars:
+    config_file: "{{ hosts_variable }}"
+    maintenance_name: "Docs"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Deploy"
+    docs_branch: main
+    _docs_dir: "/opt/homelab-docs"
+    _ops_dir: "/opt/homelab-ops"
+
+  pre_tasks:
+    - name: Resolve scope (role injection + stack/role filtering)
+      include_tasks: tasks/resolve_scope.yaml
+
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "deploy_docs.yaml"
+        pre_hostname: "{{ inventory_hostname }}"
+
+  tasks:
+    - name: Initialize deploy state
+      ansible.builtin.set_fact:
+        deploy_failed: false
+        _deploy_detail: ""
+
+    - block:
+        # ── Pull latest homelab-docs ─────────────────────────────────
+        - name: Pull latest homelab-docs
+          ansible.builtin.git:
+            repo: "https://github.com/smdion/homelab-docs.git"
+            dest: "{{ _docs_dir }}"
+            version: "{{ docs_branch }}"
+            force: true
+
+        # ── Pull latest homelab-ops ──────────────────────────────────
+        - name: Pull latest homelab-ops
+          ansible.builtin.git:
+            repo: "https://github.com/smdion/homelab-ops.git"
+            dest: "{{ _ops_dir }}"
+            version: main
+            force: true
+
+        # ── Install Python dependencies ──────────────────────────────
+        - name: Install mkdocs-material and dependencies
+          ansible.builtin.pip:
+            requirements: "{{ _docs_dir }}/requirements.txt"
+            extra_args: "--break-system-packages"
+
+        # ── Generate auto-generated pages ────────────────────────────
+        - name: Run generate_docs.py
+          ansible.builtin.command:
+            cmd: "python3 {{ _docs_dir }}/scripts/generate_docs.py {{ _ops_dir }}"
+            chdir: "{{ _docs_dir }}"
+          changed_when: true
+
+        # ── Build MkDocs site ────────────────────────────────────────
+        - name: Build MkDocs site
+          ansible.builtin.command:
+            cmd: "mkdocs build --strict"
+            chdir: "{{ _docs_dir }}"
+          changed_when: true
+
+        # ── Verify ───────────────────────────────────────────────────
+        - name: Verify site built
+          ansible.builtin.stat:
+            path: "{{ _docs_dir }}/site/index.html"
+          register: _site_index
+          failed_when: not _site_index.stat.exists
+
+      rescue:
+        - name: Record failure
+          ansible.builtin.set_fact:
+            deploy_failed: true
+            _deploy_detail: "{{ ansible_failed_result.msg | default(ansible_failed_task.name | default('unknown')) }}"
+
+    # ── Notification ─────────────────────────────────────────────────
+    - name: Send notification
+      include_tasks: tasks/notify.yaml
+      vars:
+        notify_status: "{{ 'failure' if deploy_failed else 'success' }}"
+        notify_detail: "{{ _deploy_detail if deploy_failed else 'Docs site built and deployed' }}"
+      when: _is_semaphore | default(false)

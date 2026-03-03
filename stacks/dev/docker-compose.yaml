@@ -57,7 +57,7 @@ services:
     ports:
       - 8084:80
     volumes:
-      - ${APPSDIR}/docs/site:/usr/share/nginx/html:ro
+      - ${APPSDIR}/homelab-docs/site:/usr/share/nginx/html:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsk http://localhost:80 || exit 1"]
       interval: 30s
