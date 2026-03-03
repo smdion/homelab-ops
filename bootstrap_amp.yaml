@@ -11,13 +11,14 @@
 #   confirm=yes         — safety gate
 #
 # Optional extra vars:
-#   amp_licence_key     — CubeCoders license UUID; skips reactivation if omitted
 #   restore_host        — inventory_hostname of old AMP host for backup lookup
 #                         (default: first host in amp group)
 #
+# Vault vars (vars/secrets.yaml):
+#   amp_licence_key     — CubeCoders license UUID; skips reactivation if not in vault
+#
 # Usage:
 #   ansible-playbook bootstrap_amp.yaml -e confirm=yes
-#   ansible-playbook bootstrap_amp.yaml -e confirm=yes -e amp_licence_key=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Install AMP software on target host
@@ -64,6 +65,12 @@
             create_home: true
             system: true
 
+        - name: Add AMP user to docker group
+          ansible.builtin.user:
+            name: "{{ amp_user }}"
+            groups: docker
+            append: true
+
         - name: Install AMP game server manager (unattended)
           ansible.builtin.shell: bash <(wget -qO- getamp.sh)
           args:
@@ -76,7 +83,7 @@
             ANSWER_AMPPASS: "{{ amp_admin_password }}"
             ANSWER_INSTALLJAVA: "y"
             ANSWER_INSTALLSRCDSLIBS: "y"
-            ANSWER_INSTALLDOCKER: "n"
+            ANSWER_INSTALLDOCKER: "y"
             ANSWER_HTTPS: "n"
             SKIP_INSTALL: "y"
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
