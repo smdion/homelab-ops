@@ -82,6 +82,8 @@
           {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node
              if (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0)
              else _vm.pve_target_node }}
+        _vm_exists: >-
+          {{ (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0) }}
       when: _vm_state == 'absent'
 
     - block:
@@ -95,6 +97,11 @@
         # ═════════════════════════════════════════════════════════
         # DESTROY PATH — vm_state == 'absent'
         # ═════════════════════════════════════════════════════════
+        - name: VM already absent — nothing to destroy
+          ansible.builtin.debug:
+            msg: "VM {{ _vm.vm_name }} (VMID {{ _vm.vm_id }}) does not exist — skipping destroy"
+          when: _vm_state == 'absent' and not (_vm_exists | default(false) | bool)
+
         - name: Stop VM
           community.general.proxmox_kvm:
             api_host: "{{ pve_api_host }}"
@@ -106,7 +113,7 @@
             state: stopped
             force: true
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-          when: _vm_state == 'absent'
+          when: _vm_state == 'absent' and (_vm_exists | default(false) | bool)
 
         - name: Remove VM
           community.general.proxmox_kvm:
@@ -118,12 +125,14 @@
             vmid: "{{ _vm.vm_id }}"
             state: absent
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-          when: _vm_state == 'absent'
+          when: _vm_state == 'absent' and (_vm_exists | default(false) | bool)
 
         - name: Record build detail
           ansible.builtin.set_fact:
             _build_detail: >-
-              {% if _vm_state == 'absent' %}VM destroyed{% else %}VM provisioned{% endif %}:
+              {% if _vm_state == 'absent' and (_vm_exists | default(false) | bool) %}VM destroyed
+              {% elif _vm_state == 'absent' %}VM already absent
+              {% else %}VM provisioned{% endif %}:
               {{ _vm.vm_name }} ({{ _vm.vm_ip }}) on {{ _vm_actual_node | default(_vm.pve_target_node) }}
 
       rescue:
