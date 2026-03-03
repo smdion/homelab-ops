@@ -72,7 +72,7 @@
         # ── Build MkDocs site ────────────────────────────────────────
         - name: Build MkDocs site
           ansible.builtin.command:
-            cmd: "mkdocs build --strict"
+            cmd: "python3 -m mkdocs build --strict"
             chdir: "{{ _docs_dir }}"
           changed_when: true
 
@@ -103,3 +103,8 @@
         notify_status: "{{ 'failure' if deploy_failed else 'success' }}"
         notify_detail: "{{ _deploy_detail if deploy_failed else 'Docs site built and deployed' }}"
       when: _is_semaphore | default(false)
+
+    - name: Fail play if deploy failed
+      ansible.builtin.fail:
+        msg: "Deploy failed: {{ _deploy_detail }}"
+      when: deploy_failed

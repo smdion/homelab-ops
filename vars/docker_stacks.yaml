@@ -61,7 +61,3 @@ docker_firefox_web_audio: 1
 docker_email_host: "smtp.gmail.com"
 docker_email_port: 587
 docker_dozzle_level: "info"
-
-# Docs site — homelab-docs repo URL for deploy_docs.yaml
-docs_repo_url: "https://github.com/smdion/homelab-docs.git"
-docs_ops_repo_url: "https://github.com/smdion/homelab-ops.git"
