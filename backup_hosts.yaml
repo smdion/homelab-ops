@@ -354,6 +354,17 @@
             - not ansible_check_mode
             - amp_instance_filter is not defined or _amp_instance == amp_instance_filter
 
+        - name: Kill stale AMP tmux sessions before restart
+          become: true
+          ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'tmux kill-server' || true
+          args:
+            executable: /bin/bash
+          changed_when: false
+          ignore_errors: true
+          when:
+            - inventory_hostname in groups["amp"] | default([])
+            - _amp_instances is defined
+
         - name: Start all AMP instances after backup
           become: true
           ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr startall'

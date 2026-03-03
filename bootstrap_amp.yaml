@@ -639,6 +639,13 @@
       when: vm_state | default('present') == 'absent'
 
   tasks:
+    - name: Kill stale AMP tmux sessions before start
+      ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'tmux kill-server' || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+      ignore_errors: true
+
     - name: Start all AMP instances
       ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr startall'
       changed_when: true
