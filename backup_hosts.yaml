@@ -370,8 +370,9 @@
           ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr startall'
           args:
             executable: /bin/bash
+          async: 300
+          poll: 10
           changed_when: true
-          timeout: 300
           ignore_errors: true
           when:
             - inventory_hostname in groups["amp"] | default([])
