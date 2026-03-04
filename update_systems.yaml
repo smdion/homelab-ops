@@ -1,21 +1,22 @@
 ---
 # Category: Update
-# Update OS packages and Docker containers.
+# Update OS packages, Docker containers, and unRAID plugins.
 # Handles apt upgrade (Ubuntu/Proxmox), PiKVM update, AMP update,
-# Docker Compose pull+recreate, and unRAID container updates.
+# Docker Compose pull+recreate, unRAID container updates, and unRAID plugin updates.
 # Saves a rollback snapshot before Docker Compose updates (see rollback_docker.yaml).
 # Sends notification and logs version changes to MariaDB.
 #
 # Required extra vars:
-#   hosts_variable                   — inventory group to target (pre-filled by Semaphore environment)
+#   hosts_variable                          — inventory group to target (pre-filled by Semaphore environment)
 #
 # Optional extra vars:
-#   update_scope=os|docker|software  — override auto-detected scope (auto-derived from hosts_variable)
+#   update_scope=os|docker|software|plugin  — override auto-detected scope (auto-derived from hosts_variable)
 #
 # Usage:
 #   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu
 #   ansible-playbook update_systems.yaml -e hosts_variable=docker_stacks
 #   ansible-playbook update_systems.yaml -e hosts_variable=amp
+#   ansible-playbook update_systems.yaml -e hosts_variable=unraid_plugins
 
 - name: Update OS packages and Docker containers
   gather_facts: true
@@ -30,7 +31,8 @@
     config_file: "{{ hosts_variable }}"
     _version_scope: >-
       {{ update_scope | default(
-           'software' if config_file in (_sw_version_commands | default({})).keys()
+           'plugin' if config_file == 'unraid_plugins'
+           else 'software' if config_file in (_sw_version_commands | default({})).keys()
            else 'docker' if config_file in ['docker_stacks', 'docker_run']
            else 'os'
          ) }}
@@ -105,6 +107,22 @@
         - inventory_hostname in groups["docker_run"] | default([])
         - not (_unraid_update_script.stat.exists | default(false))
 
+    - name: Assert unRAID plugin command exists
+      ansible.builtin.stat:
+        path: /usr/local/sbin/plugin
+      register: _unraid_plugin_cmd
+      when:
+        - _version_scope == 'plugin'
+        - inventory_hostname in groups["unraid"] | default([])
+
+    - name: Fail if plugin command missing
+      ansible.builtin.fail:
+        msg: "unRAID plugin command not found at /usr/local/sbin/plugin — expected on unRAID 6.x+"
+      when:
+        - _version_scope == 'plugin'
+        - inventory_hostname in groups["unraid"] | default([])
+        - not (_unraid_plugin_cmd.stat.exists | default(false))
+
   tasks:
     - name: Initialize update state
       ansible.builtin.set_fact:
@@ -112,7 +130,9 @@
         update_failed: false
         previous_version: ""
         _is_docker_update: "{{ config_file in ['docker_stacks', 'docker_run'] }}"
+        _is_plugin_update: "{{ _version_scope == 'plugin' }}"
         docker_update_results: []
+        plugin_update_results: []
 
     - block:
         - name: Get previous version from DB
@@ -558,6 +578,89 @@
             - inventory_hostname in groups["docker_run"] | default([])
             - _unraid_update_raw is not skipped
 
+        # --- unRAID Plugin update ---
+        - name: Enumerate installed unRAID plugins
+          become: true
+          ansible.builtin.shell: >
+            for plg in /boot/config/plugins/*.plg; do
+              [ -f "$plg" ] && basename "$plg" .plg;
+            done
+          register: _unraid_plugins_raw
+          changed_when: false
+          check_mode: false
+          when:
+            - _version_scope == 'plugin'
+            - inventory_hostname in groups["unraid"] | default([])
+
+        - name: Set target plugin list
+          ansible.builtin.set_fact:
+            _plugin_target_list: >-
+              {{ _unraid_plugins_raw.stdout_lines | default([])
+                 | difference(update_exclude_plugins | default([])) }}
+          when:
+            - _version_scope == 'plugin'
+            - inventory_hostname in groups["unraid"] | default([])
+
+        - name: Check, update, and compare unRAID plugins
+          become: true
+          ansible.builtin.shell: |
+            delay_days={{ update_delay_days | default(0) }}
+            if [ "$delay_days" -gt 0 ]; then
+              threshold_epoch=$(date -d "-${delay_days} days" +%s)
+            fi
+            echo '['
+            first=true
+            for name in {{ _plugin_target_list | join(' ') }}; do
+              plg_file="/boot/config/plugins/${name}.plg"
+              [ ! -f "$plg_file" ] && continue
+              # Get current version from PLG entity
+              old_version=$(grep -oP '<!ENTITY\s+version\s+"[^"]*"' "$plg_file" | grep -oP '"[^"]*"' | tr -d '"' 2>/dev/null) || old_version="unknown"
+              # Check for update — non-empty stdout means update available
+              check_output=$(plugin check "$plg_file" 2>/dev/null) || true
+              has_update=false
+              [ -n "$check_output" ] && has_update=true
+              updated=false
+              new_version="$old_version"
+              if $has_update; then
+                apply_update=true
+                # Delay check: use remote PLG modified time if delay_days > 0
+                if [ "$delay_days" -gt 0 ] && [ -n "$check_output" ]; then
+                  # check_output is the download URL; get Last-Modified header
+                  remote_date=$(curl -sI "$check_output" 2>/dev/null | grep -i 'last-modified' | sed 's/[Ll]ast-[Mm]odified: //')
+                  if [ -n "$remote_date" ]; then
+                    remote_epoch=$(date -d "$remote_date" +%s 2>/dev/null) || remote_epoch=0
+                    [ "$remote_epoch" -gt "$threshold_epoch" ] && apply_update=false
+                  fi
+                fi
+                if $apply_update; then
+                  if plugin update "$plg_file" >/dev/null 2>&1; then
+                    updated=true
+                    new_version=$(grep -oP '<!ENTITY\s+version\s+"[^"]*"' "$plg_file" | grep -oP '"[^"]*"' | tr -d '"' 2>/dev/null) || new_version="unknown"
+                  fi
+                fi
+              fi
+              $first || echo ','
+              first=false
+              printf '{"name":"%s","old_version":"%s","new_version":"%s","updated":%s}' \
+                "$name" "$old_version" "$new_version" "$updated"
+            done
+            echo ']'
+          register: _plugin_update_raw
+          changed_when: true
+          when:
+            - _version_scope == 'plugin'
+            - inventory_hostname in groups["unraid"] | default([])
+            - _plugin_target_list | default([]) | length > 0
+            - not ansible_check_mode
+
+        - name: Set plugin update results
+          ansible.builtin.set_fact:
+            plugin_update_results: "{{ _plugin_update_raw.stdout | from_json }}"
+          when:
+            - _version_scope == 'plugin'
+            - inventory_hostname in groups["unraid"] | default([])
+            - _plugin_update_raw is not skipped
+
         - name: Get current version
           ansible.builtin.shell: "{{ _os_version_commands[group_names | select('in', _os_version_commands) | first] }}"
           register: _version_raw_os
@@ -618,7 +721,7 @@
 
         - name: Send notification
           include_tasks: tasks/notify.yaml
-          when: (not _is_docker_update | bool) and (update_failed or current_version != previous_version)
+          when: (not _is_docker_update | bool) and (not _is_plugin_update | bool) and (update_failed or current_version != previous_version)
           vars:
             discord_name: "{{ update_name }}"
             discord_operation: "Update"
@@ -632,7 +735,7 @@
 
         - name: Log update to MariaDB
           include_tasks: tasks/log_mariadb.yaml
-          when: (not _is_docker_update | bool) and (update_failed or current_version != previous_version)
+          when: (not _is_docker_update | bool) and (not _is_plugin_update | bool) and (update_failed or current_version != previous_version)
           vars:
             log_table: updates
             log_application: "{{ update_name }}"
@@ -683,6 +786,46 @@
           include_tasks: tasks/log_mariadb.yaml
           when:
             - _is_docker_update | bool
+            - update_failed
+          vars:
+            log_table: updates
+            log_application: "{{ update_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_version: "FAILED"
+            log_status: "failed"
+
+        - name: Send plugin update notification
+          include_tasks: tasks/notify.yaml
+          when:
+            - _is_plugin_update | bool
+            - update_failed or (plugin_update_results | selectattr('updated') | list | length > 0)
+          vars:
+            discord_name: "{{ update_name }}"
+            discord_operation: "Update"
+            discord_status: "{{ 'failed' if update_failed else 'successful' }}"
+            discord_color: "{{ discord_color_failure if update_failed else discord_color_success }}"
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "{{ '❌ ' if update_failed else '✅ ' }}Updated"
+                value: "{{ plugin_update_results | selectattr('updated') | map(attribute='name') | join(', ') | default('None', true) }}"
+
+        - name: Log plugin updates to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          loop: "{{ plugin_update_results | selectattr('updated') | list }}"
+          when:
+            - _is_plugin_update | bool
+            - plugin_update_results | selectattr('updated') | list | length > 0
+          vars:
+            log_table: updates
+            log_application: "{{ item.name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_version: "{{ item.new_version }}"
+            log_status: "success"
+
+        - name: Log plugin update failure
+          include_tasks: tasks/log_mariadb.yaml
+          when:
+            - _is_plugin_update | bool
             - update_failed
           vars:
             log_table: updates

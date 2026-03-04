@@ -1,0 +1,6 @@
+# Update vars — unRAID plugin updates
+update_name: "Plugins"
+update_description: "Automatic unRAID Plugin Update"
+update_subtype: "Plugin"
+update_delay_days: 0
+update_exclude_plugins: []

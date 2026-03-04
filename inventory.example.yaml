@@ -93,6 +93,9 @@ unvr.home.local
 nas02.home.local
 nas01.home.local
 
+[unraid_plugins:children]
+unraid
+
 [amp]
 gameserver.home.local
 

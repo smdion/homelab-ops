@@ -94,7 +94,7 @@ and go.
 |---|---|---|
 | `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller; `docker_stacks` hosts use per-stack archives (stop → archive → restart each stack individually to minimize downtime); backup paths discovered from `homelab.backup.paths` container labels; auto-handles PiKVM RW/RO filesystem | `vars/configs/<platform>.yaml` with `backup_*` vars |
 | `backup_databases.yaml` | Dump Postgres/MariaDB/InfluxDB databases from Docker containers | `vars/configs/db_<role>_<engine>.yaml` with `db_names`, `db_container_name` |
-| `update_systems.yaml` | OS packages + Docker container updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers` | `vars/configs/<platform>.yaml` with `update_*` vars |
+| `update_systems.yaml` | OS packages, Docker container, and unRAID plugin updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers`/`update_exclude_plugins` | `vars/configs/<platform>.yaml` with `update_*` vars |
 | `maintain_docker.yaml` | Prune unused Docker images + drop Linux page cache (Ubuntu/unRAID); logs disk metrics to MariaDB | Needs `[docker]` group + `[ubuntu]`/`[unraid]` for cache |
 | `maintain_semaphore.yaml` | Clean stopped Semaphore tasks, prune old download tasks (`download_task_retention_days`), and prune `ansible_logging` rows (`retention_days`) | Runs on localhost |
 | `maintain_logging_db.yaml` | Purge failed/warning records from `ansible_logging`; `-e purge_all=yes -e confirm=yes` truncates all tables (full reset after arch changes) | Runs on localhost |
@@ -459,6 +459,12 @@ ansible-playbook update_systems.yaml \
   -i inventory.yaml \
   -e hosts_variable=amp \
   -e amp_instance_filter=Minecraft01 \
+  --vault-password-file ~/.vault_pass
+
+# Update unRAID plugins
+ansible-playbook update_systems.yaml \
+  -i inventory.yaml \
+  -e hosts_variable=unraid_plugins \
   --vault-password-file ~/.vault_pass
 
 # Run health checks
