@@ -1,0 +1,343 @@
+---
+# Category: Build & Provision
+# Post-install PVE bootstrap — configures a freshly installed Proxmox VE host.
+# Handles no-subscription repo, nag removal, ansible user, API token, cloud-init
+# template, PBS storage, and optional cluster join with keepalived.
+#
+# Targets a single PVE host. The initial connection is as root (fresh install has
+# no ansible user yet). After Play 1 creates the ansible user, subsequent plays
+# connect as ansible.
+#
+# Usage:
+#   ansible-playbook build_pve.yaml -e pve_host=sentinel.{{ vault_vm_search_domain }}
+#   ansible-playbook build_pve.yaml -e pve_host=newnode.{{ vault_vm_search_domain }} -e cluster_join=yes
+#   ansible-playbook build_pve.yaml -e pve_host=newnode.{{ vault_vm_search_domain }} -e cluster_join=yes -e cluster_master=homeone
+#
+# Required extra vars:
+#   pve_host — inventory hostname of the target PVE node (must be in proxmox group)
+#
+# Optional extra vars:
+#   cluster_join=yes    — join the existing PVE cluster after bootstrap
+#   cluster_master      — cluster node to join against (default: homeone)
+#   pve_debian_release  — Debian release codename (default: bookworm)
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 1 — Bootstrap PVE node (SSH as root — fresh install)
+# Disables enterprise repo, adds no-subscription repo, removes nag,
+# runs full upgrade, creates ansible user with SSH key and sudo.
+# ═══════════════════════════════════════════════════════════════════
+- name: Bootstrap PVE node
+  hosts: "{{ pve_host }}"
+  become: true
+  gather_facts: true
+  gather_subset: ['!all', 'distribution_release']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
+  vars:
+    pve_debian_release: "{{ ansible_distribution_release | default('bookworm') }}"
+
+  tasks:
+    # === Disable enterprise repo ===
+    - name: Disable PVE enterprise repo (sources format)
+      ansible.builtin.lineinfile:
+        path: /etc/apt/sources.list.d/pve-enterprise.list
+        regexp: '^deb'
+        line: '# deb https://enterprise.proxmox.com/debian/pve {{ pve_debian_release }} pve-enterprise'
+        state: present
+        create: false
+      failed_when: false
+
+    - name: Disable Ceph enterprise repo if present
+      ansible.builtin.lineinfile:
+        path: /etc/apt/sources.list.d/ceph.list
+        regexp: '^deb'
+        line: '# deb https://enterprise.proxmox.com/debian/ceph-reef {{ pve_debian_release }} enterprise'
+        state: present
+        create: false
+      failed_when: false
+
+    # === Add no-subscription repo ===
+    - name: Template no-subscription repo
+      ansible.builtin.template:
+        src: templates/pve-no-subscription.list.j2
+        dest: /etc/apt/sources.list.d/pve-no-subscription.list
+        owner: root
+        group: root
+        mode: "0644"
+
+    # === Remove subscription nag ===
+    - name: Template nag removal script
+      ansible.builtin.template:
+        src: templates/pve-remove-nag.sh.j2
+        dest: /usr/local/bin/pve-remove-nag.sh
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Run nag removal script
+      ansible.builtin.command: /usr/local/bin/pve-remove-nag.sh
+      changed_when: false
+
+    - name: Install APT hook for nag removal after updates
+      ansible.builtin.copy:
+        content: |
+          DPkg::Post-Invoke { "/usr/local/bin/pve-remove-nag.sh"; };
+        dest: /etc/apt/apt.conf.d/no-nag-script
+        owner: root
+        group: root
+        mode: "0644"
+
+    # === Full upgrade ===
+    - name: Update apt cache and run full upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: full
+      register: _apt_upgrade
+
+    - name: Report upgrade results
+      ansible.builtin.debug:
+        msg: "Upgraded {{ _apt_upgrade.stdout_lines | select('search', 'upgraded') | list | first | default('0 packages') }}"
+      when: _apt_upgrade.stdout_lines is defined
+
+    # === Ansible user + SSH hardening ===
+    - name: Install sudo
+      ansible.builtin.apt:
+        name: sudo
+        state: present
+
+    - name: Add ansible user
+      ansible.builtin.user:
+        name: ansible
+        comment: ansible
+
+    - name: Add ansible user to sudo group
+      ansible.builtin.user:
+        name: ansible
+        groups: sudo
+        append: true
+
+    - name: Deploy SSH public key for ansible user
+      ansible.builtin.authorized_key:
+        user: ansible
+        key: "{{ ansible_user_ssh_pubkey }}"
+        state: present
+
+    - name: Harden SSH and configure passwordless sudo
+      include_tasks: tasks/ssh_hardening.yaml
+      vars:
+        _ssh_user: ansible
+        _ssh_service_name: sshd
+
+    # === PVE API token ===
+    - name: Check if API token already exists
+      ansible.builtin.command: pveum user token list root@pam --output-format json
+      register: _token_list
+      changed_when: false
+
+    - name: Create PVE API token for Ansible automation
+      ansible.builtin.command: pveum user token add root@pam ansible --privsep 0 --output-format json
+      register: _token_create
+      when: >-
+        (_token_list.stdout | from_json | selectattr('tokenid', 'equalto', 'ansible') | list | length) == 0
+
+    - name: Display API token (save to vault — shown once only)
+      ansible.builtin.debug:
+        msg: >-
+          API TOKEN CREATED — add to vault:
+          vault_pve_standalone_api_token_secret: "{{ (_token_create.stdout | from_json)['value'] }}"
+      when: _token_create is not skipped and _token_create is changed
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 2 — Configure PVE services (as ansible user)
+# Creates cloud-init template and configures PBS storage.
+# ═══════════════════════════════════════════════════════════════════
+- name: Configure PVE services
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/pve_definitions.yaml
+
+  pre_tasks:
+    - name: Derive target node short name from pve_host
+      ansible.builtin.set_fact:
+        _pve_target_node: "{{ pve_host.split('.')[0] }}"
+
+    - name: Resolve PVE API credentials
+      include_tasks: tasks/resolve_pve_api.yaml
+
+  tasks:
+    # === Cloud-init template ===
+    - name: Create cloud-init template on target node
+      include_tasks: tasks/create_cloud_template.yaml
+
+    # === PBS storage ===
+    - name: Add PVE host to in-memory inventory for PBS config
+      ansible.builtin.add_host:
+        name: pve_pbs_config
+        ansible_host: "{{ _pve.api_host }}"
+        ansible_user: ansible
+
+    - name: Check if PBS storage is already configured
+      ansible.builtin.command: pvesm status --storage pbs
+      delegate_to: pve_pbs_config
+      become: true
+      register: _pbs_check
+      changed_when: false
+      failed_when: false
+
+    - name: Configure PBS storage
+      ansible.builtin.command: >-
+        pvesm add pbs pbs
+        --server {{ vault_pbs_ip | default(vault_pbs_host) }}
+        --datastore {{ vault_pbs_datastore | default('datastore1') }}
+        --username {{ vault_pbs_api_user | default('root@pam!ansible') }}
+        --password {{ vault_pbs_api_token_secret | default('') }}
+        --fingerprint {{ vault_pbs_fingerprint | default('') }}
+        --content backup
+      delegate_to: pve_pbs_config
+      become: true
+      when:
+        - _pbs_check.rc != 0
+        - vault_pbs_ip is defined or vault_pbs_host is defined
+      register: _pbs_add
+      changed_when: _pbs_add.rc == 0
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 3 — Optional cluster join (conditional on cluster_join=yes)
+# ═══════════════════════════════════════════════════════════════════
+- name: Join PVE cluster
+  hosts: "{{ pve_host }}"
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
+  vars:
+    _cluster_master: "{{ cluster_master | default('homeone') }}"
+
+  tasks:
+    - name: Skip cluster join (not requested)
+      ansible.builtin.debug:
+        msg: "Cluster join not requested (pass -e cluster_join=yes to join). Standalone setup complete."
+      when: (cluster_join | default('no')) != 'yes'
+
+    - block:
+        - name: Assert cluster join prerequisites
+          ansible.builtin.assert:
+            that:
+              - vault_pve_vip is defined
+              - vault_pve_vrrp_password is defined
+              - vault_pve_nodes[_cluster_master] is defined
+            fail_msg: "Missing vault vars for cluster join — check vault_pve_vip, vault_pve_vrrp_password, vault_pve_nodes"
+
+        - name: Check if already part of a cluster
+          ansible.builtin.command: pvecm status
+          register: _cluster_status
+          changed_when: false
+          failed_when: false
+
+        - name: Join PVE cluster
+          ansible.builtin.command: >-
+            pvecm add {{ vault_pve_nodes[_cluster_master] }}
+          when: "'does not have quorum' in _cluster_status.stderr or _cluster_status.rc != 0"
+
+        - name: Install keepalived
+          ansible.builtin.apt:
+            name: keepalived
+            state: present
+            update_cache: true
+
+        - name: Template keepalived config
+          ansible.builtin.template:
+            src: templates/keepalived.conf.j2
+            dest: /etc/keepalived/keepalived.conf
+            owner: root
+            group: root
+            mode: "0640"
+          notify: Restart keepalived
+
+        - name: Enable and start keepalived
+          ansible.builtin.service:
+            name: keepalived
+            state: started
+            enabled: true
+
+        - name: Reminder — update vault priorities
+          ansible.builtin.debug:
+            msg: >-
+              MANUAL STEP: Add this node to vault_pve_vrrp_priorities in vars/secrets.yaml
+              with an appropriate priority value (lower than current MASTER).
+      when: (cluster_join | default('no')) == 'yes'
+
+  handlers:
+    - name: Restart keepalived
+      ansible.builtin.service:
+        name: keepalived
+        state: restarted
+
+# ═══════════════════════════════════════════════════════════════════
+# Play 4 — Verification (from localhost)
+# ═══════════════════════════════════════════════════════════════════
+- name: Verify PVE node setup
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/pve_definitions.yaml
+
+  pre_tasks:
+    - name: Derive target node short name from pve_host
+      ansible.builtin.set_fact:
+        _pve_target_node: "{{ pve_host.split('.')[0] }}"
+
+    - name: Resolve PVE API credentials
+      include_tasks: tasks/resolve_pve_api.yaml
+
+  tasks:
+    - name: Query PVE API — verify token works
+      ansible.builtin.uri:
+        url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/version"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
+        validate_certs: false
+      register: _api_check
+      failed_when: false
+
+    - name: Check cloud-init template exists
+      ansible.builtin.uri:
+        url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+        method: GET
+        headers:
+          Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
+        validate_certs: false
+      register: _template_check
+      failed_when: false
+
+    - name: Set verification results
+      ansible.builtin.set_fact:
+        _api_ok: "{{ _api_check.status | default(0) == 200 }}"
+        _template_ok: >-
+          {{ (_template_check.json.data | default([])
+              | selectattr('vmid', 'equalto', pve_template_vmid | int)
+              | list | length > 0)
+             if (_template_check.status | default(0) == 200) else false }}
+
+    - name: Display setup summary
+      ansible.builtin.debug:
+        msg:
+          - "═══ PVE Build Summary for {{ _pve_target_node }} ═══"
+          - "API token:        {{ 'OK' if _api_ok else 'FAILED — add token to vault' }}"
+          - "Cloud template:   {{ 'OK (VMID ' + pve_template_vmid | string + ')' if _template_ok else 'MISSING' }}"
+          - "Cluster:          {{ 'joined' if (cluster_join | default('no')) == 'yes' else 'standalone' }}"
+          - ""
+          - "Next steps:"
+          - "  1. Add API token secret to vars/secrets.yaml (if new)"
+          - "  2. Add node IP to vault_pve_nodes in vars/secrets.yaml"
+          - "  3. Add node to inventory.yaml (pve_standalone or pve group)"
+          - "  4. Define VMs in vm_definitions.yaml with pve_target_node: {{ _pve_target_node }}"
+          - "  5. Run: ansible-playbook build_ubuntu.yaml -e vm_name=<name>"

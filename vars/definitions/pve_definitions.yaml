@@ -1,7 +1,8 @@
 ---
-# PVE node definitions — Proxmox VE cluster members.
-# Consumed by maintain_guacamole.yaml (VNC node resolution) and future PVE IaC phases.
-# Note: maintain_pve.yaml uses inventory groups (hosts: "pve:pbs"), not this file.
+# PVE node definitions — Proxmox VE cluster and standalone nodes.
+# Consumed by maintain_guacamole.yaml (VNC node resolution), resolve_pve_api.yaml
+# (API routing for standalone nodes), and build_pve.yaml (post-install bootstrap).
+# Note: maintain_pve.yaml uses inventory groups (hosts: "proxmox"), not this file.
 #
 # Required fields:
 #   node_ip        — IP address (from vault_pve_nodes dict)
@@ -10,8 +11,13 @@
 # Optional fields:
 #   guacamole      — metadata for maintain_guacamole.yaml auto-discovery
 #                    { name: "Display Name", group: "Connection Group" }
+#   standalone     — true if node is NOT part of the PVE cluster.
+#                    Standalone nodes use their own API endpoint instead of the
+#                    cluster VIP. Requires api_host, api_user, api_token_id,
+#                    api_token_secret fields.
 
 pve_definitions:
+  # ── Cluster nodes (API via VIP: vault_pve_api_host) ──
   homeone:
     node_ip: "{{ vault_pve_nodes.homeone }}"
     node_fqdn: "homeone.{{ vault_vm_search_domain }}"
@@ -24,3 +30,14 @@ pve_definitions:
     node_ip: "{{ vault_pve_nodes.independence }}"
     node_fqdn: "independence.{{ vault_vm_search_domain }}"
     guacamole: { name: Independence, group: Proxmox }
+
+  # ── Standalone nodes (API direct to node IP) ──
+  sentinel:
+    node_ip: "{{ vault_pve_nodes.sentinel }}"
+    node_fqdn: "sentinel.{{ vault_vm_search_domain }}"
+    standalone: true
+    api_host: "{{ vault_pve_nodes.sentinel }}"
+    api_user: "{{ vault_pve_standalone_api_user }}"
+    api_token_id: "{{ vault_pve_standalone_api_token_id }}"
+    api_token_secret: "{{ vault_pve_standalone_api_token_secret }}"
+    guacamole: { name: Sentinel, group: Proxmox }

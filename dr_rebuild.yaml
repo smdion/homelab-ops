@@ -41,6 +41,7 @@
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/app_definitions.yaml
     - vars/definitions/vip_definitions.yaml
+    - vars/definitions/pve_definitions.yaml
     - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "{{ role | default('DR') | capitalize }}"
@@ -84,6 +85,11 @@
       ansible.builtin.set_fact:
         _vm: "{{ vm_definitions[vm_name] }}"
         _stacks: "{{ stack_roles[role] }}"
+
+    - name: Resolve PVE API endpoint for target node
+      include_tasks: tasks/resolve_pve_api.yaml
+      vars:
+        _pve_target_node: "{{ _vm.pve_target_node | default('') }}"
 
     # ===== FIND BACKUP ARCHIVES =====
     - name: Find per-stack backup archives from production backups (read-only)
@@ -283,10 +289,10 @@
 
         - name: Stop test VM on build failure (free the slot)
           community.general.proxmox_kvm:
-            api_host: "{{ vault_pve_api_host }}"
-            api_user: "{{ vault_pve_api_user }}"
-            api_token_id: "{{ vault_pve_api_token_id }}"
-            api_token_secret: "{{ vault_pve_api_token_secret }}"
+            api_host: "{{ _pve.api_host }}"
+            api_user: "{{ _pve.api_user }}"
+            api_token_id: "{{ _pve.api_token_id }}"
+            api_token_secret: "{{ _pve.api_token_secret }}"
             node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
@@ -414,10 +420,10 @@
 
         - name: Stop test VM on bootstrap failure (free the slot)
           community.general.proxmox_kvm:
-            api_host: "{{ vault_pve_api_host }}"
-            api_user: "{{ vault_pve_api_user }}"
-            api_token_id: "{{ vault_pve_api_token_id }}"
-            api_token_secret: "{{ vault_pve_api_token_secret }}"
+            api_host: "{{ hostvars['localhost']._pve.api_host }}"
+            api_user: "{{ hostvars['localhost']._pve.api_user }}"
+            api_token_id: "{{ hostvars['localhost']._pve.api_token_id }}"
+            api_token_secret: "{{ hostvars['localhost']._pve.api_token_secret }}"
             node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm_resolved_node) }}"
             vmid: "{{ hostvars['localhost']._vm.vm_id }}"
             state: stopped
@@ -554,10 +560,10 @@
 
         - name: Stop test VM on restore failure (free the slot)
           community.general.proxmox_kvm:
-            api_host: "{{ vault_pve_api_host }}"
-            api_user: "{{ vault_pve_api_user }}"
-            api_token_id: "{{ vault_pve_api_token_id }}"
-            api_token_secret: "{{ vault_pve_api_token_secret }}"
+            api_host: "{{ hostvars['localhost']._pve.api_host }}"
+            api_user: "{{ hostvars['localhost']._pve.api_user }}"
+            api_token_id: "{{ hostvars['localhost']._pve.api_token_id }}"
+            api_token_secret: "{{ hostvars['localhost']._pve.api_token_secret }}"
             node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm_resolved_node) }}"
             vmid: "{{ hostvars['localhost']._vm.vm_id }}"
             state: stopped

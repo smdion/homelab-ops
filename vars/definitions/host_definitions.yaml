@@ -26,16 +26,6 @@ host_definitions:
     stacks: [vpn]
     guacamole: { name: VPS, group: Docker }
 
-  # Legacy hosts — remove after migration to core/apps/dev VMs is complete.
-  tantiveiv:
-    vm_hostname: "tantiveiv.{{ vault_vm_search_domain }}"
-    stacks: [infra, databases, auth, monitoring, dev]
-    guacamole: { name: Tantive-IV, group: Docker }
-  odyssey:
-    vm_hostname: "odyssey.{{ vault_vm_search_domain }}"
-    stacks: [infra, apps, media]
-    guacamole: { name: Odyssey, group: Docker }
-
   # unRAID servers (docker_run — no stacks, managed via docker_run inventory group)
   redemption:
     vm_hostname: "redemption.{{ vault_vm_search_domain }}"

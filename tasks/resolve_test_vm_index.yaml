@@ -8,7 +8,7 @@
 #
 # Sets: vm_index (int)
 #
-# Requires: vault_pve_api_host, vault_pve_api_user, vault_pve_api_token_id, vault_pve_api_token_secret
+# Requires: _pve — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
 #           vm_test_slot_base, vm_test_slot_count (from vars/definitions/vm_definitions.yaml)
 
 - name: Auto-detect free vm_index
@@ -16,10 +16,10 @@
   block:
     - name: Query cluster VMs to find free test-vm slot
       ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+        url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+          Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
       register: _slot_check_vms
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"

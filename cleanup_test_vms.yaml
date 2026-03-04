@@ -18,6 +18,7 @@
     - vars/secrets.yaml
     - vars/configs/proxmox.yaml
     - vars/definitions/vm_definitions.yaml
+    - vars/definitions/pve_definitions.yaml
   vars:
     _pool_start: "{{ vm_test_slot_base | int }}"
     _pool_end: "{{ (vm_test_slot_base + vm_test_slot_count) | int }}"
@@ -30,12 +31,17 @@
         fail_msg: "Safety gate not set. This playbook destroys all test VMs in the pool. Usage: -e confirm=yes"
 
   tasks:
+    - name: Resolve PVE API endpoint
+      include_tasks: tasks/resolve_pve_api.yaml
+      vars:
+        _pve_target_node: "{{ pve_target_node | default('') }}"
+
     - name: Query cluster VMs
       ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+        url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+          Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
       register: _cluster_vms
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"

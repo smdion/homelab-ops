@@ -1,0 +1,61 @@
+---
+# Create cloud-init template on a PVE node if it doesn't exist.
+# Downloads the Ubuntu cloud image, imports it, and converts to template.
+# Idempotent — skips if template VMID already exists.
+#
+# Expects:
+#   _pve              — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
+#   pve_template_vmid — VMID for the template (default: 9000)
+#   pve_template_name — display name for the template
+#   pve_cloud_image_url — URL to download the cloud image
+#   pve_storage, pve_bridge — infrastructure defaults
+#   vm_template_memory, vm_template_cores — template VM specs
+#   pve_api_port      — PVE API port (default: 8006)
+
+- name: Add PVE host to in-memory inventory for template creation
+  ansible.builtin.add_host:
+    name: pve_template_builder
+    ansible_host: "{{ _pve.api_host }}"
+    ansible_user: ansible
+
+- name: Check if cloud-init template exists
+  ansible.builtin.uri:
+    url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
+    validate_certs: false
+  register: _template_check
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+- name: Set template existence fact
+  ansible.builtin.set_fact:
+    _template_exists: >-
+      {{ _template_check.json.data
+         | selectattr('vmid', 'equalto', pve_template_vmid | int)
+         | list | length > 0 }}
+
+- name: Create cloud-init template on {{ _pve.template_node }}
+  delegate_to: pve_template_builder
+  become: true
+  ansible.builtin.shell: |
+    set -e
+    cd /tmp
+    wget -q "{{ pve_cloud_image_url }}" -O ubuntu-cloud.img
+    qm create {{ pve_template_vmid }} \
+      --name {{ pve_template_name }} \
+      --memory {{ vm_template_memory }} --cores {{ vm_template_cores }} \
+      --net0 virtio,bridge={{ pve_bridge }}
+    qm importdisk {{ pve_template_vmid }} ubuntu-cloud.img {{ pve_storage }}
+    qm set {{ pve_template_vmid }} \
+      --scsi0 {{ pve_storage }}:vm-{{ pve_template_vmid }}-disk-0 \
+      --scsihw virtio-scsi-single
+    qm set {{ pve_template_vmid }} \
+      --ide2 {{ pve_storage }}:cloudinit \
+      --boot order=scsi0
+    qm template {{ pve_template_vmid }}
+    rm -f ubuntu-cloud.img
+    echo "Template created"
+  register: _template_result
+  changed_when: "'Template created' in _template_result.stdout"
+  when: not _template_exists | bool

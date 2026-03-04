@@ -9,14 +9,14 @@
 #   _destroy_name  — VM name for task labels (optional, default: 'VM')
 #
 # Requires in scope:
-#   vault_pve_api_host, vault_pve_api_user, vault_pve_api_token_id, vault_pve_api_token_secret
+#   _pve — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
 
 - name: Stop {{ _destroy_name | default('VM') }} (VMID {{ _destroy_vmid }})
   community.general.proxmox_kvm:
-    api_host: "{{ vault_pve_api_host }}"
-    api_user: "{{ vault_pve_api_user }}"
-    api_token_id: "{{ vault_pve_api_token_id }}"
-    api_token_secret: "{{ vault_pve_api_token_secret }}"
+    api_host: "{{ _pve.api_host }}"
+    api_user: "{{ _pve.api_user }}"
+    api_token_id: "{{ _pve.api_token_id }}"
+    api_token_secret: "{{ _pve.api_token_secret }}"
     node: "{{ _destroy_node }}"
     vmid: "{{ _destroy_vmid }}"
     state: stopped
@@ -30,10 +30,10 @@
 
 - name: Remove {{ _destroy_name | default('VM') }} (VMID {{ _destroy_vmid }})
   community.general.proxmox_kvm:
-    api_host: "{{ vault_pve_api_host }}"
-    api_user: "{{ vault_pve_api_user }}"
-    api_token_id: "{{ vault_pve_api_token_id }}"
-    api_token_secret: "{{ vault_pve_api_token_secret }}"
+    api_host: "{{ _pve.api_host }}"
+    api_user: "{{ _pve.api_user }}"
+    api_token_id: "{{ _pve.api_token_id }}"
+    api_token_secret: "{{ _pve.api_token_secret }}"
     node: "{{ _destroy_node }}"
     vmid: "{{ _destroy_vmid }}"
     state: absent

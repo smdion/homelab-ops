@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Managed by Ansible — build_pve.yaml
+# Removes the "No valid subscription" nag dialog from the Proxmox VE web UI.
+# Sourced from community-scripts/ProxmoxVE post-pve-install.sh pattern.
+# Re-applied automatically after PVE package updates via APT hook.
+
+WEB_JS="/usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js"
+if [ -f "$WEB_JS" ]; then
+    if grep -q "data\.status.*!==.*'active'" "$WEB_JS" 2>/dev/null || \
+       grep -q "data\.status.*!==.*'Active'" "$WEB_JS" 2>/dev/null; then
+        sed -i -e "/data\.status/ s/!//" -e "/data\.status/ s/active/NoMoreNagging/" "$WEB_JS"
+        systemctl restart pveproxy 2>/dev/null || true
+    fi
+fi

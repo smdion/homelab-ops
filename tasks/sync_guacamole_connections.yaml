@@ -17,8 +17,8 @@
 #   pve_definitions, vm_definitions, host_definitions — definition files
 #   guacamole_connection_groups, guacamole_ssh_defaults,
 #   guacamole_admin_groups, guacamole_extra_connections — from vars/configs/guacamole.yaml
-#   PVE API credentials — vault_pve_api_host, pve_api_port, vault_pve_api_user,
-#                          vault_pve_api_token_id, vault_pve_api_token_secret
+#   _pve — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
+#   pve_api_port — PVE API port
 #
 # No block/rescue/always — callers wrap in their own error handling.
 
@@ -51,10 +51,10 @@
 # Query PVE cluster API if any VNC connections exist
 - name: Query PVE cluster for VM node placement
   ansible.builtin.uri:
-    url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+    url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
     method: GET
     headers:
-      Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+      Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
     validate_certs: false
   register: _cluster_vms
   when: _vnc_vms | length > 0

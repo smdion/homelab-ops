@@ -34,6 +34,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/definitions/vm_definitions.yaml
+    - vars/definitions/pve_definitions.yaml
     - vars/configs/proxmox.yaml
     - vars/configs/semaphore_check.yaml
   vars:
@@ -59,6 +60,11 @@
         _vm: "{{ vm_definitions['amp'] }}"
         _vm_state: "{{ vm_state | default('present') }}"
 
+    - name: Resolve PVE API endpoint
+      include_tasks: tasks/resolve_pve_api.yaml
+      vars:
+        _pve_target_node: "{{ _vm.pve_target_node | default('') }}"
+
   tasks:
     - name: Initialize build state
       ansible.builtin.set_fact:
@@ -69,10 +75,10 @@
     # For present: provision_vm.yaml sets _vm_actual_node after cloning.
     - name: Query cluster resources for actual VM node
       ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+        url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+          Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
       register: _cluster_vms
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"

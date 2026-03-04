@@ -1,11 +1,13 @@
 ---
 # Category: Maintain
 # Idempotent Proxmox node configuration — run after bare-metal reinstall or new node join.
+# Targets all proxmox hosts (cluster PVE, PBS, and standalone PVE nodes).
 # Ensures OS-level settings not managed by PVE cluster replication are in expected state:
-# keepalived VIP (PVE nodes), ansible user SSH key, SSH hardening (PVE and PBS).
+# keepalived VIP (clustered PVE nodes only), ansible user SSH key, SSH hardening.
 #
 # Firewall rules and storage config are stored in /etc/pve/ (cluster-replicated via Corosync)
 # and are restored automatically when a node re-joins the cluster — no Ansible action needed.
+# Standalone nodes receive SSH hardening and ansible user only (no keepalived/VIP).
 #
 # Usage (safe to re-run — idempotent):
 #   ansible-playbook maintain_pve.yaml
@@ -17,7 +19,7 @@
 # Play 1 — Maintain Proxmox node OS-level configuration
 # ═══════════════════════════════════════════════════════════════════
 - name: Maintain Proxmox node configuration
-  hosts: "pve:pbs"
+  hosts: "proxmox"
   become: true
   gather_facts: false
   vars_files:
@@ -149,11 +151,14 @@
         port: 22
         timeout: 15
         msg: "VIP {{ vault_pve_vip }} is not reachable on port 22 — keepalived may not have converged"
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - groups['pve'] | default([]) | length > 0
 
     - name: Confirm VIP is up
       ansible.builtin.debug:
         msg: "VIP {{ vault_pve_vip }} is reachable. keepalived is healthy."
+      when: groups['pve'] | default([]) | length > 0
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 3 — Check for stale VM snapshots (older than 14 days)

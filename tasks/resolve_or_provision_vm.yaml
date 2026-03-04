@@ -7,7 +7,8 @@
 #   _vm                    — VM definition dict from vm_definitions
 #   _provision_target_group — inventory group name for the new VM (default: 'test_target')
 # Expects (from vars files):
-#   vault_pve_api_host, vault_pve_api_user, vault_pve_api_token_id, vault_pve_api_token_secret, vm_user
+#   _pve — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
+#   vm_user
 #
 # Sets:
 #   _vm_exists             — whether the VM already existed in the cluster
@@ -23,10 +24,10 @@
 
 - name: Check if VM exists in cluster
   ansible.builtin.uri:
-    url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+    url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
     method: GET
     headers:
-      Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+      Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
     validate_certs: false
   register: _cluster_vms
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -58,10 +59,10 @@
 
 - name: Start existing VM if stopped
   ansible.builtin.uri:
-    url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/status/start"
+    url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/status/start"
     method: POST
     headers:
-      Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+      Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
     validate_certs: false
     status_code: [200, 500]
   register: _vm_start_result

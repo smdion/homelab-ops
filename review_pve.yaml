@@ -16,8 +16,8 @@
 # formatted report — no task headers, no ok/skipped noise.  Without it
 # the playbook still works but output includes Ansible boilerplate.
 #
-# Required vault vars: vault_pve_api_user, vault_pve_api_token_id, vault_pve_api_token_secret,
-#                       vault_pve_vip (via vault_pve_api_host)
+# Required: vars/secrets.yaml (vault_pve_api_* for cluster default),
+#            vars/definitions/pve_definitions.yaml (node-specific overrides)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Review PVE cluster and VM state
@@ -34,9 +34,6 @@
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/pve_definitions.yaml
     - vars/configs/semaphore_check.yaml
-  vars:
-    _api_base: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json"
-    _api_auth: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
 
   pre_tasks:
     - name: Run standard pre-flight assertions
@@ -44,6 +41,16 @@
       vars:
         pre_playbook: "review_pve.yaml"
         pre_hostname: "{{ controller_fqdn }}"
+
+    - name: Resolve PVE API endpoint
+      include_tasks: tasks/resolve_pve_api.yaml
+      vars:
+        _pve_target_node: "{{ pve_target_node | default('') }}"
+
+    - name: Set API base and auth header
+      ansible.builtin.set_fact:
+        _api_base: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json"
+        _api_auth: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
 
   tasks:
     # ===== CLUSTER STATUS =====
@@ -388,11 +395,19 @@
     - vars/secrets.yaml
     - vars/configs/proxmox.yaml
     - vars/definitions/vm_definitions.yaml
-  vars:
-    _api_base: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json"
-    _api_auth: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+    - vars/definitions/pve_definitions.yaml
 
   tasks:
+    - name: Resolve PVE API endpoint
+      include_tasks: tasks/resolve_pve_api.yaml
+      vars:
+        _pve_target_node: "{{ pve_target_node | default('') }}"
+
+    - name: Set API base and auth header
+      ansible.builtin.set_fact:
+        _api_base: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json"
+        _api_auth: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
+
     - name: Get cluster node list
       ansible.builtin.uri:
         url: "{{ _api_base }}/cluster/status"

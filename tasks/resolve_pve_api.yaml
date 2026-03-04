@@ -1,0 +1,38 @@
+---
+# Resolve effective PVE API credentials based on target node.
+# Standalone nodes (pve_definitions[node].standalone == true) use their own
+# API endpoint and credentials. Cluster nodes fall through to the shared VIP.
+#
+# Expects (at least one):
+#   _pve_target_node   — PVE short node name (from _vm.pve_target_node or extra var)
+#                         May be 'auto', empty, or a concrete name.
+#
+# Sets:
+#   _pve               — dict with api_host, api_user, api_token_id, api_token_secret, template_node
+#
+# Requires vars_files: vars/secrets.yaml, vars/configs/proxmox.yaml, vars/definitions/pve_definitions.yaml
+
+- name: Resolve standalone flag for target node
+  ansible.builtin.set_fact:
+    _pve_is_standalone: >-
+      {{ (pve_definitions[_pve_target_node | default('')] | default({})).standalone | default(false) | bool }}
+
+- name: Set API credentials for standalone node
+  ansible.builtin.set_fact:
+    _pve:
+      api_host: "{{ pve_definitions[_pve_target_node].api_host }}"
+      api_user: "{{ pve_definitions[_pve_target_node].api_user }}"
+      api_token_id: "{{ pve_definitions[_pve_target_node].api_token_id }}"
+      api_token_secret: "{{ pve_definitions[_pve_target_node].api_token_secret }}"
+      template_node: "{{ _pve_target_node }}"
+  when: _pve_is_standalone | bool
+
+- name: Set API credentials for cluster node (default)
+  ansible.builtin.set_fact:
+    _pve:
+      api_host: "{{ vault_pve_api_host }}"
+      api_user: "{{ vault_pve_api_user }}"
+      api_token_id: "{{ vault_pve_api_token_id }}"
+      api_token_secret: "{{ vault_pve_api_token_secret }}"
+      template_node: "{{ pve_template_node }}"
+  when: not (_pve_is_standalone | bool)

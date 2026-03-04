@@ -4,8 +4,8 @@
 #
 # Expects:
 #   _vm                      — dict from vm_definitions (vm_id, vm_name, vm_hostname, vm_ip, etc.)
-#   vault_pve_api_host, vault_pve_api_user, vault_pve_api_token_id, vault_pve_api_token_secret — PVE API credentials
-#   pve_template_vmid, pve_template_node, pve_template_name — cloud-init template config
+#   _pve                     — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
+#   pve_template_vmid, pve_template_name — cloud-init template config
 #   pve_cloud_image_url, pve_storage, pve_bridge — infrastructure defaults
 #   vm_user, vault_pve_vm_password, ansible_user_ssh_pubkey — VM user credentials
 #   vm_cidr, vm_gateway, vm_dns, vm_search_domain — network config
@@ -18,62 +18,23 @@
 - name: Add PVE host to in-memory inventory
   ansible.builtin.add_host:
     name: pve_builder
-    ansible_host: "{{ vault_pve_api_host }}"
+    ansible_host: "{{ _pve.api_host }}"
     ansible_user: ansible
 
 - name: Resolve PVE target node
   include_tasks: tasks/resolve_pve_node.yaml
 
 # --- Ensure cloud-init template exists in cluster ---
-- name: Check if cloud-init template exists in cluster
-  ansible.builtin.uri:
-    url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
-    method: GET
-    headers:
-      Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
-    validate_certs: false
-  register: _template_check
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-
-- name: Set template existence fact
-  ansible.builtin.set_fact:
-    _template_exists: >-
-      {{ _template_check.json.data
-         | selectattr('vmid', 'equalto', pve_template_vmid | int)
-         | list | length > 0 }}
-
-- name: Create cloud-init template on {{ pve_template_node }}
-  delegate_to: pve_builder
-  become: true
-  ansible.builtin.shell: |
-    set -e
-    cd /tmp
-    wget -q "{{ pve_cloud_image_url }}" -O ubuntu-cloud.img
-    qm create {{ pve_template_vmid }} \
-      --name {{ pve_template_name }} \
-      --memory {{ vm_template_memory }} --cores {{ vm_template_cores }} \
-      --net0 virtio,bridge={{ pve_bridge }}
-    qm importdisk {{ pve_template_vmid }} ubuntu-cloud.img {{ pve_storage }}
-    qm set {{ pve_template_vmid }} \
-      --scsi0 {{ pve_storage }}:vm-{{ pve_template_vmid }}-disk-0 \
-      --scsihw virtio-scsi-single
-    qm set {{ pve_template_vmid }} \
-      --ide2 {{ pve_storage }}:cloudinit \
-      --boot order=scsi0
-    qm template {{ pve_template_vmid }}
-    rm -f ubuntu-cloud.img
-    echo "Template created"
-  register: _template_result
-  changed_when: "'Template created' in _template_result.stdout"
-  when: not _template_exists | bool
+- name: Ensure cloud-init template exists
+  include_tasks: tasks/create_cloud_template.yaml
 
 # --- Check if VMID already exists anywhere in the cluster (partial/failed prior run) ---
 - name: Check if VMID already exists in cluster
   ansible.builtin.uri:
-    url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+    url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
     method: GET
     headers:
-      Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+      Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
     validate_certs: false
   register: _cluster_vms
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -146,11 +107,11 @@
     # Clone template to new VM (skip if VMID already exists from a prior partial run)
     - name: Clone VM from cloud-init template
       community.general.proxmox_kvm:
-        api_host: "{{ vault_pve_api_host }}"
-        api_user: "{{ vault_pve_api_user }}"
-        api_token_id: "{{ vault_pve_api_token_id }}"
-        api_token_secret: "{{ vault_pve_api_token_secret }}"
-        node: "{{ pve_template_node }}"
+        api_host: "{{ _pve.api_host }}"
+        api_user: "{{ _pve.api_user }}"
+        api_token_id: "{{ _pve.api_token_id }}"
+        api_token_secret: "{{ _pve.api_token_secret }}"
+        node: "{{ _pve.template_node }}"
         clone: "{{ pve_template_name }}"
         newid: "{{ _vm.vm_id }}"
         name: "{{ _vm.vm_name }}"
@@ -164,10 +125,10 @@
     # Wait for cloned VM to appear in cluster (any node)
     - name: Wait for cloned VM to be ready
       ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+        url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+          Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
       register: _clone_ready
       until: _clone_ready.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0
@@ -187,10 +148,10 @@
     # Configure hardware and cloud-init
     - name: Configure VM hardware and cloud-init
       community.general.proxmox_kvm:
-        api_host: "{{ vault_pve_api_host }}"
-        api_user: "{{ vault_pve_api_user }}"
-        api_token_id: "{{ vault_pve_api_token_id }}"
-        api_token_secret: "{{ vault_pve_api_token_secret }}"
+        api_host: "{{ _pve.api_host }}"
+        api_user: "{{ _pve.api_user }}"
+        api_token_id: "{{ _pve.api_token_id }}"
+        api_token_secret: "{{ _pve.api_token_secret }}"
         node: "{{ _vm_actual_node }}"
         vmid: "{{ _vm.vm_id }}"
         name: "{{ _vm.vm_name }}"
@@ -210,10 +171,10 @@
     # Verify cloud-init IP was applied before starting (fail fast, not after 5-min SSH timeout)
     - name: Read back VM config to verify cloud-init IP
       ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
+        url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
         method: GET
         headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+          Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
       register: _vm_config_check
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -229,10 +190,10 @@
     # Resize disk from cloud image (~3.5G) to target size
     - name: Resize VM disk
       ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/resize"
+        url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/resize"
         method: PUT
         headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+          Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         body_format: form-urlencoded
         body:
           disk: scsi0
@@ -244,10 +205,10 @@
     # Configure net0: static MAC (stable Unifi identity) and/or VLAN tag (test isolation)
     - name: Configure VM net0 (static MAC / VLAN tag)
       ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
+        url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ _vm_actual_node }}/qemu/{{ _vm.vm_id }}/config"
         method: PUT
         headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+          Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         body_format: form-urlencoded
         body:
           net0: "virtio{{ '=' ~ _vm.vm_mac if _vm.vm_mac is defined else '' }},bridge={{ pve_bridge }}{{ ',tag=' ~ _vm.vm_vlan_tag if _vm.vm_vlan_tag is defined else '' }}"
@@ -289,10 +250,10 @@
     # Start VM
     - name: Start VM
       community.general.proxmox_kvm:
-        api_host: "{{ vault_pve_api_host }}"
-        api_user: "{{ vault_pve_api_user }}"
-        api_token_id: "{{ vault_pve_api_token_id }}"
-        api_token_secret: "{{ vault_pve_api_token_secret }}"
+        api_host: "{{ _pve.api_host }}"
+        api_user: "{{ _pve.api_user }}"
+        api_token_id: "{{ _pve.api_token_id }}"
+        api_token_secret: "{{ _pve.api_token_secret }}"
         node: "{{ _vm_actual_node }}"
         vmid: "{{ _vm.vm_id }}"
         state: started
@@ -341,10 +302,10 @@
 
     - name: Add VM to {{ _provision_pool }} pool
       ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ _provision_pool }}"
+        url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/pools/{{ _provision_pool }}"
         method: PUT
         headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+          Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         body_format: form-urlencoded
         body:
           vms: "{{ _vm.vm_id }}"
