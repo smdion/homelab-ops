@@ -1542,12 +1542,15 @@
       block:
         - name: Discover expected /opt entries from running containers
           ansible.builtin.shell: |
+            # Static allowlist (system dirs not owned by any container)
+            expected="{{ opt_always_expected | join(' ') }}"
             # Collect all unique top-level /opt entries used by containers
-            expected="stacks"
-            for mount in $(docker ps -a --format '{% raw %}{{.Mounts}}{% endraw %}' 2>/dev/null | tr ',' '\n' | grep -oP '/opt/[^/\s]+' | sort -u); do
-              entry=$(basename "$mount")
-              expected="$expected $entry"
-            done
+            containers=$(docker ps -aq 2>/dev/null)
+            if [ -n "$containers" ]; then
+              for src in $(docker inspect --format '{% raw %}{{range .Mounts}}{{.Source}} {{end}}{% endraw %}' $containers 2>/dev/null | tr ' ' '\n' | grep -oP '/opt/[^/]+' | sort -u); do
+                expected="$expected $(basename "$src")"
+              done
+            fi
             # Also include stack compose dirs
             if [ -d /opt/stacks ]; then
               for d in /opt/stacks/*/; do
@@ -1675,7 +1678,7 @@
           [
            {% for issue in hostvars[item]['host_health_issues'] | default([]) | selectattr('status', 'ne', 'ok') | list %}
            {% if not loop.first %},{% endif %}
-           {"name": "{{ ('❌ ' if issue.status == 'critical' else '⚠️ ') + issue.check_name }}", "value": "{{ issue.value }}", "inline": true}
+           {"name": "{{ ('❌ ' if issue.status == 'critical' else '⚠️ ') + issue.check_name }}", "value": "{{ issue.value }}{{ (' — ' + issue.detail) if issue.detail else '' }}", "inline": true}
            {% endfor %}]
         discord_footer:
           text: "Health Check"

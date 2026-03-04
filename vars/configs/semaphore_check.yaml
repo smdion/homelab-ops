@@ -57,6 +57,12 @@ appliance_check_port: 443
 schedule_exempt_marker: "# Schedule: none"
 schedule_exempt_pattern: "# Schedule-exempt:"
 
+# Directories always expected in /opt on docker_stacks hosts (not container mounts).
+# These are system-level dirs that no container owns but are always present.
+opt_always_expected:
+  - stacks
+  - containerd
+
 # Display timezone (used in Discord alerts for human-readable timestamps)
 display_timezone: "America/Chicago"
 
