@@ -4,6 +4,7 @@ backup_tmp_dir: "/mnt/user/Backup/ansibletemp/"
 backup_name: "Docker"
 backup_description: "Automatic Docker Backup"
 backup_subtype: "Appdata"
+backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ vault_domain_ext }}"
 
 # Containers to keep running during backup (never stopped/started)
 backup_exclude_containers:

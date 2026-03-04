@@ -277,6 +277,19 @@
             - not (_unvr_download.failed | default(false))
             - not ansible_check_mode
 
+        # ===== Ensure host backup directory on controller =====
+        - name: Ensure backup directory on controller
+          ansible.builtin.file:
+            path: "{{ backup_base_dir }}/{{ inventory_hostname }}"
+            state: directory
+          delegate_to: localhost
+          become: false
+          when:
+            - inventory_hostname in (groups["unifi_protect"] | default([])) +
+                                    (groups["unifi_network"] | default([])) +
+                                    (groups["amp"] | default([]))
+            - not ansible_check_mode
+
         # ===== UNVR: camera inventory export =====
         - name: Export Unifi Protect camera inventory
           ansible.builtin.uri:
@@ -812,7 +825,6 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
-            - inventory_hostname not in groups["unifi_protect"]  # TODO: file retrieval broken — silence until fixed
 
         - name: Send Docker recovery failure alert
           include_tasks: tasks/notify.yaml
@@ -923,7 +935,6 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
-            - inventory_hostname not in groups["unifi_protect"]  # TODO: file retrieval broken — silence until fixed
 
         # ===== MARIADB LOGGING (combined DB — one row per database) =====
         - name: Log combined DB backup results to MariaDB
