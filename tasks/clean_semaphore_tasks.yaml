@@ -53,13 +53,12 @@
           SELECT id FROM task
           WHERE template_id = %s AND status = 'success'
           ORDER BY id DESC
-          LIMIT %s
+          LIMIT {{ _keep }}
         ) AS keep
       )
     positional_args:
       - "{{ _tpl_id }}"
       - "{{ _tpl_id }}"
-      - "{{ _keep }}"
   register: _clean_delete_result
   failed_when: false
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
