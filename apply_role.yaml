@@ -1,5 +1,6 @@
 ---
 # Category: Utilities
+# Schedule: none
 # Idempotent host state reconciliation — single command to make a host match its definition.
 # Supports both Proxmox VMs (vm_definitions) and non-VM hosts (host_definitions).
 # Layers: OS -> Network -> Docker -> Application -> Verification.

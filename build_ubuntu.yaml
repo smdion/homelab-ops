@@ -1,5 +1,6 @@
 ---
 # Category: Build & Provision
+# Schedule: none
 # Unified VM lifecycle orchestrator for Proxmox.
 # Play 1 (localhost): Create, destroy, snapshot, or revert a VM.
 # Play 2 (new VM): Bootstrap Ubuntu with security hardening (Docker optional per VM def).

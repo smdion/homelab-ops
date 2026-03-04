@@ -1,5 +1,6 @@
 ---
 # Category: Build & Provision
+# Schedule: none
 # One-time setup for test VM VLAN isolation on Unifi UDM.
 # Creates test-isolation VLAN network (idempotent). Prints zone policy settings for manual creation.
 # Safe to re-run — skips the VLAN if it already exists.

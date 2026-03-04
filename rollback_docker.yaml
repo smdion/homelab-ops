@@ -1,5 +1,6 @@
 ---
 # Category: Update
+# Schedule: none
 # Rollback Docker containers to their previous image versions.
 # Reads the rollback snapshot saved by update_systems.yaml and reverts
 # containers using either local re-tag (fast) or registry pull (if pruned).

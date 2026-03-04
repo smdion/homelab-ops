@@ -1,5 +1,6 @@
 ---
 # Category: Utilities
+# Schedule: none
 # DR rebuild — build a VM and restore stack backups in one command.
 # Chains: provision VM → bootstrap → restore appdata + DBs → deploy stacks → health check.
 # Used for production migration (one-time) and ongoing DR recovery.

@@ -1,5 +1,6 @@
 ---
 # Category: Restore
+# Schedule: none
 # Restore config/appdata archives from backup.
 # Three paths: per-stack (docker_stacks), selective app (docker_run), monolithic (full host).
 # Sends notification and logs result to restores table.

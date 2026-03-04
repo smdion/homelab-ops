@@ -1,5 +1,6 @@
 ---
 # Category: Restore
+# Schedule: none
 # Restore AMP game server instance(s) from backup.
 # Stops instance(s), removes existing data, extracts archive, restarts.
 #

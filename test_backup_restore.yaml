@@ -1,5 +1,6 @@
 ---
 # Category: Test & Verify
+# Schedule: none
 # Test all app restores on a disposable VM.
 # Provisions VM, restores each app from production backups, verifies health, reverts.
 #

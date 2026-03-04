@@ -8,7 +8,7 @@
 # Play 1 (localhost):  Init, load state, Semaphore API check, stale backup DB check,
 #                      backup size anomaly, failed maintenance DB check,
 #                      stale maintenance check, MariaDB health, WAN connectivity,
-#                      appliance reachability
+#                      appliance reachability, schedule coverage
 # Play 2 (SSH hosts):  Per-host system metrics — disk, memory, CPU, journal errors,
 #                      OOM kills, Docker health, SMART disk health, PVE cluster quorum,
 #                      Ceph health (PVE only), SSL certificate expiry, NTP sync,
@@ -595,6 +595,98 @@
         - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 8 FAILED: Appliance reachability check error — skipping"
+
+    # ── CHECK 28: Semaphore schedule coverage ──────────────────────────────────
+    # Verifies every Semaphore template has at least one active schedule.
+    # Templates whose playbook contains "# Schedule: none" are exempt
+    # (ad-hoc, manual, one-time, or on-demand playbooks).
+    - name: Check Semaphore schedule coverage
+      block:
+        - name: Get all templates from Semaphore
+          ansible.builtin.uri:
+            url: "{{ semaphore_url }}/api/project/{{ project_id }}/templates"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ vault_semaphore_api_token }}"
+              Accept: "application/json"
+            return_content: true
+            status_code: 200
+          register: _sched_templates
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Get all schedules from Semaphore
+          ansible.builtin.uri:
+            url: "{{ semaphore_url }}/api/project/{{ project_id }}/schedules"
+            method: GET
+            headers:
+              Authorization: "Bearer {{ vault_semaphore_api_token }}"
+              Accept: "application/json"
+            return_content: true
+            status_code: 200
+          register: _sched_schedules
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Build set of template IDs with active schedules
+          ansible.builtin.set_fact:
+            _scheduled_ids: >-
+              {{ (_sched_schedules.content | from_json)
+                 | selectattr('active', 'defined')
+                 | selectattr('active')
+                 | map(attribute='template_id')
+                 | map('int') | list | unique }}
+
+        - name: Identify templates missing schedules (excluding exempt playbooks)
+          ansible.builtin.set_fact:
+            _missing_schedules: "{{ _missing_schedules | default([]) + [item] }}"
+          loop: "{{ _sched_templates.content | from_json }}"
+          loop_control:
+            label: "{{ item.name }}"
+          when:
+            - (item.id | int) not in _scheduled_ids
+            - schedule_exempt_marker not in (lookup('file', playbook_dir + '/' + item.playbook, errors='ignore') | default(''))
+
+        - name: Initialize missing schedules if all covered
+          ansible.builtin.set_fact:
+            _missing_schedules: "{{ _missing_schedules | default([]) }}"
+
+        - name: Show schedule coverage results
+          ansible.builtin.debug:
+            msg: "Templates: {{ (_sched_templates.content | from_json) | length }} | Scheduled: {{ _scheduled_ids | length }} | Missing: {{ _missing_schedules | length }}"
+
+        - name: Send alert for missing schedules
+          include_tasks: tasks/notify.yaml
+          when: _missing_schedules | length > 0
+          vars:
+            discord_name: "Semaphore"
+            discord_operation: "Schedule Coverage"
+            discord_status: "warning"
+            discord_detail: "{{ _missing_schedules | length }} template(s) missing active schedule"
+            discord_color: "{{ discord_color_warning }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Missing"
+                value: "{{ _missing_schedules | map(attribute='name') | join(', ') }}"
+            discord_footer:
+              text: "Health Check"
+            discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+        - name: Record schedule coverage result
+          ansible.builtin.set_fact:
+            play1_health_results: >-
+              {{ play1_health_results + [{
+                'check_name': 'schedule_coverage',
+                'status': ('warning' if _missing_schedules | length > 0 else 'ok'),
+                'value': (_missing_schedules | length | string + ' missing') if _missing_schedules | length > 0 else 'all covered',
+                'detail': _missing_schedules | map(attribute='name') | join(', ') if _missing_schedules | length > 0 else ''
+              }] }}
+
+      rescue:
+        - name: Set maintenance failed (schedule coverage error)
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+        - name: Log debug check results
+          ansible.builtin.debug:
+            msg: "CHECK 28 FAILED: Schedule coverage check error — skipping"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PLAY 2 — SSH HOSTS: SYSTEM METRICS

@@ -1,5 +1,6 @@
 ---
 # Category: Test & Verify
+# Schedule: none
 # Lightweight test VLAN isolation verification.
 # Provisions a bare test VM (no stacks, no restore, no VIPs), runs network
 # isolation checks, then destroys the VM.

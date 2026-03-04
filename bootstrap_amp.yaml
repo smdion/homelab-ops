@@ -1,5 +1,6 @@
 ---
 # Category: Build & Provision
+# Schedule: none
 # Bootstrap AMP game server: provision VM, install software, restore instances
 # from backup, and reactivate the license.
 #

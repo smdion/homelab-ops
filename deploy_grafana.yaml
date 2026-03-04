@@ -1,5 +1,6 @@
 ---
 # Category: Deploy
+# Schedule: none
 # Deploy Grafana dashboard and Ansible-Logging datasource via API.
 # Reads grafana/grafana.json and pushes it to the Grafana instance.
 # Creates the Ansible-Logging MySQL datasource if it doesn't exist.

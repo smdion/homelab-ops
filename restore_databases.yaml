@@ -1,5 +1,6 @@
 ---
 # Category: Restore
+# Schedule: none
 # Restore database dumps from backup.
 # Safety-gated with confirm=yes. Supports restoring a single DB
 # on a shared instance, or all DBs. Creates pre-restore safety backup by default.

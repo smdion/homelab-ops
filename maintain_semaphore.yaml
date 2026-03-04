@@ -1,5 +1,6 @@
 ---
 # Category: Maintain
+# Schedule: none
 # Clean up Semaphore task history and prune ansible_logging retention.
 # Deletes stopped/error tasks from Semaphore DB, prunes old successful download
 # tasks, and prunes old ansible_logging rows.

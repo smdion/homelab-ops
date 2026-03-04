@@ -1,5 +1,6 @@
 ---
 # Category: Test & Verify
+# Schedule: none
 # DEPRECATED — Use build_ubuntu.yaml with -e role= instead.
 #
 # This playbook's functionality has been consolidated into build_ubuntu.yaml:

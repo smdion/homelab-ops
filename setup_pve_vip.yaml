@@ -1,5 +1,6 @@
 ---
 # Category: Build & Provision
+# Schedule: none
 # Install and configure keepalived on all Proxmox nodes to provide a floating management VIP.
 # The VIP is used as vault_pve_api_host so VM provisioning works even if the primary node is down.
 # The MASTER node (highest vault_pve_vrrp_priorities entry) normally holds the VIP.

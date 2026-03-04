@@ -1,5 +1,6 @@
 ---
 # Category: Deploy
+# Schedule: none
 # Deploy Docker stacks from Git to target hosts.
 # Templates .env from vault, copies compose files, validates, and starts stacks.
 # Stacks deploy in stack_assignments order — databases before auth, etc.

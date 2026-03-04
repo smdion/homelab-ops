@@ -51,6 +51,11 @@ appliance_check_hosts:
   - "unvr.{{ vault_domain_local }}"
 appliance_check_port: 443
 
+# Schedule exemption marker — playbooks with "# Schedule: none" in their header
+# are excluded from CHECK 28 schedule coverage validation. Used for ad-hoc,
+# manual, one-time, and on-demand playbooks that intentionally have no schedule.
+schedule_exempt_marker: "# Schedule: none"
+
 # Display timezone (used in Discord alerts for human-readable timestamps)
 display_timezone: "America/Chicago"
 

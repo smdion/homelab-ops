@@ -1,5 +1,6 @@
 ---
 # Category: Deploy
+# Schedule: none
 # Deploy homelab-docs MkDocs site to the docs container on the dev VM.
 # The local /opt/homelab-docs (bind-mounted into code-server at /workspace/homelab-docs)
 # is the source of truth. Generates auto-pages from homelab-ops, builds with mkdocs,
