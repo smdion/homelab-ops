@@ -1,4 +1,5 @@
 ---
+# Category: Build & Provision
 # Set up the ansible user on all managed hosts.
 # Creates user, configures SSH, hardens sshd, validates setup.
 # Run once per new host; re-run is safe (idempotent).

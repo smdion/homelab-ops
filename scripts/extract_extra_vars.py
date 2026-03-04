@@ -75,11 +75,19 @@ def parse_header(filepath: Path) -> dict:
     result = {
         "playbook": filepath.name,
         "description": "",
+        "category": "",
         "required_vars": [],
         "optional_vars": [],
         "usage_examples": [],
         "deprecated": False,
     }
+
+    # Extract category from header comment (e.g. "Category: Backup")
+    for line in header_lines:
+        cat_match = re.match(r"^Category:\s*(.+)", line.strip())
+        if cat_match:
+            result["category"] = cat_match.group(1).strip()
+            break
 
     # Check for deprecation
     if "DEPRECATED" in text.upper():

@@ -1,4 +1,5 @@
 ---
+# Category: Utilities
 # Download videos via MeTube / yt-dlp.
 # Runs yt-dlp inside the metube container, sends per-video notifications,
 # and cleans up old temp download files.

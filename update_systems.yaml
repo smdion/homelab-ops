@@ -1,4 +1,5 @@
 ---
+# Category: Update
 # Update OS packages and Docker containers.
 # Handles apt upgrade (Ubuntu/Proxmox), PiKVM update, AMP update,
 # Docker Compose pull+recreate, and unRAID container updates.

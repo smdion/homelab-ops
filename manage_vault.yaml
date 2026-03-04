@@ -1,4 +1,5 @@
 ---
+# Category: Utilities
 # Vault management utility — check status, decrypt, encrypt, change, or validate secrets.yaml.
 # Runs on localhost. No inventory or Semaphore template needed.
 #

@@ -10,7 +10,7 @@
 # To check status: keepalived -t  (config test)  or  ip addr show {{ docker_vrrp_interface }}
 # To see current state: journalctl -u keepalived -f
 {% set _role = host_roles[inventory_hostname] %}
-{% set _vip_config = docker_vips[_role] %}
+{% set _vip_config = vip_definitions[_role] %}
 {% set _node = inventory_hostname.split('.')[0] %}
 {% set my_priority = vault_docker_vrrp_priorities[_node] | default(50) %}
 {% set _role_nodes = host_roles | dict2items | selectattr('value', 'equalto', _role) | map(attribute='key') | map('regex_replace', '\\..*$', '') | list %}

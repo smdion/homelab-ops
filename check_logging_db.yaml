@@ -1,4 +1,5 @@
 ---
+# Category: Utilities
 # Weekly ansible_logging summary — queries 7-day row counts, hosts with no recent backup, and failed operation counts; sends a notification and logs to MariaDB.
 # Schedule via Semaphore weekly (e.g., Sunday 08:00 UTC).
 

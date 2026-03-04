@@ -1,10 +1,11 @@
 ---
+# Category: Update
 # Rollback Docker containers to their previous image versions.
 # Reads the rollback snapshot saved by update_systems.yaml and reverts
 # containers using either local re-tag (fast) or registry pull (if pruned).
 #
 # Docker Compose hosts (docker_stacks group) only.
-# For unRAID docker_run hosts, see DESIGN.md manual rollback guidance.
+# For unRAID docker_run hosts, manual rollback is required (see the docs site).
 #
 # Required extra vars:
 #   hosts_variable          — inventory group to target (pre-filled by Semaphore environment)
@@ -72,7 +73,7 @@
     - name: Assert Docker Compose host
       ansible.builtin.assert:
         that: inventory_hostname in groups["docker_stacks"] | default([])
-        fail_msg: "Rollback only supports docker_stacks hosts. For docker_run (unRAID), see DESIGN.md manual rollback section."
+        fail_msg: "Rollback only supports docker_stacks hosts. For docker_run (unRAID), manual rollback is required — see the docs site."
 
     # Stack mode: read and merge per-stack snapshots
     - name: Read rollback snapshots (stack mode)

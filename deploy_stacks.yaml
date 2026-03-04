@@ -1,4 +1,5 @@
 ---
+# Category: Deploy
 # Deploy Docker stacks from Git to target hosts.
 # Templates .env from vault, copies compose files, validates, and starts stacks.
 # Stacks deploy in stack_assignments order — databases before auth, etc.
@@ -35,7 +36,7 @@
     - vars/definitions/app_definitions.yaml
     - vars/definitions/container_definitions.yaml
     - vars/configs/{{ config_file }}.yaml
-    - vars/configs/docker_vips.yaml
+    - vars/definitions/vip_definitions.yaml
     - vars/configs/semaphore_check.yaml
   vars:
     config_file: "{{ hosts_variable }}"

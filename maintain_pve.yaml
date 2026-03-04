@@ -1,4 +1,5 @@
 ---
+# Category: Maintain
 # Idempotent Proxmox node configuration — run after bare-metal reinstall or new node join.
 # Ensures OS-level settings not managed by PVE cluster replication are in expected state:
 # keepalived VIP (PVE nodes), ansible user SSH key, SSH hardening (PVE and PBS).

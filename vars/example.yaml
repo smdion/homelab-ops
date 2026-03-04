@@ -72,7 +72,7 @@ backup_subtype: "Config"
 # =============================================================================
 
 # Display name for this platform in the database (updates.application column)
-# Can differ from backup_name (see Proxmox in DESIGN.md for why)
+# Can differ from backup_name (see the docs site for details)
 update_name: "MyApp"
 
 # Discord notification description text

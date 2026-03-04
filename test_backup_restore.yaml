@@ -1,4 +1,5 @@
 ---
+# Category: Test & Verify
 # Test all app restores on a disposable VM.
 # Provisions VM, restores each app from production backups, verifies health, reverts.
 #
@@ -146,7 +147,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/definitions/vm_definitions.yaml
-    - vars/configs/docker_vips.yaml
+    - vars/definitions/vip_definitions.yaml
 
   tasks:
     - name: Wait for test VM system boot to complete

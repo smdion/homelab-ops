@@ -1,4 +1,5 @@
 ---
+# Category: Maintain
 # AMP Server Maintenance Playbook
 # Cleans up old AMP versions, Docker images, crash dumps, and journal logs.
 #

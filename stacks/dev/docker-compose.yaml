@@ -85,7 +85,7 @@ services:
 volumes:
   # NFS mounts (core, apps from other VMs), local bind (dev), and VPS NFS are
   # deployment-specific — defined in docker-compose.override.j2, which deploy_stacks.yaml
-  # templates to docker-compose.override.yaml on the host. See DESIGN.md for details.
+  # templates to docker-compose.override.yaml on the host. See the docs site for details.
   core:
   apps:
   dev:

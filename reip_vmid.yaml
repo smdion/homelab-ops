@@ -1,4 +1,5 @@
 ---
+# Category: Utilities
 # Re-ID a Proxmox VM on local-lvm storage (rename VMID while preserving all data).
 # Stops the VM, renames the config file and LVM volumes, updates disk references.
 #

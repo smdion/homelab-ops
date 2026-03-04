@@ -1,4 +1,5 @@
 ---
+# Category: Backup
 # Sync local backups to Backblaze B2 offsite storage.
 # Targets a configurable Docker host (vault_offsite_host from vault) since the
 # Semaphore controller runs as a container and cannot execute Docker.

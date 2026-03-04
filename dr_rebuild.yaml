@@ -1,4 +1,5 @@
 ---
+# Category: Utilities
 # DR rebuild — build a VM and restore stack backups in one command.
 # Chains: provision VM → bootstrap → restore appdata + DBs → deploy stacks → health check.
 # Used for production migration (one-time) and ongoing DR recovery.
@@ -38,7 +39,7 @@
     - vars/configs/docker_stacks.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/app_definitions.yaml
-    - vars/configs/docker_vips.yaml
+    - vars/definitions/vip_definitions.yaml
     - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "{{ role | default('DR') | capitalize }}"
@@ -311,7 +312,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/definitions/vm_definitions.yaml
-    - vars/configs/docker_vips.yaml
+    - vars/definitions/vip_definitions.yaml
     - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "{{ role | default('DR') | capitalize }}"
@@ -367,7 +368,7 @@
               - "SSH hardening"
               - "UFW"
               - "{{ 'Docker' if _lvm.install_docker | default(true) | bool else '' }}"
-              - "{{ 'VIP/Keepalived' if (host_roles is defined and inventory_hostname in (host_roles | default({})) and (host_roles[inventory_hostname] | default('')) in (docker_vips | default({}))) else '' }}"
+              - "{{ 'VIP/Keepalived' if (host_roles is defined and inventory_hostname in (host_roles | default({})) and (host_roles[inventory_hostname] | default('')) in (vip_definitions | default({}))) else '' }}"
               - "{{ 'SSH key' if _lvm.deploy_ssh_key | default(false) | bool else '' }}"
               - "{{ 'NFS server' if _lvm.nfs_exports is defined else '' }}"
               - "{{ 'NFS mounts' if _lvm.nfs_mounts is defined else '' }}"
@@ -445,7 +446,7 @@
     - vars/secrets.yaml
     - vars/configs/proxmox.yaml
     - vars/configs/docker_stacks.yaml
-    - vars/configs/docker_vips.yaml
+    - vars/definitions/vip_definitions.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/container_definitions.yaml
     - vars/configs/semaphore_check.yaml

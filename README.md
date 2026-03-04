@@ -183,7 +183,8 @@ for platforms you don't have are automatically skipped.
 │   ├── pve_definitions.yaml      # PVE cluster node definitions (IPs, FQDNs)
 │   ├── app_definitions.yaml      # Per-app metadata (DB mappings, health endpoints)
 │   ├── docker_stacks.yaml        # Docker stack host config (backup paths, display names)
-│   ├── docker_vips.yaml          # VIP-to-role mapping for keepalived
+│   ├── stack_definitions.yaml   # Docker Compose stack registry (name → description)
+│   ├── vip_definitions.yaml    # VIP-to-role mapping for keepalived
 │   ├── guacamole.yaml            # Guacamole connection groups, SSH defaults, extra connections
 │   └── <platform>.yaml           # One per platform (proxmox, amp, unraid_os, etc.)
 ├── tasks/                        # 51 shared task files — assertions, DB ops, backup/restore
@@ -242,7 +243,6 @@ for platforms you don't have are automatically skipped.
 ├── requirements.txt              # Python pip dependencies (PyMySQL, proxmoxer)
 ├── requirements.yaml             # Ansible Galaxy collection dependencies
 ├── inventory.example.yaml        # Example inventory with expected group structure
-├── DESIGN.md                     # Full architecture, patterns, and design decisions
 └── CONTRIBUTING.md               # Contribution guide
 ```
 
@@ -259,7 +259,7 @@ mysql -u root -p < sql/init.sql
 ```
 
 This creates the `ansible_logging` database with all eight tables. See
-[DESIGN.md](DESIGN.md#database-ansible_logging) for schema details.
+the [database schema](https://homelab-docs/database/schema/) page on the docs site for schema details.
 
 ### 2. Vault (secrets)
 
@@ -309,7 +309,7 @@ If using Semaphore for scheduling and credential management:
 4. Create templates pointing to the playbooks — templates are organized into **views**
    (Backups, Updates, Maintenance, Downloads, Verify, Restore, Deploy, Setup) for easy navigation
 
-See [DESIGN.md](DESIGN.md#semaphore-setup) for the full Semaphore configuration reference.
+See the [Semaphore CLI](https://homelab-docs/semaphore/cli/) page on the docs site for the full Semaphore configuration reference.
 
 <details>
 <summary>Task Templates screenshot</summary>
@@ -368,7 +368,7 @@ All user-facing `-e` vars follow a consistent naming and value pattern:
 | **Modes** | `*_mode=<value>` | `validate_only=yes`, `dr_mode=yes` |
 | **Scope selectors** | `restore_*=`, `rollback_*=` | `restore_app=sonarr`, `restore_db=nextcloud`, `rollback_stack=vpn` |
 
-**Value rule:** All boolean triggers use `=yes` — never `=true`. YAML booleans inside playbook code use `true`/`false` (different context). See [DESIGN.md](DESIGN.md#extra-vars-conventions) for the full reference.
+**Value rule:** All boolean triggers use `=yes` — never `=true`. YAML booleans inside playbook code use `true`/`false` (different context). See the [extra vars](https://homelab-docs/playbooks/extra-vars/) and [conventions](https://homelab-docs/reference/conventions/) pages on the docs site for the full reference.
 
 <details>
 <summary>Backup &amp; Updates</summary>
@@ -641,7 +641,7 @@ ansible-playbook test_backup_restore.yaml \
 > **⚠️ Network isolation recommended.** Without VLAN isolation, restored containers on the test
 > VM will connect to live databases and services using real credentials from the `.env` files.
 > Inter-container references using Docker service names are safe (local to the test VM), but
-> external connections are live. See `DESIGN.md` for the VLAN isolation setup (`setup_test_network.yaml`).
+> external connections are live. See the [VLAN design](https://homelab-docs/network/vlan-design/) page on the docs site for the VLAN isolation setup (`setup_test_network.yaml`).
 
 ```bash
 # Full restore test by role (vm_name defaults to test-vm)
@@ -817,7 +817,7 @@ To enable:
    # Add: uptime_kuma_push_url: "https://uptime.example.com/api/push/xxxx"
    ```
 
-See [DESIGN.md](DESIGN.md#triple-alerting-discord-push--grafana-pull--uptime-kuma-dead-mans-switch)
+See the [notifications](https://homelab-docs/architecture/notifications/) page on the docs site
 for how Uptime Kuma fits into the triple alerting architecture.
 
 ## Adding a new platform
@@ -847,7 +847,7 @@ No database changes are needed — Ansible sends all column values at INSERT tim
 | `vars/example.yaml` | All vars file keys with descriptions |
 | `vars/configs/semaphore_check.yaml` | Health check thresholds (all tunable) |
 | `inventory.example.yaml` | Expected inventory group structure |
-| [DESIGN.md](DESIGN.md) | Full architecture, patterns, database schema, and design decisions |
+| [Docs site](https://homelab-docs/) | Full architecture, patterns, database schema, and design decisions |
 
 ## License
 

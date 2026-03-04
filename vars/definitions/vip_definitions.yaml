@@ -1,4 +1,5 @@
-# Keepalived VRRP config for Docker VM VIPs.
+---
+# VIP definitions — Keepalived VRRP config for Docker VM VIPs.
 # Each role gets a VIP — same pattern as the PVE cluster VIP (setup_pve_vip.yaml).
 #
 # Vault vars required:
@@ -18,7 +19,7 @@ docker_test_vip_offsets:
   apps: "51"
   dev: "52"
 
-docker_vips:
+vip_definitions:
   core:
     vrrp_router_id: 52
     vrrp_instance: "DOCKER_CORE"

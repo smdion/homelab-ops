@@ -1,4 +1,5 @@
 ---
+# Category: Utilities
 # Read-only review of Proxmox VE cluster and PBS backup server state.
 # Gathers infrastructure status via PVE API (localhost) and PBS CLI (SSH)
 # and displays a formatted summary. No mutations, no notifications, no

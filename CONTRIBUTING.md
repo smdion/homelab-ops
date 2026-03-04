@@ -123,5 +123,5 @@ tracked file, and never include the raw value in any committed file or commit me
 ## Pull Request Expectations
 
 - Run `--check` on any modified playbook before submitting
-- Update `DESIGN.md` if the change affects file structure, patterns, or architecture
+- Update the docs site if the change affects file structure, patterns, or architecture
 - Keep commits focused — one logical change per commit

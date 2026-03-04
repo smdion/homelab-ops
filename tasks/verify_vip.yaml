@@ -4,7 +4,7 @@
 # Skips cleanly when host has no role assignment (test VMs).
 #
 # Requires:
-#   vars/configs/docker_vips.yaml loaded (docker_vips, docker_vrrp_interface)
+#   vars/definitions/vip_definitions.yaml loaded (vip_definitions, docker_vrrp_interface)
 #   host_roles — dict: FQDN → role
 # Sets:
 #   _vip_summary — human-readable verification result for logging
@@ -14,7 +14,7 @@
     _has_vip_role: >-
       {{ (host_roles is defined)
          and (inventory_hostname in host_roles)
-         and (host_roles[inventory_hostname] in (docker_vips | default({}))) }}
+         and (host_roles[inventory_hostname] in (vip_definitions | default({}))) }}
 
 - name: Derive effective VIP (test mode uses VM subnet, prod uses vault VIP)
   ansible.builtin.set_fact:
@@ -23,7 +23,7 @@
       {% if _role_injected | default(false) %}
       {{ ansible_default_ipv4.address.rsplit('.', 1)[0] }}.{{ docker_test_vip_offsets[_role] }}
       {%- else %}
-      {{ docker_vips[_role].vip }}
+      {{ vip_definitions[_role].vip }}
       {%- endif %}
   when: _has_vip_role | bool
 

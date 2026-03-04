@@ -1,4 +1,5 @@
 ---
+# Category: Test & Verify
 # DEPRECATED — Use build_ubuntu.yaml with -e role= instead.
 #
 # This playbook's functionality has been consolidated into build_ubuntu.yaml:
@@ -39,7 +40,7 @@
     - vars/configs/proxmox.yaml
     - vars/configs/docker_stacks.yaml
     - vars/definitions/vm_definitions.yaml
-    - vars/configs/docker_vips.yaml
+    - vars/definitions/vip_definitions.yaml
     - vars/definitions/app_definitions.yaml
     - vars/configs/semaphore_check.yaml
   vars:
@@ -319,7 +320,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/definitions/vm_definitions.yaml
-    - vars/configs/docker_vips.yaml
+    - vars/definitions/vip_definitions.yaml
 
   tasks:
     - name: Initialize bootstrap state
@@ -496,7 +497,7 @@
     - vars/secrets.yaml
     - vars/configs/proxmox.yaml
     - vars/configs/docker_stacks.yaml
-    - vars/configs/docker_vips.yaml
+    - vars/definitions/vip_definitions.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/container_definitions.yaml
     - vars/configs/semaphore_check.yaml

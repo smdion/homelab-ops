@@ -1,4 +1,5 @@
 ---
+# Category: Build & Provision
 # Bootstrap AMP game server: provision VM, install software, restore instances
 # from backup, and reactivate the license.
 #
@@ -174,7 +175,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/definitions/vm_definitions.yaml
-    - vars/configs/docker_vips.yaml
+    - vars/definitions/vip_definitions.yaml
     - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "AMP"

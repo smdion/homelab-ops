@@ -1,4 +1,5 @@
 ---
+# Category: Utilities
 # One-time complete Ceph removal from all PVE cluster nodes.
 # Removes services, packages, configs, cluster-filesystem entries, and
 # optionally wipes former OSD disks so they are clean for Ceph reinstall.

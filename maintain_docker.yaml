@@ -1,4 +1,5 @@
 ---
+# Category: Maintain
 # Docker prune + page cache maintenance.
 # Play 1: Prune unused Docker images and volumes across all Docker hosts.
 #          Captures post-prune disk usage (images, volumes, containers) and logs

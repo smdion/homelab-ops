@@ -1,4 +1,5 @@
 ---
+# Category: Maintain
 # Manage Guacamole connections and user group permissions declaratively.
 # Scans pve_definitions, vm_definitions, host_definitions for guacamole
 # metadata blocks, merges with guacamole_extra_connections, and converges

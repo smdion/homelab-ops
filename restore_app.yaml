@@ -1,4 +1,5 @@
 ---
+# Category: Restore
 # Restore a single app (stack appdata + databases) to a production host.
 # Stops the stack, restores each DB, restores appdata inplace, restarts, verifies health.
 #

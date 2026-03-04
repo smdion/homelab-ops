@@ -1,4 +1,5 @@
 ---
+# Category: Maintain
 # Purge failure and stale records from ansible_logging.
 # Deletes failed updates, failed maintenance, zero-size backups, and
 # warning/critical health checks recorded before this run.

@@ -1,4 +1,5 @@
 ---
+# Category: Maintain
 # Health Maintenance Playbook
 # ---------------------------
 # Comprehensive environment health monitor. Runs checks across all SSH-accessible

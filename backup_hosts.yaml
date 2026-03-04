@@ -1,4 +1,5 @@
 ---
+# Category: Backup
 # Back up host configurations and appdata.
 # Docker stacks: per-stack archives (stop one stack at a time, minimize downtime).
 # Other hosts: monolithic archive (stop Docker, archive all paths, restart).

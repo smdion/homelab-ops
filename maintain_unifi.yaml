@@ -1,4 +1,5 @@
 ---
+# Category: Maintain
 # Restart Unifi Network services.
 # Restarts the Unifi Network application service on the controller.
 # Runs daily (not weekly) — Unifi Network has a known memory leak; daily restart

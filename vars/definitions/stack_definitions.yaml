@@ -1,0 +1,30 @@
+---
+# Stack definitions — single source of truth for all Docker Compose stacks.
+# Each key is a stack name (matches directory under stacks/) and maps to a
+# description used in documentation and the auto-generated Stack Definitions page.
+#
+# To add a new stack:
+#   1. Add an entry below (alphabetically by key)
+#   2. Create stacks/<name>/ with docker-compose.yaml and env.j2
+#   3. Add the stack name to the host's `stacks:` list in vm_definitions.yaml
+#      or host_definitions.yaml
+
+stack_definitions:
+  apps:
+    description: "Application services — Home Assistant, Guacamole, Homepage, etc."
+  auth:
+    description: "Authentication and reverse proxy — Authentik, SWAG, CrowdSec"
+  backups:
+    description: "Backup agent — Restic"
+  databases:
+    description: "Database services — MariaDB, PostgreSQL, Adminer"
+  dev:
+    description: "Development tools — code-server, netbootxyz"
+  infra:
+    description: "Core infrastructure — Docker proxy, monitoring agents, log aggregation"
+  media:
+    description: "Media services — Tautulli, Jellyseerr"
+  monitoring:
+    description: "Monitoring — Grafana, VictoriaMetrics"
+  vpn:
+    description: "VPN and NPM — WireGuard, Nginx Proxy Manager"
