@@ -51,7 +51,12 @@ nas02.home.local
 [local]
 localhost ansible_connection=local
 
-# Functional groups — used by hosts_variable in Semaphore variable groups
+# Functional groups — used by hosts_variable in Semaphore variable groups.
+# hosts_variable selects which hosts to target; config_file (set separately
+# in the Semaphore variable group) selects which vars/configs/*.yaml to load.
+# When both values match (e.g., docker_stacks), a single variable suffices.
+# When they differ (e.g., hosts_variable=unraid + config_file=unraid_plugins),
+# the same hosts can run different operations.
 [ubuntu]
 ubuntu01.home.local
 ubuntu02.home.local
@@ -92,9 +97,6 @@ unvr.home.local
 [unraid]
 nas02.home.local
 nas01.home.local
-
-[unraid_plugins:children]
-unraid
 
 [amp]
 gameserver.home.local

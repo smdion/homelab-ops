@@ -10,13 +10,14 @@
 #   hosts_variable                          — inventory group to target (pre-filled by Semaphore environment)
 #
 # Optional extra vars:
-#   update_scope=os|docker|software|plugin  — override auto-detected scope (auto-derived from hosts_variable)
+#   config_file                             — vars/configs/ file to load (defaults to hosts_variable)
+#   update_scope=os|docker|software|plugin  — override auto-detected scope (auto-derived from config_file)
 #
 # Usage:
-#   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu
+#   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu -e config_file=ubuntu_os
 #   ansible-playbook update_systems.yaml -e hosts_variable=docker_stacks
 #   ansible-playbook update_systems.yaml -e hosts_variable=amp
-#   ansible-playbook update_systems.yaml -e hosts_variable=unraid_plugins
+#   ansible-playbook update_systems.yaml -e hosts_variable=unraid -e config_file=unraid_plugins
 
 - name: Update OS packages and Docker containers
   gather_facts: true

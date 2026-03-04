@@ -98,7 +98,7 @@ update_subtype: "OS"
 # update_exclude_containers:   # for docker run / unRAID hosts
 #   - semaphore
 #   - mariadb
-# update_exclude_plugins:      # for unRAID plugin updates (hosts_variable=unraid_plugins)
+# update_exclude_plugins:      # for unRAID plugin updates (config_file=unraid_plugins)
 #   - dynamix
 
 # Containers to keep running during backup (never stopped/started by backup_hosts.yaml)
