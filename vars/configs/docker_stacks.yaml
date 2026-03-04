@@ -1,3 +1,4 @@
+# Docker Compose stack backup/update/deploy — stack assignments and Docker defaults
 src_raw_files:
   - "/opt"
 

@@ -1,3 +1,4 @@
+# PiKVM backup/update — KVM appliance configuration
 src_raw_files:
   - "/etc/kvmd"
   - "/opt/cmd"

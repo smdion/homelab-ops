@@ -1,3 +1,4 @@
+# unRAID Docker container backup/update — host-level container management
 src_raw_files:
   - "/mnt/user/appdata"
 backup_tmp_dir: "/mnt/user/Backup/ansibletemp/"

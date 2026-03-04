@@ -1,3 +1,4 @@
+# Synology NAS offline backup — share definitions and sync config
 synology_shares:
   - "Backup"
   - "Data"

@@ -1,9 +1,7 @@
 semaphore_url: "{{ vault_semaphore_host_url | regex_replace('/$', '') }}"
 semaphore_ext_url: "https://{{ controller_fqdn.split('.')[0] }}.{{ vault_domain_ext }}"
 
-# CUSTOMIZE THESE FOR YOUR DEPLOYMENT
-# controller_fqdn: FQDN of the Semaphore controller host (must match inventory)
-# semaphore_project_id: numeric ID of your Semaphore project (default is 1 for first project)
+# Health check thresholds, Semaphore controller settings, and stale detection windows
 semaphore_project_id: 1
 controller_fqdn: "{{ vault_semaphore_controller_hostname }}.{{ vault_domain_local }}"
 semaphore_db_name: semaphore

@@ -1,3 +1,4 @@
+# unRAID OS config backup — boot directory archive
 src_raw_files:
   - "/boot"
 backup_tmp_dir: "/mnt/user/Backup/ansibletemp/"
