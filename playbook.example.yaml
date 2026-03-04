@@ -1,0 +1,108 @@
+---
+# playbook.example.yaml — template for creating a new playbook
+#
+# Copy to <verb>_<noun>.yaml and follow the patterns below.
+# This file is the single source of truth for playbook header conventions.
+# Auto-generated docs (extra-vars.md, schedule-exemptions.md) parse these
+# headers — follow the exact format or the generators will miss your playbook.
+#
+# See also: docs/architecture/playbook-patterns.md (generated from this file)
+#           vars/example.yaml (vars file template)
+
+# =============================================================================
+# HEADER BLOCK — required, must appear before the first YAML play
+# =============================================================================
+#
+# ---
+# Category: <category>
+# Schedule: none                        (omit if playbook IS scheduled)
+# Schedule-exempt: <pattern>            (only for shared playbooks with partial exemptions)
+# One-line description of what this playbook does.
+# Optional additional context lines.
+#
+# Required extra vars:
+#   var_name        — description of what this var controls
+#   confirm=yes     — safety gate (for destructive operations)
+#
+# Optional extra vars:
+#   var_name=value  — description (default: auto-detected)
+#   flag=yes        — description
+#
+# Scope selectors:
+#   stack=<name>    — target single stack
+#   app=<name>      — target single app
+#   role=<name>     — target specific role
+#
+# Usage:
+#   ansible-playbook playbook.yaml -e hosts_variable=docker_stacks
+#   ansible-playbook playbook.yaml -e hosts_variable=docker_stacks -e stack=auth
+
+# =============================================================================
+# FIELD REFERENCE
+# =============================================================================
+#
+# Category (required — one of):
+#   Build & Provision  — VM creation, bootstrapping, provisioning
+#   Update             — Package/container/plugin updates
+#   Backup             — Backup operations
+#   Restore            — Restore operations
+#   Test & Verify      — Testing, validation, verification
+#   Maintain           — Scheduled or ad-hoc maintenance
+#   Deploy             — Stack/config/dashboard deployment
+#   Utilities          — One-off tools, cleanup, review
+#
+# Schedule markers (optional — pick one or none):
+#   # Schedule: none              — entire playbook exempt from schedule checks
+#                                   Use for: manual, ad-hoc, one-time playbooks
+#   # Schedule-exempt: <pattern>  — only templates with <pattern> in name are exempt
+#                                   Use for: shared playbooks where some variants are blocked
+#   (no marker)                   — playbook is expected to have a Semaphore schedule
+#
+# Section headers (exact names — extract_extra_vars.py parses these):
+#   Required extra vars:   — vars that MUST be passed via -e or Semaphore
+#   Optional extra vars:   — vars with defaults, override via -e if needed
+#   Scope selectors:       — vars that narrow the target (stack, app, role)
+#   Options:               — boolean flags (flag=yes)
+#   Usage:                 — ansible-playbook examples (must start with "ansible-playbook")
+#
+# Var format:
+#   var_name           — description                     (name only)
+#   var_name=value     — description                     (with example value)
+#   var=opt1|opt2|opt3 — description                     (with choices)
+#   confirm=yes        — safety gate                     (destructive ops)
+#
+# Semaphore templates (optional — document which templates use this playbook):
+#   # Semaphore templates:
+#   #   Template — Name [Variant]  (View name) — pass var1, var2
+
+# =============================================================================
+# PLAYBOOK STRUCTURE
+# =============================================================================
+#
+# Standard play structure with block/rescue/always:
+#
+# - name: <Imperative verb phrase>
+#   hosts: "{{ hosts_variable }}"       (or localhost, or specific group)
+#   gather_facts: true
+#   vars_files:
+#     - vars/secrets.yaml
+#     - "vars/configs/{{ config_file | default(hosts_variable) }}.yaml"
+#   vars:
+#     config_file: "{{ hosts_variable }}"           # default: same as hosts_variable
+#     maintenance_name: "MyApp"                     # operation metadata (not config)
+#     maintenance_type: "Servers"
+#     maintenance_subtype: "Backup"
+#   tasks:
+#     - name: Do the work
+#       block:
+#         - name: Main task
+#           ...
+#       rescue:
+#         - name: Set failure flag
+#           ansible.builtin.set_fact:
+#             backup_failed: true
+#       always:
+#         - name: Send notification
+#           include_tasks: tasks/notify.yaml
+#         - name: Log to MariaDB
+#           include_tasks: tasks/log_mariadb.yaml
