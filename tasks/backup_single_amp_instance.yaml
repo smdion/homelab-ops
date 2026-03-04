@@ -19,7 +19,7 @@
 
 - name: Set archive filename for {{ _amp_instance }}
   ansible.builtin.set_fact:
-    _amp_archive_name: "backup_amp_{{ _amp_instance }}_{{ ansible_date_time.date }}.tar.gz"
+    _amp_archive_name: "backup_amp_{{ _amp_instance }}_{{ backup_subtype | lower }}_{{ ansible_date_time.date }}.{{ backup_ext | default('tar.gz') }}"
 
 - name: Check if AMP instance {{ _amp_instance }} is running before backup
   become: true

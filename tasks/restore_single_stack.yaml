@@ -14,7 +14,7 @@
 
 - name: Find per-stack backup archive on controller for {{ _restore_stack_item }}
   ansible.builtin.shell: >
-    ls -t {{ backup_base_dir }}/{{ _restore_stack_item }}/backup_{{ _restore_stack_item }}_{{ restore_date | default('') }}*.tar.gz
+    ls -t {{ backup_base_dir }}/{{ _restore_stack_item }}/backup_{{ _restore_stack_item }}_*{{ restore_date | default('') }}*.tar.gz
     2>/dev/null | head -1
   register: _stack_archive_file
   delegate_to: localhost

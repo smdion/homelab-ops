@@ -1855,9 +1855,11 @@ and why `update_systems.yaml` must use `update_name` (not `backup_name`) for DB 
 | `maintenance_type` | `maintenance.type` | inline `vars:` in playbook |
 | `maintenance_subtype` | `maintenance.subtype` | inline `vars:` in playbook |
 
-`backup_name`, `backup_description`, `backup_subtype`, `backup_file`, `update_name`, `update_description`,
+`backup_name`, `backup_description`, `backup_subtype`, `update_name`, `update_description`,
 and `update_subtype` must be present in any vars file used with `backup_hosts.yaml` or
-`update_systems.yaml`. `backup_type` and `update_type` are inherited from `group_vars/all.yaml`
+`update_systems.yaml`. `backup_file` is auto-derived from `group_vars/all.yaml` using
+`backup_subtype` and `backup_ext`; override `backup_ext` only for non-default extensions
+(e.g., `"unf"`). `backup_type` and `update_type` are inherited from `group_vars/all.yaml`
 (`"Servers"`) unless overridden.
 Maintenance operation metadata (`maintenance_name`, `_type`, `_subtype`, `_description`) is defined
 in each playbook's `vars:` block — these describe the operation, not the deployment. Deployment-specific

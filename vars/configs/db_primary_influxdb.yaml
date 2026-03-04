@@ -6,7 +6,6 @@ backup_url: "https://sql.{{ vault_domain_ext }}"
 backup_description: "Automatic Database Backup"
 backup_subtype: "Database"
 backup_ext: "tar.gz"
-backup_file: "backup_{{ item }}_{{ ansible_date_time.date }}.tar.gz"
 db_container_name: "influxdb"
 db_names:
   - "placeholder"

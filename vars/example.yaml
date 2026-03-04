@@ -61,9 +61,11 @@ backup_description: "Automatic MyApp Backup"
 # Subcategory — "Config", "Appdata", "Database", or "Offline"
 backup_subtype: "Config"
 
-# Backup filename pattern (date-stamped so same-day reruns overwrite)
-# For database vars files, include {{ item }} so each DB gets a unique filename.
-backup_file: "backup_myapp_config_{{ ansible_date_time.date }}.tar.gz"
+# Backup filename — auto-derived from group_vars/all.yaml:
+#   backup_file = backup_<hostname>_<subtype>_<date>.<ext>
+# Override backup_ext only if your platform uses a non-default extension (e.g., "unf").
+# For database vars files, backup_file is generated inline by backup_single_db.yaml.
+# backup_ext: "tar.gz"
 
 # =============================================================================
 # UPDATE SETTINGS — used by update_systems.yaml
