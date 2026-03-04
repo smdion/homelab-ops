@@ -46,21 +46,25 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-  victoriametrics:
-    <<: *baseenv
-    container_name: victoriametrics
-    image: ${VM_IMAGE}:${VM_TAG}
+  crowdsec-web-ui:
+    <<: *base
+    container_name: crowdsec-web-ui
+    image: ${CSUI_IMAGE}:${CSUI_TAG}
     networks:
       - homelab
     ports:
-      - 8428:8428
-      - 8089:8089
-      - 8089:8089/udp
-      - 2003:2003
-      - 2003:2003/udp
-      - 4242:4242
+      - 3001:3000
+    labels:
+      homelab.backup.paths: "/opt/crowdsec-web-ui"
+    environment:
+      <<: *env
+      CROWDSEC_URL: ${CSUI_CROWDSEC_URL}
+      CROWDSEC_USER: ${CSUI_CROWDSEC_USER}
+      CROWDSEC_PASSWORD: ${CSUI_CROWDSEC_PASSWORD}
+    volumes:
+      - ${APPSDIR}/crowdsec-web-ui:/app/data
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8428/health || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

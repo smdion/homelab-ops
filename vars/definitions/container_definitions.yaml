@@ -36,6 +36,9 @@ container_definitions:
   crowdsec:
     image: "docker.io/crowdsecurity/crowdsec"
     tag: "latest"
+  crowdsec_web_ui:
+    image: "ghcr.io/theduffman85/crowdsec-web-ui"
+    tag: "latest"
   docs:
     image: "nginx"
     tag: "alpine"
@@ -93,9 +96,6 @@ container_definitions:
   tautulli:
     image: "lscr.io/linuxserver/tautulli"
     tag: "latest"
-  victoria_metrics:
-    image: "victoriametrics/victoria-metrics"
-    tag: "v1.114.0"
   wireguard:
     image: "lscr.io/linuxserver/wireguard"
     tag: "latest"
