@@ -1,5 +1,6 @@
 ---
 # Category: Test & Verify
+# Schedule-exempt: Primary InfluxDB
 # Verify that the latest backups are restorable.
 # Database backups: restore to a temp DB on the same container, count tables/measurements, drop.
 # Config backups (per-stack): verify each stack's archive, extract to staging, count files.

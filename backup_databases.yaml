@@ -1,5 +1,6 @@
 ---
 # Category: Backup
+# Schedule-exempt: Primary InfluxDB
 # Back up databases from remote Docker containers.
 # PostgreSQL/MariaDB: SQL dump piped through gzip. InfluxDB: portable backup → tar.gz.
 # Sends notification and logs result to MariaDB.

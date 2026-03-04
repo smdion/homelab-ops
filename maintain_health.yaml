@@ -598,8 +598,11 @@
 
     # ── CHECK 28: Semaphore schedule coverage ──────────────────────────────────
     # Verifies every Semaphore template has at least one active schedule.
-    # Templates whose playbook contains "# Schedule: none" are exempt
+    # Templates whose playbook contains "# Schedule: none" are fully exempt
     # (ad-hoc, manual, one-time, or on-demand playbooks).
+    # Templates whose playbook contains "# Schedule-exempt: <pattern>" are
+    # exempt only when the template name contains <pattern> (for shared
+    # playbooks where only some variants are blocked).
     - name: Check Semaphore schedule coverage
       block:
         - name: Get all templates from Semaphore
@@ -641,9 +644,13 @@
           loop: "{{ _sched_templates.content | from_json }}"
           loop_control:
             label: "{{ item.name }}"
+          vars:
+            _pb_content: "{{ lookup('file', playbook_dir + '/' + item.playbook, errors='ignore') | default('') }}"
+            _exempt_patterns: "{{ _pb_content | regex_findall(schedule_exempt_pattern ~ '\\s*(.+)') | map('trim') | list }}"
           when:
             - (item.id | int) not in _scheduled_ids
-            - schedule_exempt_marker not in (lookup('file', playbook_dir + '/' + item.playbook, errors='ignore') | default(''))
+            - schedule_exempt_marker not in _pb_content
+            - _exempt_patterns | select('in', item.name) | list | length == 0
 
         - name: Initialize missing schedules if all covered
           ansible.builtin.set_fact:

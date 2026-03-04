@@ -1,5 +1,6 @@
 ---
 # Category: Backup
+# Schedule: none
 # Sync backups to offline Synology storage.
 # Wakes Synology via WOL, mounts shares, rsyncs backup data, unmounts,
 # shuts down Synology, verifies shutdown. Sends notification + logs to MariaDB.

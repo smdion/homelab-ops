@@ -55,6 +55,7 @@ appliance_check_port: 443
 # are excluded from CHECK 28 schedule coverage validation. Used for ad-hoc,
 # manual, one-time, and on-demand playbooks that intentionally have no schedule.
 schedule_exempt_marker: "# Schedule: none"
+schedule_exempt_pattern: "# Schedule-exempt:"
 
 # Display timezone (used in Discord alerts for human-readable timestamps)
 display_timezone: "America/Chicago"
