@@ -8,11 +8,11 @@
   become: false
   connection: local
   community.mysql.mysql_query:
-    login_host: "{{ logging_db_host }}"
-    login_port: "{{ logging_db_port }}"
-    login_user: "{{ logging_db_user }}"
-    login_password: "{{ logging_db_password }}"
-    login_db: "{{ logging_db_name }}"
+    login_host: "{{ vault_logging_db_host }}"
+    login_port: "{{ vault_logging_db_port }}"
+    login_user: "{{ vault_logging_db_user }}"
+    login_password: "{{ vault_logging_db_password }}"
+    login_db: "{{ vault_logging_db_name }}"
     query: "SELECT 1"
   register: _db_connectivity
   failed_when: false
@@ -24,7 +24,7 @@
   ansible.builtin.assert:
     that: not _db_connectivity.failed
     fail_msg: >-
-      Cannot reach MariaDB logging database at {{ logging_db_host }}:{{ logging_db_port }} —
+      Cannot reach MariaDB logging database at {{ vault_logging_db_host }}:{{ vault_logging_db_port }} —
       verify the database is running, credentials are correct, and PyMySQL is installed.
       Pass -e skip_db=yes to bypass during outages.
   when: not (skip_db | default(false) | bool)

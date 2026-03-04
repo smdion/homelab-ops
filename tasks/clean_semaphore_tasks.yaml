@@ -7,7 +7,7 @@
 #   clean_keep: number of recent successful runs to retain (default: 1)
 #
 # Requires (from vars/secrets.yaml):
-#   logging_db_host, logging_db_port, logging_db_user, logging_db_password
+#   vault_logging_db_host, vault_logging_db_port, vault_logging_db_user, vault_logging_db_password
 
 - name: Resolve current template ID from Semaphore DB
   vars:
@@ -16,10 +16,10 @@
   delegate_to: localhost
   connection: local
   community.mysql.mysql_query:
-    login_host: "{{ logging_db_host }}"
-    login_port: "{{ logging_db_port }}"
-    login_user: "{{ logging_db_user }}"
-    login_password: "{{ logging_db_password }}"
+    login_host: "{{ vault_logging_db_host }}"
+    login_port: "{{ vault_logging_db_port }}"
+    login_user: "{{ vault_logging_db_user }}"
+    login_password: "{{ vault_logging_db_password }}"
     login_db: "{{ semaphore_db_name | default('semaphore') }}"
     query: "SELECT template_id FROM task ORDER BY id DESC LIMIT 1"
   register: _clean_tpl_result
@@ -27,8 +27,8 @@
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   when:
     - not ansible_check_mode
-    - logging_db_host is defined
-    - logging_db_password is defined
+    - vault_logging_db_host is defined
+    - vault_logging_db_password is defined
 
 - name: Delete old successful task runs from Semaphore DB
   vars:
@@ -39,10 +39,10 @@
   delegate_to: localhost
   connection: local
   community.mysql.mysql_query:
-    login_host: "{{ logging_db_host }}"
-    login_port: "{{ logging_db_port }}"
-    login_user: "{{ logging_db_user }}"
-    login_password: "{{ logging_db_password }}"
+    login_host: "{{ vault_logging_db_host }}"
+    login_port: "{{ vault_logging_db_port }}"
+    login_user: "{{ vault_logging_db_user }}"
+    login_password: "{{ vault_logging_db_password }}"
     login_db: "{{ semaphore_db_name | default('semaphore') }}"
     query: >-
       DELETE FROM task

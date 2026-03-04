@@ -26,10 +26,10 @@
 #   vault_test_vlan_gateway      — gateway IP on test VLAN (e.g. 192.168.3.1)
 #   vault_test_vlan_subnet       — network CIDR (e.g. 192.168.3.0/24)
 #   vault_pve_port_profile_name  — Unifi switch port profile used by Proxmox uplinks
-#   unifi_network_api_key        — Unifi Network API key (already in vault)
+#   vault_unifi_network_api_key        — Unifi Network API key (already in vault)
 #
 # Derived (no additional vault vars needed):
-#   Semaphore IP   — extracted from semaphore_host_url (already in vault)
+#   Semaphore IP   — extracted from vault_semaphore_host_url (already in vault)
 #   Prod LAN CIDR  — derived from vault_vm_gateway + vm_cidr (already in vault)
 
 - name: Set up test VM network isolation on Unifi
@@ -41,7 +41,7 @@
     - vars/configs/semaphore_check.yaml
   vars:
     _unifi_api: "https://{{ inventory_hostname }}/proxy/network/api/s/default"
-    _semaphore_ip: "{{ semaphore_host_url | urlsplit('hostname') }}"
+    _semaphore_ip: "{{ vault_semaphore_host_url | urlsplit('hostname') }}"
     _prod_lan_subnet: "{{ vault_vm_gateway | regex_replace('(\\d+\\.\\d+\\.\\d+)\\.\\d+', '\\1.0') }}/{{ vm_cidr }}"
     _ssh_policy_name: "Allow Server to Test"
     _block_policy_name: "Block Test to Internal"
@@ -55,7 +55,7 @@
         url: "{{ _unifi_api }}/rest/portconf"
         method: GET
         headers:
-          x-api-key: "{{ unifi_network_api_key }}"
+          x-api-key: "{{ vault_unifi_network_api_key }}"
         validate_certs: false
       register: _portconf
       check_mode: false
@@ -80,7 +80,7 @@
         url: "{{ _unifi_api }}/rest/networkconf"
         method: GET
         headers:
-          x-api-key: "{{ unifi_network_api_key }}"
+          x-api-key: "{{ vault_unifi_network_api_key }}"
         validate_certs: false
       register: _all_networks
       check_mode: false
@@ -122,7 +122,7 @@
         url: "{{ _unifi_api }}/rest/networkconf"
         method: POST
         headers:
-          x-api-key: "{{ unifi_network_api_key }}"
+          x-api-key: "{{ vault_unifi_network_api_key }}"
         body_format: json
         body:
           name: "test-isolation"
@@ -199,7 +199,7 @@
         url: "{{ _unifi_api }}/rest/networkconf"
         method: GET
         headers:
-          x-api-key: "{{ unifi_network_api_key }}"
+          x-api-key: "{{ vault_unifi_network_api_key }}"
         validate_certs: false
       register: _verify_networks
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"

@@ -14,8 +14,8 @@
 # formatted report — no task headers, no ok/skipped noise.  Without it
 # the playbook still works but output includes Ansible boilerplate.
 #
-# Required vault vars: pve_api_user, pve_api_token_id, pve_api_token_secret,
-#                       vault_pve_vip (via pve_api_host)
+# Required vault vars: vault_pve_api_user, vault_pve_api_token_id, vault_pve_api_token_secret,
+#                       vault_pve_vip (via vault_pve_api_host)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Review PVE cluster and VM state
@@ -33,8 +33,8 @@
     - vars/definitions/pve_definitions.yaml
     - vars/configs/semaphore_check.yaml
   vars:
-    _api_base: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json"
-    _api_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    _api_base: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json"
+    _api_auth: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
 
   pre_tasks:
     - name: Run standard pre-flight assertions
@@ -387,8 +387,8 @@
     - vars/configs/proxmox.yaml
     - vars/definitions/vm_definitions.yaml
   vars:
-    _api_base: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json"
-    _api_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+    _api_base: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json"
+    _api_auth: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
 
   tasks:
     - name: Get cluster node list

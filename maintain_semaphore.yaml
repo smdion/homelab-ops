@@ -39,10 +39,10 @@
           connection: local
           when: not ansible_check_mode
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
             login_db: "{{ semaphore_db_name }}"
             query: "DELETE FROM task WHERE status IN ('stopped', 'error')"
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -54,10 +54,10 @@
           connection: local
           when: not ansible_check_mode
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
             login_db: "{{ semaphore_db_name }}"
             query: >-
               DELETE t FROM task t
@@ -77,11 +77,11 @@
           connection: local
           when: not ansible_check_mode
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: "{{ item }}"
             positional_args:
               - "{{ retention_days }}"

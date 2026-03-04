@@ -281,10 +281,10 @@
 
         - name: Stop test VM on build failure (free the slot)
           community.general.proxmox_kvm:
-            api_host: "{{ pve_api_host }}"
-            api_user: "{{ pve_api_user }}"
-            api_token_id: "{{ pve_api_token_id }}"
-            api_token_secret: "{{ pve_api_token_secret }}"
+            api_host: "{{ vault_pve_api_host }}"
+            api_user: "{{ vault_pve_api_user }}"
+            api_token_id: "{{ vault_pve_api_token_id }}"
+            api_token_secret: "{{ vault_pve_api_token_secret }}"
             node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
@@ -412,10 +412,10 @@
 
         - name: Stop test VM on bootstrap failure (free the slot)
           community.general.proxmox_kvm:
-            api_host: "{{ pve_api_host }}"
-            api_user: "{{ pve_api_user }}"
-            api_token_id: "{{ pve_api_token_id }}"
-            api_token_secret: "{{ pve_api_token_secret }}"
+            api_host: "{{ vault_pve_api_host }}"
+            api_user: "{{ vault_pve_api_user }}"
+            api_token_id: "{{ vault_pve_api_token_id }}"
+            api_token_secret: "{{ vault_pve_api_token_secret }}"
             node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm_resolved_node) }}"
             vmid: "{{ hostvars['localhost']._vm.vm_id }}"
             state: stopped
@@ -552,10 +552,10 @@
 
         - name: Stop test VM on restore failure (free the slot)
           community.general.proxmox_kvm:
-            api_host: "{{ pve_api_host }}"
-            api_user: "{{ pve_api_user }}"
-            api_token_id: "{{ pve_api_token_id }}"
-            api_token_secret: "{{ pve_api_token_secret }}"
+            api_host: "{{ vault_pve_api_host }}"
+            api_user: "{{ vault_pve_api_user }}"
+            api_token_id: "{{ vault_pve_api_token_id }}"
+            api_token_secret: "{{ vault_pve_api_token_secret }}"
             node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm_resolved_node) }}"
             vmid: "{{ hostvars['localhost']._vm.vm_id }}"
             state: stopped

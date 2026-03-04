@@ -35,11 +35,11 @@
           become: false
           connection: local
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: >-
               SELECT
                 (SELECT COUNT(*) FROM backups       WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS backups_7d,
@@ -58,11 +58,11 @@
           become: false
           connection: local
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: >-
               SELECT DISTINCT hostname FROM backups
               WHERE hostname NOT IN (
@@ -80,11 +80,11 @@
           become: false
           connection: local
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: >-
               SELECT
                 (SELECT COUNT(*) FROM updates     WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS failed_updates,

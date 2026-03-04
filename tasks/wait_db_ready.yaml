@@ -21,7 +21,7 @@
     docker exec {{ db_container_name }} influx -execute 'SHOW DATABASES' >/dev/null 2>&1
     {% endif %}
   environment:
-    DB_PASSWORD: "{{ db_password | default('') }}"
+    DB_PASSWORD: "{{ vault_db_password | default('') }}"
   delegate_to: "{{ db_host }}"
   register: _db_ready
   retries: "{{ _db_ready_retries | default(30) }}"

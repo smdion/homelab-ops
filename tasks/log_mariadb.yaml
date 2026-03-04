@@ -22,9 +22,9 @@
 #   log_status      — 'success' or 'failed'
 #
 # Inherited from playbook scope (no need to pass):
-#   logging_db_host, logging_db_port, logging_db_user,
-#   logging_db_password, logging_db_name
-#   domain_local, domain_ext  (from vars/secrets.yaml)
+#   vault_logging_db_host, vault_logging_db_port, vault_logging_db_user,
+#   vault_logging_db_password, vault_logging_db_name
+#   vault_domain_local, vault_domain_ext  (from vars/secrets.yaml)
 #   backup_type, backup_subtype   (for backups — from vars file)
 #   update_type, update_subtype   (for updates — from vars file)
 
@@ -82,11 +82,11 @@
   become: false
   connection: local
   community.mysql.mysql_query:
-    login_host: "{{ logging_db_host }}"
-    login_port: "{{ logging_db_port }}"
-    login_user: "{{ logging_db_user }}"
-    login_password: "{{ logging_db_password }}"
-    login_db: "{{ logging_db_name }}"
+    login_host: "{{ vault_logging_db_host }}"
+    login_port: "{{ vault_logging_db_port }}"
+    login_user: "{{ vault_logging_db_user }}"
+    login_password: "{{ vault_logging_db_password }}"
+    login_db: "{{ vault_logging_db_name }}"
     query: "{{ _backup_query if log_table == 'backups' else (_update_query if log_table == 'updates' else (_maintenance_query if log_table == 'maintenance' else _docker_sizes_query)) }}"
     positional_args: "{{ _backup_args if log_table == 'backups' else (_update_args if log_table == 'updates' else (_maintenance_args if log_table == 'maintenance' else _docker_sizes_args)) }}"
   register: _log_mariadb_result

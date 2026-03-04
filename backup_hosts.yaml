@@ -197,7 +197,7 @@
               days: "-1"
             validate_certs: false  # UNVR uses a self-signed cert; vendor API prevents proper TLS cert management
             headers:
-              x-api-key: "{{ unvr_api_key }}"
+              x-api-key: "{{ vault_unvr_api_key }}"
             status_code: 200
           register: _unvr_backup
           delegate_to: localhost
@@ -213,7 +213,7 @@
             mode: "0600"
             validate_certs: false  # UNVR uses a self-signed cert; vendor API prevents proper TLS cert management
             headers:
-              x-api-key: "{{ unvr_api_key }}"
+              x-api-key: "{{ vault_unvr_api_key }}"
           delegate_to: localhost
           ignore_errors: true  # TODO: file retrieval broken — silence until fixed
           register: _unvr_download
@@ -237,7 +237,7 @@
             method: GET
             validate_certs: false  # UNVR uses a self-signed cert
             headers:
-              x-api-key: "{{ unvr_api_key }}"
+              x-api-key: "{{ vault_unvr_api_key }}"
             status_code: 200
           register: _protect_cameras
           delegate_to: localhost
@@ -266,7 +266,7 @@
             method: GET
             validate_certs: false  # UDM uses a self-signed cert
             headers:
-              x-api-key: "{{ unifi_network_api_key }}"
+              x-api-key: "{{ vault_unifi_network_api_key }}"
             status_code: 200
           register: _unifi_devices
           delegate_to: localhost
@@ -633,11 +633,11 @@
           become: false
           connection: local
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: "SELECT 1"
           register: _mariadb_post_restart
           retries: 40
@@ -808,7 +808,7 @@
               {{ discord_color_success if (_db_combined_results | selectattr('backup_rc', 'ne', 0) | list | length == 0)
                  else (discord_color_failure if (_db_combined_results | selectattr('backup_rc', 'eq', 0) | list | length == 0)
                        else discord_color_warning) }}
-            discord_url: "https://sql.{{ domain_ext }}"
+            discord_url: "https://sql.{{ vault_domain_ext }}"
             discord_fields: "{{ _db_discord_fields }}"
           when: _db_combined_results | default([]) | length > 0
 
@@ -823,7 +823,7 @@
             discord_status: "failed"
             discord_detail: "check Semaphore logs"
             discord_color: "{{ discord_color_failure }}"
-            discord_url: "https://sql.{{ domain_ext }}"
+            discord_url: "https://sql.{{ vault_domain_ext }}"
 
         - name: Clean up UNVR temp backup file
           ansible.builtin.file:

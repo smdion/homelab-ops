@@ -34,31 +34,31 @@ app_definitions:
   sonarr:
     db_stack: databases
     db_config: db_primary_postgres
-    db_host: "{{ db_host_primary }}"
+    db_host: "{{ vault_db_host_primary }}"
     db_names: [sonarr-log, sonarr-main]
     containers: [sonarr]
   radarr:
     db_stack: databases
     db_config: db_primary_postgres
-    db_host: "{{ db_host_primary }}"
+    db_host: "{{ vault_db_host_primary }}"
     db_names: [radarr-log, radarr-main]
     containers: [radarr]
   prowlarr:
     db_stack: databases
     db_config: db_primary_postgres
-    db_host: "{{ db_host_primary }}"
+    db_host: "{{ vault_db_host_primary }}"
     db_names: [prowlarr-log, prowlarr-main]
     containers: [prowlarr]
   nextcloud:
     db_stack: databases
     db_config: db_primary_mariadb
-    db_host: "{{ db_host_primary }}"
+    db_host: "{{ vault_db_host_primary }}"
     db_names: [nextcloud]
     containers: [nextcloud]
   immich:
     db_stack: databases
     db_config: db_secondary_postgres
-    db_host: "{{ db_host_secondary }}"
+    db_host: "{{ vault_db_host_secondary }}"
     db_names: [immich]
     containers: [immich-server, immich-machine-learning]
 

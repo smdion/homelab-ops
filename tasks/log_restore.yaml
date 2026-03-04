@@ -13,8 +13,8 @@
 #   restore_detail        — free-text context (e.g., "15 tables verified")
 #
 # Inherited from playbook scope (no need to pass):
-#   logging_db_host, logging_db_port, logging_db_user,
-#   logging_db_password, logging_db_name  (from vars/secrets.yaml)
+#   vault_logging_db_host, vault_logging_db_port, vault_logging_db_user,
+#   vault_logging_db_password, vault_logging_db_name  (from vars/secrets.yaml)
 
 - name: Log restore to MariaDB
   vars:
@@ -22,11 +22,11 @@
   become: false
   connection: local
   community.mysql.mysql_query:
-    login_host: "{{ logging_db_host }}"
-    login_port: "{{ logging_db_port }}"
-    login_user: "{{ logging_db_user }}"
-    login_password: "{{ logging_db_password }}"
-    login_db: "{{ logging_db_name }}"
+    login_host: "{{ vault_logging_db_host }}"
+    login_port: "{{ vault_logging_db_port }}"
+    login_user: "{{ vault_logging_db_user }}"
+    login_password: "{{ vault_logging_db_password }}"
+    login_db: "{{ vault_logging_db_name }}"
     query: >-
       INSERT INTO restores
       (application, hostname, source_file, restore_type, restore_subtype, operation, status, detail, timestamp)

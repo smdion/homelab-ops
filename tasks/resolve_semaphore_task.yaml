@@ -6,12 +6,12 @@
 # playbook), so this works even when vars/configs/semaphore_check.yaml is not in vars_files.
 #
 # Requires (from vars/secrets.yaml):
-#   semaphore_host_url, semaphore_api_token, semaphore_controller_hostname,
-#   domain_ext, domain_local
+#   vault_semaphore_host_url, vault_semaphore_api_token, vault_semaphore_controller_hostname,
+#   vault_domain_ext, vault_domain_local
 
 - name: Query Semaphore API for current task
   vars:
-    _sem_url: "{{ semaphore_host_url | regex_replace('/$', '') }}"
+    _sem_url: "{{ vault_semaphore_host_url | regex_replace('/$', '') }}"
     _sem_project: "{{ semaphore_project_id | default(1) }}"
   become: false
   delegate_to: localhost
@@ -19,22 +19,22 @@
     url: "{{ _sem_url }}/api/project/{{ _sem_project }}/tasks/last?count=1"
     method: GET
     headers:
-      Authorization: "Bearer {{ semaphore_api_token }}"
+      Authorization: "Bearer {{ vault_semaphore_api_token }}"
       Accept: "application/json"
     return_content: true
     status_code: 200
   register: _semaphore_task_response
   failed_when: false
   when:
-    - semaphore_host_url is defined
-    - semaphore_api_token is defined
+    - vault_semaphore_host_url is defined
+    - vault_semaphore_api_token is defined
     - _semaphore_task_url is not defined
     - not ansible_check_mode
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
 - name: Set Semaphore task URL fact
   vars:
-    _sem_ext: "https://{{ semaphore_controller_hostname }}.{{ domain_ext }}"
+    _sem_ext: "https://{{ vault_semaphore_controller_hostname }}.{{ vault_domain_ext }}"
     _sem_project: "{{ semaphore_project_id | default(1) }}"
   ansible.builtin.set_fact:
     _semaphore_task_url: "{{ _sem_ext }}/project/{{ _sem_project }}/history/{{ (_semaphore_task_response.content | from_json)[0].id }}"

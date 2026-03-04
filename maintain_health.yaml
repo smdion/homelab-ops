@@ -20,10 +20,10 @@
 # Appliances (pikvm, unifi_network, unifi_protect) — covered via stale backup detection
 #
 # Required variables (vars/secrets.yaml):
-#   semaphore_api_token, semaphore_host_url
-#   discord_webhook_id, discord_webhook_token
-#   logging_db_host, logging_db_port, logging_db_user, logging_db_password, logging_db_name
-#   domain_local, domain_ext
+#   vault_semaphore_api_token, vault_semaphore_host_url
+#   vault_discord_webhook_id, vault_discord_webhook_token
+#   vault_logging_db_host, vault_logging_db_port, vault_logging_db_user, vault_logging_db_password, vault_logging_db_name
+#   vault_domain_local, vault_domain_ext
 #
 # Threshold variables (vars/configs/semaphore_check.yaml — all have defaults):
 #   health_disk_warn_pct, health_disk_crit_pct, health_mem_warn_pct
@@ -74,11 +74,11 @@
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: "SELECT DATE_FORMAT(last_check, '%%Y-%%m-%%dT%%H:%%i:%%sZ') AS last_check FROM health_check_state WHERE id = 1"
           register: _state_result
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -103,7 +103,7 @@
             url: "{{ semaphore_url }}/api/project/{{ project_id }}/tasks/last?count={{ task_count }}"
             method: GET
             headers:
-              Authorization: "Bearer {{ semaphore_api_token }}"
+              Authorization: "Bearer {{ vault_semaphore_api_token }}"
               Accept: "application/json"
             return_content: true
             status_code: 200
@@ -199,11 +199,11 @@
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: >-
               SELECT CONCAT(hostname, '\t',
               DATE_FORMAT(CONVERT_TZ(MAX(timestamp), '+00:00', %s), '%%m/%%d/%%Y %%l:%%i %%p'), '\t',
@@ -265,11 +265,11 @@
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: >-
               SELECT b.application, b.hostname, b.file_size,
                      ROUND(avg_tbl.avg_size, 2) AS avg_size
@@ -320,11 +320,11 @@
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: >-
               SELECT CONCAT(application, ' on ', hostname, ' (', type, '/', subtype, ')') AS line
               FROM maintenance
@@ -384,11 +384,11 @@
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: >-
               SELECT CONCAT(hostname, ' — last: ',
               DATE_FORMAT(CONVERT_TZ(MAX(timestamp), '+00:00', %s), '%%m/%%d %%l:%%i %%p')) AS line
@@ -433,11 +433,11 @@
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: "SELECT @@max_connections AS max_conn, (SELECT COUNT(*) FROM information_schema.PROCESSLIST) AS current_conn"
           register: _mariadb_conn_result
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -457,14 +457,14 @@
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_COMMENT LIKE '%%crashed%%'"
             positional_args:
-              - "{{ logging_db_name }}"
+              - "{{ vault_logging_db_name }}"
           register: _crashed_tables_result
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           changed_when: false
@@ -1553,11 +1553,11 @@
       become: false
       connection: local
       community.mysql.mysql_query:
-        login_host: "{{ logging_db_host }}"
-        login_port: "{{ logging_db_port }}"
-        login_user: "{{ logging_db_user }}"
-        login_password: "{{ logging_db_password }}"
-        login_db: "{{ logging_db_name }}"
+        login_host: "{{ vault_logging_db_host }}"
+        login_port: "{{ vault_logging_db_port }}"
+        login_user: "{{ vault_logging_db_user }}"
+        login_password: "{{ vault_logging_db_password }}"
+        login_db: "{{ vault_logging_db_name }}"
         query: "INSERT INTO health_check_state (id, last_check) VALUES (1, UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE last_check = UTC_TIMESTAMP()"
       when: not ansible_check_mode
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -1589,12 +1589,12 @@
     # will detect the missing heartbeat and alert independently of notifications.
     - name: Send heartbeat to Uptime Kuma
       ansible.builtin.uri:
-        url: "{{ uptime_kuma_push_url }}"
+        url: "{{ vault_uptime_kuma_push_url }}"
         method: GET
         status_code: 200
         timeout: 10
       when:
         - not ansible_check_mode
-        - uptime_kuma_push_url is defined
+        - vault_uptime_kuma_push_url is defined
         - not maintenance_failed
       failed_when: false

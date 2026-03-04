@@ -1,6 +1,6 @@
 ---
 # Install and configure keepalived on all Proxmox nodes to provide a floating management VIP.
-# The VIP is used as pve_api_host so VM provisioning works even if the primary node is down.
+# The VIP is used as vault_pve_api_host so VM provisioning works even if the primary node is down.
 # The MASTER node (highest vault_pve_vrrp_priorities entry) normally holds the VIP.
 # On MASTER failure, the next highest-priority BACKUP takes over within ~3 seconds.
 #
@@ -14,7 +14,7 @@
 #                                   e.g. node1: 150 / node2: 100 / node3: 50
 #
 # After running:
-#   1. Update pve_api_host in secrets.yaml to vault_pve_vip
+#   1. Update vault_pve_api_host in secrets.yaml to vault_pve_vip
 #   2. Test a VM build: ansible-playbook build_ubuntu.yaml -e vm_name=test-vm
 
 # ═══════════════════════════════════════════════════════════════════

@@ -55,8 +55,8 @@
 - name: Reset DB passwords to match vault (restored data may differ)
   include_tasks: tasks/reset_db_auth.yaml
   vars:
-    _db_mariadb_password: "{{ db_password }}"
-    _db_postgres_password: "{{ docker_postgres_password }}"
+    _db_mariadb_password: "{{ vault_db_password }}"
+    _db_postgres_password: "{{ vault_docker_postgres_password }}"
     _db_mariadb_container: "{{ hostvars['localhost']._db_mariadb_container | default('mariadb') }}"
     _db_postgres_container: "{{ hostvars['localhost']._db_postgres_container | default('postgres') }}"
   when: "'databases' in hostvars['localhost']._stacks"
@@ -88,7 +88,7 @@
     echo "timeout — found_any=$found_any"
     exit 1
   environment:
-    DB_PASSWORD: "{{ db_password | default('') }}"
+    DB_PASSWORD: "{{ vault_db_password | default('') }}"
     PG_CONTAINER: "{{ hostvars['localhost']._db_postgres_container | default('') }}"
     PG_USER: "{{ hostvars['localhost']._db_postgres_username | default('postgres') }}"
     MARIA_CONTAINER: "{{ hostvars['localhost']._db_mariadb_container | default('') }}"
@@ -145,7 +145,7 @@
     _db_name: "{{ _db_item }}"
     _db_container: "{{ hostvars['localhost']._db_postgres_container }}"
     _db_username: "{{ hostvars['localhost']._db_postgres_username }}"
-    _db_password: "{{ db_password | default('') }}"
+    _db_password: "{{ vault_db_password | default('') }}"
     _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
     _db_is_postgres: true
     _db_is_mariadb: false
@@ -162,7 +162,7 @@
     _db_name: "{{ _db_item }}"
     _db_container: "{{ hostvars['localhost']._db_mariadb_container }}"
     _db_username: "{{ hostvars['localhost']._db_mariadb_username }}"
-    _db_password: "{{ db_password | default('') }}"
+    _db_password: "{{ vault_db_password | default('') }}"
     _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
     _db_is_postgres: false
     _db_is_mariadb: true
@@ -179,7 +179,7 @@
     _db_name: "{{ _db_item }}"
     _db_container: "{{ hostvars['localhost']._db_secondary_postgres_container }}"
     _db_username: "{{ hostvars['localhost']._db_secondary_postgres_username }}"
-    _db_password: "{{ db_password | default('') }}"
+    _db_password: "{{ vault_db_password | default('') }}"
     _db_source_file: "/tmp/db_restore_staging/{{ hostvars['localhost']._db_archive_map[_db_item] | basename }}"
     _db_is_postgres: true
     _db_is_mariadb: false

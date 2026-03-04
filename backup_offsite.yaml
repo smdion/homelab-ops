@@ -1,6 +1,6 @@
 ---
 # Sync local backups to Backblaze B2 offsite storage.
-# Targets a configurable Docker host (offsite_host from vault) since the
+# Targets a configurable Docker host (vault_offsite_host from vault) since the
 # Semaphore controller runs as a container and cannot execute Docker.
 #
 # Two runtime modes (auto-detected from inventory group membership):
@@ -15,9 +15,9 @@
 #
 # Prerequisites:
 #   restic: Docker installed on target host, B2 S3-compatible bucket,
-#           vault keys restic_repository/restic_password/b2_account_id/b2_application_key
+#           vault keys vault_restic_repository/vault_restic_password/vault_b2_account_id/vault_b2_application_key
 #   rclone: rclone installed on target host,
-#           B2 bucket created, vault keys b2_account_id/b2_application_key/b2_bucket_name
+#           B2 bucket created, vault keys vault_b2_account_id/vault_b2_application_key/vault_b2_bucket_name
 #
 # Optional extra vars:
 #   offsite_method=restic|rclone  — sync method (default: restic)
@@ -40,15 +40,15 @@
     - vars/secrets.yaml
     - vars/configs/semaphore_check.yaml
   tasks:
-    - name: Assert offsite_host is defined
+    - name: Assert vault_offsite_host is defined
       ansible.builtin.assert:
         that:
-          - offsite_host is defined and offsite_host | length > 0
-        fail_msg: "offsite_host not set — define in vault (vars/secrets.yaml)"
+          - vault_offsite_host is defined and vault_offsite_host | length > 0
+        fail_msg: "vault_offsite_host not set — define in vault (vars/secrets.yaml)"
 
     - name: Add offsite target to in-memory inventory
       ansible.builtin.add_host:
-        name: "{{ offsite_host }}"
+        name: "{{ vault_offsite_host }}"
         groups: offsite_target
       changed_when: false
 
@@ -115,10 +115,10 @@
     - name: Assert rclone B2 credentials are configured in vault
       ansible.builtin.assert:
         that:
-          - b2_account_id is defined and b2_account_id | length > 0
-          - b2_application_key is defined and b2_application_key | length > 0
-          - b2_bucket_name is defined and b2_bucket_name | length > 0
-        fail_msg: "B2 credentials missing from vault — set b2_account_id, b2_application_key, b2_bucket_name"
+          - vault_b2_account_id is defined and vault_b2_account_id | length > 0
+          - vault_b2_application_key is defined and vault_b2_application_key | length > 0
+          - vault_b2_bucket_name is defined and vault_b2_bucket_name | length > 0
+        fail_msg: "B2 credentials missing from vault — set vault_b2_account_id, vault_b2_application_key, vault_b2_bucket_name"
       when: offsite_method == 'rclone'
 
     # ── restic pre-flight ──
@@ -131,11 +131,11 @@
     - name: Assert Restic credentials are configured in vault
       ansible.builtin.assert:
         that:
-          - restic_repository is defined and restic_repository | length > 0
-          - restic_password is defined and restic_password | length > 0
-          - b2_account_id is defined and b2_account_id | length > 0
-          - b2_application_key is defined and b2_application_key | length > 0
-        fail_msg: "Restic credentials missing from vault — set restic_repository, restic_password, b2_account_id, b2_application_key"
+          - vault_restic_repository is defined and vault_restic_repository | length > 0
+          - vault_restic_password is defined and vault_restic_password | length > 0
+          - vault_b2_account_id is defined and vault_b2_account_id | length > 0
+          - vault_b2_application_key is defined and vault_b2_application_key | length > 0
+        fail_msg: "Restic credentials missing from vault — set vault_restic_repository, vault_restic_password, vault_b2_account_id, vault_b2_application_key"
       when: offsite_method == 'restic'
 
   tasks:
@@ -246,10 +246,10 @@
                 {{ _restic_image }}
                 snapshots --latest 1
               environment:
-                AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
-                AWS_SECRET_ACCESS_KEY: "{{ b2_application_key }}"
-                RESTIC_REPOSITORY: "{{ restic_repository }}"
-                RESTIC_PASSWORD: "{{ restic_password }}"
+                AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
+                AWS_SECRET_ACCESS_KEY: "{{ vault_b2_application_key }}"
+                RESTIC_REPOSITORY: "{{ vault_restic_repository }}"
+                RESTIC_PASSWORD: "{{ vault_restic_password }}"
               register: _restic_check
               failed_when: false
               changed_when: false
@@ -269,10 +269,10 @@
                 {{ _restic_image }}
                 init
               environment:
-                AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
-                AWS_SECRET_ACCESS_KEY: "{{ b2_application_key }}"
-                RESTIC_REPOSITORY: "{{ restic_repository }}"
-                RESTIC_PASSWORD: "{{ restic_password }}"
+                AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
+                AWS_SECRET_ACCESS_KEY: "{{ vault_b2_application_key }}"
+                RESTIC_REPOSITORY: "{{ vault_restic_repository }}"
+                RESTIC_PASSWORD: "{{ vault_restic_password }}"
               when: _restic_check.rc != 0
               no_log: "{{ _no_log }}"
 
@@ -292,10 +292,10 @@
                 --json
                 {{ '--dry-run' if dry_run | default(false) | bool else '' }}
               environment:
-                AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
-                AWS_SECRET_ACCESS_KEY: "{{ b2_application_key }}"
-                RESTIC_REPOSITORY: "{{ restic_repository }}"
-                RESTIC_PASSWORD: "{{ restic_password }}"
+                AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
+                AWS_SECRET_ACCESS_KEY: "{{ vault_b2_application_key }}"
+                RESTIC_REPOSITORY: "{{ vault_restic_repository }}"
+                RESTIC_PASSWORD: "{{ vault_restic_password }}"
               register: _restic_result
               timeout: 7200
               no_log: "{{ _no_log }}"
@@ -317,10 +317,10 @@
                 --keep-monthly {{ restic_keep_monthly }}
                 --prune
               environment:
-                AWS_ACCESS_KEY_ID: "{{ b2_account_id }}"
-                AWS_SECRET_ACCESS_KEY: "{{ b2_application_key }}"
-                RESTIC_REPOSITORY: "{{ restic_repository }}"
-                RESTIC_PASSWORD: "{{ restic_password }}"
+                AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
+                AWS_SECRET_ACCESS_KEY: "{{ vault_b2_application_key }}"
+                RESTIC_REPOSITORY: "{{ vault_restic_repository }}"
+                RESTIC_PASSWORD: "{{ vault_restic_password }}"
               when: not (dry_run | default(false) | bool)
               no_log: "{{ _no_log }}"
 
@@ -357,7 +357,7 @@
               ansible.builtin.command: >-
                 rclone sync
                 {{ _backup_source }}
-                :b2:{{ b2_bucket_name }}
+                :b2:{{ vault_b2_bucket_name }}
                 --fast-list
                 --size-only
                 --transfers {{ b2_transfers | default(4) }}
@@ -370,8 +370,8 @@
                 {{ '--bwlimit ' ~ bwlimit if bwlimit is defined else '' }}
                 {{ '--dry-run' if dry_run | default(false) | bool else '' }}
               environment:
-                RCLONE_B2_ACCOUNT: "{{ b2_account_id }}"
-                RCLONE_B2_KEY: "{{ b2_application_key }}"
+                RCLONE_B2_ACCOUNT: "{{ vault_b2_account_id }}"
+                RCLONE_B2_KEY: "{{ vault_b2_application_key }}"
               register: _rclone_result
               changed_when: _rclone_result.rc == 0
               timeout: 7200
@@ -409,8 +409,8 @@
             discord_fields: >-
               {{
                 [{'name': ('❌ ' if sync_failed else '✅ ') ~ offsite_method, 'value': (_is_docker_run | bool) | ternary('docker run', 'docker compose'), 'inline': true}]
-                + ([{'name': 'Bucket', 'value': b2_bucket_name}] if offsite_method == 'rclone' else [])
-                + ([{'name': 'Repository', 'value': restic_repository}] if offsite_method == 'restic' else [])
+                + ([{'name': 'Bucket', 'value': vault_b2_bucket_name}] if offsite_method == 'rclone' else [])
+                + ([{'name': 'Repository', 'value': vault_restic_repository}] if offsite_method == 'restic' else [])
                 + ([{'name': 'Changed', 'value': ((_restic_summary.data_added | default(0) | int) / 1048576) | round(1) | string ~ ' MiB', 'inline': true}] if _restic_summary | default({}) else [])
                 + ([{'name': 'Files', 'value': (_restic_summary.files_new | default(0) | string) ~ ' new, ' ~ (_restic_summary.files_changed | default(0) | string) ~ ' changed', 'inline': true}] if _restic_summary | default({}) else [])
                 + ([{'name': 'Snapshot', 'value': _restic_summary.snapshot_id | default('') | truncate(8, true, '')}] if _restic_summary.snapshot_id | default('') else [])

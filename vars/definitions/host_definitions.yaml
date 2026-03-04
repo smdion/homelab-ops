@@ -5,7 +5,7 @@
 # See vars/definitions/vm_definitions.yaml for the derivation formulas.
 #
 # Required fields:
-#   vm_hostname    — FQDN for cloud-init/DNS. Use domain_ext for internet-facing
+#   vm_hostname    — FQDN for cloud-init/DNS. Use vault_domain_ext for internet-facing
 #                    hosts, vault_vm_search_domain for LAN hosts.
 #                    host_roles automatically maps both domains for all hosts.
 #
@@ -22,7 +22,7 @@
 
 host_definitions:
   vps:
-    vm_hostname: "vps.{{ domain_ext }}"
+    vm_hostname: "vps.{{ vault_domain_ext }}"
     stacks: [vpn]
     guacamole: { name: VPS, group: Docker }
 

@@ -13,11 +13,11 @@
   vars:
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
   community.mysql.mysql_query:
-    login_host: "{{ logging_db_host }}"
-    login_port: "{{ logging_db_port }}"
-    login_user: "{{ logging_db_user }}"
-    login_password: "{{ logging_db_password }}"
-    login_db: "{{ logging_db_name }}"
+    login_host: "{{ vault_logging_db_host }}"
+    login_port: "{{ vault_logging_db_port }}"
+    login_user: "{{ vault_logging_db_user }}"
+    login_password: "{{ vault_logging_db_password }}"
+    login_db: "{{ vault_logging_db_name }}"
     query: >-
       INSERT INTO playbook_runs (playbook, hostname, run_vars, timestamp)
       VALUES (%s, %s, %s, UTC_TIMESTAMP())

@@ -41,7 +41,7 @@
 #   discord_image        — large embed image (download_videos per-video uses video thumbnail)
 #
 # Inherited from playbook scope (no need to pass):
-#   discord_webhook_id, discord_webhook_token — from vars/secrets.yaml; callers that need
+#   vault_discord_webhook_id, vault_discord_webhook_token — from vars/secrets.yaml; callers that need
 #     a different webhook (e.g., download_videos MeTube channel) override these via vars:
 #   inventory_hostname, ansible_date_time
 #
@@ -54,8 +54,8 @@
   community.general.discord:
     username: "{{ discord_username | default('Ansible Bot') }}"
     avatar_url: "{{ discord_avatar | default('https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png') }}"
-    webhook_id: "{{ discord_webhook_id }}"
-    webhook_token: "{{ discord_webhook_token }}"
+    webhook_id: "{{ vault_discord_webhook_id }}"
+    webhook_token: "{{ vault_discord_webhook_token }}"
     embeds:
       - >-
         {{
@@ -90,8 +90,8 @@
   failed_when: false
   when:
     - not ansible_check_mode
-    - discord_webhook_id is defined
-    - discord_webhook_token is defined
+    - vault_discord_webhook_id is defined
+    - vault_discord_webhook_token is defined
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
 # --- Apprise notifications (optional) ---

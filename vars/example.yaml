@@ -147,7 +147,7 @@ update_subtype: "OS"
 # backup_ext: "sql.gz"
 
 # Database password should be in vars/secrets.yaml (vault), not here
-# db_password: "{{ my_db_password_from_vault }}"
+# vault_db_password: "{{ my_db_password_from_vault }}"
 
 # =============================================================================
 # RESTORE SUPPORT — only needed if using restore/verify playbooks

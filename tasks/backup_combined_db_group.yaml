@@ -7,7 +7,7 @@
 #   _db_combined_results — accumulator list (seeded from caller)
 #   backup_base_dir — controller backup base path
 # Inherits from playbook scope:
-#   db_password, ansible_date_time
+#   vault_db_password, ansible_date_time
 #
 # Vars are loaded directly (no name: prefix) because namespaced dicts
 # eagerly template all values — backup_file uses {{ item }} which is
@@ -45,7 +45,7 @@
   vars:
     _db_container: "{{ db_container_name }}"
     _db_username: "{{ db_username }}"
-    _db_password: "{{ db_password | default('') }}"
+    _db_password: "{{ vault_db_password | default('') }}"
     _db_dest_file: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}/grants_{{ ansible_date_time.date }}.sql.gz"
     _db_delegate_host: "{{ db_host }}"
   when: is_mariadb | default(false) | bool

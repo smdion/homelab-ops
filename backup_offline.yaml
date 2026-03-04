@@ -38,7 +38,7 @@
 
     - block:
         - name: Check if Synology online
-          ansible.builtin.command: ping -c 2 {{ synology_ip }}
+          ansible.builtin.command: ping -c 2 {{ vault_synology_ip }}
           delegate_to: localhost
           failed_when: false
           register: _ping_result
@@ -47,7 +47,7 @@
 
         - name: Send Wake-On-LAN Magic Packet
           community.general.wakeonlan:
-            mac: "{{ synology_mac }}"
+            mac: "{{ vault_synology_mac }}"
           when:
             - _ping_result.rc != 0
             - not ansible_check_mode
@@ -86,21 +86,21 @@
 
         - name: Trigger Home Assistant DSM automation
           ansible.builtin.uri:
-            url: "{{ ha_url }}/api/services/automation/trigger"
+            url: "{{ vault_ha_url }}/api/services/automation/trigger"
             method: POST
             headers:
-              Authorization: "Bearer {{ ha_bearer_token }}"
+              Authorization: "Bearer {{ vault_ha_bearer_token }}"
               Content-Type: "application/json"
             body_format: json
             body:
-              entity_id: "{{ ha_dsm_automation }}"
+              entity_id: "{{ vault_ha_dsm_automation }}"
           delegate_to: localhost
           when: not ansible_check_mode
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Wait for NFS service on Synology
           ansible.builtin.wait_for:
-            host: "{{ synology_ip }}"
+            host: "{{ vault_synology_ip }}"
             port: "{{ nfs_port }}"
             timeout: "{{ synology_nfs_timeout }}"
           delegate_to: localhost
@@ -112,12 +112,12 @@
           ignore_errors: true
           changed_when: true
           ansible.builtin.shell: |
-            if /usr/local/sbin/rc.unassigned mount {{ synology_name }}:{{ synology_mount_path }}; then
+            if /usr/local/sbin/rc.unassigned mount {{ vault_synology_name }}:{{ synology_mount_path }}; then
               sleep {{ synology_mount_settle }}
             else
               exit 1
             fi
-            MOUNT_POINT=$(awk '$1 == "{{ synology_name }}:{{ synology_mount_path }}" { print $2; exit }' /proc/mounts)
+            MOUNT_POINT=$(awk '$1 == "{{ vault_synology_name }}:{{ synology_mount_path }}" { print $2; exit }' /proc/mounts)
             if [ -z "$MOUNT_POINT" ]; then
               exit 2
             fi
@@ -125,7 +125,7 @@
             sync
             sleep {{ synology_post_sync_delay }}
             let "n = {{ umount_timeout }}"
-            while ! /usr/local/sbin/rc.unassigned umount {{ synology_name }}:{{ synology_mount_path }}; do
+            while ! /usr/local/sbin/rc.unassigned umount {{ vault_synology_name }}:{{ synology_mount_path }}; do
               if [ "$n" -eq 0 ]; then
                 exit 3
               fi
@@ -142,20 +142,20 @@
       always:
         - name: Shutdown Synology via Home Assistant
           ansible.builtin.uri:
-            url: "{{ ha_url }}/api/services/button/press"
+            url: "{{ vault_ha_url }}/api/services/button/press"
             method: POST
             headers:
-              Authorization: "Bearer {{ ha_bearer_token }}"
+              Authorization: "Bearer {{ vault_ha_bearer_token }}"
               Content-Type: "application/json"
             body_format: json
             body:
-              entity_id: "{{ ha_shutdown_button }}"
+              entity_id: "{{ vault_ha_shutdown_button }}"
           delegate_to: localhost
           when: not ansible_check_mode
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Verify Synology has shut down
-          ansible.builtin.shell: "ping -c 1 -W 2 {{ synology_ip }}"
+          ansible.builtin.shell: "ping -c 1 -W 2 {{ vault_synology_ip }}"
           delegate_to: localhost
           register: _shutdown_ping
           until: _shutdown_ping.rc != 0

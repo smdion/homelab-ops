@@ -1,4 +1,4 @@
-# unvr_api_key is in vars/secrets.yaml (vault)
+# vault_unvr_api_key is in vars/secrets.yaml (vault)
 backup_tmp_dir: "/tmp/backup"
 backup_assert_disk_min_gb: 0  # backup is API-based (delegate_to: localhost) — no remote disk needed
 backup_name: "Unifi Protect"

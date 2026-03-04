@@ -16,7 +16,7 @@
 #                         (default: first host in amp group)
 #
 # Vault vars (vars/secrets.yaml):
-#   amp_licence_key     — CubeCoders license UUID; skips reactivation if not in vault
+#   vault_amp_licence_key     — CubeCoders license UUID; skips reactivation if not in vault
 #
 # Usage:
 #   ansible-playbook bootstrap_amp.yaml -e confirm=yes
@@ -67,10 +67,10 @@
     # For present: provision_vm.yaml sets _vm_actual_node after cloning.
     - name: Query cluster resources for actual VM node
       ansible.builtin.uri:
-        url: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
+        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
         method: GET
         headers:
-          Authorization: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
+          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
         validate_certs: false
       register: _cluster_vms
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -611,16 +611,16 @@
 
     - name: Skip license reactivation (no key provided)
       ansible.builtin.debug:
-        msg: "No amp_licence_key provided — skipping license reactivation. Run manually with: ampinstmgr reactivateall"
-      when: amp_licence_key is not defined
+        msg: "No vault_amp_licence_key provided — skipping license reactivation. Run manually with: ampinstmgr reactivateall"
+      when: vault_amp_licence_key is not defined
 
     - name: Reactivate license for each instance
       ansible.builtin.shell: >
-        sudo su -l {{ amp_user }} -c 'ampinstmgr reactivate {{ item }} {{ amp_licence_key }}'
+        sudo su -l {{ amp_user }} -c 'ampinstmgr reactivate {{ item }} {{ vault_amp_licence_key }}'
       loop: "{{ _restore_instances }}"
       changed_when: true
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      when: amp_licence_key is defined
+      when: vault_amp_licence_key is defined
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 7 — Start all instances and verify AMP web panel

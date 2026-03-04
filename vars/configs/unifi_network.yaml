@@ -1,4 +1,4 @@
-# unifi_network_api_key is in vars/secrets.yaml (vault)
+# vault_unifi_network_api_key is in vars/secrets.yaml (vault)
 # Create in Unifi Network → Settings → Control Plane → Integrations → API Key
 src_raw_files:
   - "/data/unifi/data/backup/autobackup/"
@@ -9,7 +9,7 @@ backup_description: "Automatic Unifi Network Backup"
 backup_type: "Appliances"
 backup_subtype: "Config"
 backup_file: "backup_network_config_{{ ansible_date_time.date }}.tar.gz"
-vps_address: "{{ vps_fqdn }}"
+vps_address: "{{ vault_vps_fqdn }}"
 
 # Unifi OS paths — WireGuard config extraction from gateway state
 unifi_state_file: "/data/udapi-config/ubios-udapi-server/ubios-udapi-server.state"

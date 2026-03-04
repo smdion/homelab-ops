@@ -50,11 +50,11 @@
             - purge_all | default('') == 'yes'
             - not ansible_check_mode
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: "{{ item }}"
           loop:
             - "TRUNCATE TABLE backups"
@@ -78,11 +78,11 @@
             - purge_all | default('') != 'yes'
             - not ansible_check_mode
           community.mysql.mysql_query:
-            login_host: "{{ logging_db_host }}"
-            login_port: "{{ logging_db_port }}"
-            login_user: "{{ logging_db_user }}"
-            login_password: "{{ logging_db_password }}"
-            login_db: "{{ logging_db_name }}"
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
             query: "{{ item }}"
           loop:
             - "DELETE FROM updates WHERE status = 'failed' AND timestamp < UTC_TIMESTAMP()"

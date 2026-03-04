@@ -11,8 +11,8 @@
 #
 # Required variables (vars/secrets.yaml):
 #   grafana_url, grafana_service_account_token
-#   logging_db_host, logging_db_port, logging_db_user, logging_db_password, logging_db_name
-#   discord_webhook_id, discord_webhook_token
+#   vault_logging_db_host, vault_logging_db_port, vault_logging_db_user, vault_logging_db_password, vault_logging_db_name
+#   vault_discord_webhook_id, vault_discord_webhook_token
 #
 # Usage:
 #   ansible-playbook deploy_grafana.yaml
@@ -70,11 +70,11 @@
               name: "Ansible-Logging"
               type: "mysql"
               access: "proxy"
-              url: "{{ logging_db_host }}:{{ logging_db_port }}"
-              database: "{{ logging_db_name }}"
-              user: "{{ logging_db_user }}"
+              url: "{{ vault_logging_db_host }}:{{ vault_logging_db_port }}"
+              database: "{{ vault_logging_db_name }}"
+              user: "{{ vault_logging_db_user }}"
               secureJsonData:
-                password: "{{ logging_db_password }}"
+                password: "{{ vault_logging_db_password }}"
               isDefault: false
             status_code: 200
           when:

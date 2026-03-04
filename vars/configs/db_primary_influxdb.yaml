@@ -1,8 +1,8 @@
 # No auth required for InfluxDB 1.x (default config)
-db_host: "{{ db_host_primary }}"
+db_host: "{{ vault_db_host_primary }}"
 backup_stack: monitoring
 backup_name: "Database"
-backup_url: "https://sql.{{ domain_ext }}"
+backup_url: "https://sql.{{ vault_domain_ext }}"
 backup_description: "Automatic Database Backup"
 backup_subtype: "Database"
 backup_ext: "tar.gz"
