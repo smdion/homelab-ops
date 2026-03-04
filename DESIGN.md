@@ -1162,7 +1162,7 @@ from Docker groups. Currently `docker_run` and `unraid` contain the same hosts, 
 - `docker_run` membership does NOT imply unRAID.
 - Docker playbooks target `hosts: "docker"` — never append `:unraid` (would duplicate current
   hosts and break future non-Docker unRAID hosts).
-- unRAID-specific tasks (disk assignment snapshot, array find-index, boot backup) guard on
+- unRAID-specific tasks (disk assignment snapshot, array find-index, config backup) guard on
   `groups['unraid']`, not `groups['docker_run']`.
 - Docker stop/start in backup must guard on `groups['docker_run']`, not just
   `not in groups['docker_stacks']` (too broad — would target future non-Docker unRAID hosts).
@@ -2265,7 +2265,7 @@ All backup archives follow the pattern `backup_<identifier>_<date>.<ext>`, where
 | AMP instance | `amp_<instance>` | `.tar.gz` | `backup_amp_Minecraft01_2026-02-25.tar.gz` | `tasks/backup_single_amp_instance.yaml` |
 | Proxmox / PBS config | `<hostname>_config` | `.tar.gz` | `backup_pve01_config_2026-02-25.tar.gz` | `vars/configs/proxmox.yaml` |
 | PiKVM config | `<hostname>_config` | `.tar.gz` | `backup_pikvm01_config_2026-02-25.tar.gz` | `vars/configs/pikvm.yaml` |
-| unRAID boot | `<hostname>_boot` | `.tar.gz` | `backup_unraid_boot_2026-02-25.tar.gz` | `vars/configs/unraid_os.yaml` |
+| unRAID config | `<hostname>_config` | `.tar.gz` | `backup_unraid_config_2026-02-25.tar.gz` | `vars/configs/unraid_os.yaml` |
 | Unifi Network config | `network_config` | `.tar.gz` | `backup_network_config_2026-02-25.tar.gz` | `vars/configs/unifi_network.yaml` |
 | Unifi Protect config | `protect_config` | `.unf` | `backup_protect_config_2026-02-25.unf` | `vars/configs/unifi_protect.yaml` |
 | Image versions manifest | `<stackname>` or `<hostname>` | `.versions.txt` | `backup_auth_2026-02-25.versions.txt` | `tasks/capture_image_versions.yaml` |
