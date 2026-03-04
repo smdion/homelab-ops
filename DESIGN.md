@@ -36,12 +36,12 @@ make changes confidently.
 
 **Ansible playbooks are the single source of truth for configuration.** Semaphore is an
 orchestration UI — it handles scheduling, SSH credentials, and vault decryption — but it does
-not own any configuration values. Every config variable lives in a version-controlled `vars/*.yaml`
-file. Every secret lives in the encrypted vault.
+not own any configuration values. Every config variable lives in a version-controlled `vars/` file
+(under `configs/` or `definitions/`). Every secret lives in the encrypted vault.
 
 **Semaphore variable groups are routing-only.** Each variable group JSON contains only
 `hosts_variable` (and sometimes `config_file`). No config values, no secrets, no overrides.
-If a variable is not in `vars/` or the vault, it does not exist. The `blank` variable group
+If a variable is not in `vars/configs/`, `vars/definitions/`, or the vault, it does not exist. The `blank` variable group
 (`{}`) is a placeholder required by the Semaphore UI for templates that need no routing.
 
 **The database is a log with minimal state reads.** The MariaDB `ansible_logging` database stores
@@ -56,21 +56,23 @@ shared file — and if the same block is being copy-pasted to a second playbook,
 When reviewing or modifying playbooks, look for opportunities to move repeated logic into `tasks/`.
 
 **Vars files are the only per-deployment configuration layer.** All deployment-specific values
-live in `vars/*.yaml` files, the encrypted vault, and the Ansible inventory. Playbooks contain
-no hardcoded hostnames, container names, database names, URLs, filesystem paths, or network
-topology. To adapt this project for a different homelab: create your own `vars/` files following
-`vars/example.yaml`, populate the inventory with your hosts, and encrypt your secrets. The
-playbooks, shared tasks, SQL schema, and Grafana dashboard work unchanged.
+live in `vars/configs/` and `vars/definitions/` files, the encrypted vault, and the Ansible
+inventory. Playbooks contain no hardcoded hostnames, container names, database names, URLs,
+filesystem paths, or network topology. To adapt this project for a different homelab: create
+your own vars files following `vars/example.yaml`, populate the inventory with your hosts, and
+encrypt your secrets. The playbooks, shared tasks, SQL schema, and Grafana dashboard work
+unchanged.
 
 ### What goes where
 
 | Location | What belongs there | Examples |
 |----------|-------------------|----------|
-| **`vars/*.yaml`** | All deployment-specific configuration — anything that would change on a different homelab | Hostnames, URLs, filesystem paths, container names, thresholds, API endpoints, retention periods, application paths |
-| **`vars/secrets.yaml`** (vault) | Credentials, API keys, domain suffixes, IP addresses | `discord_webhook_token`, `logging_db_password`, `domain_ext` |
+| **`vars/configs/*.yaml`** | Runtime configuration — anything that would change on a different homelab | Hostnames, URLs, filesystem paths, container names, thresholds, API endpoints, retention periods, application paths |
+| **`vars/definitions/*.yaml`** | Definition registries — structured inventories of VMs, apps, containers, hosts, PVE nodes | `vm_definitions`, `app_definitions`, `container_definitions`, `host_definitions`, `pve_definitions` |
+| **`vars/secrets.yaml`** (vault) | Credentials, API keys, domain suffixes, IP addresses | `vault_discord_webhook_token`, `vault_logging_db_password`, `vault_domain_ext` |
 | **`group_vars/all.yaml`** | Shared defaults that apply to all hosts | `ansible_remote_tmp`, `stacks_base_path`, `backup_base_dir`, `backup_url` template |
-| **Inventory** | Host definitions, group membership, SSH/connection settings | `[ubuntu]`, `[pve]`, `[docker_stacks]`, host FQDNs |
-| **Semaphore variable groups** | Routing-only — `hosts_variable` and `config_file` | `{"hosts_variable": "pve:pbs"}` |
+| **Inventory** | Host definitions, group membership, SSH/connection settings | `[ubuntu]`, `[pve]`, `[proxmox:children]`, `[docker_stacks]`, host FQDNs |
+| **Semaphore variable groups** | Routing-only — `hosts_variable` and `config_file` | `{"hosts_variable": "proxmox"}` |
 | **Docker container labels** (`homelab.*`) | Static per-container config metadata discovered at runtime by tasks | `homelab.backup.paths`, `homelab.health_timeout`, `homelab.test.skip_health` |
 | **MariaDB (`ansible_logging`)** | Dynamic operational data — time-series records that accumulate per run | Backup records, update history, health checks, restore results, playbook runs |
 | **Play-level `vars:`** | Only derived/computed values and operation metadata | `config_file: "{{ hosts_variable }}"`, `maintenance_name: "Docker"`, `maintenance_type: "Servers"` |
@@ -84,9 +86,9 @@ playbooks, shared tasks, SQL schema, and Grafana dashboard work unchanged.
   are operation labels, not deployment configuration — they don't change per homelab.
 - **Never in `vars:`** — URLs (even cosmetic ones like icon URLs), filesystem paths, container
   names, hostnames, thresholds, or any value that a different deployment might need to change.
-  These always go in `vars/*.yaml` files.
+  These always go in `vars/configs/*.yaml` files.
 
-**Quick test:** If you changed homelabs and had to edit a value, it must be in a `vars/` file.
+**Quick test:** If you changed homelabs and had to edit a value, it must be in a `vars/configs/` or `vars/definitions/` file.
 If the value describes the operation itself (not the environment), it can stay in the playbook.
 
 **Prefer Docker labels over vars files for per-container metadata.**
@@ -115,34 +117,38 @@ history, restore results, playbook runs) belongs in the database.
 │   └── pikvm.yaml                  # PiKVM override: ansible_remote_tmp → /tmp/.ansible/tmp (RO filesystem; /tmp is tmpfs)
 │
 ├── vars/
-│   ├── secrets.yaml                # AES256-encrypted vault — ALL secrets (incl. domain config, docker_* keys, pve_* keys)
+│   ├── secrets.yaml                # AES256-encrypted vault — ALL secrets (vault_ prefixed); incl. domain config, docker_* keys, pve_* keys
 │   ├── secrets.yaml.example         # Template with all vault keys documented (copy → encrypt)
-│   ├── example.yaml                # Template for creating new platform vars files
-│   ├── semaphore_check.yaml         # Health thresholds (26 checks), controller_fqdn, semaphore_db_name, semaphore_url/semaphore_ext_url, display_timezone, retention_days, appliance_check_hosts
-│   ├── pve_definitions.yaml          # PVE cluster node definitions (IPs, FQDNs, Guacamole metadata)
-│   ├── proxmox.yaml                 # Proxmox PVE + PBS
-│   ├── pikvm.yaml                   # PiKVM KVM — backup/update config; see group_vars/pikvm.yaml for connection override
-│   ├── unifi_network.yaml           # Unifi Network — backup, gateway paths (unifi_state_file), unifi_backup_retention, maintenance_url
-│   ├── unifi_protect.yaml           # Unifi Protect — backup, API paths (unifi_protect_api_backup_path, unifi_protect_temp_file)
-│   ├── amp.yaml                     # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
-│   ├── app_definitions.yaml         # Apps + infrastructure DBs — restore discovery, scope selector, single source for db_names
-│   ├── container_definitions.yaml   # Pinned container image:tag pairs (authentik, postgres, victoria-metrics, jellyseerr)
-│   ├── docker_stacks.yaml           # Docker Compose — backup/update, stack_assignments, docker_network_name, docker_* defaults
-│   ├── docker_vips.yaml             # Keepalived VRRP config for Docker VM VIPs — interface, CIDR, test VIP offsets; vault vars for VIPs + priorities
-│   ├── docker_run.yaml              # Docker run / unRAID — backup/update, backup/update exclude lists
-│   ├── guacamole.yaml               # Guacamole connection management — groups, admin groups, SSH defaults, user group permissions
-│   ├── ubuntu_os.yaml               # Ubuntu OS updates
-│   ├── unraid_os.yaml               # unRAID OS backup
-│   ├── synology.yaml                # Synology NAS sync
-│   ├── vm_definitions.yaml          # Consolidated VM spec — VMID/IP/resources/stacks/deploy_ssh_key per role; derives stack_roles + host_roles dynamically
-│   ├── host_definitions.yaml       # Non-Proxmox managed hosts (VPS, legacy, NAS) — merged into host_roles/stack_roles
-│   ├── db_primary_postgres.yaml     # Primary host Postgres DB backup + db_container_deps for restore
-│   ├── db_primary_mariadb.yaml      # Primary host MariaDB backup + db_container_deps for restore
-│   ├── db_primary_influxdb.yaml     # Primary host InfluxDB backup + db_container_deps for restore
-│   ├── db_secondary_postgres.yaml   # Secondary host Postgres DB backup + db_container_deps for restore
-│   ├── download_base.yaml          # Shared infrastructure for all download profiles (container, paths, Discord icons)
-│   ├── download_default.yaml       # yt-dlp download profile: default (scheduled — per-user preference overrides)
-│   └── download_on_demand.yaml    # yt-dlp download profile: on_demand (bookmarklet — per-user preference overrides)
+│   ├── example.yaml                # Template for creating new platform config files
+│   │
+│   ├── definitions/                 # Definition registries — structured inventories (5 files)
+│   │   ├── vm_definitions.yaml      # Consolidated VM spec — VMID/IP/resources/stacks/deploy_ssh_key per role; derives stack_roles + host_roles dynamically
+│   │   ├── app_definitions.yaml     # Apps + infrastructure DBs — restore discovery, scope selector, single source for db_names
+│   │   ├── container_definitions.yaml # Pinned container image:tag pairs (authentik, postgres, victoria-metrics, jellyseerr)
+│   │   ├── host_definitions.yaml    # Non-Proxmox managed hosts (VPS, legacy, NAS) — merged into host_roles/stack_roles
+│   │   └── pve_definitions.yaml     # PVE cluster node definitions (IPs, FQDNs, Guacamole metadata)
+│   │
+│   └── configs/                     # Runtime configs — per-platform operational settings (20 files)
+│       ├── semaphore_check.yaml     # Health thresholds (26 checks), controller_fqdn, semaphore_db_name, semaphore_url/semaphore_ext_url, display_timezone, retention_days, appliance_check_hosts
+│       ├── proxmox.yaml             # Proxmox PVE + PBS
+│       ├── pikvm.yaml               # PiKVM KVM — backup/update config; see group_vars/pikvm.yaml for connection override
+│       ├── unifi_network.yaml       # Unifi Network — backup, gateway paths (unifi_state_file), unifi_backup_retention, maintenance_url
+│       ├── unifi_protect.yaml       # Unifi Protect — backup, API paths (unifi_protect_api_backup_path, unifi_protect_temp_file)
+│       ├── amp.yaml                 # AMP — backup/update + maintenance config (amp_user, amp_home, amp_versions_keep)
+│       ├── docker_stacks.yaml       # Docker Compose — backup/update, stack_assignments, docker_network_name, docker_* defaults
+│       ├── docker_vips.yaml         # Keepalived VRRP config for Docker VM VIPs — interface, CIDR, test VIP offsets; vault vars for VIPs + priorities
+│       ├── docker_run.yaml          # Docker run / unRAID — backup/update, backup/update exclude lists
+│       ├── guacamole.yaml           # Guacamole connection management — groups, admin groups, SSH defaults, user group permissions
+│       ├── ubuntu_os.yaml           # Ubuntu OS updates
+│       ├── unraid_os.yaml           # unRAID OS backup
+│       ├── synology.yaml            # Synology NAS sync
+│       ├── db_primary_postgres.yaml # Primary host Postgres DB backup + db_container_deps for restore
+│       ├── db_primary_mariadb.yaml  # Primary host MariaDB backup + db_container_deps for restore
+│       ├── db_primary_influxdb.yaml # Primary host InfluxDB backup + db_container_deps for restore
+│       ├── db_secondary_postgres.yaml # Secondary host Postgres DB backup + db_container_deps for restore
+│       ├── download_base.yaml       # Shared infrastructure for all download profiles (container, paths, Discord icons)
+│       ├── download_default.yaml    # yt-dlp download profile: default (scheduled — per-user preference overrides)
+│       └── download_on_demand.yaml  # yt-dlp download profile: on_demand (bookmarklet — per-user preference overrides)
 │
 ├── tasks/
 │   ├── notify.yaml                  # Shared notification task (Discord + Apprise)
@@ -242,8 +248,7 @@ history, restore results, playbook runs) belongs in the database.
 │   └── get_push_epoch.sh           # Helper script for Docker image age checks (deployed to remote hosts by update_systems.yaml)
 │
 ├── sql/
-│   ├── init.sql                    # Database schema — run `mysql -u root -p < sql/init.sql` to create all tables
-│   └── migrate_daily_dedup.sql     # Migration — add daily dedup indexes to existing databases
+│   └── init.sql                    # Database schema — run `mysql -u root -p < sql/init.sql` to create all tables
 │
 ├── grafana/
 │   └── grafana.json                # Grafana dashboard — Backup, Updates & Health Monitoring
@@ -279,27 +284,25 @@ centralized backup path defaults (`backup_base_dir`, `backup_tmp_dir`, `backup_d
 **`ansible.cfg`** — Ansible configuration: disables `.retry` files and sets `stdout_callback: yaml`
 for human-readable output.
 
-**`vars/secrets.yaml`** — AES256-encrypted vault. Contains Discord webhook credentials
-(`discord_webhook_id`, `discord_webhook_token`), MariaDB logging credentials (`logging_db_*`),
-API keys (`semaphore_api_token`, `unvr_api_key`), domain suffixes for hostname normalization
-(`domain_local`, `domain_ext`), and the ansible user SSH public key
-(`ansible_user_ssh_pubkey`). Edit with `ansible-vault edit vars/secrets.yaml`.
-**Never commit the decrypted file.**
+**`vars/secrets.yaml`** — AES256-encrypted vault. All variables use the `vault_` prefix. Contains
+Discord webhook credentials (`vault_discord_webhook_id`, `vault_discord_webhook_token`), MariaDB
+logging credentials (`vault_logging_db_*`), API keys (`vault_semaphore_api_token`,
+`vault_unvr_api_key`), domain suffixes for hostname normalization (`vault_domain_local`,
+`vault_domain_ext`), and the ansible user SSH public key (`vault_ansible_user_ssh_pubkey`). Edit
+with `ansible-vault edit vars/secrets.yaml`. **Never commit the decrypted file.**
 
 **`vars/secrets.yaml.example`** — Template listing all expected vault keys with descriptions and
 example values. Copy to `vars/secrets.yaml` and encrypt with `ansible-vault encrypt`. Optional
 keys (MeTube webhook, UNVR API key, Synology credentials, SSH pubkey) are commented out.
 
-**`vars/example.yaml`** — Template for creating new platform vars files. Documents all backup and
-update variables with comments explaining each field. Copy to `vars/<platform>.yaml` when adding
-a new platform.
+**`vars/example.yaml`** — Template for creating new platform config files. Documents all backup and
+update variables with comments explaining each field. Copy to `vars/configs/<platform>.yaml` when
+adding a new platform.
 
 **`sql/init.sql`** — Standalone database schema file. Creates the `ansible_logging` database and
 all eight tables (`backups`, `updates`, `maintenance`, `health_checks`, `health_check_state`, `restores`, `docker_sizes`, `playbook_runs`).
 Run once with `mysql -u root -p < sql/init.sql`. Uses `CREATE TABLE IF NOT EXISTS` so re-running
-is safe. **`sql/migrate_daily_dedup.sql`** — Migration script for existing databases. Deduplicates
-existing rows, adds `log_date` generated columns, and creates `idx_daily_dedup` UNIQUE indexes.
-Idempotent — safe to re-run.
+is safe.
 
 **`tasks/notify.yaml`** — Shared notification task (Discord + optional Apprise). Called via
 `include_tasks` with `vars:` block. Required: `discord_title`, `discord_color`, `discord_fields`.
@@ -310,7 +313,7 @@ inherited from vault; `download_videos` overrides to a separate MeTube channel. 
 adds `apprise_urls` or `apprise_api_url` + `apprise_api_key` alongside Discord.
 
 **`templates/metube.conf.j2`** — Jinja2 template for yt-dlp configuration, rendered per download
-profile from `vars/{{ config_file }}.yaml`. Profile-specific settings (quality, paths, batch
+profile from `vars/configs/{{ config_file }}.yaml`. Profile-specific settings (quality, paths, batch
 file, filters) come from the vars file; common options (ignore errors, embed metadata,
 sponsorblock) and the `--print-to-file` JSONL metadata export are in the template. Two vars
 control conditional rendering:
@@ -320,16 +323,16 @@ control conditional rendering:
 
 Deployed to the host via `ansible.builtin.template` to `/mnt/user/appdata/youtube-dl/<config_name>/`.
 
-**`vars/download_base.yaml`** — Shared infrastructure for all download profiles. Contains
+**`vars/configs/download_base.yaml`** — Shared infrastructure for all download profiles. Contains
 MeTube container name, host paths, temp cleanup settings, container-internal paths, output
 template, extractor configuration, and Discord notification URLs/icons. Loaded automatically
 by `download_videos.yaml` before the profile-specific file.
 
-**`vars/download_default.yaml`** — Per-user preference overrides for scheduled channel downloads.
+**`vars/configs/download_default.yaml`** — Per-user preference overrides for scheduled channel downloads.
 Contains `config_name`, batch file, archive path, quality, format, rate limit, content filters,
 and mode flags (`ytdlp_quiet: true`, `ytdlp_filter_live: true`).
 
-**`vars/download_on_demand.yaml`** — Per-user preference overrides for bookmarklet-triggered
+**`vars/configs/download_on_demand.yaml`** — Per-user preference overrides for bookmarklet-triggered
 downloads. Shares `config_name: default` with `download_default.yaml` (same config directory
 and download archive) but overrides `ytdlp_batch_file` to read from the bookmarklet feeder
 file, and sets `ytdlp_quiet: false` and `ytdlp_filter_live: false` for verbose output and
@@ -339,8 +342,8 @@ Each Semaphore template uses its own `config_file` to load the correct profile:
 - **Default** environment: `{"hosts_variable": "<download_host>", "config_file": "download_default"}`
 - **On Demand** environment: `{"hosts_variable": "<download_host>", "config_file": "download_on_demand"}`
 
-Adding a new per-user profile = create `vars/download_<user>_default.yaml` and
-`vars/download_<user>_on_demand.yaml` with preference overrides + create Semaphore templates.
+Adding a new per-user profile = create `vars/configs/download_<user>_default.yaml` and
+`vars/configs/download_<user>_on_demand.yaml` with preference overrides + create Semaphore templates.
 Infrastructure vars inherit from `download_base.yaml` automatically.
 
 Both profiles share the same download archive (`/configs/default/downloaded`) so videos downloaded
@@ -358,15 +361,15 @@ the entire parse.
 database on the same container (create `_restore_test_<dbname>` → restore → count tables → drop).
 Tests config archives by verifying gzip integrity and extracting to a staging directory. For
 `docker_stacks` hosts, verifies per-stack archives. For `amp` hosts, verifies per-instance
-archives (integrity check + extract + file count). Reuses existing `vars/db_*.yaml` and
-`vars/*.yaml` via standard `hosts_variable`/`config_file` routing. Logs results to `restores`
+archives (integrity check + extract + file count). Reuses existing `vars/configs/db_*.yaml` and
+`vars/configs/*.yaml` via standard `hosts_variable`/`config_file` routing. Logs results to `restores`
 table with `operation: verify`. Semaphore templates: `Verify — AMP [Backup]` (id=77).
 
 **`restore_databases.yaml`** — Database restore from backup dumps. Supports restoring a specific
 database on a shared instance (e.g., just `nextcloud` on shared MariaDB without touching `semaphore`
 or `ansible_logging`). Safety-gated with `confirm=yes` assertion. Creates pre-restore safety
 backup by default. Stops only **same-host** dependent containers via `db_container_deps` mapping
-(from `vars/db_*.yaml`) — cross-host app containers have empty deps and must be stopped manually or
+(from `vars/configs/db_*.yaml`) — cross-host app containers have empty deps and must be stopped manually or
 via `restore_hosts.yaml -e with_databases=yes`. Supports `restore_db` (single DB) and
 `restore_date` (specific backup date) parameters.
 
@@ -432,7 +435,7 @@ via `scripts/dr_rebuild_all.sh` shell wrapper (NFS ordering: core before dev).
 plays: Play 1 (localhost) manages VM via Proxmox API; Play 2 (new VM) bootstraps Ubuntu with
 Docker, SSH hardening, UFW. Supports four `vm_state` values: `present` (default — clone template,
 cloud-init config, resize disk, start), `absent` (destroy), `snapshot` (disk-only), `revert`
-(rollback + restart). VM specs from `vars/vm_definitions.yaml` via `-e vm_name=<key>`.
+(rollback + restart). VM specs from `vars/definitions/vm_definitions.yaml` via `-e vm_name=<key>`.
 `tasks/provision_vm.yaml` is idempotent — resumes from partial failures.
 
 **`restore_amp.yaml`** — AMP game server instance restore. Safety-gated with `confirm=yes`. Stops
@@ -579,7 +582,7 @@ Used by all 26 playbooks that log to MariaDB (every playbook except `download_vi
 `setup_ansible_user.yaml`, `setup_pve_vip.yaml`, `setup_test_network.yaml`, and `verify_isolation.yaml`).
 
 **`maintain_health.yaml` — check notes:**
-- **Host groups:** Defined by `health_check_groups` in `vars/semaphore_check.yaml` — add a group
+- **Host groups:** Defined by `health_check_groups` in `vars/configs/semaphore_check.yaml` — add a group
   to include it in monitoring.
 - **State management:** Last check timestamp in `health_check_state` table (single-row, survives
   container restarts). Read at Play 1 start, written at Play 3 end.
@@ -680,10 +683,10 @@ playbook to the correct functional group.
 Each Semaphore variable group JSON contains only routing information:
 
 ```json
-{"hosts_variable": "pve:pbs"}
+{"hosts_variable": "proxmox"}
 ```
 
-When the `vars/*.yaml` filename differs from the `hosts_variable` value, add `config_file`:
+When the `vars/configs/*.yaml` filename differs from the `hosts_variable` value, add `config_file`:
 
 ```json
 {"hosts_variable": "ubuntu", "config_file": "ubuntu_os"}
@@ -695,7 +698,7 @@ Current cases requiring explicit `config_file`: `ubuntu_os`, `unraid_os`, `synol
 
 **Resolver play (database targeting):** `backup_databases.yaml`, `restore_databases.yaml`, and
 `verify_backups.yaml` prepend a resolver play that runs on `localhost`. The resolver loads
-`vars/{{ hosts_variable }}.yaml` and, if the vars file defines `db_host`, dynamically creates
+`vars/configs/{{ hosts_variable }}.yaml` and, if the vars file defines `db_host`, dynamically creates
 an in-memory inventory group via `add_host`. This lets `hosts_variable=db_primary_postgres`
 work even though `db_primary_postgres` is not a real inventory group. When `hosts_variable`
 is a real inventory group (e.g. `docker_stacks`), the vars file does not define `db_host`
@@ -713,12 +716,12 @@ hostname-based names. Verify and restore templates **share** the same Semaphore 
 backup templates for the same target — do not create separate environments.
 
 **`hosts_variable` lives in Semaphore only** — it is resolved at `hosts:` parse time before
-`vars_files` load. Any copy in a `vars/` file would be ignored for host targeting.
+`vars_files` load. Any copy in a `vars/configs/` file would be ignored for host targeting.
 
 ### Key Store
 
 6 entries — SSH keys and login credentials attached to inventories, injected by Semaphore at
-runtime. They are not Ansible variables and are not in `vars/` files. **Do not delete any.**
+runtime. They are not Ansible variables and are not in vars files. **Do not delete any.**
 
 ### Template naming convention
 
@@ -787,8 +790,8 @@ The main data playbooks (`backup_hosts.yaml`, `backup_databases.yaml`, `update_s
 
 ```yaml
 vars_files:
-  - vars/secrets.yaml          # all secrets + domain config (domain_local/ext)
-  - vars/{{ config_file }}.yaml  # host-specific config
+  - vars/secrets.yaml                    # all secrets + domain config (vault_domain_local/ext)
+  - vars/configs/{{ config_file }}.yaml  # host-specific config
 vars:
   config_file: "{{ hosts_variable }}"
 ```
@@ -844,7 +847,7 @@ All user-facing `-e` extra vars follow these naming and value patterns:
 | `rollback_stack=<name>` | Alias for `stack=<name>` in rollback context (backward compat) |
 | `rollback_service=<name>` | Rollback a single service |
 | `amp_instance_filter=<name>` | Target a single AMP instance by name (`backup_hosts`, `restore_amp`) |
-| `vm_name=<key>` | VM definition key from `vars/vm_definitions.yaml` |
+| `vm_name=<key>` | VM definition key from `vars/definitions/vm_definitions.yaml` |
 | `update_scope=os\|docker\|software` | Override auto-detected scope (`update_systems`); normally derived from `hosts_variable` |
 | `amp_scope=versions\|cleanup\|coredumps\|prune\|journal` | Target a specific maintenance operation (`maintain_amp`); omit for all |
 | `skip_dbs=<comma-list>` | DB names to exclude from restore (`dr_rebuild`, e.g. `-e skip_dbs=nextcloud`) |
@@ -919,7 +922,7 @@ task history is cleaned up by `maintain_semaphore.yaml` after `download_task_ret
 Every `always:` block passes a standard set of vars to `tasks/notify.yaml` using the
 standard operational interface. Embed layout is built automatically from three vars:
 
-- **`discord_name`** — system name from `vars/*.yaml` (e.g. `backup_name`, `maintenance_name`,
+- **`discord_name`** — system name from `vars/configs/*.yaml` (e.g. `backup_name`, `maintenance_name`,
   `update_name`). Values: `"Database"`, `"Docker"`, `"unRAID"`, `"Ubuntu"`, etc.
 - **`discord_operation`** — operation name set inline in the playbook. Values: `"Backup"`,
   `"Sync"`, `"Verification"`, `"Restore"`, `"Deploy"`, `"Build"`, `"Bootstrap"`,
@@ -946,8 +949,8 @@ clickable link to the Semaphore task page when `_semaphore_task_url` is set. Thi
 resolved by `tasks/resolve_semaphore_task.yaml` (called from `pre_task_assertions.yaml`),
 which queries `GET /api/project/{id}/tasks/last?count=1` for the current task ID. The task
 is self-contained — it derives `semaphore_url` and `semaphore_ext_url` from `vars/secrets.yaml`
-vars (`semaphore_host_url`, `semaphore_controller_hostname`, `domain_ext`) so it works in all
-playbooks regardless of whether `vars/semaphore_check.yaml` is loaded. The link is omitted
+vars (`vault_semaphore_host_url`, `vault_semaphore_controller_hostname`, `vault_domain_ext`) so it works in all
+playbooks regardless of whether `vars/configs/semaphore_check.yaml` is loaded. The link is omitted
 gracefully when running outside Semaphore or in check mode.
 
 **Emoji prefix on result fields.** The primary subject field in every notification uses
@@ -996,7 +999,7 @@ NAS syncs from regular appdata backups. Both use `backup_name: "unRAID"`, produc
 
 **URL variable conventions:**
 
-- `backup_url` — defined in `vars/*.yaml`. Used by backup AND update playbooks (same host web UI).
+- `backup_url` — defined in `vars/configs/*.yaml`. Used by backup AND update playbooks (same host web UI).
   Set to `""` for hosts with no web UI (e.g., `ubuntu_os.yaml`).
 - `maintenance_url` — defined inline in each maintenance playbook's `vars:` block. Set to the
   host's web UI URL or `""` if none. `maintain_semaphore` and `maintain_health` use
@@ -1068,9 +1071,9 @@ canonical identifier defined in the inventory — it is always the correct FQDN,
 and completely under the user's control. The DB and notification output reflect exactly what is in
 the inventory, regardless of what any host reports about itself.
 
-**`controller_fqdn`** is defined in `vars/semaphore_check.yaml` as a Jinja2 expression:
-`"{{ semaphore_controller_hostname }}.{{ domain_local }}"`. Both `semaphore_controller_hostname` and
-`domain_local` come from the vault. Playbooks that run on `hosts: localhost`
+**`controller_fqdn`** is defined in `vars/configs/semaphore_check.yaml` as a Jinja2 expression:
+`"{{ vault_semaphore_controller_hostname }}.{{ vault_domain_local }}"`. Both `vault_semaphore_controller_hostname` and
+`vault_domain_local` come from the vault. Playbooks that run on `hosts: localhost`
 (`maintain_semaphore.yaml`, `maintain_health.yaml` Plays 1/3) use it for both DB logging and
 the `discord_author` override because `inventory_hostname` resolves to `localhost` in that
 context.
@@ -1078,10 +1081,10 @@ context.
 ### URL construction
 
 Discord embed URLs (`backup_url`) use the **external domain suffix** from the vault
-(`domain_ext`) combined with the short hostname extracted from `inventory_hostname`:
+(`vault_domain_ext`) combined with the short hostname extracted from `inventory_hostname`:
 
 ```yaml
-backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ domain_ext }}"
+backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ vault_domain_ext }}"
 ```
 
 This produces URLs like `https://myhost.example.com` — the short hostname (`myhost`) joined
@@ -1089,8 +1092,8 @@ with the external domain (`example.com`). Do **not** use the full `inventory_hos
 construction, as that would create invalid double-domain URLs (e.g., `myhost.home.local.example.com`).
 
 Some hosts use fixed URL patterns instead:
-- Synology: `https://synology.{{ domain_ext }}` (runs on NAS host, URL is for synology)
-- Database: `https://sql.{{ domain_ext }}` (shared URL regardless of host)
+- Synology: `https://synology.{{ vault_domain_ext }}` (runs on NAS host, URL is for synology)
+- Database: `https://sql.{{ vault_domain_ext }}` (shared URL regardless of host)
 - Unifi Network: `https://unifi.ui.com/` (hardcoded external cloud portal)
 
 **Semaphore dual URLs:** Semaphore has two URL variables because the API needs an internal
@@ -1098,10 +1101,10 @@ IP-based URL while notification links need the external domain:
 
 | Variable | Source | Example | Purpose |
 |---|---|---|---|
-| `semaphore_url` | `semaphore_host_url` from vault (trailing slash stripped) | `http://10.0.0.1:3000` | API calls (`/api/project/...`) |
-| `semaphore_ext_url` | Built from `controller_fqdn` + `domain_ext` | `https://controller.example.com` | Discord embed links, `maintenance_url` |
+| `semaphore_url` | `vault_semaphore_host_url` from vault (trailing slash stripped) | `http://10.0.0.1:3000` | API calls (`/api/project/...`) |
+| `semaphore_ext_url` | Built from `controller_fqdn` + `vault_domain_ext` | `https://controller.example.com` | Discord embed links, `maintenance_url` |
 
-Both are defined in `vars/semaphore_check.yaml`. Only `maintain_health.yaml` uses both — the
+Both are defined in `vars/configs/semaphore_check.yaml`. Only `maintain_health.yaml` uses both — the
 API URL for the Semaphore task query and the external URL for notification task links and the
 `maintenance_url` clickable embed.
 
@@ -1339,10 +1342,10 @@ output is masked, directing the operator to the correct debugging step.
 - **`group_vars/all.yaml`** — defaults that apply everywhere: shared Ansible settings, backup path
   patterns, Discord colors. Also provides `backup_type`/`update_type` (default `"Servers"`),
   `backup_tmp_dir` (default `"/backup"`), and DB engine flags (`is_postgres`/`is_mariadb`/`is_influxdb`,
-  all default `false`). Override these in `vars/*.yaml` only when needed.
+  all default `false`). Override these in `vars/configs/*.yaml` only when needed.
 - **`group_vars/<group>.yaml`** — per-group overrides for a specific inventory group (e.g.,
   `group_vars/pikvm.yaml` for `ansible_remote_tmp`)
-- **`vars/*.yaml`** — per-platform configs loaded explicitly via `vars_files:` in playbooks; use for
+- **`vars/configs/*.yaml`** — per-platform configs loaded explicitly via `vars_files:` in playbooks; use for
   operational variables (backup paths, task names, feature flags) that vary by platform
 - **`host_vars/<hostname>.yaml`** — reserved for truly host-specific overrides that don't fit a group
   pattern; currently unused (prefer group_vars for host groups)
@@ -1354,7 +1357,7 @@ Docker service images generally use `latest`. Exceptions:
 - **Images without a `latest` tag** (e.g., Authentik — always use versioned tags): must be pinned
 - **DB images that need version stability** (e.g., PostgreSQL) may also be pinned
 
-All pinned image:tag pairs live in `vars/container_definitions.yaml`. Compose files reference
+All pinned image:tag pairs live in `vars/definitions/container_definitions.yaml`. Compose files reference
 them via env vars rendered through `env.j2`. Update them manually; do not auto-update pinned
 images — they require testing before a version bump.
 
@@ -1528,10 +1531,6 @@ mutable columns (file sizes, statuses, details) and refresh the timestamp.
 `playbook_runs` is an audit trail — every invocation is a distinct record. `health_check_state`
 is a single-row table with a PK constraint.
 
-**Migration:** For existing databases, run `sql/migrate_daily_dedup.sql` to deduplicate existing
-rows (keeping the latest per group per day), add the `log_date` column, and create the UNIQUE
-indexes. The script is idempotent — safe to re-run.
-
 **`skip_db` flag:** All logging tasks honor `skip_db` — pass `-e skip_db=yes` to suppress all DB
 writes during testing. This includes `log_mariadb.yaml`, `log_restore.yaml`, and
 `log_health_checks_batch.yaml`.
@@ -1550,7 +1549,7 @@ timezone to UTC — other databases on the same MariaDB instance depend on the c
 |--------|-----------|---------------|
 | **Grafana** | Returns raw `DATETIME` columns from SQL; Grafana converts to viewer timezone | Default datasource timezone (UTC) — no explicit configuration needed |
 | **Discord** | Embed `timestamp` field accepts ISO 8601 UTC; Discord auto-converts to viewer local | No configuration — `ansible_date_time.iso8601` and `now(utc=true)` already produce UTC |
-| **Discord (inline text)** | Stale backup alert uses `CONVERT_TZ` with `display_timezone` variable | `display_timezone` in `vars/semaphore_check.yaml` (default: `America/Chicago`); requires MariaDB timezone tables loaded |
+| **Discord (inline text)** | Stale backup alert uses `CONVERT_TZ` with `display_timezone` variable | `display_timezone` in `vars/configs/semaphore_check.yaml` (default: `America/Chicago`); requires MariaDB timezone tables loaded |
 
 **Grafana panels** return raw `DATETIME` or `UNIX_TIMESTAMP()` — Grafana handles timezone
 conversion via the dashboard setting (`""` = browser default).
@@ -1577,8 +1576,8 @@ CREATE TABLE backups (
   file_name VARCHAR(255),         -- Backup filename
   file_size DECIMAL(10,2),        -- Size in MB
   timestamp DATETIME,             -- UTC_TIMESTAMP() — always UTC regardless of server timezone
-  backup_type VARCHAR(50),        -- Set by vars/*.yaml (e.g., 'Appliances', 'Servers')
-  backup_subtype VARCHAR(50),     -- Set by vars/*.yaml (e.g., 'Config', 'Appdata', 'Database')
+  backup_type VARCHAR(50),        -- Set by vars/configs/*.yaml (e.g., 'Appliances', 'Servers')
+  backup_subtype VARCHAR(50),     -- Set by vars/configs/*.yaml (e.g., 'Config', 'Appdata', 'Database')
   backup_level VARCHAR(20) NOT NULL DEFAULT 'host',  -- 'host' or 'stack' — granularity of the backup
   log_date DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
   INDEX idx_hostname (hostname),
@@ -1603,8 +1602,8 @@ CREATE TABLE updates (
   hostname VARCHAR(255),          -- FQDN, normalized by Ansible before INSERT
   version VARCHAR(100),           -- Version number after update
   timestamp DATETIME,             -- UTC_TIMESTAMP() — always UTC regardless of server timezone
-  update_type VARCHAR(50),        -- Set by vars/*.yaml (e.g., 'Appliances', 'Servers')
-  update_subtype VARCHAR(50),     -- Set by vars/*.yaml (e.g., 'PVE', 'PBS', 'OS', 'Game Server')
+  update_type VARCHAR(50),        -- Set by vars/configs/*.yaml (e.g., 'Appliances', 'Servers')
+  update_subtype VARCHAR(50),     -- Set by vars/configs/*.yaml (e.g., 'PVE', 'PBS', 'OS', 'Game Server')
   status VARCHAR(20) NOT NULL DEFAULT 'success',  -- 'success' or 'failed'
   INDEX idx_hostname (hostname),
   INDEX idx_timestamp (timestamp),
@@ -1838,7 +1837,7 @@ Proxmox is the only platform where `application` means different things for back
 For backups you want to see which Proxmox system produced the file; for updates you want to
 group all Proxmox software history together and use subtype to drill down.
 
-This is why **`backup_name` and `update_name` are separate variables in `vars/proxmox.yaml`**,
+This is why **`backup_name` and `update_name` are separate variables in `vars/configs/proxmox.yaml`**,
 and why `update_systems.yaml` must use `update_name` (not `backup_name`) for DB operations.
 
 #### Variable names → DB columns
@@ -1846,12 +1845,12 @@ and why `update_systems.yaml` must use `update_name` (not `backup_name`) for DB 
 | Ansible var | DB column | Set in |
 |---|---|---|
 | `log_hostname` | `*.hostname` (all tables) | `include_tasks vars:` — always `inventory_hostname` or `controller_fqdn` |
-| `backup_name` | `backups.application` | `vars/*.yaml` |
-| `update_name` | `updates.application` | `vars/*.yaml` |
-| `backup_type` | `backups.backup_type` | `group_vars/all.yaml` (default `"Servers"`); override in `vars/*.yaml` for Appliances |
-| `backup_subtype` | `backups.backup_subtype` | `vars/*.yaml` |
-| `update_type` | `updates.update_type` | `group_vars/all.yaml` (default `"Servers"`); override in `vars/*.yaml` for Appliances |
-| `update_subtype` | `updates.update_subtype` | `vars/*.yaml` |
+| `backup_name` | `backups.application` | `vars/configs/*.yaml` |
+| `update_name` | `updates.application` | `vars/configs/*.yaml` |
+| `backup_type` | `backups.backup_type` | `group_vars/all.yaml` (default `"Servers"`); override in `vars/configs/*.yaml` for Appliances |
+| `backup_subtype` | `backups.backup_subtype` | `vars/configs/*.yaml` |
+| `update_type` | `updates.update_type` | `group_vars/all.yaml` (default `"Servers"`); override in `vars/configs/*.yaml` for Appliances |
+| `update_subtype` | `updates.update_subtype` | `vars/configs/*.yaml` |
 | `maintenance_name` | `maintenance.application` | inline `vars:` in playbook |
 | `maintenance_type` | `maintenance.type` | inline `vars:` in playbook |
 | `maintenance_subtype` | `maintenance.subtype` | inline `vars:` in playbook |
@@ -1868,24 +1867,24 @@ maintenance values (e.g., `maintenance_url` when it's a hardcoded URL) go in the
 
 ### Categorization values
 
-All type/subtype values are declared in `vars/*.yaml` files. To change a category, edit the file.
+All type/subtype values are declared in `vars/configs/*.yaml` files. To change a category, edit the file.
 No SQL changes needed.
 
 **Backups:**
 
 | vars file | application | backup_type | backup_subtype |
 |---|---|---|---|
-| `vars/proxmox.yaml` | PVE or PBS (Jinja2 group check) | Appliances | Config |
-| `vars/pikvm.yaml` | PiKVM | Appliances | Config |
-| `vars/unifi_network.yaml` | Unifi Network | Appliances | Config |
-| `vars/unifi_protect.yaml` | Unifi Protect | Appliances | Config |
-| `vars/amp.yaml` | AMP | Servers | Config |
-| `vars/docker_stacks.yaml` | (stack name) | Servers | Appdata |
-| `vars/docker_run.yaml` | Docker | Servers | Appdata |
-| `vars/unraid_os.yaml` | unRAID | Servers | Config |
-| `vars/synology.yaml` | unRAID | Servers | Offline |
+| `vars/configs/proxmox.yaml` | PVE or PBS (Jinja2 group check) | Appliances | Config |
+| `vars/configs/pikvm.yaml` | PiKVM | Appliances | Config |
+| `vars/configs/unifi_network.yaml` | Unifi Network | Appliances | Config |
+| `vars/configs/unifi_protect.yaml` | Unifi Protect | Appliances | Config |
+| `vars/configs/amp.yaml` | AMP | Servers | Config |
+| `vars/configs/docker_stacks.yaml` | (stack name) | Servers | Appdata |
+| `vars/configs/docker_run.yaml` | Docker | Servers | Appdata |
+| `vars/configs/unraid_os.yaml` | unRAID | Servers | Config |
+| `vars/configs/synology.yaml` | unRAID | Servers | Offline |
 | `backup_offsite.yaml` (inline) | B2 | Servers | Offsite |
-| `vars/db_*.yaml` | (individual db name)-db | Servers | Database |
+| `vars/configs/db_*.yaml` | (individual db name)-db | Servers | Database |
 
 Database vars files also set `backup_ext` (`"sql.gz"` for PostgreSQL/MariaDB, `"tar.gz"` for InfluxDB)
 which controls file extensions in find/copy/cleanup paths across all three database playbooks.
@@ -1895,12 +1894,12 @@ To restore from old `.sql` backups (pre-extension fix), pass `-e backup_ext=sql`
 
 | vars file | application | update_type | update_subtype |
 |---|---|---|---|
-| `vars/proxmox.yaml` | Proxmox | Appliances | PVE or PBS (Jinja2) |
-| `vars/pikvm.yaml` | PiKVM | Appliances | KVM |
-| `vars/amp.yaml` | AMP | Servers | Game Server |
-| `vars/ubuntu_os.yaml` | Ubuntu | Servers | OS |
-| `vars/docker_stacks.yaml` | (container name) | Servers | Container |
-| `vars/docker_run.yaml` | (container name) | Servers | Container |
+| `vars/configs/proxmox.yaml` | Proxmox | Appliances | PVE or PBS (Jinja2) |
+| `vars/configs/pikvm.yaml` | PiKVM | Appliances | KVM |
+| `vars/configs/amp.yaml` | AMP | Servers | Game Server |
+| `vars/configs/ubuntu_os.yaml` | Ubuntu | Servers | OS |
+| `vars/configs/docker_stacks.yaml` | (container name) | Servers | Container |
+| `vars/configs/docker_run.yaml` | (container name) | Servers | Container |
 
 Docker container updates log per-container rows: `application` is the individual service/container
 name (e.g., `nginx`, `plex`), not `"Docker"`. This follows the same pattern as `backup_databases.yaml`
@@ -1935,14 +1934,14 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 
 | vars file source | application | restore_type | restore_subtype | operation |
 |---|---|---|---|---|
-| `vars/db_*.yaml` | (db name)-db | Servers | Database | restore |
-| `vars/proxmox.yaml` | PVE or PBS | Appliances | Config | restore |
-| `vars/docker_stacks.yaml` | (stack name) or (app name) | Servers | Appdata | restore |
-| `vars/docker_run.yaml` | Docker or (app name) | Servers | Appdata | restore |
-| `vars/unraid_os.yaml` | unRAID | Servers | Config | restore |
-| `vars/pikvm.yaml` | PiKVM | Appliances | Config | restore |
-| `vars/docker_stacks.yaml` | (service name) | Servers | Container | rollback |
-| `vars/docker_stacks.yaml` | (app name) | Servers | Appdata | restore (`restore_app.yaml`) |
+| `vars/configs/db_*.yaml` | (db name)-db | Servers | Database | restore |
+| `vars/configs/proxmox.yaml` | PVE or PBS | Appliances | Config | restore |
+| `vars/configs/docker_stacks.yaml` | (stack name) or (app name) | Servers | Appdata | restore |
+| `vars/configs/docker_run.yaml` | Docker or (app name) | Servers | Appdata | restore |
+| `vars/configs/unraid_os.yaml` | unRAID | Servers | Config | restore |
+| `vars/configs/pikvm.yaml` | PiKVM | Appliances | Config | restore |
+| `vars/configs/docker_stacks.yaml` | (service name) | Servers | Container | rollback |
+| `vars/configs/docker_stacks.yaml` | (app name) | Servers | Appdata | restore (`restore_app.yaml`) |
 
 **Verification** logs to the `maintenance` table (subtype `Verify`) using the same
 `backup_type` / `backup_name` values from the vars file. See [Maintenance](#maintenance).
@@ -1950,8 +1949,8 @@ always excluded; unRAID also excludes MariaDB and Ansible (infrastructure contai
 ### Expected hostname format
 
 All hostnames in the inventory should be FQDNs using a consistent internal domain suffix
-(matching `domain_local` in the vault). External hosts (e.g., a VPS) use the external
-domain (`domain_ext`). Examples:
+(matching `vault_domain_local` in the vault). External hosts (e.g., a VPS) use the external
+domain (`vault_domain_ext`). Examples:
 
 ```
 pve-node1.home.local
@@ -2023,9 +2022,9 @@ Then update Key Store id=30 in Semaphore UI to match.
 ### Add a new host
 
 1. Add the host to `inventory.yaml` (vault-encrypted — decrypt, edit, re-encrypt, commit)
-2. Create or reuse a `vars/<config>.yaml` with `backup_type`/`backup_subtype` set
+2. Create or reuse a `vars/configs/<config>.yaml` with `backup_type`/`backup_subtype` set
 3. Create a Semaphore template with the correct inventory and variable group
-4. If the host's group should be health-monitored, add the group to `health_check_groups` in `vars/semaphore_check.yaml`
+4. If the host's group should be health-monitored, add the group to `health_check_groups` in `vars/configs/semaphore_check.yaml`
 5. No DB changes needed — Ansible sends all column values
 
 ### Add a new secret
@@ -2036,7 +2035,7 @@ Then update Key Store id=30 in Semaphore UI to match.
 
 ### Change a category (type/subtype)
 
-Edit the relevant `vars/*.yaml` file. No SQL changes needed. Future runs use the new values.
+Edit the relevant `vars/configs/*.yaml` file. No SQL changes needed. Future runs use the new values.
 Existing rows keep old values — update them manually if needed:
 ```sql
 UPDATE backups SET backup_type = 'NewValue' WHERE hostname LIKE 'myhost%';
@@ -2044,8 +2043,8 @@ UPDATE backups SET backup_type = 'NewValue' WHERE hostname LIKE 'myhost%';
 
 ### Change domain suffixes
 
-Edit `vars/secrets.yaml` (`ansible-vault edit vars/secrets.yaml`) and update `domain_local`
-and `domain_ext`. Propagates automatically to all future INSERTs and the health check query.
+Edit `vars/secrets.yaml` (`ansible-vault edit vars/secrets.yaml`) and update `vault_domain_local`
+and `vault_domain_ext`. Propagates automatically to all future INSERTs and the health check query.
 Existing rows are not affected — update them manually if needed.
 
 ### Restore a database from backup
@@ -2067,7 +2066,7 @@ ansible-playbook restore_hosts.yaml -e hosts_variable=docker_run --limit <hostna
 ```
 
 Always use `--limit <hostname>` with `-e restore_app` since `docker_stacks`/`docker_run` are
-multi-host groups. `app_definitions` in `vars/app_definitions.yaml` provides the stack name (docker_stacks
+multi-host groups. `app_definitions` in `vars/definitions/app_definitions.yaml` provides the stack name (docker_stacks
 apps), container list + `db_host` (docker_run apps), and DB names for both. DB config and health
 URLs are discovered from container labels at runtime.
 
@@ -2105,7 +2104,7 @@ was pruned by `maintain_docker.yaml`, the old version is pulled from the registr
 **Combined recovery (`with_backup=yes`):** When a bad upstream update also corrupted data or
 ran irreversible DB migrations, use `-e with_backup=yes` to restore appdata and databases
 alongside the image rollback. DB dependencies are auto-detected from `app_definitions` in
-`vars/docker_stacks.yaml` — e.g., rolling back `auth` stack auto-restores the `authentik`
+`vars/configs/docker_stacks.yaml` — e.g., rolling back `auth` stack auto-restores the `authentik`
 database from its latest SQL dump. The flow: stop stacks → restore appdata per stack → start
 DB containers → restore SQL dumps → apply image rollback → bring all services up.
 
@@ -2135,7 +2134,7 @@ Pool membership is derived at runtime from each VM's live `net0` VLAN tag — no
 
 **One-time PBS setup (after first pool run):** Datacenter → Backup → edit each backup job → set **Pool** = `production`. Backup jobs then only target production VMs.
 
-**Test VMs in pool at creation:** `tasks/provision_vm.yaml` adds test VMs to the `test` pool immediately after provisioning (guarded by `when: pve_pool_test is defined` — no-op when `vars/proxmox.yaml` is not loaded).
+**Test VMs in pool at creation:** `tasks/provision_vm.yaml` adds test VMs to the `test` pool immediately after provisioning (guarded by `when: pve_pool_test is defined` — no-op when `vars/configs/proxmox.yaml` is not loaded).
 
 ### Useful DB queries
 
@@ -2149,7 +2148,7 @@ playbooks. Deploy it using `deploy_grafana.yaml`, which provisions both the data
 dashboard via the Grafana API. For manual import: **Dashboards → Import → Upload JSON file**.
 
 **Automated deploy:** `deploy_grafana.yaml` runs from localhost (no SSH). It creates the
-`Ansible-Logging` MySQL datasource if missing (using `logging_db_*` vault credentials), then
+`Ansible-Logging` MySQL datasource if missing (using `vault_logging_db_*` vault credentials), then
 imports the dashboard JSON with `overwrite: true`. Requires `grafana_url` and
 `grafana_service_account_token` in vault. See Semaphore template `Deploy — Grafana [Dashboard]`.
 
@@ -2189,7 +2188,7 @@ Key panel features:
 - **Threshold syncing:** `deploy_grafana.yaml` automatically syncs Ansible thresholds into the
   dashboard JSON before importing. The Stale Backups panel thresholds and SQL query use
   `health_backup_stale_days`, and the Stale Updates SQL uses `health_update_stale_days` —
-  both from `vars/semaphore_check.yaml`. Change the Ansible variable, re-deploy, and the
+  both from `vars/configs/semaphore_check.yaml`. Change the Ansible variable, re-deploy, and the
   Grafana panels update automatically. The raw `grafana/grafana.json` file keeps the default
   values (216 hours, 14 days) as a baseline — the playbook replaces them at deploy time
 
@@ -2260,15 +2259,15 @@ All backup archives follow the pattern `backup_<identifier>_<date>.<ext>`, where
 | Backup type | Identifier | Extension | Example | Defined in |
 |---|---|---|---|---|
 | PostgreSQL / MariaDB DB | `<dbname>` | `.sql` | `backup_authentik_2026-02-25.sql` | `vars/db_primary_*.yaml`, `tasks/backup_single_db.yaml` |
-| InfluxDB | `<dbname>` | `.tar.gz` | `backup_telegraf_2026-02-25.tar.gz` | `vars/db_primary_influxdb.yaml`, `tasks/backup_single_db.yaml` |
+| InfluxDB | `<dbname>` | `.tar.gz` | `backup_telegraf_2026-02-25.tar.gz` | `vars/configs/db_primary_influxdb.yaml`, `tasks/backup_single_db.yaml` |
 | Docker stack | `<stackname>` | `.tar.gz` | `backup_auth_2026-02-25.tar.gz` | `tasks/backup_single_stack.yaml` |
-| Docker appdata (monolithic) | `docker` | `.tar.gz` | `backup_docker_2026-02-25.tar.gz` | `vars/docker_run.yaml` |
+| Docker appdata (monolithic) | `docker` | `.tar.gz` | `backup_docker_2026-02-25.tar.gz` | `vars/configs/docker_run.yaml` |
 | AMP instance | `amp_<instance>` | `.tar.gz` | `backup_amp_Minecraft01_2026-02-25.tar.gz` | `tasks/backup_single_amp_instance.yaml` |
-| Proxmox / PBS config | `<hostname>_config` | `.tar.gz` | `backup_pve01_config_2026-02-25.tar.gz` | `vars/proxmox.yaml` |
-| PiKVM config | `<hostname>_config` | `.tar.gz` | `backup_pikvm01_config_2026-02-25.tar.gz` | `vars/pikvm.yaml` |
-| unRAID boot | `<hostname>_boot` | `.tar.gz` | `backup_unraid_boot_2026-02-25.tar.gz` | `vars/unraid_os.yaml` |
-| Unifi Network config | `network_config` | `.tar.gz` | `backup_network_config_2026-02-25.tar.gz` | `vars/unifi_network.yaml` |
-| Unifi Protect config | `protect_config` | `.unf` | `backup_protect_config_2026-02-25.unf` | `vars/unifi_protect.yaml` |
+| Proxmox / PBS config | `<hostname>_config` | `.tar.gz` | `backup_pve01_config_2026-02-25.tar.gz` | `vars/configs/proxmox.yaml` |
+| PiKVM config | `<hostname>_config` | `.tar.gz` | `backup_pikvm01_config_2026-02-25.tar.gz` | `vars/configs/pikvm.yaml` |
+| unRAID boot | `<hostname>_boot` | `.tar.gz` | `backup_unraid_boot_2026-02-25.tar.gz` | `vars/configs/unraid_os.yaml` |
+| Unifi Network config | `network_config` | `.tar.gz` | `backup_network_config_2026-02-25.tar.gz` | `vars/configs/unifi_network.yaml` |
+| Unifi Protect config | `protect_config` | `.unf` | `backup_protect_config_2026-02-25.unf` | `vars/configs/unifi_protect.yaml` |
 | Image versions manifest | `<stackname>` or `<hostname>` | `.versions.txt` | `backup_auth_2026-02-25.versions.txt` | `tasks/capture_image_versions.yaml` |
 
 On failure, the MariaDB log column records `FAILED_` prefixed to the filename (e.g. `FAILED_backup_auth_2026-02-25.tar.gz`).
@@ -2477,7 +2476,7 @@ snapshot — survives reboots.
 ### Test Restore (automated)
 
 `test_restore.yaml` and `test_backup_restore.yaml` use **ephemeral**
-VM slots drawn from the same shared pool defined in `vars/vm_definitions.yaml`. Pool size and base
+VM slots drawn from the same shared pool defined in `vars/definitions/vm_definitions.yaml`. Pool size and base
 values are controlled entirely by two vars:
 
 - `vm_test_slot_base` — base VMID; pool spans `vm_test_slot_base .. vm_test_slot_base + vm_test_slot_count - 1`
