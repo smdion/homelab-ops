@@ -620,6 +620,7 @@
             path: "{{ backup_tmp_file }}"
           register: file_size
           changed_when: false
+          delegate_to: "{{ 'localhost' if inventory_hostname in groups['unifi_protect'] else omit }}"
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
@@ -663,6 +664,15 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
+            - inventory_hostname not in groups["unifi_protect"]
+
+        - name: Move UNVR backup from staging to final destination
+          ansible.builtin.command:
+            cmd: "mv {{ backup_tmp_file }} {{ backup_dest_path }}"
+          delegate_to: localhost
+          become: false
+          when:
+            - inventory_hostname in groups["unifi_protect"]
 
         - name: Delete source backup
           become: true
@@ -672,6 +682,7 @@
           when:
             - inventory_hostname not in groups["docker_stacks"] | default([])
             - inventory_hostname not in groups["amp"] | default([])
+            - inventory_hostname not in groups["unifi_protect"]
 
       rescue:
         - name: Set backup failed flag
