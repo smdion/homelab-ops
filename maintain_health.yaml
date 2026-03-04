@@ -1547,8 +1547,16 @@
             # Collect all unique top-level /opt entries used by containers
             containers=$(docker ps -aq 2>/dev/null)
             if [ -n "$containers" ]; then
-              for src in $(docker inspect --format '{% raw %}{{range .Mounts}}{{.Source}} {{end}}{% endraw %}' $containers 2>/dev/null | tr ' ' '\n' | grep -oP '/opt/[^/]+' | sort -u); do
-                expected="$expected $(basename "$src")"
+              for src in $(docker inspect --format '{% raw %}{{range .Mounts}}{{.Source}} {{end}}{% endraw %}' $containers 2>/dev/null | tr ' ' '\n' | grep -oP '/opt(/[^/]+)?' | sort -u); do
+                # Handle both /opt/subdir mounts and direct /opt mounts
+                if [ "$src" = "/opt" ]; then
+                  # Container mounts /opt root — add all current top-level entries as expected
+                  for sub in /opt/*/; do
+                    [ -d "$sub" ] && expected="$expected $(basename "$sub")"
+                  done
+                else
+                  expected="$expected $(basename "$src")"
+                fi
               done
             fi
             # Also include stack compose dirs
