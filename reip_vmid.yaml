@@ -24,7 +24,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
+    - vars/configs/proxmox.yaml
   vars:
     _storage: "{{ storage | default('pve') }}"
 

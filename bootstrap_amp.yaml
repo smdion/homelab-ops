@@ -31,9 +31,9 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/proxmox.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "AMP"
     maintenance_type: "Servers"
@@ -173,9 +173,9 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/docker_vips.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/docker_vips.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "AMP"
     maintenance_type: "Servers"
@@ -257,8 +257,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/amp.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/amp.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "AMP"
     maintenance_type: "Servers"
@@ -376,8 +376,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/amp.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/amp.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     _restore_host: "{{ restore_host | default(groups['amp'][0]) }}"
 
@@ -453,8 +453,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/amp.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/amp.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "AMP"
     maintenance_type: "Servers"
@@ -591,7 +591,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/amp.yaml
+    - vars/configs/amp.yaml
   vars:
     _restore_instances: "{{ hostvars['localhost']._restore_instances }}"
 
@@ -631,7 +631,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/amp.yaml
+    - vars/configs/amp.yaml
 
   pre_tasks:
     - name: Skip play on destroy

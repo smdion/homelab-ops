@@ -4,7 +4,7 @@
 # Skips cleanly when host has no role assignment (test VMs).
 #
 # Requires:
-#   vars/docker_vips.yaml loaded (docker_vips, docker_vrrp_interface)
+#   vars/configs/docker_vips.yaml loaded (docker_vips, docker_vrrp_interface)
 #   host_roles — dict: FQDN → role
 # Sets:
 #   _vip_summary — human-readable verification result for logging

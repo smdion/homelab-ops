@@ -1,7 +1,7 @@
 # VM provisioning definitions and role derivations.
 # Each entry maps vm_name → VM spec for Proxmox API.
 # stack_roles and host_roles are derived dynamically from vm_definitions + host_definitions
-# (see bottom of file). Non-VM hosts live in vars/host_definitions.yaml.
+# (see bottom of file). Non-VM hosts live in vars/definitions/host_definitions.yaml.
 
 # Proxmox infrastructure defaults — shared across all VMs.
 # pve_api_user, pve_api_token_id, pve_api_token_secret, pve_vm_password

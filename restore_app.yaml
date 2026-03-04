@@ -19,11 +19,11 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/host_definitions.yaml
-    - vars/app_definitions.yaml
-    - vars/docker_stacks.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/app_definitions.yaml
+    - vars/configs/docker_stacks.yaml
+    - vars/configs/semaphore_check.yaml
 
   pre_tasks:
     - name: Assert required vars and safety gate
@@ -103,11 +103,11 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/host_definitions.yaml
-    - vars/app_definitions.yaml
-    - vars/docker_stacks.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/app_definitions.yaml
+    - vars/configs/docker_stacks.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "Docker"
     _app_restore_tmp: "/tmp/restore_{{ restore_app }}"
@@ -141,7 +141,7 @@
 
         - name: Load DB engine config — {{ restore_app }}
           ansible.builtin.include_vars:
-            file: "vars/{{ _r_db_config }}.yaml"
+            file: "vars/configs/{{ _r_db_config }}.yaml"
           when: _r_db_config | default('') | length > 0
 
         - name: Ensure staging dir exists

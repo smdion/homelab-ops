@@ -3,7 +3,7 @@
 # Sets _semaphore_task_url fact. Silently skipped if API unavailable or vars missing.
 #
 # Self-contained — derives all needed values from vars/secrets.yaml (loaded by every
-# playbook), so this works even when vars/semaphore_check.yaml is not in vars_files.
+# playbook), so this works even when vars/configs/semaphore_check.yaml is not in vars_files.
 #
 # Requires (from vars/secrets.yaml):
 #   semaphore_host_url, semaphore_api_token, semaphore_controller_hostname,

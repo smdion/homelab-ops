@@ -46,9 +46,9 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/proxmox.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "Ubuntu"
     maintenance_type: "Servers"
@@ -283,9 +283,9 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/docker_vips.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/docker_vips.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "Ubuntu"
     maintenance_type: "Servers"
@@ -398,11 +398,11 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/pve_definitions.yaml
-    - vars/vm_definitions.yaml
-    - vars/host_definitions.yaml
-    - vars/proxmox.yaml
-    - vars/guacamole.yaml
+    - vars/definitions/pve_definitions.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/guacamole.yaml
   vars:
     _guac_host: "{{ host_definitions.odyssey.vm_hostname }}"  # TODO: move to apps VM after migration
     _guac_db_user: "{{ guacamole_db_user }}"
@@ -437,12 +437,12 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
-    - vars/docker_stacks.yaml
-    - vars/vm_definitions.yaml
-    - vars/docker_vips.yaml
-    - vars/app_definitions.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/docker_stacks.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/docker_vips.yaml
+    - vars/definitions/app_definitions.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "{{ role | default('DR') | capitalize }}"
     maintenance_type: "Servers"
@@ -535,7 +535,7 @@
 
         - name: Load postgres DB config from vars
           ansible.builtin.include_vars:
-            file: vars/db_primary_postgres.yaml
+            file: vars/configs/db_primary_postgres.yaml
           when: "'databases' in _stacks"
 
         - name: Save postgres DB config to Ansible facts
@@ -549,7 +549,7 @@
 
         - name: Load mariadb DB config from vars
           ansible.builtin.include_vars:
-            file: vars/db_primary_mariadb.yaml
+            file: vars/configs/db_primary_mariadb.yaml
           when: "'databases' in _stacks"
 
         - name: Save mariadb DB config to Ansible facts
@@ -563,7 +563,7 @@
 
         - name: Load secondary postgres DB config from vars
           ansible.builtin.include_vars:
-            file: vars/db_secondary_postgres.yaml
+            file: vars/configs/db_secondary_postgres.yaml
           when: "'databases' in _stacks"
 
         - name: Save secondary postgres DB config to Ansible facts
@@ -741,12 +741,12 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
-    - vars/docker_stacks.yaml
-    - vars/docker_vips.yaml
-    - vars/vm_definitions.yaml
-    - vars/container_definitions.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/docker_stacks.yaml
+    - vars/configs/docker_vips.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/container_definitions.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "{{ role | default('DR') | capitalize }}"
     maintenance_type: "Servers"
@@ -855,8 +855,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
-    - vars/vm_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
 
   tasks:
     - name: Skip revert (role not set)
@@ -918,8 +918,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
-    - vars/vm_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
   vars:
     _is_test_vm: >-
       {{ (_vm.vm_id | int) >= (vm_test_slot_base | int) and

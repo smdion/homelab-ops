@@ -39,12 +39,12 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/host_definitions.yaml
-    - vars/app_definitions.yaml
-    - vars/docker_stacks.yaml
-    - vars/docker_vips.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/app_definitions.yaml
+    - vars/configs/docker_stacks.yaml
+    - vars/configs/docker_vips.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "Docker"
     maintenance_type: "Servers"
@@ -99,13 +99,13 @@
   gather_subset: ['!all', 'date_time', 'hardware']
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/host_definitions.yaml
-    - vars/app_definitions.yaml
-    - vars/container_definitions.yaml
-    - vars/docker_stacks.yaml
-    - vars/docker_vips.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/app_definitions.yaml
+    - vars/definitions/container_definitions.yaml
+    - vars/configs/docker_stacks.yaml
+    - vars/configs/docker_vips.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "Docker"
     maintenance_type: "Servers"

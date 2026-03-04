@@ -16,7 +16,7 @@
 # Play 3 (localhost):  Aggregate findings, unreachable host alerting,
 #                      alerts per host, DB logging, save state
 #
-# Hosts covered by Play 2: defined by health_check_groups in vars/semaphore_check.yaml
+# Hosts covered by Play 2: defined by health_check_groups in vars/configs/semaphore_check.yaml
 # Appliances (pikvm, unifi_network, unifi_protect) — covered via stale backup detection
 #
 # Required variables (vars/secrets.yaml):
@@ -25,7 +25,7 @@
 #   logging_db_host, logging_db_port, logging_db_user, logging_db_password, logging_db_name
 #   domain_local, domain_ext
 #
-# Threshold variables (vars/semaphore_check.yaml — all have defaults):
+# Threshold variables (vars/configs/semaphore_check.yaml — all have defaults):
 #   health_disk_warn_pct, health_disk_crit_pct, health_mem_warn_pct
 #   health_cpu_load_multiplier, health_journal_errors_max
 #   health_oom_kills_max, health_backup_stale_days
@@ -43,7 +43,7 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     project_id: "{{ semaphore_project_id }}"
     task_count: 20
@@ -605,7 +605,7 @@
   ignore_unreachable: true
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/semaphore_check.yaml
   tasks:
 
     # If a host is unreachable (ignore_unreachable: true), no tasks run and these
@@ -1445,7 +1445,7 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "Semaphore"
     maintenance_type: "Local"

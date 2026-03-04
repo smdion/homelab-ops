@@ -26,7 +26,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
+    - vars/configs/proxmox.yaml
 
   tasks:
     - name: Install keepalived
@@ -85,7 +85,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
+    - vars/configs/proxmox.yaml
 
   tasks:
     - name: Wait for VIP to respond on port 22 (SSH via MASTER node)

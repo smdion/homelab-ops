@@ -108,7 +108,7 @@
 
     - name: Load DB engine config for {{ _test_app }}
       ansible.builtin.include_vars:
-        file: "vars/{{ _cur_db_config }}.yaml"
+        file: "vars/configs/{{ _cur_db_config }}.yaml"
       when: _cur_db_config | default('') | length > 0
 
     - name: Stop {{ _cur_stack }} stack before restore

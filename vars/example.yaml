@@ -162,5 +162,5 @@ update_subtype: "OS"
 #   myapp_db: ["myapp-container"]
 #   shared_db: []                   # app runs on a different host
 
-# Selective app restore config is now in vars/app_definitions.yaml.
+# Selective app restore config is now in vars/definitions/app_definitions.yaml.
 # See that file for the schema (stack, containers, db_host, db_config, db_stack, db_names).

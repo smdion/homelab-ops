@@ -15,8 +15,8 @@
   hosts: "{{ hosts_variable }}"
   vars_files:
     - vars/secrets.yaml
-    - "vars/{{ config_file }}.yaml"
-    - vars/synology.yaml
+    - "vars/configs/{{ config_file }}.yaml"
+    - vars/configs/synology.yaml
   vars:
     config_file: "{{ hosts_variable }}"
   pre_tasks:

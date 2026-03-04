@@ -15,7 +15,7 @@ update_exclude_services:
   - semaphore
 
 # Stack assignments: host → ordered list of stack names.
-# Derived from host_roles + stack_roles (both from vars/vm_definitions.yaml).
+# Derived from host_roles + stack_roles (both from vars/definitions/vm_definitions.yaml).
 stack_assignments: >-
   {{ dict(
     host_roles | dict2items | map(attribute='key') | list

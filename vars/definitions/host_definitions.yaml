@@ -2,7 +2,7 @@
 # Host definitions — managed machines that aren't Proxmox VMs.
 # Cloud servers, physical hardware, legacy VMs, NAS boxes.
 # Merged into host_roles / stack_roles derivations via vm_definitions.yaml.
-# See vars/vm_definitions.yaml for the derivation formulas.
+# See vars/definitions/vm_definitions.yaml for the derivation formulas.
 #
 # Required fields:
 #   vm_hostname    — FQDN for cloud-init/DNS. Use domain_ext for internet-facing

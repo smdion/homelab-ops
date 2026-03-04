@@ -9,7 +9,7 @@
 # Sets: vm_index (int)
 #
 # Requires: pve_api_host, pve_api_user, pve_api_token_id, pve_api_token_secret
-#           vm_test_slot_base, vm_test_slot_count (from vars/vm_definitions.yaml)
+#           vm_test_slot_base, vm_test_slot_count (from vars/definitions/vm_definitions.yaml)
 
 - name: Auto-detect free vm_index
   when: vm_index is not defined

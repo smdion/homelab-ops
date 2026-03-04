@@ -10,7 +10,7 @@
 
 - name: Load DB config for {{ _db_dep.key }}
   ansible.builtin.include_vars:
-    file: "vars/{{ _db_dep.value.db_config }}.yaml"
+    file: "vars/configs/{{ _db_dep.value.db_config }}.yaml"
     name: _rb_db_vars
 
 - name: Find DB backup files for {{ _db_dep.key }}

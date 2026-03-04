@@ -12,7 +12,7 @@
 #        MY_IMAGE={{ container_definitions.myapp.image }}
 #        MY_TAG={{ container_definitions.myapp.tag }}
 #   3. Update docker-compose.yaml image line: image: ${MY_IMAGE}:${MY_TAG}
-#   4. If the service has a database, add an entry in vars/app_definitions.yaml
+#   4. If the service has a database, add an entry in vars/definitions/app_definitions.yaml
 
 container_definitions:
   adminer:

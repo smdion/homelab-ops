@@ -15,7 +15,7 @@
 
 - name: "Load DB config — {{ _db_config_file }}"
   ansible.builtin.include_vars:
-    file: "vars/{{ _db_config_file }}.yaml"
+    file: "vars/configs/{{ _db_config_file }}.yaml"
 
 - name: "Wait for DB container after Docker restart — {{ _db_config_file }}"
   include_tasks: tasks/wait_db_ready.yaml

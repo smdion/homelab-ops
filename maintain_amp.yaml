@@ -20,7 +20,7 @@
   become: true
   vars_files:
     - vars/secrets.yaml
-    - vars/amp.yaml
+    - vars/configs/amp.yaml
   vars:
     amp_versions_dir: "{{ amp_home }}/.ampdata/Versions/Mainline"
     maintenance_name: "AMP"

@@ -11,7 +11,7 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/unifi_network.yaml
+    - vars/configs/unifi_network.yaml
   vars:
     maintenance_name: "Unifi"
     maintenance_type: "Appliances"

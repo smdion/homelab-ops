@@ -28,10 +28,10 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
-    - vars/vm_definitions.yaml
-    - vars/pve_definitions.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/pve_definitions.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     _api_base: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json"
     _api_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"
@@ -384,8 +384,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
-    - vars/vm_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
   vars:
     _api_base: "https://{{ pve_api_host }}:{{ pve_api_port }}/api2/json"
     _api_auth: "PVEAPIToken={{ pve_api_user }}!{{ pve_api_token_id }}={{ pve_api_token_secret }}"

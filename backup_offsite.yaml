@@ -38,7 +38,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/semaphore_check.yaml
   tasks:
     - name: Assert offsite_host is defined
       ansible.builtin.assert:
@@ -61,8 +61,8 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
-    - vars/container_definitions.yaml
+    - vars/configs/semaphore_check.yaml
+    - vars/definitions/container_definitions.yaml
   vars:
     backup_name: "B2"
     backup_subtype: "Offsite"
@@ -77,11 +77,11 @@
 
   pre_tasks:
     - name: Load docker_run vars for docker_run hosts
-      ansible.builtin.include_vars: vars/docker_run.yaml
+      ansible.builtin.include_vars: vars/configs/docker_run.yaml
       when: _is_docker_run | bool
 
     - name: Load docker_stacks vars for docker_stacks hosts
-      ansible.builtin.include_vars: vars/docker_stacks.yaml
+      ansible.builtin.include_vars: vars/configs/docker_stacks.yaml
       when: _is_docker_stacks | bool
 
     - name: Reset backup_name after include_vars override

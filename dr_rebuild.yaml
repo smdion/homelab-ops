@@ -34,12 +34,12 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
-    - vars/docker_stacks.yaml
-    - vars/vm_definitions.yaml
-    - vars/app_definitions.yaml
-    - vars/docker_vips.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/docker_stacks.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/app_definitions.yaml
+    - vars/configs/docker_vips.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "{{ role | default('DR') | capitalize }}"
     maintenance_type: "Servers"
@@ -113,7 +113,7 @@
 
     - name: Load postgres DB config
       ansible.builtin.include_vars:
-        file: vars/db_primary_postgres.yaml
+        file: vars/configs/db_primary_postgres.yaml
       when: "'databases' in _stacks"
 
     - name: Save postgres DB config
@@ -127,7 +127,7 @@
 
     - name: Load mariadb DB config
       ansible.builtin.include_vars:
-        file: vars/db_primary_mariadb.yaml
+        file: vars/configs/db_primary_mariadb.yaml
       when: "'databases' in _stacks"
 
     - name: Save mariadb DB config
@@ -141,7 +141,7 @@
 
     - name: Load secondary postgres DB config
       ansible.builtin.include_vars:
-        file: vars/db_secondary_postgres.yaml
+        file: vars/configs/db_secondary_postgres.yaml
       when: "'databases' in _stacks"
 
     - name: Save secondary postgres DB config
@@ -310,9 +310,9 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/docker_vips.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/docker_vips.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "{{ role | default('DR') | capitalize }}"
     maintenance_type: "Servers"
@@ -443,12 +443,12 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
-    - vars/docker_stacks.yaml
-    - vars/docker_vips.yaml
-    - vars/vm_definitions.yaml
-    - vars/container_definitions.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/docker_stacks.yaml
+    - vars/configs/docker_vips.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/container_definitions.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     maintenance_name: "{{ role | default('DR') | capitalize }}"
     maintenance_type: "Servers"

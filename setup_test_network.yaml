@@ -37,8 +37,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     _unifi_api: "https://{{ inventory_hostname }}/proxy/network/api/s/default"
     _semaphore_ip: "{{ semaphore_host_url | urlsplit('hostname') }}"

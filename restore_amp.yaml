@@ -21,8 +21,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/amp.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/amp.yaml
+    - vars/configs/semaphore_check.yaml
 
   pre_tasks:
     - name: Assert required vars and safety gate
@@ -94,8 +94,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/amp.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/amp.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     _restore_instances: "{{ hostvars['localhost']._restore_instances }}"
     _restore_archive_map: "{{ hostvars['localhost']._restore_archive_map }}"

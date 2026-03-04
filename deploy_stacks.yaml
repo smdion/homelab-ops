@@ -30,13 +30,13 @@
   serial: 1
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/host_definitions.yaml
-    - vars/app_definitions.yaml
-    - vars/container_definitions.yaml
-    - vars/{{ config_file }}.yaml
-    - vars/docker_vips.yaml
-    - vars/semaphore_check.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/app_definitions.yaml
+    - vars/definitions/container_definitions.yaml
+    - vars/configs/{{ config_file }}.yaml
+    - vars/configs/docker_vips.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     config_file: "{{ hosts_variable }}"
     maintenance_name: "Docker"
@@ -84,7 +84,7 @@
         that: inventory_hostname in stack_assignments
         fail_msg: >-
           No stack_assignments entry for {{ inventory_hostname }}.
-          Check host_roles and stack_roles in vars/vm_definitions.yaml.
+          Check host_roles and stack_roles in vars/definitions/vm_definitions.yaml.
       when: stack is not defined
 
     - name: Assert sufficient disk space on target

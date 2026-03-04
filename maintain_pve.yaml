@@ -21,7 +21,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
+    - vars/configs/proxmox.yaml
   vars:
     maintenance_name: "Proxmox"
     maintenance_type: "Appliances"
@@ -139,7 +139,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
+    - vars/configs/proxmox.yaml
 
   tasks:
     - name: Wait for VIP to respond on port 22 (SSH via MASTER node)
@@ -163,9 +163,9 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
-    - vars/proxmox.yaml
-    - vars/vm_definitions.yaml
+    - vars/configs/semaphore_check.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
   vars:
     snapshot_max_age_days: 14
     maintenance_name: "Proxmox"
@@ -276,7 +276,7 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/semaphore_check.yaml
   vars:
     task_check_days: 2
     maintenance_name: "PBS"
@@ -364,9 +364,9 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
-    - vars/proxmox.yaml
-    - vars/vm_definitions.yaml
+    - vars/configs/semaphore_check.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
   vars:
     maintenance_name: "Proxmox"
     maintenance_type: "Appliances"
@@ -639,9 +639,9 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
-    - vars/proxmox.yaml
-    - vars/vm_definitions.yaml
+    - vars/configs/semaphore_check.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
   vars:
     maintenance_name: "Proxmox"
     maintenance_type: "Appliances"
@@ -746,9 +746,9 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
-    - vars/proxmox.yaml
-    - vars/vm_definitions.yaml
+    - vars/configs/semaphore_check.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
   vars:
     maintenance_name: "Proxmox"
     maintenance_type: "Appliances"

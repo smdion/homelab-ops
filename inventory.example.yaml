@@ -66,6 +66,10 @@ pve03.home.local
 [pbs]
 pbs01.home.local
 
+[proxmox:children]
+pve
+pbs
+
 [docker_stacks]
 vps.example.com
 ubuntu02.home.local

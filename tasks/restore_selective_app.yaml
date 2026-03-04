@@ -80,7 +80,7 @@
     # ===== COORDINATED DB RESTORE (cross-host via delegate_to) =====
     - name: Load DB vars into namespace
       ansible.builtin.include_vars:
-        file: "vars/{{ _app_cfg.db_config }}.yaml"
+        file: "vars/configs/{{ _app_cfg.db_config }}.yaml"
         name: _db_vars
       when:
         - with_databases | default('') == 'yes'

@@ -22,9 +22,9 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/proxmox.yaml
-    - vars/vm_definitions.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/semaphore_check.yaml
 
   pre_tasks:
     - name: Run standard pre-flight assertions
@@ -75,8 +75,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/docker_vips.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/docker_vips.yaml
 
   tasks:
     - name: Wait for system boot to complete
@@ -111,8 +111,8 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
-    - vars/docker_vips.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/docker_vips.yaml
 
   tasks:
     - name: Initialize verify state
@@ -148,7 +148,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/vm_definitions.yaml
+    - vars/definitions/vm_definitions.yaml
 
   tasks:
     - name: Destroy test VM
@@ -166,7 +166,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
+    - vars/configs/semaphore_check.yaml
 
   tasks:
     - name: Resolve result from target host

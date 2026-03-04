@@ -23,12 +23,12 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
-    - vars/semaphore_check.yaml
-    - vars/pve_definitions.yaml
-    - vars/vm_definitions.yaml
-    - vars/host_definitions.yaml
-    - vars/proxmox.yaml
-    - vars/guacamole.yaml
+    - vars/configs/semaphore_check.yaml
+    - vars/definitions/pve_definitions.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/guacamole.yaml
   vars:
     maintenance_name: "Guacamole"
     maintenance_type: "Local"
