@@ -124,6 +124,25 @@ CREATE TABLE IF NOT EXISTS docker_sizes (
   UNIQUE INDEX idx_daily_dedup (hostname, log_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- UniFi device metrics — one row per device per day (logged by maintain_health CHECK 29)
+CREATE TABLE IF NOT EXISTS unifi_devices (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  device_name     VARCHAR(255) NOT NULL,
+  device_model    VARCHAR(50),
+  device_mac      VARCHAR(17) NOT NULL,
+  device_ip       VARCHAR(45),
+  device_type     VARCHAR(50),
+  firmware        VARCHAR(100),
+  upgradable      BOOLEAN DEFAULT FALSE,
+  state           INT,
+  uptime_seconds  BIGINT,
+  timestamp       DATETIME NOT NULL,
+  log_date        DATE GENERATED ALWAYS AS (DATE(timestamp)) STORED,
+  INDEX idx_device_name (device_name),
+  INDEX idx_timestamp (timestamp),
+  UNIQUE INDEX idx_daily_dedup (device_name, device_mac, log_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 -- Playbook run audit log — one row per invocation (per target host for distributed playbooks)
 CREATE TABLE IF NOT EXISTS playbook_runs (
   id          INT AUTO_INCREMENT PRIMARY KEY,

@@ -769,6 +769,35 @@
                                  if _unifi_upgradable | length > 0 else ''))
               }] }}
 
+        # Log device metrics to unifi_devices table for Grafana dashboards
+        - name: Batch log UniFi device metrics to DB
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          become: false
+          connection: local
+          community.mysql.mysql_query:
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
+            query: >-
+              INSERT INTO unifi_devices
+              (device_name, device_model, device_mac, device_ip, device_type, firmware, upgradable, state, uptime_seconds, timestamp)
+              VALUES {% for d in _unifi_all_devices %}(%s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP()){% if not loop.last %}, {% endif %}{% endfor %}
+              ON DUPLICATE KEY UPDATE
+                device_model = VALUES(device_model), device_ip = VALUES(device_ip),
+                device_type = VALUES(device_type), firmware = VALUES(firmware),
+                upgradable = VALUES(upgradable), state = VALUES(state),
+                uptime_seconds = VALUES(uptime_seconds), timestamp = UTC_TIMESTAMP()
+            positional_args: >-
+              {{ _unifi_all_devices | json_query('[].[ name, model, mac, ip, type, version, upgradable, state, uptime ]') | flatten }}
+          when:
+            - _unifi_all_devices | length > 0
+            - not (skip_db | default(false) | bool)
+            - not ansible_check_mode
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
       rescue:
         - name: Set maintenance failed (UniFi check error)
           ansible.builtin.set_fact:
