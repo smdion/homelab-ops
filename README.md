@@ -25,7 +25,7 @@ visibility.
 | **Verify** | Restores each database to a temp instance and validates config archives — proves backups work before you need them |
 | **Restore** | Safety-gated database and appdata restore with pre-restore snapshots, selective per-app targeting, and coordinated cross-host recovery |
 | **Rollback** | Revert Docker containers to previous image versions — fast local re-tag or registry pull; safety-gated with per-service targeting |
-| **Health** | 28 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord/Apprise alerts and anomaly detection |
+| **Health** | 29 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord/Apprise alerts and anomaly detection |
 | **Updates** | OS package and Docker container updates with version tracking, optional delay, and per-container exclusions |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
 | **Deploy** | Docker stacks from Git — templates `.env` from vault, copies compose files, validates, and starts stacks in dependency order; Grafana dashboard + datasource via API with automatic threshold syncing |
@@ -99,7 +99,7 @@ and go.
 | `maintain_semaphore.yaml` | Clean stopped Semaphore tasks, prune old download tasks (`download_task_retention_days`), and prune `ansible_logging` rows (`retention_days`) | Runs on localhost |
 | `maintain_logging_db.yaml` | Purge failed/warning records from `ansible_logging`; `-e purge_all=yes -e confirm=yes` truncates all tables (full reset after arch changes) | Runs on localhost |
 | `check_logging_db.yaml` | Weekly `ansible_logging` summary — 7-day row counts per table, hosts with no recent backup, failure counts — sends an informational notification; logs to MariaDB | Runs on localhost |
-| `maintain_health.yaml` | 28 health checks across all SSH hosts + DB/API | `vars/configs/semaphore_check.yaml` for thresholds |
+| `maintain_health.yaml` | 29 health checks across all SSH hosts + DB/API | `vars/configs/semaphore_check.yaml` for thresholds |
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB, count tables/measurements) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm=yes` | `vars/configs/db_<role>_<engine>.yaml` with `db_container_deps` |
 | `restore_hosts.yaml` | Restore config/appdata — per-stack, selective app, or monolithic; safety-gated with `confirm=yes`; coordinated cross-host DB (`with_databases=yes`); `stack=`/`role=` scope selectors | `vars/configs/<platform>.yaml` + `vars/definitions/app_definitions.yaml` |
@@ -176,6 +176,7 @@ for platforms you don't have are automatically skipped.
 | `wan_connectivity` | localhost | Outbound internet check |
 | `appliance_reachable` | localhost | TCP connectivity to network appliances (PiKVM, UDMP, UNVR) |
 | `schedule_coverage` | localhost | Templates missing active Semaphore schedules |
+| `unifi_device_health` | localhost | UniFi device status (disconnected/upgradable) via API |
 | `host_reachable` | Aggregated | Detects hosts unreachable during SSH checks |
 <!-- END AUTO-GENERATED: readme-health-checks -->
 

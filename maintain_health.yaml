@@ -8,7 +8,8 @@
 # Play 1 (localhost):  Init, load state, Semaphore API check, stale backup DB check,
 #                      backup size anomaly, failed maintenance DB check,
 #                      stale maintenance check, MariaDB health, WAN connectivity,
-#                      appliance reachability, schedule coverage
+#                      appliance reachability, schedule coverage,
+#                      UniFi device health
 # Play 2 (SSH hosts):  Per-host system metrics — disk, memory, CPU, journal errors,
 #                      OOM kills, Docker health, SMART disk health, PVE cluster quorum,
 #                      Ceph health (PVE only), SSL certificate expiry, NTP sync,
@@ -18,7 +19,7 @@
 #                      alerts per host, DB logging, save state
 #
 # Hosts covered by Play 2: defined by health_check_groups in vars/configs/semaphore_check.yaml
-# Appliances (pikvm, unifi_network, unifi_protect) — covered via stale backup detection
+# Appliances (pikvm, unifi_network, unifi_protect) — covered via stale backup detection + UniFi API
 #
 # Required variables (vars/secrets.yaml):
 #   vault_semaphore_api_token, vault_semaphore_host_url
@@ -694,6 +695,87 @@
         - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 28 FAILED: Schedule coverage check error — skipping"
+
+    # ── CHECK 29: UniFi device health ──────────────────────────────────────────
+    # Queries the UniFi Network API for adopted device status.
+    # Critical if any device is disconnected; warning if firmware updates available.
+    # Auto-skipped if vault_unifi_network_api_key is not set.
+    - name: Check UniFi device health
+      when: vault_unifi_network_api_key | default('') | length > 0
+      block:
+        - name: Query UniFi Network device status
+          ansible.builtin.uri:
+            url: "{{ health_unifi_network_url }}/proxy/network/api/s/default/stat/device"
+            method: GET
+            headers:
+              X-API-Key: "{{ vault_unifi_network_api_key }}"
+              Accept: "application/json"
+            validate_certs: false
+            return_content: true
+            status_code: 200
+            timeout: 10
+          register: _unifi_devices
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Evaluate UniFi device status
+          ansible.builtin.set_fact:
+            _unifi_all_devices: "{{ (_unifi_devices.content | from_json).data | default([]) }}"
+
+        - name: Identify disconnected and upgradable devices
+          ansible.builtin.set_fact:
+            _unifi_disconnected: >-
+              {{ _unifi_all_devices
+                 | rejectattr('state', 'equalto', 1)
+                 | map(attribute='name')
+                 | list }}
+            _unifi_upgradable: >-
+              {{ _unifi_all_devices
+                 | selectattr('upgradable', 'defined')
+                 | selectattr('upgradable')
+                 | map(attribute='name')
+                 | list }}
+
+        - name: Send alert for disconnected UniFi devices
+          include_tasks: tasks/notify.yaml
+          when: _unifi_disconnected | length > 0
+          vars:
+            discord_name: "Semaphore"
+            discord_operation: "UniFi Device Health"
+            discord_status: "failed"
+            discord_detail: "{{ _unifi_disconnected | length }} device(s) disconnected"
+            discord_color: "{{ discord_color_failure }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Disconnected"
+                value: "{{ _unifi_disconnected | join(', ') }}"
+            discord_footer:
+              text: "Health Check"
+            discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+        - name: Record UniFi device health result
+          ansible.builtin.set_fact:
+            play1_health_results: >-
+              {{ play1_health_results + [{
+                'check_name': 'unifi_device_health',
+                'status': ('critical' if _unifi_disconnected | length > 0
+                           else ('warning' if _unifi_upgradable | length > 0 else 'ok')),
+                'value': ((_unifi_disconnected | length | string + ' disconnected')
+                          if _unifi_disconnected | length > 0
+                          else ((_unifi_upgradable | length | string + ' upgradable')
+                                if _unifi_upgradable | length > 0 else 'all healthy')),
+                'detail': ((_unifi_disconnected | join(', '))
+                           if _unifi_disconnected | length > 0
+                           else (_unifi_upgradable | join(', ')
+                                 if _unifi_upgradable | length > 0 else ''))
+              }] }}
+
+      rescue:
+        - name: Set maintenance failed (UniFi check error)
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+        - name: Log debug check results
+          ansible.builtin.debug:
+            msg: "CHECK 29 FAILED: UniFi device health check error — skipping"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PLAY 2 — SSH HOSTS: SYSTEM METRICS

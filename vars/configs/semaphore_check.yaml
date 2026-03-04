@@ -51,6 +51,10 @@ appliance_check_hosts:
   - "unvr.{{ vault_domain_local }}"
 appliance_check_port: 443
 
+# UniFi Network device health check — queries UDMP API for device status
+# Requires vault_unifi_network_api_key (auto-skipped if missing)
+health_unifi_network_url: "https://udmp.{{ vault_domain_local }}"
+
 # Schedule exemption marker — playbooks with "# Schedule: none" in their header
 # are excluded from CHECK 28 schedule coverage validation. Used for ad-hoc,
 # manual, one-time, and on-demand playbooks that intentionally have no schedule.
