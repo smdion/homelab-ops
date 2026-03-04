@@ -25,7 +25,7 @@ visibility.
 | **Verify** | Restores each database to a temp instance and validates config archives — proves backups work before you need them |
 | **Restore** | Safety-gated database and appdata restore with pre-restore snapshots, selective per-app targeting, and coordinated cross-host recovery |
 | **Rollback** | Revert Docker containers to previous image versions — fast local re-tag or registry pull; safety-gated with per-service targeting |
-| **Health** | 26 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord/Apprise alerts and anomaly detection |
+| **Health** | 27 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific (Proxmox, Ceph, unRAID, PBS) — with Discord/Apprise alerts and anomaly detection |
 | **Updates** | OS package and Docker container updates with version tracking, optional delay, and per-container exclusions |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore task cleanup, service restarts |
 | **Deploy** | Docker stacks from Git — templates `.env` from vault, copies compose files, validates, and starts stacks in dependency order; Grafana dashboard + datasource via API with automatic threshold syncing |
@@ -36,7 +36,7 @@ visibility.
 | **Test Backup Restore** | Per-app backup integrity test on a disposable VM — deploys stacks fresh, then for each app: stops the stack, restores DB + appdata from the backup archive, restarts, and asserts HTTP health; OOM auto-recovery doubles VM RAM and retries |
 
 Every run logs a structured record to MariaDB. The included Grafana dashboard shows backup history,
-version status per host, stale detection, health trends, and maintenance logs across 28 panels.
+version status per host, stale detection, health trends, and maintenance logs across 23 panels.
 
 ## Stack
 
@@ -92,14 +92,14 @@ and go.
 
 | Playbook | What it does | Vars file pattern |
 |---|---|---|
-| `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller; `docker_stacks` hosts use per-stack archives (stop → archive → restart each stack individually to minimize downtime); backup paths discovered from `homelab.backup.paths` container labels; auto-handles PiKVM RW/RO filesystem | `vars/<platform>.yaml` with `backup_*` vars |
-| `backup_databases.yaml` | Dump Postgres/MariaDB/InfluxDB databases from Docker containers | `vars/db_<role>_<engine>.yaml` with `db_names`, `db_container_name` |
-| `update_systems.yaml` | OS packages + Docker container updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers` | `vars/<platform>.yaml` with `update_*` vars |
+| `backup_hosts.yaml` | Archive config/appdata directories, fetch to controller; `docker_stacks` hosts use per-stack archives (stop → archive → restart each stack individually to minimize downtime); backup paths discovered from `homelab.backup.paths` container labels; auto-handles PiKVM RW/RO filesystem | `vars/configs/<platform>.yaml` with `backup_*` vars |
+| `backup_databases.yaml` | Dump Postgres/MariaDB/InfluxDB databases from Docker containers | `vars/configs/db_<role>_<engine>.yaml` with `db_names`, `db_container_name` |
+| `update_systems.yaml` | OS packages + Docker container updates with version tracking; supports `update_delay_days` and `update_exclude_services`/`update_exclude_containers` | `vars/configs/<platform>.yaml` with `update_*` vars |
 | `maintain_docker.yaml` | Prune unused Docker images + drop Linux page cache (Ubuntu/unRAID); logs disk metrics to MariaDB | Needs `[docker]` group + `[ubuntu]`/`[unraid]` for cache |
 | `maintain_semaphore.yaml` | Clean stopped Semaphore tasks, prune old download tasks (`download_task_retention_days`), and prune `ansible_logging` rows (`retention_days`) | Runs on localhost |
 | `maintain_logging_db.yaml` | Purge failed/warning records from `ansible_logging`; `-e purge_all=yes -e confirm=yes` truncates all tables (full reset after arch changes) | Runs on localhost |
 | `check_logging_db.yaml` | Weekly `ansible_logging` summary — 7-day row counts per table, hosts with no recent backup, failure counts — sends an informational notification; logs to MariaDB | Runs on localhost |
-| `maintain_health.yaml` | 26 health checks across all SSH hosts + DB/API | `vars/configs/semaphore_check.yaml` for thresholds |
+| `maintain_health.yaml` | 27 health checks across all SSH hosts + DB/API | `vars/configs/semaphore_check.yaml` for thresholds |
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB, count tables/measurements) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
 | `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm=yes` | `vars/configs/db_<role>_<engine>.yaml` with `db_container_deps` |
 | `restore_hosts.yaml` | Restore config/appdata — per-stack, selective app, or monolithic; safety-gated with `confirm=yes`; coordinated cross-host DB (`with_databases=yes`); `stack=`/`role=` scope selectors | `vars/configs/<platform>.yaml` + `vars/definitions/app_definitions.yaml` |
@@ -108,6 +108,7 @@ and go.
 | `rollback_docker.yaml` | Revert Docker containers to previous images; `with_backup=yes` for combined image+appdata+DB recovery; `stack=`/`role=` scope; safety-gated with `confirm=yes` | `vars/configs/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
 | `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy; `role=`/`stack=` scope selectors; `serial: 1` for multi-host ordering | `vars/configs/docker_stacks.yaml` with `stack_assignments` |
 | `apply_role.yaml` | Idempotent VM reconciliation — make a VM match its definition across OS/network/Docker/stacks/verification layers; omit `-e role` for all Docker VMs (`serial: 1`, VMID order); `-e role=core` to target one; per-layer skip flags | `vars/definitions/vm_definitions.yaml` with consolidated VM spec |
+| `manage_vault.yaml` | Vault management utility — check status, decrypt, encrypt, change, or validate `secrets.yaml`; `-e action=status\|change\|decrypt\|encrypt\|validate` | Runs on localhost |
 
 ### Platform-specific playbooks
 
@@ -124,12 +125,19 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 | `setup_pve_vip.yaml` | Proxmox | One-time VIP setup: install keepalived on PVE nodes, configure VRRP priorities, verify floating management VIP is reachable |
 | `setup_test_network.yaml` | Unifi UDM | One-time test VLAN creation for VM isolation; prints zone policy settings for manual firewall step |
 | `verify_isolation.yaml` | Proxmox + Unifi | Verify test VLAN isolation — provisions a bare VM, runs network checks (production blocked, internet allowed), destroys VM |
+| `maintain_guacamole.yaml` | [Guacamole](https://guacamole.apache.org/) | Declarative connection and user-group sync from definitions to embedded Postgres; additive by default, `-e remove_unmanaged=yes` to group orphans, add `-e confirm=yes` to delete them |
 | `maintain_pve.yaml` | Proxmox + PBS | Idempotent PVE node config: keepalived VIP, ansible user, SSH hardening; VM snapshot staleness check (>14d alert); PBS backup task error check (last 2 days via `proxmox-backup-manager`); notification + MariaDB logging |
+| `bootstrap_amp.yaml` | Proxmox + [AMP](https://cubecoders.com/AMP) | Full AMP lifecycle: provision VM → install AMP (unattended) → restore per-instance backups → reactivate license; safety-gated with `confirm=yes` |
 | `build_ubuntu.yaml` | Proxmox | Provision Ubuntu VMs via API — cloud-init, Docker install, SSH hardening, UFW, optional QEMU args (`pve_args`) and desktop env; supports create, destroy (`-e vm_state=absent -e confirm=yes`), snapshot, and revert |
 | `dr_rebuild.yaml` | Proxmox + `docker_stacks` | DR rebuild — provision VM → bootstrap → restore backups → deploy stacks → health check; safety-gated with `confirm=yes`; `-e role=core\|apps\|dev`; `scripts/dr_rebuild_all.sh` for multi-role sequential execution |
 | `test_restore.yaml` | Proxmox + `docker_stacks` | End-to-end restore test on a disposable VM — provisions or reuses a VM, restores a source host's appdata, deploys stacks, patches SWAG configs, verifies health, reverts to snapshot; `vm_name` defaults to `test-vm`; `role` can substitute for `source_host`; DR mode (`dr_mode=yes`) keeps restored state |
 | `test_backup_restore.yaml` | Proxmox + `docker_stacks` | Test all `app_definitions` apps on a disposable VM — per-app restore (DB + appdata from backup archives), per-stack health check, OOM auto-recovery (doubles VM memory + retries), notification summary, revert; pass `test_apps=` to limit scope |
+| `cleanup_test_vms.yaml` | Proxmox | Remove all test VMs from the cluster (VMID pool 1300–1309); safety-gated with `confirm=yes` |
+| `deploy_docs.yaml` | Docker (`dev` stack) | Deploy homelab-docs MkDocs site — auto-generate pages from homelab-ops, build with mkdocs, serve via Nginx container |
 | `deploy_grafana.yaml` | Grafana | Deploy dashboard + datasource via API; syncs thresholds from Ansible vars |
+| `purge_ceph.yaml` | Proxmox | One-time complete Ceph removal from all PVE nodes — services, packages, configs, OSD disk wipe; safety-gated with `confirm=yes` |
+| `reip_vmid.yaml` | Proxmox | Re-ID a VM on local-lvm storage (rename VMID while preserving data); safety-gated with `confirm=yes` |
+| `review_pve.yaml` | Proxmox + PBS | Read-only infrastructure review — cluster, node, VM, storage, and PBS status via API; uses custom `review` stdout callback for clean output |
 
 > **unRAID — Fix Common Problems:** If you have the [Fix Common Problems](https://forums.unraid.net/topic/47266-plugin-ca-fix-common-problems/) plugin installed, it will raise an alert when `setup_ansible_user.yaml` adds the `ansible` user via SSH. This is expected behaviour — the plugin flags any new SSH-capable user as a potential security concern. You can safely acknowledge and suppress the alert once you've verified the key and confirmed the user was added intentionally.
 
@@ -138,6 +146,7 @@ Skip these entirely if you don't have the hardware. No changes needed elsewhere.
 `maintain_health.yaml` runs checks conditionally based on inventory group membership. Checks
 for platforms you don't have are automatically skipped.
 
+<!-- BEGIN AUTO-GENERATED: readme-health-checks -->
 | Check | Runs on | What it checks |
 |---|---|---|
 | `disk_space` | All SSH hosts | Filesystem usage (warning/critical thresholds) |
@@ -152,20 +161,22 @@ for platforms you don't have are automatically skipped.
 | `btrfs_health` | All SSH hosts | BTRFS device error counters (skips if no BTRFS) |
 | `ntp_sync` | All SSH hosts | Time synchronization status |
 | `dns_resolution` | All SSH hosts | DNS resolver working |
-| `docker_http` | Configured hosts | HTTP endpoint checks for Docker containers |
+| `docker_http` | All SSH hosts | HTTP endpoint checks for Docker containers |
+| `opt_orphan_entries` | `[docker_stacks]` only | Unexpected files/directories in `/opt` |
 | `pve_cluster` | `[pve]` only | Proxmox cluster quorum |
 | `ceph_health` | `[pve]` only | Ceph cluster status |
 | `unraid_array` | `[unraid]` only | Array state + disabled/missing disks |
 | `pbs_datastore` | `[pbs]` only | PBS datastore accessibility |
 | `semaphore_tasks` | localhost | Failed Semaphore tasks since last check |
-| `stale_backup` | localhost | Hosts with no backup in 9+ days |
-| `backup_size_anomaly` | localhost | Backups significantly smaller than 30-day average; exclude apps via `health_backup_size_exclude` in `vars/configs/semaphore_check.yaml` |
+| `stale_backup` | localhost | Hosts with no backup in 10+ days |
+| `backup_size_anomaly` | localhost | Backups significantly smaller than 30-day average |
 | `failed_maintenance` | localhost | Failed maintenance runs since last check |
 | `stale_maintenance` | localhost | Hosts with no maintenance in 3+ days |
 | `mariadb_health` | localhost | Connection count + crashed tables |
 | `wan_connectivity` | localhost | Outbound internet check |
 | `appliance_reachable` | localhost | TCP connectivity to network appliances (PiKVM, UDMP, UNVR) |
 | `host_reachable` | Aggregated | Detects hosts unreachable during SSH checks |
+<!-- END AUTO-GENERATED: readme-health-checks -->
 
 ## What's in this repo
 
@@ -177,21 +188,25 @@ for platforms you don't have are automatically skipped.
 │   ├── secrets.yaml              # Vault-encrypted secrets (not committed unencrypted)
 │   ├── secrets.yaml.example      # Template — copy and fill in your values
 │   ├── example.yaml              # Template — copy for new platform vars files
-│   ├── semaphore_check.yaml      # Health thresholds, controller config, retention
-│   ├── vm_definitions.yaml       # Consolidated VM specs (stacks, VIPs, deploy config)
-│   ├── host_definitions.yaml     # Non-VM host definitions (VPS, unRAID, legacy Docker)
-│   ├── pve_definitions.yaml      # PVE cluster node definitions (IPs, FQDNs)
-│   ├── app_definitions.yaml      # Per-app metadata (DB mappings, health endpoints)
-│   ├── docker_stacks.yaml        # Docker stack host config (backup paths, display names)
-│   ├── stack_definitions.yaml   # Docker Compose stack registry (name → description)
-│   ├── vip_definitions.yaml    # VIP-to-role mapping for keepalived
-│   ├── guacamole.yaml            # Guacamole connection groups, SSH defaults, extra connections
-│   └── <platform>.yaml           # One per platform (proxmox, amp, unraid_os, etc.)
-├── tasks/                        # 51 shared task files — assertions, DB ops, backup/restore
+│   ├── definitions/              # 7 static registries (rarely change)
+│   │   ├── vm_definitions.yaml       # Consolidated VM specs (stacks, VIPs, deploy config)
+│   │   ├── host_definitions.yaml     # Non-VM host definitions (VPS, unRAID, legacy Docker)
+│   │   ├── pve_definitions.yaml      # PVE cluster node definitions (IPs, FQDNs)
+│   │   ├── app_definitions.yaml      # Per-app metadata (DB mappings, health endpoints)
+│   │   ├── container_definitions.yaml # Per-container label metadata
+│   │   ├── stack_definitions.yaml    # Docker Compose stack registry (name → description)
+│   │   └── vip_definitions.yaml      # VIP-to-role mapping for keepalived
+│   └── configs/                  # 19 runtime configs (per-platform, per-engine)
+│       ├── semaphore_check.yaml      # Health thresholds, controller config, retention
+│       ├── docker_stacks.yaml        # Docker stack host config (backup paths, display names)
+│       ├── guacamole.yaml            # Guacamole connection groups, SSH defaults, extra connections
+│       └── <platform>.yaml           # One per platform (proxmox, amp, unraid_os, etc.)
+├── tasks/                        # 54 shared task files — assertions, DB ops, backup/restore
 │                                 #   orchestration, VM provisioning, Docker management, notifications
 ├── stacks/                       # Docker stack definitions
 │   ├── apps/                     # Application services (Nextcloud, Jellyfin, etc.)
 │   ├── auth/                     # Authentication (Authentik)
+│   ├── backups/                  # Backup services (Restic)
 │   ├── databases/                # Database engines (MariaDB, Postgres)
 │   ├── dev/                      # Development tools
 │   ├── infra/                    # Infrastructure (SWAG, Semaphore, Apprise)
@@ -212,10 +227,16 @@ for platforms you don't have are automatically skipped.
 │   ├── grafana.png               # Grafana dashboard screenshot
 │   ├── semaphore.png             # Semaphore Task Templates screenshot
 │   └── alert_*.svg               # Discord notification mockups
+├── callback_plugins/
+│   └── review.py                 # Custom stdout callback for review_pve.yaml
 ├── scripts/
-│   └── dr_rebuild_all.sh         # Shell wrapper for sequential multi-role DR rebuild
+│   ├── dr_rebuild_all.sh         # Shell wrapper for sequential multi-role DR rebuild
+│   ├── semaphore_cli.py          # Semaphore API CLI (task run, status, logs)
+│   ├── pve_cli.py                # Proxmox VE API CLI (VM info, snapshots)
+│   ├── db_cli.py                 # Database query CLI (logging DB lookups)
+│   └── extract_extra_vars.py     # Extract extra vars documentation from playbooks
 │
-│── # ── Playbooks (31) ──────────────────────────────────────────────
+│── # ── Playbooks (39) ──────────────────────────────────────────────
 ├── backup_*.yaml                 # Backup: hosts, databases, offline NAS-to-NAS, offsite B2
 ├── verify_backups.yaml           # Backup verification (DB + config archives)
 ├── restore_databases.yaml        # Database restore (safety-gated)
@@ -224,13 +245,15 @@ for platforms you don't have are automatically skipped.
 ├── restore_app.yaml              # Production single-app restore (safety-gated)
 ├── rollback_docker.yaml          # Docker rollback — revert images; with_backup=yes for combined recovery
 ├── update_systems.yaml           # OS + Docker updates with version tracking
-├── maintain_*.yaml               # Maintenance: docker, health, semaphore, logging_db, pve, amp, unifi
+├── maintain_*.yaml               # Maintenance: docker, health, semaphore, logging_db, pve, amp, unifi, guacamole
 ├── check_logging_db.yaml         # Weekly ansible_logging summary — row counts, missing backups, failures
 ├── download_videos.yaml          # MeTube/yt-dlp automation
 ├── deploy_stacks.yaml            # Docker stack deploy from Git — .env templating, compose, validate, start
 ├── deploy_grafana.yaml           # Grafana dashboard + datasource deploy via API
+├── deploy_docs.yaml              # MkDocs site build and deploy
 ├── apply_role.yaml               # Idempotent VM reconciliation — all layers or single role
 ├── dr_rebuild.yaml               # DR rebuild — provision → bootstrap → restore → deploy → health check
+├── bootstrap_amp.yaml            # Full AMP lifecycle — provision, install, restore, license
 ├── build_ubuntu.yaml             # Provision Ubuntu VMs on Proxmox
 ├── test_restore.yaml             # End-to-end restore test on a disposable VM
 ├── test_backup_restore.yaml      # Per-app backup integrity test on a disposable VM
@@ -238,8 +261,14 @@ for platforms you don't have are automatically skipped.
 ├── setup_ansible_user.yaml       # One-time ansible user setup (PVE/PBS/unRAID)
 ├── setup_pve_vip.yaml            # One-time keepalived VIP setup on PVE nodes
 ├── setup_test_network.yaml       # One-time test VLAN creation on Unifi UDM
+├── manage_vault.yaml             # Vault management utility (status, encrypt, decrypt, validate)
+├── cleanup_test_vms.yaml         # Remove all test VMs from PVE cluster
+├── purge_ceph.yaml               # One-time complete Ceph removal from PVE nodes
+├── reip_vmid.yaml                # Re-ID a Proxmox VM (rename VMID on local-lvm)
+├── review_pve.yaml               # Read-only PVE cluster and PBS infrastructure review
 │
 │── # ── Config ──────────────────────────────────────────────────────
+├── ansible.cfg                   # Ansible settings (YAML stdout, SSH multiplexing)
 ├── requirements.txt              # Python pip dependencies (PyMySQL, proxmoxer)
 ├── requirements.yaml             # Ansible Galaxy collection dependencies
 ├── inventory.example.yaml        # Example inventory with expected group structure
@@ -289,11 +318,11 @@ which playbook logic applies. A host can belong to multiple groups.
 
 ### 4. Platform vars files
 
-Each platform needs a `vars/<name>.yaml` file defining backup paths, display names, and
+Each platform needs a `vars/configs/<name>.yaml` file defining backup paths, display names, and
 categories. Copy [`vars/example.yaml`](vars/example.yaml) as a starting point:
 
 ```bash
-cp vars/example.yaml vars/myplatform.yaml
+cp vars/example.yaml vars/configs/myplatform.yaml
 ```
 
 The included vars files cover: Proxmox, PiKVM, Unifi, AMP, Docker (compose + run), Ubuntu,
@@ -338,7 +367,7 @@ ansible-playbook deploy_grafana.yaml --vault-password-file ~/.vault_pass
 ansible-playbook deploy_grafana.yaml --vault-password-file ~/.vault_pass --check
 ```
 
-The dashboard includes 25 panels across 5 collapsible row groups (Alerts, Trends, Distributions,
+The dashboard includes 23 panels across 5 collapsible row groups (Alerts, Trends, Distributions,
 Recent Activity, Status). Manual import via **Dashboards → Import → Upload JSON file** also works.
 
 <details>
@@ -825,7 +854,7 @@ for how Uptime Kuma fits into the triple alerting architecture.
 To add a platform that isn't already covered (e.g., TrueNAS, Home Assistant, OPNsense):
 
 1. **Inventory** — add hosts to the appropriate Semaphore inventory under a new group (e.g., `[truenas]`)
-2. **Vars file** — copy `vars/example.yaml` to `vars/truenas.yaml`, fill in backup paths and names
+2. **Vars file** — copy `vars/example.yaml` to `vars/configs/truenas.yaml`, fill in backup paths and names
 3. **Semaphore** (if using) — create a variable group: `{"hosts_variable": "truenas"}`
 4. **Update playbook** — if the platform has a version command, add one line to the
    `_os_version_commands` dict in `update_systems.yaml`:
