@@ -254,6 +254,17 @@
             - not (_unvr_backup.failed | default(false))
             - not ansible_check_mode
 
+        - name: Ensure run-scoped temp directory exists on controller
+          ansible.builtin.file:
+            state: directory
+            path: "{{ backup_tmp_dir }}"
+          delegate_to: localhost
+          when:
+            - inventory_hostname in groups["unifi_protect"]
+            - _unvr_download is defined
+            - not (_unvr_download.failed | default(false))
+            - not ansible_check_mode
+
         - name: Copy UNVR Protect backup to staging directory
           ansible.builtin.copy:
             src: "{{ unifi_protect_temp_file }}"
