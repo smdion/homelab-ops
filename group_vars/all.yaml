@@ -18,14 +18,6 @@ backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ vault_domain_ext 
 backup_type: "Servers"             # override to "Appliances" for purpose-built gear
 update_type: "Servers"             # override to "Appliances" for purpose-built gear
 
-# Combined database configs — used by backup_hosts.yaml with_databases loop
-# and available as a reference for all DB config keys in the project.
-combined_db_configs:
-  - db_primary_mariadb
-  - db_primary_postgres
-  - db_secondary_postgres
-  # db_primary_influxdb excluded — OOM blocker (see future/TODO.md)
-
 # Database engine flags — all default false; db_*.yaml sets only the true flag
 is_postgres: false
 is_mariadb: false
@@ -33,8 +25,6 @@ is_influxdb: false
 
 # Rsync/restore timeouts (seconds) — override per-task where needed
 rsync_timeout: 300               # default for appdata/DB archive transfers
-rsync_timeout_amp: 1800          # AMP instances can be multi-GB
-docker_health_poll_timeout: 120  # default Docker health check poll ceiling
 
 # NFS standard port — used by bootstrap_vm, backup_offline, verify checks
 nfs_port: 2049
@@ -42,24 +32,8 @@ nfs_port: 2049
 # Restic offsite retention policy
 restic_keep_weekly: 8
 restic_keep_monthly: 6
-restic_backup_timeout: 7200      # 2 hours
-
-# unRAID Docker UI labels — applied to ad-hoc docker run containers (e.g. Restic)
-unraid_docker_labels: >-
-  --label net.unraid.docker.managed=composeman
-  --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
-  --label net.unraid.docker.shell=sh
-
-# Offsite dashboard URL (shown in Discord notifications)
-offsite_dashboard_url: "https://secure.backblaze.com/b2_buckets.htm"
-
-# Discord notification defaults (notify.yaml)
-discord_default_avatar: "https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png"
-discord_default_thumbnail: "https://craftassets.unraid.net/uploads/discord/notify-normal.png"
 
 # Discord embed colors (decimal integers)
 discord_color_success: 32768
 discord_color_failure: 16711680
 discord_color_warning: 16753920
-discord_color_rollback: 16776960
-

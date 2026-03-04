@@ -62,3 +62,17 @@ docker_firefox_web_audio: 1
 docker_email_host: "smtp.gmail.com"
 docker_email_port: 587
 docker_dozzle_level: "info"
+
+# Combined database configs — used by backup_hosts.yaml with_databases loop.
+# Moved from group_vars/all.yaml (only consumed by backup_hosts which loads docker_stacks.yaml).
+combined_db_configs:
+  - db_primary_mariadb
+  - db_primary_postgres
+  - db_secondary_postgres
+  # db_primary_influxdb excluded — OOM blocker (see future/TODO.md)
+
+# Docker health check poll ceiling (seconds) — used by tasks/verify_docker_health.yaml
+docker_health_poll_timeout: 120
+
+# Discord rollback embed color (decimal integer) — used by rollback_docker.yaml
+discord_color_rollback: 16776960

@@ -1,3 +1,34 @@
+# Proxmox infrastructure defaults — shared across all VMs.
+# Moved from vars/definitions/vm_definitions.yaml per variable placement conventions.
+# vault_pve_api_user, vault_pve_api_token_id, vault_pve_api_token_secret, vault_pve_vm_password
+# are secrets — defined in vars/secrets.yaml.
+vault_pve_api_host: "{{ vault_pve_vip }}"
+pve_storage: "local-lvm"
+pve_bridge: "vmbr0"
+vm_user: "ansible"
+vm_gateway: "{{ vault_vm_gateway }}"
+vm_dns: "{{ vault_vm_dns }}"
+vm_search_domain: "{{ vault_vm_search_domain }}"
+vm_cidr: 24
+
+# Cloud-init template — created automatically on first build.
+# Storage is local-lvm (not shared), so the template must exist on pve_template_node.
+pve_template_vmid: 9000
+pve_template_node: "{{ vault_pve_template_node }}"
+pve_template_name: "ubuntu-cloud-template"
+pve_cloud_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+vm_template_memory: 2048
+vm_template_cores: 2
+
+# Local hosted desktop VM pool — permanent VMs with offset-based VMID and IP addressing.
+# VMIDs: vm_hosted_slot_base + per-VM offset (VMID 8xx = IP .8x on prod VLAN)
+vm_hosted_slot_base: 800
+
+# Test VM slot pool — used by test-vm (and any future slot-based VMs).
+# VMIDs: vm_test_slot_base .. vm_test_slot_base + vm_test_slot_count - 1
+vm_test_slot_base: 1300
+vm_test_slot_count: 10
+
 # Keepalived VRRP config for the Proxmox management VIP (setup_pve_vip.yaml, maintain_pve.yaml).
 # vault vars required: vault_pve_vip, vault_pve_vrrp_password,
 #   vault_pve_vrrp_priorities (dict: short node name → priority; highest = MASTER — domain stripped automatically)

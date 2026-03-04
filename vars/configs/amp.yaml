@@ -10,11 +10,17 @@ update_name: "AMP"
 update_description: "Automatic AMP Update"
 update_subtype: "Game Server"
 
+# AMP web panel port — used by health checks and bootstrap wait_for
+amp_web_port: 8080
+
 # Maintenance config — used by maintain_amp.yaml and bootstrap_amp.yaml
 amp_user: "amp"
 amp_home: "/home/amp"
 amp_versions_keep: 2
 amp_journal_max_age: "3d"
+
+# Rsync timeout for AMP instance transfers (seconds) — AMP instances can be multi-GB
+rsync_timeout_amp: 1800
 
 # Unattended install defaults — used by bootstrap_amp.yaml
 amp_admin_user: "admin"

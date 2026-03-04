@@ -40,6 +40,7 @@
   vars_files:
     - vars/secrets.yaml
     - vars/definitions/vm_definitions.yaml
+    - vars/configs/proxmox.yaml
     - vars/configs/semaphore_check.yaml
   vars:
     _unifi_api: "https://{{ inventory_hostname }}/proxy/network/api/s/default"

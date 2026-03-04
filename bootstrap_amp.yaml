@@ -654,9 +654,9 @@
       poll: 10
       changed_when: true
 
-    - name: Wait for AMP web panel on port 8080
+    - name: Wait for AMP web panel
       ansible.builtin.wait_for:
-        port: 8080
+        port: "{{ amp_web_port }}"
         host: 0.0.0.0
         timeout: 120
         state: started

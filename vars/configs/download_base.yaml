@@ -9,6 +9,11 @@ metube_config_host_dir: "/mnt/user/appdata/youtube-dl"
 metube_temp_dir: "/mnt/user/temp"
 metube_temp_max_age_days: 15
 
+# Config file path inside metube container (profile-specific)
+metube_config_path: "/configs/{{ config_name }}/{{ config_name }}.conf"
+# Manifest file for tracking download results (host /tmp)
+metube_manifest: "/tmp/downloads_{{ config_name }}.jsonl"
+
 # Paths (inside metube container)
 ytdlp_download_path: "/downloads/"
 ytdlp_temp_path: "/tempvideo"
