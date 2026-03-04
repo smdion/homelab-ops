@@ -18,10 +18,13 @@ update_description: "Automatic Proxmox Update"
 update_type: "Appliances"
 update_subtype: "{{ 'PBS' if inventory_hostname in groups['pbs'] else 'PVE' }}"
 
-pve_pool_production: "production"      # Docker VMs, local hosted, game servers, manual VMs (no VLAN tag)
-pve_pool_test: "test"                  # test VMs (VLAN 1683 / 192.168.13.x)
-pve_pool_hosted: "hosted"              # public hosted VMs (VLAN 1682 / 192.168.12.x)
-pve_pool_hosted_vlan: 1682
+pve_pool_production: "production"        # Docker VMs, game servers, manual VMs (no VLAN tag, VMID outside 800-899)
+pve_pool_hosted: "hosted"                # local hosted VMs (no VLAN tag, VMID 800-899)
+pve_pool_hosted_vmid_min: 800
+pve_pool_hosted_vmid_max: 899
+pve_pool_public_hosted: "public_hosted"  # public hosted VMs (VLAN 1682 / 192.168.12.x)
+pve_pool_public_hosted_vlan: 1682
+pve_pool_test: "test"                    # test VMs (VLAN 1683 / 192.168.13.x)
 # test VLAN uses vault_test_vlan_id (already in secrets.yaml)
 
 # VMIDs to exclude from the production pool even if they match the no-VLAN rule.

@@ -352,13 +352,13 @@
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 5 — Manage PVE resource pools
-# Derives pool membership from live VM net0 VLAN tags — no VMID lists
-# to maintain. Adding a VM to VLAN 1682 (public hosted) or 1683 (test) is enough.
-#   production  — net0 defined, no VLAN tag (Docker, local hosted, game, manual VMs)
-#   hosted      — net0 tag=<pve_pool_hosted_vlan>  (1682 — public hosted)
-#   test        — net0 tag=<vault_test_vlan_id>    (1683)
-# After first run: update PBS backup jobs (Datacenter → Backup) to
-# filter by pool 'production' — one-time manual step.
+# Derives pool membership from live VM net0 VLAN tags + VMID ranges.
+#   production     — net0 defined, no VLAN tag, VMID outside 800-899
+#   hosted         — net0 defined, no VLAN tag, VMID 800-899 (local hosted)
+#   public_hosted  — net0 tag=<pve_pool_public_hosted_vlan>  (1682)
+#   test           — net0 tag=<vault_test_vlan_id>           (1683)
+# PBS backup jobs target production, hosted, and public_hosted pools.
+# Test pool is excluded (ephemeral VMs).
 # ═══════════════════════════════════════════════════════════════════
 - name: Manage PVE resource pools
   hosts: localhost
@@ -430,12 +430,11 @@
           ignore_errors: true
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-        # Only VMs with net0 defined are categorized.
-        # Production = net0 present AND no tag=<n> in the net0 string,
-        # minus any VMIDs in pve_pool_exclude_vmids.
-        - name: Derive pool memberships from VLAN tags
+        # Build intermediate list of all no-tag VMIDs for splitting into
+        # production vs hosted based on VMID range.
+        - name: Derive pool memberships from VLAN tags and VMID ranges
           ansible.builtin.set_fact:
-            _production_vmids: >-
+            _no_tag_vmids: >-
               {{ _vm_configs.results
                  | rejectattr('failed', 'equalto', true)
                  | selectattr('json.data.net0', 'defined')
@@ -443,11 +442,11 @@
                  | map(attribute='item.vmid') | map('int')
                  | difference(pve_pool_exclude_vmids | default([]) | map('int') | list)
                  | list }}
-            _hosted_vmids: >-
+            _public_hosted_vmids: >-
               {{ _vm_configs.results
                  | rejectattr('failed', 'equalto', true)
                  | selectattr('json.data.net0', 'defined')
-                 | selectattr('json.data.net0', 'search', '(?:^|,)tag=' + pve_pool_hosted_vlan | string + '(?:,|$)')
+                 | selectattr('json.data.net0', 'search', '(?:^|,)tag=' + pve_pool_public_hosted_vlan | string + '(?:,|$)')
                  | map(attribute='item.vmid') | map('int') | list }}
             _test_vmids: >-
               {{ _vm_configs.results
@@ -455,6 +454,23 @@
                  | selectattr('json.data.net0', 'defined')
                  | selectattr('json.data.net0', 'search', '(?:^|,)tag=' + vault_test_vlan_id | string + '(?:,|$)')
                  | map(attribute='item.vmid') | map('int') | list }}
+
+        - name: Split no-tag VMs into production and hosted by VMID range
+          ansible.builtin.set_fact:
+            _hosted_vmids: >-
+              {{ _no_tag_vmids
+                 | select('ge', pve_pool_hosted_vmid_min)
+                 | select('le', pve_pool_hosted_vmid_max)
+                 | list }}
+            _production_vmids: >-
+              {{ _no_tag_vmids
+                 | reject('ge', pve_pool_hosted_vmid_min)
+                 | list
+                 + _no_tag_vmids
+                 | select('gt', pve_pool_hosted_vmid_max)
+                 | list }}
+
+        # ── Create pools (idempotent — skipped if already exists) ──
 
         - name: Create production pool
           ansible.builtin.uri:
@@ -465,7 +481,7 @@
             body_format: form-urlencoded
             body:
               poolid: "{{ pve_pool_production }}"
-              comment: "Production VMs (Docker, local hosted, game servers, manual)"
+              comment: "Production VMs (Docker, game servers, manual)"
             validate_certs: false
           when: pve_pool_production not in _pool_ids
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -479,9 +495,23 @@
             body_format: form-urlencoded
             body:
               poolid: "{{ pve_pool_hosted }}"
-              comment: "Public Hosted VMs (VLAN {{ pve_pool_hosted_vlan }})"
+              comment: "Hosted VMs (VMID {{ pve_pool_hosted_vmid_min }}-{{ pve_pool_hosted_vmid_max }}, local)"
             validate_certs: false
           when: pve_pool_hosted not in _pool_ids
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Create public_hosted pool
+          ansible.builtin.uri:
+            url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/pools"
+            method: POST
+            headers:
+              Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              poolid: "{{ pve_pool_public_hosted }}"
+              comment: "Public Hosted VMs (VLAN {{ pve_pool_public_hosted_vlan }})"
+            validate_certs: false
+          when: pve_pool_public_hosted not in _pool_ids
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Create test pool
@@ -498,8 +528,9 @@
           when: pve_pool_test not in _pool_ids
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
-        # Fetch current pool membership before adding — PVE API returns 500 if
-        # any VM in the list is already a member, so we only PUT the diff.
+        # ── Fetch current pool membership (PVE API returns 500 if a VM
+        #    is already a member, so we only PUT the diff) ──
+
         - name: Get current production pool members
           ansible.builtin.uri:
             url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_production }}"
@@ -518,6 +549,16 @@
               Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
             validate_certs: false
           register: _hosted_pool
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+        - name: Get current public_hosted pool members
+          ansible.builtin.uri:
+            url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_public_hosted }}"
+            method: GET
+            headers:
+              Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+            validate_certs: false
+          register: _public_hosted_pool
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Get current test pool members
@@ -544,12 +585,20 @@
                    | selectattr('type', 'equalto', 'qemu')
                    | map(attribute='vmid') | map('int') | list
                  ) }}
+            _public_hosted_new_vmids: >-
+              {{ _public_hosted_vmids | difference(
+                   _public_hosted_pool.json.data.members | default([])
+                   | selectattr('type', 'equalto', 'qemu')
+                   | map(attribute='vmid') | map('int') | list
+                 ) }}
             _test_new_vmids: >-
               {{ _test_vmids | difference(
                    _test_pool.json.data.members | default([])
                    | selectattr('type', 'equalto', 'qemu')
                    | map(attribute='vmid') | map('int') | list
                  ) }}
+
+        # ── Add VMs to pools (allow-move: 1 handles cross-pool moves) ──
 
         - name: Add new production VMs to production pool
           ansible.builtin.uri:
@@ -579,6 +628,20 @@
           when: _hosted_new_vmids | length > 0
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
+        - name: Add new public_hosted VMs to public_hosted pool
+          ansible.builtin.uri:
+            url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_public_hosted }}"
+            method: PUT
+            headers:
+              Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
+            body_format: form-urlencoded
+            body:
+              vms: "{{ _public_hosted_new_vmids | join(',') }}"
+              allow-move: 1
+            validate_certs: false
+          when: _public_hosted_new_vmids | length > 0
+          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
         - name: Add new test VMs to test pool
           ansible.builtin.uri:
             url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_test }}"
@@ -596,10 +659,10 @@
         - name: Report pool assignments
           ansible.builtin.debug:
             msg:
-              - "production ({{ _production_vmids | length }} VMs, {{ _production_new_vmids | length }} new): {{ _production_vmids | sort | join(', ') }}"
-              - "hosted     ({{ _hosted_vmids | length }} VMs, {{ _hosted_new_vmids | length }} new): {{ _hosted_vmids | sort | join(', ') }}"
-              - "test       ({{ _test_vmids | length }} VMs, {{ _test_new_vmids | length }} new): {{ _test_vmids | sort | join(', ') }}"
-              - "One-time manual step: Datacenter → Backup → edit job(s) → set Pool = '{{ pve_pool_production }}'"
+              - "production     ({{ _production_vmids | length }} VMs, {{ _production_new_vmids | length }} new): {{ _production_vmids | sort | join(', ') }}"
+              - "hosted         ({{ _hosted_vmids | length }} VMs, {{ _hosted_new_vmids | length }} new): {{ _hosted_vmids | sort | join(', ') }}"
+              - "public_hosted  ({{ _public_hosted_vmids | length }} VMs, {{ _public_hosted_new_vmids | length }} new): {{ _public_hosted_vmids | sort | join(', ') }}"
+              - "test           ({{ _test_vmids | length }} VMs, {{ _test_new_vmids | length }} new): {{ _test_vmids | sort | join(', ') }}"
 
       rescue:
         - name: Set pool sync failed

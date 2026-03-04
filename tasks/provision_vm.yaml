@@ -330,11 +330,12 @@
         groups: "{{ _provision_target_group | default('build_target') }}"
         _needs_bootstrap: true
 
-    - name: Derive PVE pool from VLAN tag
+    - name: Derive PVE pool from VLAN tag and VMID range
       ansible.builtin.set_fact:
         _provision_pool: >-
           {{ pve_pool_test if (_vm.vm_vlan_tag | default('') | string) == (vault_test_vlan_id | default('') | string)
-             else pve_pool_hosted if (_vm.vm_vlan_tag | default('') | string) == (pve_pool_hosted_vlan | default('') | string)
+             else pve_pool_public_hosted if (_vm.vm_vlan_tag | default('') | string) == (pve_pool_public_hosted_vlan | default('') | string)
+             else pve_pool_hosted if _vm.vm_vlan_tag is not defined and (_vm.vm_id | int) >= pve_pool_hosted_vmid_min and (_vm.vm_id | int) <= pve_pool_hosted_vmid_max
              else pve_pool_production if _vm.vm_vlan_tag is not defined
              else '' }}
 
