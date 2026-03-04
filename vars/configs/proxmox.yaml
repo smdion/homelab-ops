@@ -42,7 +42,6 @@ src_raw_files:
   - "/etc"
 backup_name: "{{ 'PBS' if inventory_hostname in groups['pbs'] else ('PVE' if inventory_hostname in groups['pve'] else 'Proxmox') }}"
 backup_description: "Automatic Proxmox Backup"
-backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ vault_domain_ext }}"
 backup_type: "Appliances"
 backup_subtype: "Config"
 update_name: "Proxmox"

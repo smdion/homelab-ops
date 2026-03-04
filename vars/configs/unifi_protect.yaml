@@ -4,7 +4,6 @@ backup_tmp_dir: "/tmp/backup"
 backup_assert_disk_min_gb: 0  # backup is API-based (delegate_to: localhost) — no remote disk needed
 backup_name: "Unifi Protect"
 backup_description: "Automatic Unifi Protect Config Backup"
-backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ vault_domain_ext }}"
 backup_type: "Appliances"
 backup_subtype: "Config"
 backup_ext: "zip"

@@ -3,5 +3,4 @@ src_raw_files:
 backup_tmp_dir: "/mnt/user/Backup/ansibletemp/"
 backup_name: "unRAID"
 backup_description: "Automatic unRAID Config Backup"
-backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ vault_domain_ext }}"
 backup_subtype: "Config"

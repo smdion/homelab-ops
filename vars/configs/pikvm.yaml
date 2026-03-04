@@ -3,7 +3,6 @@ src_raw_files:
   - "/opt/cmd"
 backup_name: "PiKVM"
 backup_description: "Automatic PiKVM Backup"
-backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ vault_domain_ext }}"
 backup_type: "Appliances"
 backup_subtype: "Config"
 update_name: "PiKVM"

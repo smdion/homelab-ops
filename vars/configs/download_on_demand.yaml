@@ -18,15 +18,5 @@ metube_capture_dir: "/configs/on_demand"
 ytdlp_quiet: false
 ytdlp_filter_live: false
 
-# Batch file and archive (profile-specific paths inside metube container)
+# Batch file (profile-specific path inside metube container)
 ytdlp_batch_file: "/configs/default/on_demand"
-ytdlp_archive: "/configs/default/downloaded"
-
-# Quality and format
-ytdlp_quality: "res:1080"
-ytdlp_format: "mp4"
-
-# Rate limiting and filters
-ytdlp_rate_limit: "50M"
-ytdlp_playlist_end: 2
-ytdlp_reject_title: "TMS|The Morning Stream|TWBD|Be Dungeons"

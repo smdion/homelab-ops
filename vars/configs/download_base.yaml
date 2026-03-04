@@ -22,6 +22,14 @@ ytdlp_output: "%(extractor_key)s/%(uploader)s - %(title)s - %(id)s.%(ext)s"
 # Extractor configuration
 ytdlp_extractor_args: "youtube:player-client=default,-tv,web_safari,web_embedded"
 
+# Download defaults — profiles override per-user preferences
+ytdlp_quality: "res:1080"
+ytdlp_format: "mp4"
+ytdlp_rate_limit: "50M"
+ytdlp_playlist_end: 2
+ytdlp_reject_title: "TMS|The Morning Stream|TWBD|Be Dungeons"
+ytdlp_archive: "/configs/default/downloaded"
+
 # Discord notification URLs — used by download_videos.yaml
 metube_avatar: "https://github.com/alexta69/metube/blob/master/ui/src/assets/icons/android-chrome-384x384.png?raw=true"
 default_platform_icon: "https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png"

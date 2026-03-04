@@ -4,12 +4,10 @@ src_raw_files:
 backup_name: "Docker"
 backup_description: "Automatic Docker Appdata Backup"
 backup_subtype: "Appdata"
-backup_url: "https://{{ inventory_hostname.split('.')[0] }}.{{ vault_domain_ext }}"
 
 # Update vars
 update_name: "Docker"
 update_description: "Automatic Docker Container Update"
-update_type: "Servers"
 update_subtype: "Container"
 update_delay_days: 3
 update_exclude_services:

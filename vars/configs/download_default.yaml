@@ -10,16 +10,8 @@ config_name: "default"
 ytdlp_quiet: true
 ytdlp_filter_live: true
 
-# Batch file and archive (profile-specific paths inside metube container)
+# Batch file (profile-specific path inside metube container)
 ytdlp_batch_file: "/configs/default/channel_list"
-ytdlp_archive: "/configs/default/downloaded"
 
-# Quality and format
-ytdlp_quality: "res:1080"
-ytdlp_format: "mp4"
-
-# Rate limiting and filters
-ytdlp_rate_limit: "50M"
-ytdlp_playlist_end: 2
-ytdlp_reject_title: "TMS|The Morning Stream|TWBD|Be Dungeons"
+# Date filter — only fetch recent uploads
 ytdlp_dateafter: "now-1weeks"
