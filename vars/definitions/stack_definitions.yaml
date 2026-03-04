@@ -25,6 +25,6 @@ stack_definitions:
   media:
     description: "Media services — Tautulli, Jellyseerr"
   monitoring:
-    description: "Monitoring — Grafana, VictoriaMetrics"
+    description: "Monitoring — Grafana, CrowdSec Web UI"
   vpn:
     description: "VPN and NPM — WireGuard, Nginx Proxy Manager"
