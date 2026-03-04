@@ -99,15 +99,15 @@ and go.
 | `maintain_semaphore.yaml` | Clean stopped Semaphore tasks, prune old download tasks (`download_task_retention_days`), and prune `ansible_logging` rows (`retention_days`) | Runs on localhost |
 | `maintain_logging_db.yaml` | Purge failed/warning records from `ansible_logging`; `-e purge_all=yes -e confirm=yes` truncates all tables (full reset after arch changes) | Runs on localhost |
 | `check_logging_db.yaml` | Weekly `ansible_logging` summary — 7-day row counts per table, hosts with no recent backup, failure counts — sends an informational notification; logs to MariaDB | Runs on localhost |
-| `maintain_health.yaml` | 26 health checks across all SSH hosts + DB/API | `vars/semaphore_check.yaml` for thresholds |
+| `maintain_health.yaml` | 26 health checks across all SSH hosts + DB/API | `vars/configs/semaphore_check.yaml` for thresholds |
 | `verify_backups.yaml` | Verify DB backups (restore to temp DB, count tables/measurements) and config archives (integrity + staging) | Same `vars/` files as backup playbooks |
-| `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm=yes` | `vars/db_<role>_<engine>.yaml` with `db_container_deps` |
-| `restore_hosts.yaml` | Restore config/appdata — per-stack, selective app, or monolithic; safety-gated with `confirm=yes`; coordinated cross-host DB (`with_databases=yes`); `stack=`/`role=` scope selectors | `vars/<platform>.yaml` + `vars/app_definitions.yaml` |
-| `restore_amp.yaml` | Restore AMP game server instance(s) from backup; safety-gated with `confirm=yes`; pass `restore_target`; optionally `amp_instance_filter` for a single instance | `vars/amp.yaml` |
-| `restore_app.yaml` | Restore a single app (appdata + all DBs) to a production host; safety-gated with `confirm=yes`; pass `restore_app`, `restore_target`, optionally `restore_source_host` | `vars/docker_stacks.yaml` `app_definitions` dict + runtime config from container labels |
-| `rollback_docker.yaml` | Revert Docker containers to previous images; `with_backup=yes` for combined image+appdata+DB recovery; `stack=`/`role=` scope; safety-gated with `confirm=yes` | `vars/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
-| `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy; `role=`/`stack=` scope selectors; `serial: 1` for multi-host ordering | `vars/docker_stacks.yaml` with `stack_assignments` |
-| `apply_role.yaml` | Idempotent VM reconciliation — make a VM match its definition across OS/network/Docker/stacks/verification layers; omit `-e role` for all Docker VMs (`serial: 1`, VMID order); `-e role=core` to target one; per-layer skip flags | `vars/vm_definitions.yaml` with consolidated VM spec |
+| `restore_databases.yaml` | Restore database dumps — single-DB or all; safety-gated with `confirm=yes` | `vars/configs/db_<role>_<engine>.yaml` with `db_container_deps` |
+| `restore_hosts.yaml` | Restore config/appdata — per-stack, selective app, or monolithic; safety-gated with `confirm=yes`; coordinated cross-host DB (`with_databases=yes`); `stack=`/`role=` scope selectors | `vars/configs/<platform>.yaml` + `vars/definitions/app_definitions.yaml` |
+| `restore_amp.yaml` | Restore AMP game server instance(s) from backup; safety-gated with `confirm=yes`; pass `restore_target`; optionally `amp_instance_filter` for a single instance | `vars/configs/amp.yaml` |
+| `restore_app.yaml` | Restore a single app (appdata + all DBs) to a production host; safety-gated with `confirm=yes`; pass `restore_app`, `restore_target`, optionally `restore_source_host` | `vars/configs/docker_stacks.yaml` `app_definitions` dict + runtime config from container labels |
+| `rollback_docker.yaml` | Revert Docker containers to previous images; `with_backup=yes` for combined image+appdata+DB recovery; `stack=`/`role=` scope; safety-gated with `confirm=yes` | `vars/configs/docker_stacks.yaml` (snapshot from `update_systems.yaml`) |
+| `deploy_stacks.yaml` | Deploy Docker stacks from Git — template `.env` from vault, copy compose files, validate, start; dependency-ordered via `stack_assignments`; supports single-stack deploy; `role=`/`stack=` scope selectors; `serial: 1` for multi-host ordering | `vars/configs/docker_stacks.yaml` with `stack_assignments` |
+| `apply_role.yaml` | Idempotent VM reconciliation — make a VM match its definition across OS/network/Docker/stacks/verification layers; omit `-e role` for all Docker VMs (`serial: 1`, VMID order); `-e role=core` to target one; per-layer skip flags | `vars/definitions/vm_definitions.yaml` with consolidated VM spec |
 
 ### Platform-specific playbooks
 
@@ -159,7 +159,7 @@ for platforms you don't have are automatically skipped.
 | `pbs_datastore` | `[pbs]` only | PBS datastore accessibility |
 | `semaphore_tasks` | localhost | Failed Semaphore tasks since last check |
 | `stale_backup` | localhost | Hosts with no backup in 9+ days |
-| `backup_size_anomaly` | localhost | Backups significantly smaller than 30-day average; exclude apps via `health_backup_size_exclude` in `vars/semaphore_check.yaml` |
+| `backup_size_anomaly` | localhost | Backups significantly smaller than 30-day average; exclude apps via `health_backup_size_exclude` in `vars/configs/semaphore_check.yaml` |
 | `failed_maintenance` | localhost | Failed maintenance runs since last check |
 | `stale_maintenance` | localhost | Hosts with no maintenance in 3+ days |
 | `mariadb_health` | localhost | Connection count + crashed tables |
@@ -323,7 +323,7 @@ See [DESIGN.md](DESIGN.md#semaphore-setup) for the full Semaphore configuration 
 `deploy_grafana.yaml` automates the full Grafana setup — it creates the `Ansible-Logging` MySQL
 datasource (if missing) and imports the dashboard via API. It also syncs threshold values from
 Ansible vars into the dashboard panels, so changing `health_backup_stale_days` or
-`health_update_stale_days` in `vars/semaphore_check.yaml` automatically updates the
+`health_update_stale_days` in `vars/configs/semaphore_check.yaml` automatically updates the
 corresponding Stale Backups and Stale Updates panels on next deploy.
 
 ```bash
@@ -845,7 +845,7 @@ No database changes are needed — Ansible sends all column values at INSERT tim
 |---|---|
 | `vars/secrets.yaml.example` | All vault keys with descriptions |
 | `vars/example.yaml` | All vars file keys with descriptions |
-| `vars/semaphore_check.yaml` | Health check thresholds (all tunable) |
+| `vars/configs/semaphore_check.yaml` | Health check thresholds (all tunable) |
 | `inventory.example.yaml` | Expected inventory group structure |
 | [DESIGN.md](DESIGN.md) | Full architecture, patterns, database schema, and design decisions |
 

@@ -54,7 +54,7 @@ ansible-playbook backup_hosts.yaml -i inventory.yaml \
    DB/API checks, Play 2 for SSH host checks)
 2. Follow the existing block/rescue pattern — record results to `play1_health_results` or
    `host_health_issues`
-3. Add any new thresholds to `vars/semaphore_check.yaml`
+3. Add any new thresholds to `vars/configs/semaphore_check.yaml`
 4. Update the CHECK comment numbering (sequential across all 3 plays)
 
 ## Restore / Verify Playbooks
