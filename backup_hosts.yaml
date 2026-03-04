@@ -188,64 +188,99 @@
             - inventory_hostname in groups["docker_run"] | default([])
             - config_file == 'docker_run'
 
-        # ===== UNVR PROTECT BACKUP VIA API =====
-        - name: Trigger UNVR backup
+        # ===== UNVR PROTECT BACKUP VIA API (cookie auth) =====
+        # UNVR does NOT support x-api-key. Auth flow:
+        #   1. POST /api/auth/login → TOKEN cookie + X-CSRF-Token header
+        #   2. POST /proxy/protect/api/backups → trigger backup (returns metadata with id)
+        #   3. GET  /proxy/protect/api/backup/{id} → download backup as application/zip
+        - name: Login to UNVR Protect API
           ansible.builtin.uri:
-            url: "https://{{ inventory_hostname }}{{ unifi_protect_api_backup_path }}"
+            url: "https://{{ inventory_hostname }}{{ unifi_protect_api_login_path }}"
             method: POST
             body_format: json
             body:
-              cmd: "backup"
-              days: "-1"
-            validate_certs: false  # UNVR uses a self-signed cert; vendor API prevents proper TLS cert management
-            headers:
-              x-api-key: "{{ vault_unvr_api_key }}"
+              username: "{{ vault_unvr_user }}"
+              password: "{{ vault_unvr_password }}"
+            validate_certs: false  # UNVR uses a self-signed cert
             status_code: 200
-          register: _unvr_backup
+          register: _unvr_login
           delegate_to: localhost
-          ignore_errors: true  # TODO: API endpoint 404 — silence until correct path is found (IMP-10)
+          no_log: true
           when:
             - inventory_hostname in groups["unifi_protect"]
             - not ansible_check_mode
 
-        - name: Download UNVR backup file
-          ansible.builtin.get_url:
-            url: "https://{{ inventory_hostname }}{{ _unvr_backup.json.data[0].url }}"
-            dest: "{{ unifi_protect_temp_file }}"
-            mode: "0600"
-            validate_certs: false  # UNVR uses a self-signed cert; vendor API prevents proper TLS cert management
+        - name: Set UNVR auth headers
+          ansible.builtin.set_fact:
+            _unvr_cookie: "{{ _unvr_login.cookies_string }}"
+            _unvr_csrf: "{{ _unvr_login.x_updated_csrf_token | default(_unvr_login.x_csrf_token, true) | default('') }}"
+          when:
+            - inventory_hostname in groups["unifi_protect"]
+            - _unvr_login is defined
+            - not (_unvr_login.failed | default(false))
+            - not ansible_check_mode
+
+        - name: Trigger UNVR backup
+          ansible.builtin.uri:
+            url: "https://{{ inventory_hostname }}{{ unifi_protect_api_backup_trigger_path }}"
+            method: POST
+            validate_certs: false
             headers:
-              x-api-key: "{{ vault_unvr_api_key }}"
+              Cookie: "{{ _unvr_cookie }}"
+              X-CSRF-Token: "{{ _unvr_csrf }}"
+            status_code: 200
+          register: _unvr_backup
           delegate_to: localhost
-          ignore_errors: true  # TODO: file retrieval broken — silence until fixed
+          when:
+            - inventory_hostname in groups["unifi_protect"]
+            - _unvr_cookie is defined
+            - not ansible_check_mode
+
+        - name: Download UNVR backup file
+          ansible.builtin.uri:
+            url: "https://{{ inventory_hostname }}{{ unifi_protect_api_backup_download_path }}/{{ _unvr_backup.json.id }}"
+            method: GET
+            dest: "{{ unifi_protect_temp_file }}"
+            validate_certs: false
+            headers:
+              Cookie: "{{ _unvr_cookie }}"
+              X-CSRF-Token: "{{ _unvr_csrf }}"
+            status_code: 200
+          delegate_to: localhost
           register: _unvr_download
           when:
             - inventory_hostname in groups["unifi_protect"]
+            - _unvr_backup is defined
+            - not (_unvr_backup.failed | default(false))
             - not ansible_check_mode
 
         - name: Copy UNVR Protect backup to staging directory
           ansible.builtin.copy:
             src: "{{ unifi_protect_temp_file }}"
             dest: "{{ backup_tmp_file }}"
+            mode: "0600"
+          delegate_to: localhost
           when:
             - inventory_hostname in groups["unifi_protect"]
+            - _unvr_download is defined
             - not (_unvr_download.failed | default(false))
             - not ansible_check_mode
 
         # ===== UNVR: camera inventory export =====
         - name: Export Unifi Protect camera inventory
           ansible.builtin.uri:
-            url: "https://{{ inventory_hostname }}/proxy/protect/api/cameras"
+            url: "https://{{ inventory_hostname }}{{ unifi_protect_api_cameras_path }}"
             method: GET
-            validate_certs: false  # UNVR uses a self-signed cert
+            validate_certs: false
             headers:
-              x-api-key: "{{ vault_unvr_api_key }}"
+              Cookie: "{{ _unvr_cookie }}"
+              X-CSRF-Token: "{{ _unvr_csrf }}"
             status_code: 200
           register: _protect_cameras
           delegate_to: localhost
-          ignore_errors: true
           when:
             - inventory_hostname in groups["unifi_protect"]
+            - _unvr_cookie is defined
             - not ansible_check_mode
 
         - name: Save camera inventory to controller

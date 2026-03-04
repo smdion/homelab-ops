@@ -1,12 +1,16 @@
-# vault_unvr_api_key is in vars/secrets.yaml (vault)
+# vault_unvr_user / vault_unvr_password are in vars/secrets.yaml (vault)
+# UNVR uses cookie-based auth (NOT x-api-key) — see login task in backup_hosts.yaml
 backup_tmp_dir: "/tmp/backup"
 backup_assert_disk_min_gb: 0  # backup is API-based (delegate_to: localhost) — no remote disk needed
 backup_name: "Unifi Protect"
 backup_description: "Automatic Unifi Protect Config Backup"
 backup_type: "Appliances"
 backup_subtype: "Config"
-backup_ext: "unf"
+backup_ext: "zip"
 
-# Unifi Protect paths — API backup endpoint and controller temp file
-unifi_protect_api_backup_path: "/api/s/default/cmd/backup"
-unifi_protect_temp_file: "/tmp/unifi_protect_backup.unf"
+# Unifi Protect API paths (cookie auth required)
+unifi_protect_api_login_path: "/api/auth/login"
+unifi_protect_api_backup_trigger_path: "/proxy/protect/api/backups"
+unifi_protect_api_backup_download_path: "/proxy/protect/api/backup"
+unifi_protect_api_cameras_path: "/proxy/protect/api/cameras"
+unifi_protect_temp_file: "/tmp/unifi_protect_backup.zip"
