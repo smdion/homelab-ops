@@ -1437,6 +1437,71 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'docker_http', 'status': 'critical', 'value': 'check_error', 'detail': 'docker http check task failed'}] }}
 
+    # ── CHECK 26: Docker host /opt orphan entries (docker_stacks only) ────────
+    - name: Check for orphan files and directories in /opt
+      when: inventory_hostname in (groups['docker_stacks'] | default([]))
+      block:
+        - name: Discover expected /opt entries from running containers
+          ansible.builtin.shell: |
+            # Collect all unique top-level /opt entries used by containers
+            expected="stacks"
+            for mount in $(docker ps -a --format '{% raw %}{{.Mounts}}{% endraw %}' 2>/dev/null | tr ',' '\n' | grep -oP '/opt/[^/\s]+' | sort -u); do
+              entry=$(basename "$mount")
+              expected="$expected $entry"
+            done
+            # Also include stack compose dirs
+            if [ -d /opt/stacks ]; then
+              for d in /opt/stacks/*/; do
+                [ -d "$d" ] && expected="$expected stacks/$(basename "$d")"
+              done
+            fi
+            # Check all top-level entries in /opt (files and directories)
+            orphans=""
+            for entry in /opt/*; do
+              [ ! -e "$entry" ] && continue
+              name=$(basename "$entry")
+              if ! echo " $expected " | grep -q " $name "; then
+                if [ -d "$entry" ]; then
+                  orphans="$orphans $name/"
+                else
+                  orphans="$orphans $name"
+                fi
+              fi
+            done
+            echo "${orphans## }"
+          register: _opt_orphans_raw
+          changed_when: false
+          failed_when: false
+          check_mode: false
+
+        - name: Parse orphan results
+          ansible.builtin.set_fact:
+            _opt_orphans: "{{ _opt_orphans_raw.stdout | default('') | trim | split(' ') | select | list }}"
+
+        - name: Record /opt orphan check result
+          ansible.builtin.set_fact:
+            host_health_issues: >-
+              {{
+                host_health_issues + [{
+                  'check_name': 'opt_orphan_entries',
+                  'status': 'warning' if _opt_orphans | length > 0 else 'ok',
+                  'value': (_opt_orphans | length | string + ' orphan(s)') if _opt_orphans | length > 0 else 'ok',
+                  'detail': _opt_orphans | join(', ') if _opt_orphans | length > 0 else ''
+                }]
+              }}
+
+      rescue:
+        - name: Record /opt orphan check error
+          ansible.builtin.set_fact:
+            host_health_issues: >-
+              {{ host_health_issues + [{'check_name': 'opt_orphan_entries', 'status': 'critical', 'value': 'check_error', 'detail': 'opt orphan check task failed'}] }}
+
+    - name: Record /opt orphan check skipped (non-docker_stacks host)
+      ansible.builtin.set_fact:
+        host_health_issues: >-
+          {{ host_health_issues + [{'check_name': 'opt_orphan_entries', 'status': 'ok', 'value': 'skipped', 'detail': 'not a docker_stacks host'}] }}
+      when: inventory_hostname not in (groups['docker_stacks'] | default([]))
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # PLAY 3 — LOCALHOST: AGGREGATE, ALERT, LOG, SAVE STATE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1462,7 +1527,7 @@
         maintenance_failed: "{{ hostvars['localhost']['maintenance_failed'] | default(false) }}"
         play1_health_results: "{{ hostvars['localhost']['play1_health_results'] | default([]) }}"
 
-    # ── CHECK 26: UNREACHABLE HOST ALERTING ──────────────────────────────────────
+    # ── CHECK 27: UNREACHABLE HOST ALERTING ──────────────────────────────────────
     - name: Build unreachable host list
       ansible.builtin.set_fact:
         unreachable_hosts: "{{ unreachable_hosts | default([]) + [item] }}"
