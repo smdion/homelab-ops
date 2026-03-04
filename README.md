@@ -161,7 +161,7 @@ for platforms you don't have are automatically skipped.
 | `btrfs_health` | All SSH hosts | BTRFS device error counters (skips if no BTRFS) |
 | `ntp_sync` | All SSH hosts | Time synchronization status |
 | `dns_resolution` | All SSH hosts | DNS resolver working |
-| `docker_http` | All SSH hosts | HTTP endpoint checks for Docker containers |
+| `docker_http` | Configured hosts | HTTP endpoint checks for Docker containers |
 | `opt_orphan_entries` | `[docker_stacks]` only | Unexpected files/directories in `/opt` |
 | `pve_cluster` | `[pve]` only | Proxmox cluster quorum |
 | `ceph_health` | `[pve]` only | Ceph cluster status |
