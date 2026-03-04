@@ -169,7 +169,7 @@
                 value: "{{ item.end | default('N/A') }}"
                 inline: true
               - name: "Task ID"
-                value: "[#{{ item.id }}]({{ semaphore_ext_url }}/project/{{ project_id }}/history/{{ item.id }})"
+                value: "[#{{ item.id }}]({{ semaphore_ext_url }}/api/project/{{ project_id }}/tasks/{{ item.id }}/raw_output)"
                 inline: true
             discord_footer:
               text: "Semaphore Alert"

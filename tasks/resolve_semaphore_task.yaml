@@ -37,7 +37,7 @@
     _sem_ext: "https://{{ vault_semaphore_controller_hostname }}.{{ vault_domain_ext }}"
     _sem_project: "{{ semaphore_project_id | default(1) }}"
   ansible.builtin.set_fact:
-    _semaphore_task_url: "{{ _sem_ext }}/project/{{ _sem_project }}/history/{{ (_semaphore_task_response.content | from_json)[0].id }}"
+    _semaphore_task_url: "{{ _sem_ext }}/api/project/{{ _sem_project }}/tasks/{{ (_semaphore_task_response.content | from_json)[0].id }}/raw_output"
   when:
     - _semaphore_task_response is defined
     - _semaphore_task_response is succeeded
