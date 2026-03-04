@@ -17,7 +17,8 @@ import sys
 from pathlib import Path
 
 # Playbooks that are not runnable (requirements files, etc.)
-SKIP_FILES = {"requirements.yaml", "inventory.yaml", "inventory.example.yaml"}
+SKIP_FILES = {"requirements.yaml", "inventory.yaml", "inventory.example.yaml",
+               "playbook.example.yaml"}
 
 
 def _all_var_names(result: dict) -> set:
