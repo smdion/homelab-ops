@@ -8,8 +8,10 @@
 # Included by: build_pve.yaml, maintain_pve.yaml
 
 # === Disable enterprise repos ===
-# PVE 8 (Bookworm) uses .list format, PVE 9 (Trixie) uses .sources (DEB822)
-- name: Find enterprise repo files
+# PVE 8 (Bookworm) uses .list format, PVE 9 (Trixie) uses .sources (DEB822).
+# Only disable files with active enterprise stanzas — skip files that are
+# already fully commented out or that contain no-subscription content.
+- name: Find potential enterprise repo files
   ansible.builtin.find:
     paths: /etc/apt/sources.list.d
     patterns:
@@ -18,21 +20,32 @@
     file_type: file
   register: _enterprise_files
 
+- name: Read DEB822 repo file content
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  loop: "{{ _enterprise_files.files | selectattr('path', 'search', '\\.sources$') | list }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  register: _sources_content
+
 - name: Disable enterprise repos (.sources — DEB822 format)
   ansible.builtin.lineinfile:
-    path: "{{ item.path }}"
+    path: "{{ item.item.path }}"
     regexp: '^Enabled:'
     line: "Enabled: false"
     insertafter: '^Components:'
     state: present
-  loop: "{{ _enterprise_files.files | selectattr('path', 'search', '\\.sources$') | list }}"
+  loop: "{{ _sources_content.results }}"
   loop_control:
-    label: "{{ item.path | basename }}"
+    label: "{{ item.item.path | basename }}"
+  when:
+    - (item.content | b64decode) is search('(?m)^Types:')
+    - (item.content | b64decode) is search('enterprise')
 
 - name: Disable enterprise repos (.list — legacy format)
   ansible.builtin.replace:
     path: "{{ item.path }}"
-    regexp: '^(deb\s)'
+    regexp: '^(deb\s.*enterprise)'
     replace: '# \1'
   loop: "{{ _enterprise_files.files | selectattr('path', 'search', '\\.list$') | list }}"
   loop_control:
