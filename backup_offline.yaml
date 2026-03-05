@@ -117,6 +117,7 @@
 
         # === Mount single NFS share ===
         - name: Mount NFS share
+          become: true
           ansible.builtin.shell: /usr/local/sbin/rc.unassigned mount {{ _nfs_path }}
           register: _mount_result
 
@@ -141,6 +142,7 @@
 
         # === Rsync each share as subfolder ===
         - name: Rsync {{ item }} to Synology
+          become: true
           ansible.builtin.shell: |
             rsync -a --stats {{ synology_src_base_path }}{{ item }}/ "{{ _mount_point }}/{{ item }}/" --delete-after 2>&1
           loop: "{{ synology_shares }}"
@@ -161,6 +163,7 @@
 
         # === Unmount ===
         - name: Unmount NFS share
+          become: true
           ansible.builtin.shell: |
             n={{ umount_timeout }}
             while ! /usr/local/sbin/rc.unassigned umount {{ _nfs_path }}; do
@@ -180,6 +183,7 @@
             sync_failed: true
 
         - name: Best-effort unmount on failure
+          become: true
           ansible.builtin.shell: /usr/local/sbin/rc.unassigned umount {{ _nfs_path }}
           ignore_errors: true  # best-effort — cleanup after failure; share may not be mounted
           when: _mount_result is defined and _mount_result is not failed
