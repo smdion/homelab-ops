@@ -3,11 +3,12 @@
 # Idempotent Proxmox node configuration — run after bare-metal reinstall or new node join.
 # Targets all proxmox hosts (cluster PVE, PBS, and standalone PVE nodes).
 # Ensures OS-level settings not managed by PVE cluster replication are in expected state:
+# APT repos (enterprise disabled, no-subscription active, nag removed — PVE nodes only),
 # keepalived VIP (clustered PVE nodes only), ansible user SSH key, SSH hardening.
 #
 # Firewall rules and storage config are stored in /etc/pve/ (cluster-replicated via Corosync)
 # and are restored automatically when a node re-joins the cluster — no Ansible action needed.
-# Standalone nodes receive SSH hardening and ansible user only (no keepalived/VIP).
+# Standalone nodes receive APT repos, SSH hardening, and ansible user (no keepalived/VIP).
 #
 # Usage (safe to re-run — idempotent):
 #   ansible-playbook maintain_pve.yaml
@@ -21,11 +22,13 @@
 - name: Maintain Proxmox node configuration
   hosts: "proxmox"
   become: true
-  gather_facts: false
+  gather_facts: true
+  gather_subset: ['!all', 'distribution_release']
   vars_files:
     - vars/secrets.yaml
     - vars/configs/proxmox.yaml
   vars:
+    pve_debian_release: "{{ ansible_distribution_release | default('bookworm') }}"
     maintenance_name: "Proxmox"
     maintenance_type: "Appliances"
     maintenance_subtype: "Maintenance"
@@ -44,6 +47,11 @@
         maintenance_failed: false
 
     - block:
+        # === APT repos (PVE nodes only — not needed on PBS) ===
+        - name: Enforce no-subscription APT repos
+          include_tasks: tasks/pve_repos.yaml
+          when: inventory_hostname in groups["pve"] or inventory_hostname in (groups["pve_standalone"] | default([]))
+
         # === Keepalived VIP (PVE nodes only — not needed on PBS) ===
         - name: Install keepalived
           ansible.builtin.apt:

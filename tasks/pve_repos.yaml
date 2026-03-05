@@ -1,0 +1,71 @@
+---
+# Shared PVE APT repository management — disable enterprise repos, add no-subscription repo,
+# install nag removal script with APT hook.
+#
+# Required variables:
+#   pve_debian_release  — Debian release codename (e.g. bookworm, trixie)
+#
+# Included by: build_pve.yaml, maintain_pve.yaml
+
+# === Disable enterprise repos ===
+# PVE 8 (Bookworm) uses .list format, PVE 9 (Trixie) uses .sources (DEB822)
+- name: Find enterprise repo files
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns:
+      - "pve-enterprise.*"
+      - "ceph.*"
+    file_type: file
+  register: _enterprise_files
+
+- name: Disable enterprise repos (.sources — DEB822 format)
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    regexp: '^Enabled:'
+    line: "Enabled: false"
+    insertafter: '^Components:'
+    state: present
+  loop: "{{ _enterprise_files.files | selectattr('path', 'search', '\\.sources$') | list }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+- name: Disable enterprise repos (.list — legacy format)
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^(deb\s)'
+    replace: '# \1'
+  loop: "{{ _enterprise_files.files | selectattr('path', 'search', '\\.list$') | list }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+# === Add no-subscription repo ===
+# Use .list format (works on both Bookworm and Trixie)
+- name: Template no-subscription repo
+  ansible.builtin.template:
+    src: templates/pve-no-subscription.list.j2
+    dest: /etc/apt/sources.list.d/pve-no-subscription.list
+    owner: root
+    group: root
+    mode: "0644"
+
+# === Remove subscription nag ===
+- name: Template nag removal script
+  ansible.builtin.template:
+    src: templates/pve-remove-nag.sh.j2
+    dest: /usr/local/bin/pve-remove-nag.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Run nag removal script
+  ansible.builtin.command: /usr/local/bin/pve-remove-nag.sh
+  changed_when: false
+
+- name: Install APT hook for nag removal after updates
+  ansible.builtin.copy:
+    content: |
+      DPkg::Post-Invoke { "/usr/local/bin/pve-remove-nag.sh"; };
+    dest: /etc/apt/apt.conf.d/no-nag-script
+    owner: root
+    group: root
+    mode: "0644"
