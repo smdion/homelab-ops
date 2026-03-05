@@ -38,26 +38,39 @@
     pve_debian_release: "{{ ansible_distribution_release | default('bookworm') }}"
 
   tasks:
-    # === Disable enterprise repo ===
-    - name: Disable PVE enterprise repo (sources format)
-      ansible.builtin.lineinfile:
-        path: /etc/apt/sources.list.d/pve-enterprise.list
-        regexp: '^deb'
-        line: '# deb https://enterprise.proxmox.com/debian/pve {{ pve_debian_release }} pve-enterprise'
-        state: present
-        create: false
-      failed_when: false
+    # === Disable enterprise repos ===
+    # PVE 8 (Bookworm) uses .list format, PVE 9 (Trixie) uses .sources (DEB822)
+    - name: Find enterprise repo files
+      ansible.builtin.find:
+        paths: /etc/apt/sources.list.d
+        patterns:
+          - "pve-enterprise.*"
+          - "ceph.*"
+        file_type: file
+      register: _enterprise_files
 
-    - name: Disable Ceph enterprise repo if present
+    - name: Disable enterprise repos (.sources — DEB822 format)
       ansible.builtin.lineinfile:
-        path: /etc/apt/sources.list.d/ceph.list
-        regexp: '^deb'
-        line: '# deb https://enterprise.proxmox.com/debian/ceph-reef {{ pve_debian_release }} enterprise'
+        path: "{{ item.path }}"
+        regexp: '^Enabled:'
+        line: "Enabled: false"
+        insertafter: '^Components:'
         state: present
-        create: false
-      failed_when: false
+      loop: "{{ _enterprise_files.files | selectattr('path', 'search', '\\.sources$') | list }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+
+    - name: Disable enterprise repos (.list — legacy format)
+      ansible.builtin.replace:
+        path: "{{ item.path }}"
+        regexp: '^(deb\s)'
+        replace: '# \1'
+      loop: "{{ _enterprise_files.files | selectattr('path', 'search', '\\.list$') | list }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
 
     # === Add no-subscription repo ===
+    # Use .list format (works on both Bookworm and Trixie)
     - name: Template no-subscription repo
       ansible.builtin.template:
         src: templates/pve-no-subscription.list.j2
