@@ -70,6 +70,12 @@
           ansible.builtin.command:
             cmd: "python3 {{ _docs_dir }}/scripts/generate_docs.py {{ _ops_dir }}"
             chdir: "{{ _docs_dir }}"
+          environment:
+            SEMAPHORE_DB_HOST: "{{ vault_logging_db_host }}"
+            SEMAPHORE_DB_PORT: "{{ vault_logging_db_port }}"
+            SEMAPHORE_DB_USER: "{{ vault_logging_db_user }}"
+            SEMAPHORE_DB_PASSWORD: "{{ vault_logging_db_password }}"
+            SEMAPHORE_DB_NAME: "{{ semaphore_db_name | default('semaphore') }}"
           changed_when: true
 
         # ── Build MkDocs site ────────────────────────────────────────
