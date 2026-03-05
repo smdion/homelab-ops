@@ -1,8 +1,9 @@
 ---
 # Category: Utilities
 # Schedule: none
-# Re-ID a Proxmox VM on local-lvm storage (rename VMID while preserving all data).
-# Stops the VM, renames the config file and LVM volumes, updates disk references.
+# Re-ID a Proxmox VM (rename VMID while preserving all data).
+# Stops the VM, renames the config file and storage volumes, updates disk references.
+# Supports both local-lvm (LVM) and CEPH RBD storage — auto-detected from pve_storage.
 #
 # IMPORTANT: The VM must be stopped before running. This playbook will refuse to
 # touch a running VM. Back up important VMs before re-IDing.
@@ -14,13 +15,13 @@
 # Required extra vars:
 #   old_vmid  — current VMID of the VM to rename
 #   new_vmid  — target VMID (must not already exist)
-#   confirm=yes — safety gate (VMID rename modifies LVM volumes and config files)
+#   confirm=yes — safety gate (VMID rename modifies storage volumes and config files)
 #
 # Optional extra vars:
 #   pve_node  — PVE node where the VM lives (auto-detected from cluster API if omitted)
-#   storage   — LVM VG name (default: pve)
+#   storage   — LVM VG name (default: pve) — only used for local-lvm
 
-- name: Re-ID Proxmox VM (local-lvm)
+- name: Re-ID Proxmox VM
   hosts: "{{ pve_node | default('pve') }}"
   become: true
   gather_facts: false
@@ -30,6 +31,8 @@
     - vars/definitions/pve_definitions.yaml
   vars:
     _storage: "{{ storage | default('pve') }}"
+    _is_lvm: "{{ pve_storage in ['local-lvm', 'local'] }}"
+    _is_ceph: "{{ pve_storage not in ['local-lvm', 'local'] }}"
 
   pre_tasks:
     - name: Assert safety gate
@@ -108,12 +111,29 @@
         fail_msg: "VMID {{ new_vmid }} already exists on {{ _target_node }}"
       when: inventory_hostname.split('.')[0] == _target_node
 
-    # ── Discover LVM volumes ─────────────────────────────────────────
+    # ── Discover volumes (LVM) ─────────────────────────────────────
     - name: Find LVM volumes for VM {{ old_vmid }}
       ansible.builtin.shell: |
         lvs --noheadings -o lv_name {{ _storage }} 2>/dev/null | grep -E '^\s*vm-{{ old_vmid }}-' | awk '{print $1}'
       register: _lv_list
       changed_when: false
+      when:
+        - inventory_hostname.split('.')[0] == _target_node
+        - _is_lvm | bool
+
+    # ── Discover volumes (CEPH RBD) ────────────────────────────────
+    - name: Find RBD images for VM {{ old_vmid }}
+      ansible.builtin.shell: |
+        rbd ls {{ pve_storage }} 2>/dev/null | grep -E '^vm-{{ old_vmid }}-'
+      register: _rbd_list
+      changed_when: false
+      when:
+        - inventory_hostname.split('.')[0] == _target_node
+        - _is_ceph | bool
+
+    - name: Set volume list (unified)
+      ansible.builtin.set_fact:
+        _vol_list: "{{ (_lv_list.stdout_lines | default([])) + (_rbd_list.stdout_lines | default([])) }}"
       when: inventory_hostname.split('.')[0] == _target_node
 
     - name: Show volumes to rename
@@ -121,10 +141,11 @@
         msg: |
           VM: {{ old_vmid }} → {{ new_vmid }} on {{ _target_node }}
           Name: {{ _vm_data.name | default('unknown') }}
-          LVM volumes: {{ _lv_list.stdout_lines | default([]) | join(', ') }}
+          Storage: {{ pve_storage }} ({{ 'LVM' if _is_lvm | bool else 'CEPH RBD' }})
+          Volumes: {{ _vol_list | default([]) | join(', ') }}
       when: inventory_hostname.split('.')[0] == _target_node
 
-    # ── Rename LVM volumes ───────────────────────────────────────────
+    # ── Rename volumes (LVM) ───────────────────────────────────────
     - name: Rename LVM volumes
       ansible.builtin.command: >-
         lvrename {{ _storage }}
@@ -133,7 +154,19 @@
       loop: "{{ _lv_list.stdout_lines | default([]) }}"
       when:
         - inventory_hostname.split('.')[0] == _target_node
+        - _is_lvm | bool
         - _lv_list.stdout_lines | default([]) | length > 0
+
+    # ── Rename volumes (CEPH RBD) ──────────────────────────────────
+    - name: Rename RBD images
+      ansible.builtin.command: >-
+        rbd mv {{ pve_storage }}/{{ item }}
+        {{ pve_storage }}/{{ item | regex_replace('^vm-' + (old_vmid | string) + '-', 'vm-' + (new_vmid | string) + '-') }}
+      loop: "{{ _rbd_list.stdout_lines | default([]) }}"
+      when:
+        - inventory_hostname.split('.')[0] == _target_node
+        - _is_ceph | bool
+        - _rbd_list.stdout_lines | default([]) | length > 0
 
     # ── Rename config and update disk references ─────────────────────
     - name: Update disk references in config (old VMID → new)
@@ -167,6 +200,6 @@
         msg: >-
           {{ 'SUCCESS' if (_verify_conf.stat.exists and not _verify_old.stat.exists) else 'FAILED' }}:
           VM {{ old_vmid }} → {{ new_vmid }} on {{ _target_node }}.
-          {{ _lv_list.stdout_lines | default([]) | length }} LVM volume(s) renamed.
+          {{ _vol_list | default([]) | length }} {{ 'LVM' if _is_lvm | bool else 'RBD' }} volume(s) renamed.
           Start with: qm start {{ new_vmid }}
       when: inventory_hostname.split('.')[0] == _target_node

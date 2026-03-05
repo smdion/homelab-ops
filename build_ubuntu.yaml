@@ -12,7 +12,7 @@
 #
 # The cloud-init template is created automatically on first run (one-time per cluster).
 # It downloads the Ubuntu Noble cloud image and converts it to a Proxmox template
-# on local-lvm storage. Cross-node cloning copies the disk over the network.
+# on pve_storage. Cross-node cloning copies the disk over the network.
 #
 # Usage:
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm                          # build + auto-destroy

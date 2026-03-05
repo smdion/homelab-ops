@@ -2,7 +2,7 @@
 # Resolve the PVE target node for VM provisioning.
 # If pve_target_node == 'auto', queries cluster resources and selects the
 # least-loaded online node.  The clone step in provision_vm.yaml handles
-# cross-node cloning from the template node (local-lvm, full copy).
+# cross-node cloning from the template node (full copy via pve_storage).
 # Otherwise, passes through the explicit node name unchanged.
 #
 # Expects:
