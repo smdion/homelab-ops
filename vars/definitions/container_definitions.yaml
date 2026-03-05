@@ -52,6 +52,8 @@ container_definitions:
     image: "adminer"
     tag: "latest"
     stack: databases
+    env:
+      ADMINER_DESIGN: "{{ docker_adminer_design }}"
     compose:
       base: base
       ports: ["8087:8080"]
@@ -442,6 +444,13 @@ container_definitions:
     image: "fallenbagel/jellyseerr"
     tag: "preview-OIDC"
     stack: media
+    env:
+      JELLYSEERR_DB_TYPE: "postgres"
+      JELLYSEERR_POSTGRES_DB: "jellyseerr"
+      POSTGRES_HOST: "postgres"
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: "{{ docker_postgres_user }}"
+      POSTGRES_PASSWORD: "{{ vault_docker_postgres_password }}"
     compose:
       base: base
       ports: ["5055:5055"]
@@ -470,6 +479,8 @@ container_definitions:
     image: "lscr.io/linuxserver/mariadb"
     tag: "latest"
     stack: databases
+    env:
+      MARIA_PASSWORD: "{{ vault_docker_mariadb_password }}"
     compose:
       image_var: MARIA
       base: baseuid
@@ -538,6 +549,10 @@ container_definitions:
     image: "postgres"
     tag: "16-alpine"
     stack: databases
+    env:
+      POSTGRES_PASSWORD: "{{ vault_docker_postgres_password }}"
+      POSTGRES_USER: "{{ docker_postgres_user }}"
+      POSTGRES_DEFAULT_DB: "{{ docker_postgres_default_db }}"
     compose:
       base: baseuid
       ports: ["5432:5432"]

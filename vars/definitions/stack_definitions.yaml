@@ -12,6 +12,9 @@
 #
 # Optional fields:
 #   generate_compose  — generate docker-compose.yaml from container_definitions (default: false)
+#   generate_env      — generate .env from container_definitions env: fields (default: false)
+#   globals           — list of global env vars to emit (default: all 7)
+#                       choices: mem_limit, restart, tz, puid, pgid, umask, appsdir
 #   network           — external network name (default: homelab; omit for stacks without networks)
 #   compose_volumes   — list of named volumes to declare at top level (e.g., NFS mounts)
 
@@ -29,6 +32,8 @@ stack_definitions:
   databases:
     description: "Database services — MariaDB, PostgreSQL, Adminer"
     generate_compose: true
+    generate_env: true
+    globals: [mem_limit, restart, tz, puid, pgid, umask, appsdir]
   dev:
     description: "Development tools — code-server, netbootxyz"
     generate_compose: true
@@ -46,6 +51,8 @@ stack_definitions:
   media:
     description: "Media services — Tautulli, Jellyseerr"
     generate_compose: true
+    generate_env: true
+    globals: [mem_limit, restart, tz, puid, pgid, umask, appsdir]
   monitoring:
     description: "Monitoring — Grafana, CrowdSec Web UI"
     generate_compose: true

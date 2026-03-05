@@ -17,6 +17,17 @@
     mode: "0755"
 
 - block:
+    - name: "Generate .env from definitions (staging) — {{ _current_stack }}"
+      become: true
+      ansible.builtin.template:
+        src: "env.j2"
+        dest: "{{ stacks_base_path }}/{{ _current_stack }}/.env.new"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: stack_definitions[_current_stack].generate_env | default(false) | bool
+
     - name: "Template .env (staging) — {{ _current_stack }}"
       become: true
       ansible.builtin.template:
@@ -26,6 +37,7 @@
         group: root
         mode: "0600"
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      when: not (stack_definitions[_current_stack].generate_env | default(false) | bool)
   rescue:
     - ansible.builtin.fail:
         msg: "Template .env for stack '{{ _current_stack }}' failed (undefined variable?). Re-run with -e debug_no_log=yes for details."
