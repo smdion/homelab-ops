@@ -52,14 +52,32 @@
     label: "{{ item.path | basename }}"
 
 # === Add no-subscription repo ===
-# Use .list format (works on both Bookworm and Trixie)
-- name: Template no-subscription repo
+# Nodes upgraded from PVE 8→9 may already have a DEB822 .sources file
+# (e.g. proxmox.sources) providing the no-subscription repo. If so, remove
+# the legacy .list file to avoid duplicate source warnings. Otherwise,
+# template the .list file for fresh installs that don't have one yet.
+- name: Check for existing PVE no-subscription DEB822 source
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: "*.sources"
+    file_type: file
+    contains: "pve-no-subscription"
+  register: _nosub_deb822
+
+- name: Remove duplicate pve-no-subscription.list (DEB822 source exists)
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/pve-no-subscription.list
+    state: absent
+  when: _nosub_deb822.matched > 0
+
+- name: Template no-subscription repo (no DEB822 source found)
   ansible.builtin.template:
     src: templates/pve-no-subscription.list.j2
     dest: /etc/apt/sources.list.d/pve-no-subscription.list
     owner: root
     group: root
     mode: "0644"
+  when: _nosub_deb822.matched == 0
 
 # === Remove subscription nag ===
 - name: Template nag removal script
