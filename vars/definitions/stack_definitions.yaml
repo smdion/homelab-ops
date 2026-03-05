@@ -6,8 +6,13 @@
 # To add a new stack:
 #   1. Add an entry below (alphabetically by key)
 #   2. Create stacks/<name>/ with docker-compose.yaml and env.j2
+#      (or set generate_compose: true and define services in container_definitions.yaml)
 #   3. Add the stack name to the host's `stacks:` list in vm_definitions.yaml
 #      or host_definitions.yaml
+#
+# Optional fields:
+#   generate_compose  — generate docker-compose.yaml from container_definitions (default: false)
+#   network           — external network name (default: homelab; omit for stacks without networks)
 
 stack_definitions:
   apps:
@@ -16,6 +21,8 @@ stack_definitions:
     description: "Authentication and reverse proxy — Authentik, SWAG, CrowdSec"
   backups:
     description: "Backup agent — Restic"
+    generate_compose: true
+    network: false
   databases:
     description: "Database services — MariaDB, PostgreSQL, Adminer"
   dev:
@@ -24,7 +31,9 @@ stack_definitions:
     description: "Core infrastructure — Docker proxy, monitoring agents, log aggregation"
   media:
     description: "Media services — Tautulli, Jellyseerr"
+    generate_compose: true
   monitoring:
     description: "Monitoring — Grafana, CrowdSec Web UI"
+    generate_compose: true
   vpn:
     description: "VPN and NPM — WireGuard, Nginx Proxy Manager"

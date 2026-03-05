@@ -30,6 +30,16 @@
     - ansible.builtin.fail:
         msg: "Template .env for stack '{{ _current_stack }}' failed (undefined variable?). Re-run with -e debug_no_log=yes for details."
 
+- name: "Generate docker-compose.yaml from definitions (staging) — {{ _current_stack }}"
+  become: true
+  ansible.builtin.template:
+    src: "compose.j2"
+    dest: "{{ stacks_base_path }}/{{ _current_stack }}/docker-compose.yaml.new"
+    owner: root
+    group: root
+    mode: "0644"
+  when: stack_definitions[_current_stack].generate_compose | default(false) | bool
+
 - name: "Copy docker-compose.yaml (staging) — {{ _current_stack }}"
   become: true
   ansible.builtin.copy:
@@ -38,6 +48,7 @@
     owner: root
     group: root
     mode: "0644"
+  when: not (stack_definitions[_current_stack].generate_compose | default(false) | bool)
 
 - name: "Check for custom-cont-init.d — {{ _current_stack }}"
   ansible.builtin.stat:

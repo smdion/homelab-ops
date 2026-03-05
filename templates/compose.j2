@@ -1,0 +1,151 @@
+{% set _stack_name = _current_stack %}
+{% set _stack_def = stack_definitions[_stack_name] %}
+{% set _network = _stack_def.network | default('homelab') %}
+{% set _services = {} %}
+{% for name, def in container_definitions.items() if def.stack | default('') == _stack_name and def.compose is defined %}
+{%   set _ = _services.update({name: def}) %}
+{% endfor %}
+{% set _bases_used = _services.values() | map(attribute='compose') | map(attribute='base', default='') | select('ne', '') | list %}
+{% if _bases_used | length > 0 %}
+x-base: &base
+  mem_limit: ${MEM_LIMIT}
+  restart: ${RESTART}
+{% set _has_env = _services.values() | map(attribute='compose') | selectattr('environment', 'defined') | list | length > 0 %}
+{% if 'baseenv' in _bases_used or 'baseuid' in _bases_used or _has_env %}
+x-env: &env
+  TZ: ${TZ}
+{% endif %}
+{% if 'baseuid' in _bases_used %}
+x-uid: &uid
+  PUID: ${PUID}
+  PGID: ${PGID}
+  UMASK: ${UMASK}
+x-envuid: &envuid
+  <<:
+  - *env
+  - *uid
+{% endif %}
+{% if 'baseenv' in _bases_used %}
+x-baseenv: &baseenv
+  <<: *base
+  environment:
+    <<: *env
+{% endif %}
+{% if 'baseuid' in _bases_used %}
+x-baseuid: &baseuid
+  <<: *base
+  environment:
+    <<: *envuid
+{% endif %}
+{% endif %}
+{% if _network %}
+networks:
+  {{ _network }}:
+    external: true
+{% endif %}
+services:
+{% for name, def in _services.items() %}
+{% set c = def.compose %}
+{% set _svc_name = c.service_name | default(name | replace('_', '-')) %}
+  {{ _svc_name }}:
+{% if c.base | default('') == 'baseuid' %}
+    <<: *baseuid
+{% elif c.base | default('') == 'baseenv' %}
+    <<: *baseenv
+{% elif c.base | default('') == 'base' %}
+    <<: *base
+{% endif %}
+    container_name: {{ c.container_name | default(_svc_name) }}
+{% set _img_prefix = c.image_var | default(name | upper | replace('-', '_')) %}
+    image: {{ '${' ~ _img_prefix ~ '_IMAGE}:${' ~ _img_prefix ~ '_TAG}' }}
+{% if c.network_mode is defined %}
+    network_mode: {{ c.network_mode }}
+{% elif c.networks | default([]) | length > 0 %}
+    networks:
+{% for net in c.networks %}
+      - {{ net }}
+{% endfor %}
+{% elif _network and c.network_mode is not defined %}
+    networks:
+      - {{ _network }}
+{% endif %}
+{% if c.ports | default([]) | length > 0 %}
+    ports:
+{% for port in c.ports %}
+      - {{ port }}
+{% endfor %}
+{% endif %}
+{% if c.volumes | default([]) | length > 0 %}
+    volumes:
+{% for vol in c.volumes %}
+      - {{ vol }}
+{% endfor %}
+{% endif %}
+{% if c.environment | default({}) | length > 0 %}
+{% if c.base | default('') == 'baseuid' %}
+    environment:
+      <<: *envuid
+{% for key, val in c.environment.items() %}
+      {{ key }}: {{ val }}
+{% endfor %}
+{% elif c.base | default('') in ['baseenv', 'base'] %}
+    environment:
+      <<: *env
+{% for key, val in c.environment.items() %}
+      {{ key }}: {{ val }}
+{% endfor %}
+{% else %}
+    environment:
+{% for key, val in c.environment.items() %}
+      {{ key }}: {{ val }}
+{% endfor %}
+{% endif %}
+{% endif %}
+{% if c.labels | default({}) | length > 0 %}
+    labels:
+{% for key, val in c.labels.items() %}
+      {{ key }}: "{{ val }}"
+{% endfor %}
+{% endif %}
+{% if c.healthcheck is defined %}
+    healthcheck:
+      test: {{ c.healthcheck.test | to_json }}
+      interval: {{ c.healthcheck.interval }}
+      timeout: {{ c.healthcheck.timeout }}
+      retries: {{ c.healthcheck.retries }}
+      start_period: {{ c.healthcheck.start_period }}
+{% endif %}
+{% if c.depends_on | default([]) | length > 0 %}
+    depends_on:
+{% for dep in c.depends_on %}
+      - {{ dep }}
+{% endfor %}
+{% endif %}
+{% if c.command is defined %}
+    command: {{ c.command }}
+{% endif %}
+{% if c.profiles | default([]) | length > 0 %}
+    profiles: {{ c.profiles | to_json }}
+{% endif %}
+{% if c.privileged | default(false) %}
+    privileged: true
+{% endif %}
+{% if c.cap_add | default([]) | length > 0 %}
+    cap_add:
+{% for cap in c.cap_add %}
+      - {{ cap }}
+{% endfor %}
+{% endif %}
+{% if c.sysctls | default([]) | length > 0 %}
+    sysctls:
+{% for sysctl in c.sysctls %}
+      - {{ sysctl }}
+{% endfor %}
+{% endif %}
+{% if c.security_opt | default([]) | length > 0 %}
+    security_opt:
+{% for opt in c.security_opt %}
+      - {{ opt }}
+{% endfor %}
+{% endif %}
+{% endfor %}

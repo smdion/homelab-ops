@@ -23,6 +23,27 @@
 #     port           — VNC port on the host (e.g., 7914)
 #     command        — SSH exec command (e.g., "sudo docker exec -it foo /bin/bash")
 #     user_groups    — Authentik groups granted READ access (omit for admin-only)
+#
+# Compose generation fields (optional — stacks with these generate compose from definitions):
+#   compose        — dict of compose-level service configuration
+#     container_name — container name (defaults to service_name, which defaults to key with _ → -)
+#     service_name   — compose service name (defaults to key with underscores converted to dashes)
+#     image_var      — env var prefix for image/tag (defaults to KEY_UPPER; e.g., "CSUI" → ${CSUI_IMAGE})
+#     base           — anchor pattern: base, baseenv, baseuid (controls mem/restart/env/uid injection)
+#     networks       — list of networks (default: [homelab])
+#     ports          — list of port mappings ("host:container" or "host:container/udp")
+#     volumes        — list of volume mounts
+#     environment    — dict of environment variables (values use ${VAR} for .env substitution)
+#     labels         — dict of container labels
+#     healthcheck    — dict with test, interval, timeout, retries, start_period
+#     depends_on     — list of service dependencies
+#     command        — override command
+#     profiles       — list of compose profiles
+#     privileged     — bool
+#     cap_add        — list of capabilities
+#     sysctls        — list of sysctl settings
+#     network_mode   — override network mode (e.g., "host", "service:wireguard")
+#     security_opt   — list of security options
 
 container_definitions:
   adminer:
@@ -54,6 +75,25 @@ container_definitions:
   crowdsec_web_ui:
     image: "ghcr.io/theduffman85/crowdsec-web-ui"
     tag: "latest"
+    stack: monitoring
+    compose:
+      image_var: CSUI
+      base: base
+      ports: ["3001:3000"]
+      labels:
+        homelab.backup.paths: "/opt/crowdsec-web-ui"
+      environment:
+        CROWDSEC_URL: "${CSUI_CROWDSEC_URL}"
+        CROWDSEC_USER: "${CSUI_CROWDSEC_USER}"
+        CROWDSEC_PASSWORD: "${CSUI_CROWDSEC_PASSWORD}"
+      volumes:
+        - "${APPSDIR}/crowdsec-web-ui:/app/data"
+      healthcheck:
+        test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/', r => r.statusCode === 200 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))\""]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   docs:
     image: "nginx"
     tag: "alpine"
@@ -73,6 +113,36 @@ container_definitions:
   grafana:
     image: "grafana/grafana"
     tag: "latest"
+    stack: monitoring
+    compose:
+      base: base
+      ports: ["3000:3000"]
+      labels:
+        homelab.backup.paths: "/opt/grafana"
+        homelab.health_timeout: "150"
+      environment:
+        GF_SERVER_ROOT_URL: "${GRAFANA_SERVER_ROOT_URL}"
+        GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_SECURITY_ADMIN_PASSWORD}"
+        GF_AUTH_GENERIC_OAUTH_ENABLED: "${GRAFANA_OAUTH_ENABLED}"
+        GF_AUTH_GENERIC_OAUTH_NAME: "${OAUTH_NAME}"
+        GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "${GRAFANA_OAUTH_CLIENT_ID}"
+        GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "${GRAFANA_OAUTH_CLIENT_SECRET}"
+        GF_AUTH_GENERIC_OAUTH_SCOPES: "${GRAFANA_OAUTH_SCOPES}"
+        GF_AUTH_GENERIC_OAUTH_AUTH_URL: "${OAUTH_AUTH_URL}"
+        GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "${OAUTH_TOKEN_URL}"
+        GF_AUTH_GENERIC_OAUTH_API_URL: "${OAUTH_API_URL}"
+        GF_AUTH_SIGNOUT_REDIRECT_URL: "${GRAFANA_SIGNOUT_REDIRECT_URL}"
+        GF_AUTH_OAUTH_AUTO_LOGIN: "${GRAFANA_OAUTH_AUTO_LOGIN}"
+        GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "${GRAFANA_ROLE_ATTRIBUTE_PATH}"
+        GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH: "${GRAFANA_GROUPS_ATTRIBUTE_PATH}"
+      volumes:
+        - "${APPSDIR}/grafana:/var/lib/grafana"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
   guacamole:
     image: "abesnier/guacamole"
     tag: "latest"
@@ -88,6 +158,31 @@ container_definitions:
   jellyseerr:
     image: "fallenbagel/jellyseerr"
     tag: "preview-OIDC"
+    stack: media
+    compose:
+      base: base
+      ports: ["5055:5055"]
+      labels:
+        homelab.backup.paths: "/opt/jellyseerr"
+        homelab.restore.app: "jellyseerr"
+        homelab.restore.db_config: "db_primary_postgres"
+        homelab.restore.db_names: "jellyseerr"
+        homelab.restore.health_url: "http://localhost:5055/"
+      environment:
+        DB_TYPE: "${JELLYSEERR_DB_TYPE}"
+        DB_HOST: "${POSTGRES_HOST}"
+        DB_PORT: "${POSTGRES_PORT}"
+        DB_USER: "${POSTGRES_USER}"
+        DB_PASS: "${POSTGRES_PASSWORD}"
+        DB_NAME: "${JELLYSEERR_POSTGRES_DB}"
+      volumes:
+        - "${APPSDIR}/jellyseerr:/app/config"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5055/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "60s"
   mariadb:
     image: "lscr.io/linuxserver/mariadb"
     tag: "latest"
@@ -106,6 +201,17 @@ container_definitions:
   restic:
     image: "restic/restic"
     tag: "latest"
+    stack: backups
+    compose:
+      container_name: restic
+      volumes:
+        - "${BACKUP_SOURCE}:/data:ro"
+        - "${CACHE_DIR}:/root/.cache/restic"
+      environment:
+        AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+        AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+        RESTIC_REPOSITORY: "${RESTIC_REPOSITORY}"
+        RESTIC_PASSWORD: "${RESTIC_PASSWORD}"
   rickroll:
     image: "modem7/docker-rickroll"
     tag: "latest"
@@ -118,6 +224,20 @@ container_definitions:
   tautulli:
     image: "lscr.io/linuxserver/tautulli"
     tag: "latest"
+    stack: media
+    compose:
+      base: baseuid
+      ports: ["8181:8181"]
+      labels:
+        homelab.backup.paths: "/opt/tautulli"
+      volumes:
+        - "${APPSDIR}/tautulli:/config"
+      healthcheck:
+        test: ["CMD-SHELL", "curl -fs http://localhost:8181/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
   wireguard:
     image: "lscr.io/linuxserver/wireguard"
     tag: "latest"
