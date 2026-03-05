@@ -81,6 +81,48 @@
     mode: "0644"
   when: not _nosub_deb822_exists
 
+# === Clean up stale repo files from PVE 8→9 upgrade ===
+# .bak and .disabled extensions are ignored by apt but are clutter.
+# Disabled .sources files pointing to the previous Debian release are stale.
+- name: Find stale repo files (.bak, .disabled, pve-test)
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns:
+      - "*.bak"
+      - "*.disabled"
+      - "pve-test.*"
+    file_type: file
+  register: _stale_repo_files
+
+- name: Remove stale repo files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ _stale_repo_files.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+- name: Find disabled .sources files for previous release
+  ansible.builtin.shell:
+    cmd: >-
+      grep -rlP '^Enabled:\s*(false|no|0)' /etc/apt/sources.list.d/*.sources 2>/dev/null
+      | xargs -r grep -l 'Suites:.*{{ _previous_release }}'
+      || true
+  vars:
+    _previous_release: "{{ 'bookworm' if pve_debian_release == 'trixie' else '' }}"
+  register: _stale_sources_raw
+  changed_when: false
+  when: pve_debian_release != 'bookworm'
+
+- name: Remove disabled sources for previous release
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ (_stale_sources_raw.stdout_lines | default([])) }}"
+  loop_control:
+    label: "{{ item | basename }}"
+  when: pve_debian_release != 'bookworm'
+
 # === Remove subscription nag ===
 - name: Template nag removal script
   ansible.builtin.template:

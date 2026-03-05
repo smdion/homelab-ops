@@ -12,7 +12,7 @@
 #                      UniFi device health
 # Play 2 (SSH hosts):  Per-host system metrics — disk, memory, CPU, journal errors,
 #                      OOM kills, Docker health, SMART disk health, PVE cluster quorum,
-#                      Ceph health (PVE only), SSL certificate expiry, NTP sync,
+#                      Ceph health, APT repo health (PVE only), SSL certificate expiry, NTP sync,
 #                      DNS resolution, unRAID array, PBS datastore, ZFS pool,
 #                      BTRFS health, Docker HTTP
 # Play 3 (localhost):  Aggregate findings, unreachable host alerting,
@@ -1247,7 +1247,84 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'ceph_health', 'status': 'critical', 'value': 'check_error', 'detail': 'ceph check task failed'}] }}
 
-    # ── CHECK 18: SSL certificate expiry ──────────────────────────────────────
+    # ── CHECK 18: PVE APT repository health (PVE nodes only) ─────────────────
+    # Detects enterprise repos still active, missing no-subscription repo,
+    # malformed .sources files, and duplicate source entries.
+    - name: Check PVE APT repository health
+      when: "'pve' in group_names or 'pve_standalone' in group_names"
+      block:
+        - name: Run APT repo health check
+          become: true
+          ansible.builtin.shell: |
+            issues=""
+
+            # Check for active enterprise repos (.sources with Types: + enterprise, no Enabled: false)
+            for f in /etc/apt/sources.list.d/pve-enterprise.sources /etc/apt/sources.list.d/ceph.sources; do
+              [ -f "$f" ] || continue
+              if grep -q '^Types:' "$f" && grep -q 'enterprise' "$f"; then
+                if ! grep -qP '^Enabled:\s*(false|no|0)' "$f"; then
+                  issues="${issues}enterprise repo active: $(basename $f); "
+                fi
+              fi
+            done
+
+            # Check for active enterprise repos (.list format)
+            for f in /etc/apt/sources.list.d/pve-enterprise.list; do
+              [ -f "$f" ] || continue
+              if grep -qP '^deb\s.*enterprise' "$f"; then
+                issues="${issues}enterprise repo active: $(basename $f); "
+              fi
+            done
+
+            # Check for no-subscription PVE repo
+            if ! grep -rlq 'pve-no-subscription' /etc/apt/sources.list.d/ 2>/dev/null; then
+              issues="${issues}no pve-no-subscription repo found; "
+            fi
+
+            # Check for malformed sources (apt-get check is fast and catches parse errors)
+            apt_err=$(apt-get check 2>&1 >/dev/null || true)
+            if echo "$apt_err" | grep -qi 'malformed\|could not be read'; then
+              issues="${issues}malformed sources: $(echo "$apt_err" | head -1); "
+            fi
+
+            # Check for duplicate source warnings
+            dup_count=$(apt-get update --print-uris 2>&1 | grep -c 'configured multiple times' || true)
+            if [ "$dup_count" -gt 0 ]; then
+              issues="${issues}${dup_count} duplicate source warning(s); "
+            fi
+
+            if [ -z "$issues" ]; then
+              echo "OK"
+            else
+              echo "$issues"
+            fi
+          register: _apt_repo_raw
+          changed_when: false
+          failed_when: false
+          check_mode: false
+
+        - name: Record APT repo health result
+          ansible.builtin.set_fact:
+            host_health_issues: >-
+              {{
+                host_health_issues + [{
+                  'check_name': 'apt_repo_health',
+                  'status': ('ok' if _apt_repo_raw.stdout | trim == 'OK'
+                    else ('critical' if 'enterprise repo active' in _apt_repo_raw.stdout or 'malformed' in _apt_repo_raw.stdout
+                    else 'warning')),
+                  'value': ('healthy' if _apt_repo_raw.stdout | trim == 'OK' else _apt_repo_raw.stdout | trim | truncate(60)),
+                  'detail': ('' if _apt_repo_raw.stdout | trim == 'OK' else _apt_repo_raw.stdout | trim)
+                }]
+              }}
+
+      rescue:
+        - name: Record APT repo check error
+          when: "'pve' in group_names or 'pve_standalone' in group_names"
+          ansible.builtin.set_fact:
+            host_health_issues: >-
+              {{ host_health_issues + [{'check_name': 'apt_repo_health', 'status': 'critical', 'value': 'check_error', 'detail': 'apt repo check task failed'}] }}
+
+    # ── CHECK 19: SSL certificate expiry ──────────────────────────────────────
     - name: Check SSL certificate expiry
       block:
         - name: Check SSL certificate expiry dates
@@ -1302,7 +1379,7 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'ssl_cert', 'status': 'critical', 'value': 'check_error', 'detail': 'ssl check task failed'}] }}
 
-    # ── CHECK 19: NTP / time sync drift ─────────────────────────────────────────
+    # ── CHECK 20: NTP / time sync drift ─────────────────────────────────────────
     - name: Check NTP time sync
       block:
         - name: Check NTP synchronization status
@@ -1359,7 +1436,7 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'ntp_sync', 'status': 'critical', 'value': 'check_error', 'detail': 'ntp check task failed'}] }}
 
-    # ── CHECK 20: DNS resolution ────────────────────────────────────────────────
+    # ── CHECK 21: DNS resolution ────────────────────────────────────────────────
     - name: Check DNS resolution
       block:
         - name: Test DNS resolution
@@ -1387,7 +1464,7 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'dns_resolution', 'status': 'critical', 'value': 'check_error', 'detail': 'dns check task failed'}] }}
 
-    # ── CHECK 21: unRAID array health (unRAID only) ─────────────────────────────
+    # ── CHECK 22: unRAID array health (unRAID only) ─────────────────────────────
     - name: Check unRAID array health
       when: "'unraid' in group_names"
       block:
@@ -1443,7 +1520,7 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'unraid_array', 'status': 'critical', 'value': 'check_error', 'detail': 'unraid array check task failed'}] }}
 
-    # ── CHECK 22: PBS datastore health (PBS only) ───────────────────────────────
+    # ── CHECK 23: PBS datastore health (PBS only) ───────────────────────────────
     - name: Check PBS datastore health
       when: "'pbs' in group_names"
       block:
@@ -1479,7 +1556,7 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'pbs_datastore', 'status': 'critical', 'value': 'check_error', 'detail': 'pbs datastore check task failed'}] }}
 
-    # ── CHECK 23: ZFS pool health ────────────────────────────────────────────────
+    # ── CHECK 24: ZFS pool health ────────────────────────────────────────────────
     - name: Check ZFS pool health
       block:
         - name: Check ZFS pool health status
@@ -1537,7 +1614,7 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'zfs_pool', 'status': 'critical', 'value': 'check_error', 'detail': 'zfs pool check task failed'}] }}
 
-    # ── CHECK 24: BTRFS filesystem health ────────────────────────────────────────
+    # ── CHECK 25: BTRFS filesystem health ────────────────────────────────────────
     - name: Check BTRFS health
       block:
         - name: Check BTRFS device error counters
@@ -1597,7 +1674,7 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'btrfs_health', 'status': 'critical', 'value': 'check_error', 'detail': 'btrfs health check task failed'}] }}
 
-    # ── CHECK 25: Docker container HTTP responsiveness ──────────────────────────
+    # ── CHECK 26: Docker container HTTP responsiveness ──────────────────────────
     - name: Check Docker HTTP health
       when: docker_health_endpoints | default([]) | length > 0
       block:
@@ -1647,7 +1724,7 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'docker_http', 'status': 'critical', 'value': 'check_error', 'detail': 'docker http check task failed'}] }}
 
-    # ── CHECK 26: Docker host /opt orphan entries (docker_stacks only) ────────
+    # ── CHECK 27: Docker host /opt orphan entries (docker_stacks only) ────────
     - name: Check for orphan files and directories in /opt
       when: inventory_hostname in (groups['docker_stacks'] | default([]))
       block:
@@ -1752,7 +1829,7 @@
         maintenance_failed: "{{ hostvars['localhost']['maintenance_failed'] | default(false) }}"
         play1_health_results: "{{ hostvars['localhost']['play1_health_results'] | default([]) }}"
 
-    # ── CHECK 27: UNREACHABLE HOST ALERTING ──────────────────────────────────────
+    # ── CHECK 28: UNREACHABLE HOST ALERTING ──────────────────────────────────────
     - name: Build unreachable host list
       ansible.builtin.set_fact:
         unreachable_hosts: "{{ unreachable_hosts | default([]) + [item] }}"
