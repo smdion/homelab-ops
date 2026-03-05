@@ -14,6 +14,7 @@
 #   _wait_postgres_container  — postgres container name (default: 'postgres')
 #   _wait_postgres_username   — postgres username (default: 'postgres')
 #   _wait_mariadb_container   — mariadb container name (default: 'mariadb')
+# Notification: caller (caller's always: block sends notification based on results list)
 
 - name: Resolve stack assignment for {{ _test_app }}
   ansible.builtin.set_fact:
@@ -125,7 +126,7 @@
           - "--timeout={{ rsync_timeout }}"
           - "--whole-file"
       become: true
-      ignore_errors: true
+      ignore_errors: true  # best-effort — cleanup/recovery; primary op tracked separately
       register: _db_rsync_result
       loop: "{{ _cur_db_names | default([]) }}"
       loop_control:
@@ -205,7 +206,7 @@
     - name: Check for OOM kill events — {{ _test_app }}
       ansible.builtin.shell: dmesg | grep -i "out of memory\|oom-kill\|Killed process" | tail -1
       register: _oom_check
-      failed_when: false
+      failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
       changed_when: false
       become: true
 

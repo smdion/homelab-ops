@@ -261,5 +261,5 @@
           ansible.builtin.command: >
             docker exec {{ metube_container }} rm -f {{ metube_manifest }}
           changed_when: false
-          failed_when: false
+          failed_when: false  # best-effort — manifest may already be absent
           check_mode: false

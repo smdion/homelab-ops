@@ -15,6 +15,7 @@
 #   restore_date           — date filter for archive selection
 # Sets:
 #   restore_failed, _restore_source_file, _restore_detail
+# Notification: caller (caller's always: block sends notification based on results list)
 
 - name: Resolve app config from app_definitions
   ansible.builtin.set_fact:

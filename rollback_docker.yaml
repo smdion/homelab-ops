@@ -86,7 +86,7 @@
       register: _snapshot_stacks_raw
       check_mode: false
       when: inventory_hostname in (stack_assignments | default({}))
-      ignore_errors: true
+      ignore_errors: true  # pre-flight probe — snapshot file may not exist for all stacks
 
     - name: Merge stack snapshots and build service map (stack mode)
       ansible.builtin.set_fact:
@@ -262,7 +262,7 @@
           include_tasks: tasks/docker_start.yaml
           vars:
             _docker_selective_stacks: "{{ _rollback_target_stacks }}"
-            _docker_ignore_errors: true
+            _docker_ignore_errors: true  # best-effort — safety net to restart stacks in rescue block
           when: with_backup | default('') == 'yes'
 
       always:

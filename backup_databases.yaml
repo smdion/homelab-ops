@@ -174,3 +174,8 @@
             state: absent
             path: "{{ backup_tmp_dir }}"
           when: "'/run_' in backup_tmp_dir"
+
+        - name: Fail play if backup failed
+          ansible.builtin.fail:
+            msg: "Database backup failed — see notification for details"
+          when: backup_db_failed

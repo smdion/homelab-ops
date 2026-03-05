@@ -188,7 +188,7 @@
             state: stopped
             force: true
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-          ignore_errors: true
+          ignore_errors: true  # best-effort — VM may already be stopped before revert
           when: _vm_state == 'revert'
 
         - name: Revert VM to snapshot
@@ -278,7 +278,7 @@
             build_failed | bool and _vm_state == 'present' and
             (_vm.vm_id | int) >= (vm_test_slot_base | int) and
             (_vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
-          ignore_errors: true
+          ignore_errors: true  # best-effort — VM may already be stopped; slot cleanup is primary goal
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Fail play if build failed
@@ -395,7 +395,7 @@
             bootstrap_failed | bool and
             (hostvars['localhost']._vm.vm_id | int) >= (vm_test_slot_base | int) and
             (hostvars['localhost']._vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
-          ignore_errors: true
+          ignore_errors: true  # best-effort — VM may already be stopped; slot cleanup is primary goal
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Fail play if bootstrap failed
@@ -736,7 +736,7 @@
             (_restore_prep_failed | default(false)) | bool and
             (_vm.vm_id | int) >= (vm_test_slot_base | int) and
             (_vm.vm_id | int) < ((vm_test_slot_base + vm_test_slot_count) | int)
-          ignore_errors: true
+          ignore_errors: true  # best-effort — VM may already be stopped; slot cleanup is primary goal
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Fail play if restore prep failed
@@ -890,7 +890,7 @@
             state: stopped
             force: true
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-          ignore_errors: true
+          ignore_errors: true  # best-effort — VM may already be stopped before snapshot revert
 
         - name: Revert to pre-test snapshot
           ansible.builtin.uri:

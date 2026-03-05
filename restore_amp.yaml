@@ -131,7 +131,7 @@
       args:
         executable: /bin/bash
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # best-effort — stale tmux sessions may not exist
 
     - name: Start all AMP instances after restore
       become: true
@@ -141,7 +141,7 @@
       async: 300
       poll: 10
       changed_when: true
-      ignore_errors: true
+      ignore_errors: true  # best-effort — AMP restart after restore; notification covers status
 
     - name: Wait for AMP web panel
       ansible.builtin.wait_for:
@@ -149,7 +149,7 @@
         host: 0.0.0.0
         timeout: 120
         state: started
-      ignore_errors: true
+      ignore_errors: true  # best-effort — AMP web panel may take longer than timeout
 
     - name: Set failed flag from restore results
       ansible.builtin.set_fact:

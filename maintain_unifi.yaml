@@ -63,3 +63,8 @@
             log_type: "{{ maintenance_type }}"
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+        - name: Fail play if maintenance failed
+          ansible.builtin.fail:
+            msg: "Unifi restart failed — see notification for details"
+          when: maintenance_failed

@@ -16,6 +16,7 @@
 #   ansible_date_time     — gathered fact
 #   _amp_backup_results   — list to append results to (caller initializes to [])
 #   backup_base_dir       — controller-side backup root (for fetch dest)
+# Notification: caller (caller's always: block sends notification based on results list)
 
 - name: Set archive filename for {{ _amp_instance }}
   ansible.builtin.set_fact:
@@ -31,7 +32,7 @@
     executable: /bin/bash
   register: _amp_was_running_check
   changed_when: false
-  failed_when: false
+  failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
 
 - name: Record pre-backup running state for {{ _amp_instance }}
   ansible.builtin.set_fact:

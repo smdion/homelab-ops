@@ -28,7 +28,7 @@
       ansible.builtin.command:
         cmd: ping -c 1 -W 3 {{ vault_pve_vip }}
       register: _ping_pve
-      failed_when: false
+      failed_when: false  # expect-failure — test verifying a connection should fail
       changed_when: false
 
     - name: TCP connect to PVE VIP :{{ pve_api_port }} (expect failure)
@@ -36,7 +36,7 @@
         cmd: timeout 5 bash -c 'echo > /dev/tcp/{{ vault_pve_vip }}/{{ pve_api_port }}' 2>/dev/null
         executable: /bin/bash
       register: _tcp_pve
-      failed_when: false
+      failed_when: false  # expect-failure — test verifying a connection should fail
       changed_when: false
 
     - name: Collect results

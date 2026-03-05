@@ -11,6 +11,9 @@
 #   _docker_selective_containers — list; start only these containers (skips all other modes)
 #   _docker_selective_stacks     — list; start only these stacks (skips all-stacks and service/container modes)
 #   _docker_ignore_errors        — bool (default false); set true for safety-net use
+#     All ignore_errors: directives in this file use _docker_ignore_errors so callers
+#     can promote start failures to best-effort (rescue blocks, always blocks) without
+#     changing shared task code.
 #   _docker_wait_ssh             — bool (default false); wait for SSH after start
 # Requires (docker_run modes):
 #   _docker_containers — register from docker_stop.yaml

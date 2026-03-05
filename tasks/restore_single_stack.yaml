@@ -11,6 +11,7 @@
 #   backup_base_dir         — controller-side backup root
 #   backup_tmp_dir          — temp directory on target host
 #   _stack_restore_results  — list to append results to (caller initializes to [])
+# Notification: caller (caller's always: block sends notification based on results list)
 
 - name: Find per-stack backup archive on controller for {{ _restore_stack_item }}
   ansible.builtin.shell: >

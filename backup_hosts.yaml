@@ -331,7 +331,7 @@
             status_code: 200
           register: _unifi_devices
           delegate_to: localhost
-          ignore_errors: true
+          ignore_errors: true  # best-effort — device inventory export is supplementary to backup
           when:
             - inventory_hostname in groups["unifi_network"]
             - not ansible_check_mode
@@ -422,7 +422,7 @@
           args:
             executable: /bin/bash
           changed_when: false
-          ignore_errors: true
+          ignore_errors: true  # best-effort — stale tmux sessions may not exist
           when:
             - inventory_hostname in groups["amp"] | default([])
             - _amp_instances is defined
@@ -435,7 +435,7 @@
           async: 300
           poll: 10
           changed_when: true
-          ignore_errors: true
+          ignore_errors: true  # best-effort — AMP restart after backup; notification covers status
           when:
             - inventory_hostname in groups["amp"] | default([])
             - _amp_instances is defined
@@ -446,7 +446,7 @@
             host: 0.0.0.0
             timeout: 120
             state: started
-          ignore_errors: true
+          ignore_errors: true  # best-effort — AMP web panel may take longer than timeout
           when:
             - inventory_hostname in groups["amp"] | default([])
             - _amp_instances is defined
@@ -693,7 +693,7 @@
         # ===== SAFETY NET: ENSURE DOCKER IS RUNNING =====
         - include_tasks: tasks/docker_start.yaml
           vars:
-            _docker_ignore_errors: true
+            _docker_ignore_errors: true  # best-effort — safety net to restart Docker in always block
           when:
             - inventory_hostname in groups["docker_run"] | default([])
             - config_file == 'docker_run'
@@ -719,7 +719,7 @@
           changed_when: false
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
           check_mode: false
-          ignore_errors: true
+          ignore_errors: true  # best-effort — logging DB may still be starting; backup result already captured
 
         # ===== COMBINED DB BACKUP (when with_databases=yes) =====
         - name: Initialize combined DB backup state (when with_databases)
@@ -976,3 +976,8 @@
           when:
             - inventory_hostname in groups["pikvm"]
             - not ansible_check_mode
+
+        - name: Fail play if backup failed
+          ansible.builtin.fail:
+            msg: "Backup failed — see notification for details"
+          when: backup_failed

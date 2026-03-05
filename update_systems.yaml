@@ -75,7 +75,7 @@
           ansible.builtin.shell: pvecm status 2>/dev/null
           register: _pvecm_pre
           changed_when: false
-          failed_when: false
+          failed_when: false  # pre-flight probe — node may not be in a cluster
           check_mode: false
         - name: Abort if cluster is not quorate
           ansible.builtin.fail:
@@ -223,7 +223,7 @@
           ansible.builtin.shell: command -v ceph >/dev/null 2>&1
           register: _ceph_available
           changed_when: false
-          failed_when: false
+          failed_when: false  # pre-flight probe — Ceph may not be installed on this node
           check_mode: false
           when:
             - _version_scope == 'os'
@@ -492,7 +492,7 @@
           register: _unraid_containers_raw
           changed_when: false
           check_mode: false
-          failed_when: false
+          failed_when: false  # pre-flight probe — Docker may not be running or no containers exist
           when:
             - _version_scope == 'docker'
             - inventory_hostname in groups["docker_run"] | default([])
@@ -707,7 +707,7 @@
             {% endif %}
             ha-manager crm-command node-maintenance disable {{ ansible_hostname }}
           become: true
-          failed_when: false
+          failed_when: false  # best-effort — rescue block cleanup; primary error already captured
           when:
             - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
@@ -835,3 +835,8 @@
             log_hostname: "{{ inventory_hostname }}"
             log_version: "FAILED"
             log_status: "failed"
+
+        - name: Fail play if update failed
+          ansible.builtin.fail:
+            msg: "Update failed — see notification for details"
+          when: update_failed

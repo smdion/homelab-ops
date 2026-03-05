@@ -329,7 +329,7 @@
           ansible.builtin.service:
             name: ampinstmgr
             state: stopped
-          ignore_errors: true
+          ignore_errors: true  # best-effort — service may not exist yet during initial bootstrap
 
         - name: Remove installer-created .ampdata (will restore from backup)
           ansible.builtin.file:
@@ -652,7 +652,7 @@
       args:
         executable: /bin/bash
       changed_when: false
-      ignore_errors: true
+      ignore_errors: true  # best-effort — stale tmux sessions may not exist
 
     - name: Start all AMP instances
       ansible.builtin.shell: sudo su -l {{ amp_user }} -c 'ampinstmgr startall'

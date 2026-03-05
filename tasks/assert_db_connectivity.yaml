@@ -15,7 +15,7 @@
     login_db: "{{ vault_logging_db_name }}"
     query: "SELECT 1"
   register: _db_connectivity
-  failed_when: false
+  failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
   changed_when: false
   check_mode: false
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"

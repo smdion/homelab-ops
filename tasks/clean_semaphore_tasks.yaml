@@ -23,7 +23,7 @@
     login_db: "{{ semaphore_db_name | default('semaphore') }}"
     query: "SELECT template_id FROM task ORDER BY id DESC LIMIT 1"
   register: _clean_tpl_result
-  failed_when: false
+  failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   when:
     - not ansible_check_mode
@@ -60,7 +60,7 @@
       - "{{ _tpl_id }}"
       - "{{ _tpl_id }}"
   register: _clean_delete_result
-  failed_when: false
+  failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   when:
     - not ansible_check_mode

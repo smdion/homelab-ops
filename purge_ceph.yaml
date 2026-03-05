@@ -81,7 +81,7 @@
             - ceph-mgr.target
             - ceph-mon.target
             - ceph.target
-          failed_when: false
+          failed_when: false  # force-remove — targets may not exist; purge continues regardless
 
         - name: Disable Ceph service targets
           ansible.builtin.systemd:
@@ -93,7 +93,7 @@
             - ceph-mgr.target
             - ceph-mon.target
             - ceph.target
-          failed_when: false
+          failed_when: false  # force-remove — targets may not exist; purge continues regardless
 
         - name: Kill lingering Ceph processes
           ansible.builtin.shell: killall -9 ceph-mon ceph-mgr ceph-mds ceph-osd ceph-fuse radosgw 2>/dev/null || true
@@ -107,7 +107,7 @@
         - name: Purge Ceph via PVE tooling
           ansible.builtin.command: pveceph purge --crash --logs
           run_once: true
-          failed_when: false
+          failed_when: false  # force-remove — pveceph purge may fail if Ceph partially removed
 
         # ── Phase 3: Package removal (all nodes) ───────────────────
         # PVE's pve-apt-hook blocks apt-get from removing Ceph packages.
@@ -179,21 +179,21 @@
             path: /etc/pve/ceph.conf
             state: absent
           run_once: true
-          failed_when: false
+          failed_when: false  # force-remove — file may already be absent
 
         - name: Remove /etc/pve/ceph directory
           ansible.builtin.file:
             path: /etc/pve/ceph
             state: absent
           run_once: true
-          failed_when: false
+          failed_when: false  # force-remove — directory may already be absent
 
         - name: Remove /etc/pve/priv/ceph directory
           ansible.builtin.file:
             path: /etc/pve/priv/ceph
             state: absent
           run_once: true
-          failed_when: false
+          failed_when: false  # force-remove — directory may already be absent
 
         # ── Phase 6: OSD disk cleanup (auto-discover + gate) ──────
         - name: Discover Ceph device-mapper entries
@@ -235,7 +235,7 @@
           when:
             - confirm | default('no') == 'yes'
             - _ceph_dm.stdout_lines | default([]) | length > 0
-          failed_when: false
+          failed_when: false  # force-remove — dm entry may be stale or already removed
 
         - name: Remove Ceph LVM volume groups
           ansible.builtin.command: "vgremove -y {{ item }}"
@@ -243,7 +243,7 @@
           when:
             - confirm | default('no') == 'yes'
             - _ceph_vgs.stdout_lines | default([]) | length > 0
-          failed_when: false
+          failed_when: false  # force-remove — VG may already be removed or have active LVs
 
         - name: Remove Ceph LVM physical volumes
           ansible.builtin.command: "pvremove -f {{ item }}"
@@ -251,7 +251,7 @@
           when:
             - confirm | default('no') == 'yes'
             - _ceph_pvs.stdout_lines | default([]) | length > 0
-          failed_when: false
+          failed_when: false  # force-remove — PV may already be removed
 
         - name: Wipe former OSD disk signatures
           ansible.builtin.command: "wipefs -af {{ item }}"
@@ -259,7 +259,7 @@
           when:
             - confirm | default('no') == 'yes'
             - _ceph_osd_disks.stdout_lines | default([]) | length > 0
-          failed_when: false
+          failed_when: false  # force-remove — disk may already be wiped
 
         - name: Zap former OSD disk partition tables
           ansible.builtin.command: "sgdisk --zap-all {{ item }}"
@@ -267,7 +267,7 @@
           when:
             - confirm | default('no') == 'yes'
             - _ceph_osd_disks.stdout_lines | default([]) | length > 0
-          failed_when: false
+          failed_when: false  # force-remove — partition table may already be zapped
 
         # ── Phase 7: Verification (all nodes) ──────────────────────
         - name: Verify no Ceph daemon packages remain
@@ -342,3 +342,8 @@
             log_type: "{{ maintenance_type }}"
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if purge_failed else 'success' }}"
+
+        - name: Fail play if purge failed
+          ansible.builtin.fail:
+            msg: "Ceph purge failed — see notification for details"
+          when: purge_failed

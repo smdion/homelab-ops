@@ -12,6 +12,7 @@
 #   amp_home               — AMP user home dir (e.g. /home/amp)
 #   amp_user               — AMP unix user (e.g. amp)
 #   _amp_restore_results   — list to append results to (caller initializes to [])
+# Notification: caller (caller's always: block sends notification based on results list)
 
 - name: Set restore paths for {{ _amp_instance }}
   ansible.builtin.set_fact:

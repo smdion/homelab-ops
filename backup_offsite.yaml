@@ -184,7 +184,7 @@
                 docker compose -f {{ _stack_dir }}/docker-compose.yaml
                 run --rm restic snapshots --latest 1
               register: _restic_check
-              failed_when: false
+              failed_when: false  # pre-flight probe — repo may not be initialized yet
               changed_when: false
               no_log: "{{ _no_log }}"
 
@@ -257,7 +257,7 @@
                 RESTIC_REPOSITORY: "{{ vault_restic_repository }}"
                 RESTIC_PASSWORD: "{{ vault_restic_password }}"
               register: _restic_check
-              failed_when: false
+              failed_when: false  # pre-flight probe — repo may not be initialized yet
               changed_when: false
               no_log: "{{ _no_log }}"
 
@@ -433,3 +433,8 @@
             log_file_name: "{{ ('FAILED_' if sync_failed else '') }}offsite_{{ offsite_method }}_{{ ansible_date_time.date }}"
             log_file_size: "{{ ((_restic_summary.data_added | default(0) | int) / 1048576) | round(2) | string }}"
             log_backup_level: "offline"
+
+        - name: Fail play if offsite sync failed
+          ansible.builtin.fail:
+            msg: "Offsite sync failed — see notification for details"
+          when: sync_failed

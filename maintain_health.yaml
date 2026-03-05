@@ -551,7 +551,7 @@
           loop_control:
             label: "{{ item }}"
           register: _appliance_results
-          ignore_errors: true
+          ignore_errors: true  # observational — appliance reachability; failure triggers individual alert
 
         - name: Identify unreachable appliances
           ansible.builtin.set_fact:
@@ -972,7 +972,7 @@
             --no-pager -q 2>/dev/null | sort -u | wc -l
           register: _journal_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — journal error probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Record journal error result
@@ -1006,7 +1006,7 @@
             --no-pager -q 2>/dev/null | grep -c "Out of memory" || true
           register: _oom_count_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — OOM event count; failure recorded in host_health_issues
           check_mode: false
 
         - name: Get killed process names
@@ -1016,7 +1016,7 @@
             --no-pager -q 2>/dev/null | grep "Killed process" | awk '{print $NF}' | sort -u | head -5 || true
           register: _oom_procs_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — OOM killed process names; failure recorded in host_health_issues
           check_mode: false
           when: _oom_count_raw.stdout | int >= health_oom_kills_max
 
@@ -1058,7 +1058,7 @@
             done
           register: _stopped_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — stopped container probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Find unhealthy containers
@@ -1066,7 +1066,7 @@
             docker ps --filter "health=unhealthy" --format "{% raw %}{{.Names}}{% endraw %}" 2>/dev/null || true
           register: _unhealthy_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — unhealthy container probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Record Docker health result
@@ -1124,7 +1124,7 @@
             inventory_hostname in groups['ubuntu'] | default([]) or
             inventory_hostname in groups['pve'] | default([]) or
             inventory_hostname in groups['pbs'] | default([])
-          failed_when: false
+          failed_when: false  # observational — smartmontools install; missing package must not block SMART check
 
         - name: Check SMART health on all checkable disks
           become: true
@@ -1140,7 +1140,7 @@
             echo "${failed:-ok}"
           register: _smart_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — SMART disk health probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Record SMART result
@@ -1178,7 +1178,7 @@
           ansible.builtin.shell: pvecm status 2>/dev/null
           register: _pvecm_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — PVE cluster quorum probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Parse cluster status
@@ -1218,7 +1218,7 @@
             ceph health 2>/dev/null || echo "CEPH_ERROR"
           register: _ceph_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — Ceph cluster health probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Record Ceph health result
@@ -1300,7 +1300,7 @@
             fi
           register: _apt_repo_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — APT repo health probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Record APT repo health result
@@ -1347,7 +1347,7 @@
             echo "${expiring:-}"
           register: _ssl_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — SSL certificate expiry probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Parse SSL cert result
@@ -1403,7 +1403,7 @@
             fi
           register: _ntp_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — NTP sync status probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Record NTP sync result
@@ -1443,7 +1443,7 @@
           ansible.builtin.shell: "getent hosts {{ health_dns_hostname }} >/dev/null 2>&1 && echo ok || echo fail"
           register: _dns_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — DNS resolution probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Record DNS resolution result
@@ -1482,7 +1482,7 @@
             echo "${state:-unknown}|$(( dsbl + missing ))"
           register: _unraid_array_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — unRAID array health probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Parse unRAID array status
@@ -1530,7 +1530,7 @@
             proxmox-backup-manager datastore list --output-format json 2>/dev/null || echo "[]"
           register: _pbs_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — PBS datastore list probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Parse PBS datastore results
@@ -1579,7 +1579,7 @@
             fi
           register: _zfs_pool_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — ZFS pool health probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Parse ZFS pool result
@@ -1640,7 +1640,7 @@
             fi
           register: _btrfs_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — BTRFS device error probe; failure recorded in host_health_issues
           check_mode: false
 
         - name: Parse BTRFS result
@@ -1690,7 +1690,7 @@
             loop_var: _endpoint
             label: "{{ _endpoint.name }}"
           register: _http_results
-          ignore_errors: true
+          ignore_errors: true  # observational — Docker HTTP endpoint probe; failure recorded in host_health_issues
 
         - name: Build HTTP health results
           ansible.builtin.set_fact:
@@ -1773,7 +1773,7 @@
             echo "${orphans## }"
           register: _opt_orphans_raw
           changed_when: false
-          failed_when: false
+          failed_when: false  # observational — /opt orphan entry scan; failure recorded in host_health_issues
           check_mode: false
 
         - name: Parse orphan results
@@ -1965,4 +1965,9 @@
         - not ansible_check_mode
         - vault_uptime_kuma_push_url is defined
         - not maintenance_failed
-      failed_when: false
+      failed_when: false  # notification-guard — heartbeat failure must not block playbook
+
+    - name: Fail play if health check failed
+      ansible.builtin.fail:
+        msg: "Health check failed — see notification for details"
+      when: maintenance_failed

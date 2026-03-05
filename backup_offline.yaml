@@ -42,7 +42,7 @@
         - name: Check if Synology online
           ansible.builtin.command: ping -c 2 {{ vault_synology_ip }}
           delegate_to: localhost
-          failed_when: false
+          failed_when: false  # pre-flight probe — Synology may be offline; WoL handles it next
           register: _ping_result
           changed_when: false
           check_mode: false
@@ -111,7 +111,7 @@
         - name: Mount, Rsync, Unmount Share
           loop: "{{ synology_shares }}"
           register: backup_status
-          ignore_errors: true
+          ignore_errors: true  # best-effort — individual share sync may fail; others continue
           changed_when: true
           ansible.builtin.shell: |
             if /usr/local/sbin/rc.unassigned mount {{ vault_synology_name }}:{{ synology_mount_path }}; then
@@ -163,7 +163,7 @@
           until: _shutdown_ping.rc != 0
           retries: 12
           delay: 10
-          failed_when: false
+          failed_when: false  # observational — verifying Synology powered off; timeout is acceptable
           changed_when: false
           when: not ansible_check_mode
 
@@ -235,3 +235,8 @@
             log_file_name: "FAILED_sync_{{ ansible_date_time.date }}"
             log_file_size: "0"
             log_backup_level: "offline"
+
+        - name: Fail play if sync failed
+          ansible.builtin.fail:
+            msg: "Offline sync failed — see notification for details"
+          when: sync_failed

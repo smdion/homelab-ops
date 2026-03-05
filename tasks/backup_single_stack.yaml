@@ -13,6 +13,7 @@
 #   ansible_date_time     — gathered fact
 #   _stack_backup_results — list to append results to (caller initializes to [])
 #   backup_base_dir       — controller-side backup root (for fetch dest)
+# Notification: caller (caller's always: block sends notification based on results list)
 
 - name: Set archive filename for {{ _backup_stack }}
   ansible.builtin.set_fact:

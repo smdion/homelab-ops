@@ -119,6 +119,11 @@
             log_volumes_mb:    "{{ _docker_volumes_mb | default(0) }}"
             log_containers_mb: "{{ _docker_containers_mb | default(0) }}"
 
+        - name: Fail play if maintenance failed
+          ansible.builtin.fail:
+            msg: "Docker prune failed — see notification for details"
+          when: maintenance_failed
+
 # ═══════════════════════════════════════════════════════════════════
 # Play 2 — Clear Linux page cache
 # ═══════════════════════════════════════════════════════════════════
@@ -177,3 +182,8 @@
             log_type: "{{ maintenance_type }}"
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+        - name: Fail play if maintenance failed
+          ansible.builtin.fail:
+            msg: "Page cache clear failed — see notification for details"
+          when: maintenance_failed

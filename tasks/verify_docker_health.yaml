@@ -56,7 +56,7 @@
       exit 1
   register: _health_poll
   changed_when: false
-  failed_when: false
+  failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
   when: not ansible_check_mode
 
 - name: Set health warning flag

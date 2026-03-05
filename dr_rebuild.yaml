@@ -300,7 +300,7 @@
             build_failed | bool and
             (_vm.vm_id | int) >= (vm_test_slot_base | int) and
             (_vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
-          ignore_errors: true
+          ignore_errors: true  # best-effort — VM may already be stopped; slot cleanup is primary goal
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Fail play if build failed
@@ -355,7 +355,7 @@
     - name: Check if Docker is installed
       ansible.builtin.command: docker --version
       register: _docker_check
-      failed_when: false
+      failed_when: false  # pre-flight probe — Docker may not be installed; downstream handles it
       changed_when: false
       become: false
 
@@ -432,7 +432,7 @@
             bootstrap_failed | bool and
             (hostvars['localhost']._vm.vm_id | int) >= (vm_test_slot_base | int) and
             (hostvars['localhost']._vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
-          ignore_errors: true
+          ignore_errors: true  # best-effort — VM may already be stopped; slot cleanup is primary goal
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Fail play if bootstrap failed
@@ -572,7 +572,7 @@
             _restore_test_failed | bool and
             (hostvars['localhost']._vm.vm_id | int) >= (vm_test_slot_base | int) and
             (hostvars['localhost']._vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
-          ignore_errors: true
+          ignore_errors: true  # best-effort — VM may already be stopped; slot cleanup is primary goal
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Fail play if restore failed

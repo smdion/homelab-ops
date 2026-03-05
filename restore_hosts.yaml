@@ -152,7 +152,7 @@
 
         - include_tasks: tasks/docker_start.yaml
           vars:
-            _docker_ignore_errors: true
+            _docker_ignore_errors: true  # best-effort — safety net to restart Docker in rescue block
           when: inventory_hostname in groups["docker_stacks"] | default([]) or inventory_hostname in groups["docker_run"] | default([])
 
       always:
@@ -240,3 +240,8 @@
           when:
             - inventory_hostname in groups["pikvm"]
             - not ansible_check_mode
+
+        - name: Fail play if restore failed
+          ansible.builtin.fail:
+            msg: "Host restore failed — see notification for details"
+          when: restore_failed

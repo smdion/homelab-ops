@@ -93,7 +93,7 @@
       loop_control:
         label: "{{ item.node }}"
       check_mode: false
-      ignore_errors: true
+      ignore_errors: true  # observational — PVE API info-gathering; offline nodes handled gracefully
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Build node version lookup
@@ -177,7 +177,7 @@
         validate_certs: false
       register: _ceph_status
       check_mode: false
-      ignore_errors: true
+      ignore_errors: true  # observational — Ceph may not be configured on this cluster
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Display Ceph overview
@@ -211,7 +211,7 @@
         validate_certs: false
       register: _ha_status
       check_mode: false
-      ignore_errors: true
+      ignore_errors: true  # observational — HA may not be enabled on this cluster
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Display HA overview
@@ -240,7 +240,7 @@
         validate_certs: false
       register: _replication_status
       check_mode: false
-      ignore_errors: true
+      ignore_errors: true  # observational — replication may not be configured
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Display replication overview
@@ -295,7 +295,7 @@
         validate_certs: false
       register: _fw_rules
       check_mode: false
-      ignore_errors: true
+      ignore_errors: true  # observational — firewall API may be unavailable
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Display cluster firewall rules
@@ -331,7 +331,7 @@
         validate_certs: false
       register: _backup_jobs
       check_mode: false
-      ignore_errors: true
+      ignore_errors: true  # observational — backup job API may be unavailable
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Get included VMs for each backup job
@@ -346,7 +346,7 @@
       loop_control:
         label: "{{ item.id | default('?') }}"
       check_mode: false
-      ignore_errors: true
+      ignore_errors: true  # observational — individual job VM list may fail
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when: _backup_jobs is not failed
 
@@ -440,7 +440,7 @@
       loop_control:
         label: "{{ item }}"
       check_mode: false
-      ignore_errors: true
+      ignore_errors: true  # observational — node network API may be unreachable
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Display per-node network summary
@@ -485,7 +485,7 @@
       register: _pbs_versions
       changed_when: false
       check_mode: false
-      failed_when: false
+      failed_when: false  # observational — PBS CLI may not be available
 
     - name: Display PBS version
       vars:

@@ -141,7 +141,7 @@
       become: true
       register: _pbs_check
       changed_when: false
-      failed_when: false
+      failed_when: false  # pre-flight probe — PBS storage may not be configured yet
 
     - name: Configure PBS storage
       ansible.builtin.command: >-
@@ -192,7 +192,7 @@
           ansible.builtin.command: pvecm status
           register: _cluster_status
           changed_when: false
-          failed_when: false
+          failed_when: false  # pre-flight probe — node may not be in a cluster yet
 
         - name: Join PVE cluster
           ansible.builtin.command: >-
@@ -261,7 +261,7 @@
           Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
       register: _api_check
-      failed_when: false
+      failed_when: false  # pre-flight probe — API token may not be configured yet
 
     - name: Check cloud-init template exists
       ansible.builtin.uri:
@@ -271,7 +271,7 @@
           Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
       register: _template_check
-      failed_when: false
+      failed_when: false  # pre-flight probe — cloud-init template may not exist yet
 
     - name: Set verification results
       ansible.builtin.set_fact:

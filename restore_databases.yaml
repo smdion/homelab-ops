@@ -210,7 +210,7 @@
             argv: "{{ ['docker', 'start'] + db_container_deps[item] }}"
           loop: "{{ _restore_db_list }}"
           become: true
-          ignore_errors: true
+          ignore_errors: true  # best-effort — rescue block container restart; primary error already captured
           when:
             - db_container_deps is defined
             - db_container_deps[item] | default([]) | length > 0
@@ -277,3 +277,8 @@
             restore_operation: "restore"
             restore_status: "failed"
             restore_detail: "Restore failed — check Semaphore logs"
+
+        - name: Fail play if restore failed
+          ansible.builtin.fail:
+            msg: "Database restore failed — see notification for details"
+          when: restore_failed

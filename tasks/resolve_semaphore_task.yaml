@@ -24,7 +24,7 @@
     return_content: true
     status_code: 200
   register: _semaphore_task_response
-  failed_when: false
+  failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
   when:
     - vault_semaphore_host_url is defined
     - vault_semaphore_api_token is defined
@@ -45,4 +45,4 @@
     - (_semaphore_task_response.content | default('[]') | from_json) is sequence
     - (_semaphore_task_response.content | default('[]') | from_json) is not mapping
     - (_semaphore_task_response.content | default('[]') | from_json) | length > 0
-  failed_when: false
+  failed_when: false  # pre-flight probe — optional state check; downstream handles missing case

@@ -30,7 +30,7 @@
     login_db: "{{ semaphore_db_name | default('semaphore') }}"
     query: "SELECT arguments FROM task ORDER BY id DESC LIMIT 1"
   register: _semaphore_args_result
-  failed_when: false
+  failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
   when:
     - not (skip_db | default(false) | bool)

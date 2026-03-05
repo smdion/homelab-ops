@@ -12,6 +12,7 @@
 # Inherits from playbook scope:
 #   db_container_name, db_username, vault_db_password, backup_tmp_dir, backup_ext,
 #   backup_base_dir, ansible_date_time, is_postgres, is_mariadb, is_influxdb
+# Notification: caller (caller's always: block sends notification based on results list)
 
 - name: "Set file paths for {{ _current_db }}"
   ansible.builtin.set_fact:

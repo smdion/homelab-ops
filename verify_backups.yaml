@@ -565,14 +565,14 @@
             _db_is_mariadb: "{{ is_mariadb | default(false) }}"
             _db_is_influxdb: "{{ is_influxdb | default(false) }}"
             _db_influx_source_name: "{{ item }}"
-          ignore_errors: true
+          ignore_errors: true  # best-effort — test restore cleanup tracked separately
           when: _is_db_verify | bool
 
         - name: Clean up per-stack staging directories on failure
           ansible.builtin.shell: rm -rf "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_"*
           delegate_to: localhost
           become: false
-          ignore_errors: true
+          ignore_errors: true  # best-effort — staging cleanup in rescue; primary error already captured
           when:
             - inventory_hostname in groups["docker_stacks"] | default([])
             - not (_is_db_verify | bool)
@@ -581,7 +581,7 @@
           ansible.builtin.shell: rm -rf "{{ backup_base_dir }}/tmp/verify_staging_{{ inventory_hostname }}_"*
           delegate_to: localhost
           become: false
-          ignore_errors: true
+          ignore_errors: true  # best-effort — staging cleanup in rescue; primary error already captured
           when:
             - inventory_hostname in groups["amp"] | default([])
             - not (_is_db_verify | bool)
@@ -592,7 +592,7 @@
             state: absent
           delegate_to: localhost
           become: false
-          ignore_errors: true
+          ignore_errors: true  # best-effort — staging cleanup in rescue; primary error already captured
           when:
             - src_raw_files is defined
             - not (_is_db_verify | bool)
@@ -660,3 +660,8 @@
             restore_operation: "verify"
             restore_status: "failed"
             restore_detail: "Verify failed — check Semaphore logs"
+
+        - name: Fail play if verification failed
+          ansible.builtin.fail:
+            msg: "Backup verification failed — see notification for details"
+          when: verify_failed

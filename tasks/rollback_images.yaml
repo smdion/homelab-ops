@@ -21,7 +21,7 @@
   ansible.builtin.shell: "docker image inspect {{ rollback_snapshot.containers[item].image_id }} > /dev/null 2>&1"
   loop: "{{ _rollback_targets }}"
   register: _image_check
-  failed_when: false
+  failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
   changed_when: false
 
 - name: Build image availability map

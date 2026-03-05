@@ -116,7 +116,7 @@
       - "--timeout={{ rsync_timeout }}"
       - "--whole-file"
   become: true
-  ignore_errors: true
+  ignore_errors: true  # best-effort — cleanup/recovery; primary op tracked separately
   register: _db_rsync_result
   loop: "{{ hostvars['localhost']._db_archive_map | default({}) | dict2items }}"
   loop_control:

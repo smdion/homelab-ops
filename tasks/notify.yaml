@@ -87,7 +87,7 @@
   retries: 3
   delay: 5
   until: _discord_result is succeeded
-  failed_when: false
+  failed_when: false  # notification-guard — notification task; failure must not block playbook
   when:
     - not ansible_check_mode
     - vault_discord_webhook_id is defined
@@ -117,7 +117,7 @@
       - "{{ _apprise_body }}"
       - "{{ apprise_urls }}"
   delegate_to: localhost
-  failed_when: false
+  failed_when: false  # notification-guard — notification task; failure must not block playbook
   when:
     - not ansible_check_mode
     - apprise_urls is defined
@@ -150,7 +150,7 @@
       type: "{{ _apprise_type }}"
     status_code: [200]
   delegate_to: localhost
-  failed_when: false
+  failed_when: false  # notification-guard — notification task; failure must not block playbook
   when:
     - not ansible_check_mode
     - apprise_api_url is defined

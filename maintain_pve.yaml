@@ -136,6 +136,11 @@
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
 
+        - name: Fail play if maintenance failed
+          ansible.builtin.fail:
+            msg: "PVE maintenance failed — see notification for details"
+          when: maintenance_failed
+
   handlers:
     - name: Restart keepalived
       ansible.builtin.service:
@@ -222,7 +227,7 @@
       loop_control:
         label: "{{ item.name }} ({{ item.vmid }})"
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-      ignore_errors: true
+      ignore_errors: true  # observational — individual VM snapshot API may fail; others continue
 
     # ===== IDENTIFY STALE SNAPSHOTS =====
     - name: Compute stale snapshot threshold (epoch minus max age)
@@ -440,7 +445,7 @@
           loop: "{{ _qemu_vms }}"
           loop_control:
             label: "{{ item.name }} ({{ item.vmid }})"
-          ignore_errors: true
+          ignore_errors: true  # observational — individual VM config API may fail; others continue
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         # Build intermediate list of all no-tag VMIDs for splitting into
@@ -705,6 +710,11 @@
             log_subtype: "{{ maintenance_subtype }}"
             log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
 
+        - name: Fail play if pool sync failed
+          ansible.builtin.fail:
+            msg: "PVE pool sync failed — see notification for details"
+          when: maintenance_failed
+
 # ═══════════════════════════════════════════════════════════════════
 # Play 6 — Check for unused (detached) VM disks
 # Fetches all QEMU VM configs and flags any with unusedN keys —
@@ -761,7 +771,7 @@
            | list }}
       loop_control:
         label: "{{ item.name }} ({{ item.vmid }})"
-      ignore_errors: true
+      ignore_errors: true  # observational — individual VM config API may fail; others continue
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     - name: Build list of VMs with unused disks
@@ -868,7 +878,7 @@
            | list }}
       loop_control:
         label: "{{ item.name }} ({{ item.vmid }})"
-      ignore_errors: true
+      ignore_errors: true  # observational — individual VM config API may fail; others continue
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
     # Production = net0 defined with no VLAN tag, minus excluded VMIDs (same rule as pool sync)
@@ -894,7 +904,7 @@
       loop: "{{ _production_qemu_vms }}"
       loop_control:
         label: "{{ item.name }} ({{ item.vmid }})"
-      ignore_errors: true
+      ignore_errors: true  # observational — individual VM RRD API may fail; others continue
       no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
       when: _production_qemu_vms | length > 0
 
