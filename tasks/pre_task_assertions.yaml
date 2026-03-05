@@ -41,7 +41,9 @@
 - name: Auto-format run vars from Semaphore task arguments
   vars:
     _raw_args: "{{ _semaphore_args_result.query_result[0][0].arguments | default('null') }}"
-    _parsed: "{{ (_raw_args | from_json) if _raw_args not in ['null', '', None] else [] }}"
+    _parsed: >-
+      {{ _raw_args if _raw_args is sequence and _raw_args is not string
+         else ((_raw_args | from_json) if _raw_args not in ['null', '', None] else []) }}
   ansible.builtin.set_fact:
     _formatted_run_vars: "{{ _parsed | join(' ') }}"
   when:

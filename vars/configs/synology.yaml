@@ -3,7 +3,7 @@
 # Mount strategy: single NFS share with subfolders per source.
 # Synology exports /volume1/<synology_share_name> via NFS.
 # Each item in synology_shares becomes a subfolder under the mount point.
-synology_share_name: "Offline"
+synology_share_name: "Data"
 synology_shares:
   - "Backup"
   - "Data"
