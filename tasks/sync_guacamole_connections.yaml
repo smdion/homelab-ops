@@ -17,6 +17,8 @@
 #   pve_definitions, vm_definitions, host_definitions — definition files
 #   guacamole_connection_groups, guacamole_ssh_defaults,
 #   guacamole_admin_groups, guacamole_extra_connections — from vars/configs/guacamole.yaml
+#     Extra connections support host_ref/vm_ref fields to resolve hostnames
+#     from definitions. Entries whose ref no longer exists are auto-skipped.
 #   _pve — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
 #   pve_api_port — PVE API port
 #
@@ -59,6 +61,16 @@
   register: _cluster_vms
   when: _vnc_vms | length > 0
   no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+- name: Warn about skipped extra connections (ref no longer in definitions)
+  ansible.builtin.debug:
+    msg: "Skipping extra connection '{{ item.name }}' — {{ item.host_ref | default(item.vm_ref) }} not found in definitions"
+  loop: "{{ guacamole_extra_connections | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: >-
+    (item.host_ref is defined and item.host_ref not in host_definitions) or
+    (item.vm_ref is defined and item.vm_ref not in vm_definitions)
 
 # Build complete desired connection list
 - name: Build desired connections
@@ -131,21 +143,33 @@
       {% endif %}
       {% endfor %}
       {{ result | to_json }}
-    # Extra connections (already normalized)
+    # Extra connections — host_ref/vm_ref entries are resolved from definitions.
+    # If the referenced key no longer exists, the entry is silently skipped
+    # (definitions are source of truth). Entries with a direct hostname are
+    # passed through as-is.
     _extra_json: >-
       {% set result = [] %}
       {% for item in guacamole_extra_connections %}
+      {% if item.host_ref is defined and item.host_ref not in host_definitions %}
+      {% elif item.vm_ref is defined and item.vm_ref not in vm_definitions %}
+      {% else %}
+      {% set resolved_host = host_definitions[item.host_ref].vm_hostname
+           if item.host_ref is defined else
+           vm_definitions[item.vm_ref].vm_hostname
+           if item.vm_ref is defined else
+           item.hostname %}
       {% set conn = {
         'name': item.name,
         'group': item.group,
         'protocol': item.protocol | default('ssh'),
-        'hostname': item.hostname,
+        'hostname': resolved_host,
       } %}
       {% if item.port is defined %}{% set conn = conn | combine({'port': item.port | string}) %}{% endif %}
       {% if item.password is defined %}{% set conn = conn | combine({'password': item.password}) %}{% endif %}
       {% if item.command is defined %}{% set conn = conn | combine({'command': item.command}) %}{% endif %}
       {% set conn = conn | combine({'user_groups': item.user_groups | default([])}) %}
       {% set _ = result.append(conn) %}
+      {% endif %}
       {% endfor %}
       {{ result | to_json }}
 

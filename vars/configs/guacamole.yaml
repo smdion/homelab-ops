@@ -38,20 +38,13 @@ guacamole_ssh_defaults:
 
 # Connections not derivable from definition files (special cases).
 # Protocol defaults to ssh if omitted.
+# Use host_ref/vm_ref to tie an entry to a definition key — the sync task
+# resolves the hostname automatically and skips the entry if the key no
+# longer exists (definitions are source of truth).
 guacamole_extra_connections:
-  - name: Firefox
-    protocol: vnc
-    hostname: "{{ host_definitions.odyssey.vm_hostname }}"  # TODO: move to apps VM after migration
-    group: Tools
-    port: 7914
-    user_groups: [Guac-Firefox]
   - name: Red-5
     protocol: vnc
     hostname: "{{ vault_red5_ip }}"
     group: Hosted Desktops
     port: 5900
     password: "{{ vault_red5_vnc_password }}"
-  - name: Crowdsec
-    hostname: "tantiveiv.{{ vault_vm_search_domain }}"
-    group: Tools
-    command: "sudo docker exec -it crowdsec /bin/bash"
