@@ -12,6 +12,7 @@ health_check_groups:
   - ubuntu
   - unraid
   - pve
+  - pve_standalone
   - pbs
 
 # Health check thresholds

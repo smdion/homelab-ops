@@ -51,6 +51,28 @@
   loop_control:
     label: "{{ item.path | basename }}"
 
+# === Replace enterprise ceph with no-subscription ===
+# PVE installs ceph packages as dependencies even on standalone nodes.
+# Cluster nodes get a no-subscription ceph source during install, but
+# standalone nodes only get the enterprise source. Replace it so ceph
+# packages can receive updates on all PVE hosts.
+- name: Set ceph release name for current PVE version
+  ansible.builtin.set_fact:
+    _ceph_release: "{{ 'ceph-squid' if pve_debian_release == 'trixie' else 'ceph-reef' }}"
+
+- name: Ensure ceph no-subscription repo (replace enterprise if present)
+  ansible.builtin.copy:
+    content: |
+      Types: deb
+      URIs: http://download.proxmox.com/debian/{{ _ceph_release }}
+      Suites: {{ pve_debian_release }}
+      Components: no-subscription
+      Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+    dest: /etc/apt/sources.list.d/ceph.sources
+    owner: root
+    group: root
+    mode: "0644"
+
 # === Add no-subscription repo ===
 # Nodes upgraded from PVE 8→9 may already have a DEB822 .sources file
 # (e.g. proxmox.sources) providing the no-subscription repo. If so, remove
