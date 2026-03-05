@@ -48,6 +48,9 @@
         pre_playbook: "maintain_guacamole.yaml"
         pre_hostname: "{{ controller_fqdn }}"
 
+    - name: Resolve PVE API credentials (cluster VIP — queries /cluster/resources)
+      include_tasks: tasks/resolve_pve_api.yaml
+
   tasks:
     - name: Initialize maintenance state
       ansible.builtin.set_fact:
