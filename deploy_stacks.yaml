@@ -45,7 +45,7 @@
     config_file: "{{ hosts_variable }}"
     maintenance_name: "Docker"
     maintenance_type: "Servers"
-    maintenance_subtype: "Deploy"
+    maintenance_subtype: "{{ 'Validate Deploy' if (validate_only | default('') == 'yes') else 'Deploy' }}"
     _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
   pre_tasks:
