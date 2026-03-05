@@ -1,5 +1,6 @@
 ---
 # Category: Build & Provision
+# Schedule: none
 # Post-install PVE bootstrap — configures a freshly installed Proxmox VE host.
 # Handles no-subscription repo, nag removal, ansible user, API token, cloud-init
 # template, PBS storage, and optional cluster join with keepalived.
