@@ -14,11 +14,14 @@
 #   _guac_db_user     — Postgres username (from guacamole_db_user in vars/configs/guacamole.yaml)
 #   _guac_db_name     — Postgres database (from guacamole_db_name in vars/configs/guacamole.yaml)
 #   _guac_container   — Docker container name (from guacamole_container in vars/configs/guacamole.yaml)
-#   pve_definitions, vm_definitions, host_definitions — definition files
+#   pve_definitions, vm_definitions, host_definitions, container_definitions — definition files
 #   guacamole_connection_groups, guacamole_ssh_defaults,
 #   guacamole_admin_groups, guacamole_extra_connections — from vars/configs/guacamole.yaml
 #     Extra connections support host_ref/vm_ref fields to resolve hostnames
 #     from definitions. Entries whose ref no longer exists are auto-skipped.
+#   container_definitions entries with guacamole: + stack: are auto-derived
+#     via stack_roles → all_definitions hostname resolution.
+#   all_definitions, stack_roles — derived dicts from vm_definitions.yaml
 #   _pve — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
 #   pve_api_port — PVE API port
 #
@@ -75,7 +78,7 @@
 # Build complete desired connection list
 - name: Build desired connections
   ansible.builtin.set_fact:
-    _desired_connections: "{{ _ssh_connections + (_vnc_json | trim | from_json) + (_extra_json | trim | from_json) }}"
+    _desired_connections: "{{ _ssh_connections + (_vnc_json | trim | from_json) + (_container_json | trim | from_json) + (_extra_json | trim | from_json) }}"
   vars:
     # SSH connections from all definition files
     _pve_json: >-
@@ -140,6 +143,37 @@
         'port': (5900 + entry.value.vnc_display | int) | string,
         'user_groups': entry.value.guacamole.user_groups | default([]),
       }) %}
+      {% endif %}
+      {% endfor %}
+      {{ result | to_json }}
+    # Container connections from container_definitions (resolved via stack → role → hostname).
+    # Containers with guacamole: + stack: are resolved through stack_roles to find the
+    # host role, then look up vm_hostname from all_definitions.
+    _container_json: >-
+      {% set result = [] %}
+      {% for entry in container_definitions | dict2items
+           | selectattr('value.guacamole', 'defined')
+           | selectattr('value.stack', 'defined') | list %}
+      {% set target_stack = entry.value.stack %}
+      {% set host_role = stack_roles | dict2items
+           | selectattr('value', 'contains', target_stack)
+           | map(attribute='key') | first | default('') %}
+      {% if host_role and host_role in all_definitions %}
+      {% set hostname = all_definitions[host_role].vm_hostname | default('') %}
+      {% if hostname %}
+      {% set guac = entry.value.guacamole %}
+      {% set conn = {
+        'name': guac.name,
+        'group': guac.group,
+        'protocol': guac.protocol | default('ssh'),
+        'hostname': hostname,
+      } %}
+      {% if guac.port is defined %}{% set conn = conn | combine({'port': guac.port | string}) %}{% endif %}
+      {% if guac.password is defined %}{% set conn = conn | combine({'password': guac.password}) %}{% endif %}
+      {% if guac.command is defined %}{% set conn = conn | combine({'command': guac.command}) %}{% endif %}
+      {% set conn = conn | combine({'user_groups': guac.user_groups | default([])}) %}
+      {% set _ = result.append(conn) %}
+      {% endif %}
       {% endif %}
       {% endfor %}
       {{ result | to_json }}

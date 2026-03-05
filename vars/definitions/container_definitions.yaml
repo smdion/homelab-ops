@@ -13,6 +13,16 @@
 #        MY_TAG={{ container_definitions.myapp.tag }}
 #   3. Update docker-compose.yaml image line: image: ${MY_IMAGE}:${MY_TAG}
 #   4. If the service has a database, add an entry in vars/definitions/app_definitions.yaml
+#
+# Optional fields:
+#   stack      — compose stack this container runs in (required if guacamole: is set)
+#   guacamole  — Guacamole connection metadata (auto-derived by sync_guacamole_connections.yaml)
+#     name           — display name in Guacamole UI
+#     group          — connection group (Proxmox, Docker, Tools, etc.)
+#     protocol       — ssh (default) or vnc
+#     port           — VNC port on the host (e.g., 7914)
+#     command        — SSH exec command (e.g., "sudo docker exec -it foo /bin/bash")
+#     user_groups    — Authentik groups granted READ access (omit for admin-only)
 
 container_definitions:
   adminer:
@@ -36,6 +46,11 @@ container_definitions:
   crowdsec:
     image: "docker.io/crowdsecurity/crowdsec"
     tag: "latest"
+    stack: auth
+    guacamole:
+      name: Crowdsec
+      group: Tools
+      command: "sudo docker exec -it crowdsec /bin/bash"
   crowdsec_web_ui:
     image: "ghcr.io/theduffman85/crowdsec-web-ui"
     tag: "latest"
@@ -48,6 +63,13 @@ container_definitions:
   firefox:
     image: "jlesage/firefox"
     tag: "latest"
+    stack: apps
+    guacamole:
+      name: Firefox
+      group: Tools
+      protocol: vnc
+      port: 7914
+      user_groups: [Guac-Firefox]
   grafana:
     image: "grafana/grafana"
     tag: "latest"
