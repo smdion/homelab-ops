@@ -60,16 +60,6 @@
   when: _role_injected is not defined
 
 # --- scope filters ---
-- name: "DEBUG — check vars loaded"
-  ansible.builtin.debug:
-    msg:
-      - "vm_definitions defined: {{ vm_definitions is defined }}"
-      - "host_definitions defined: {{ host_definitions is defined }}"
-      - "app_definitions defined: {{ app_definitions is defined }}"
-      - "container_definitions defined: {{ container_definitions is defined }}"
-      - "ansible_play_vars_files: {{ ansible_play_vars_files | default('NOT_SET') }}"
-  when: stack is defined and inventory_hostname == 'dev.seandion.local'
-
 - name: Skip host — stack not assigned here
   meta: end_host
   when:

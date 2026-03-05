@@ -41,6 +41,7 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
     - vars/definitions/app_definitions.yaml
@@ -101,6 +102,7 @@
   gather_subset: ['!all', 'date_time', 'hardware']
   vars_files:
     - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
     - vars/definitions/app_definitions.yaml

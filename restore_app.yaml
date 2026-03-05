@@ -21,6 +21,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
     - vars/definitions/app_definitions.yaml
@@ -105,6 +106,7 @@
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
     - vars/definitions/app_definitions.yaml
