@@ -60,15 +60,13 @@
   when: _role_injected is not defined
 
 # --- scope filters ---
-- name: "DEBUG scope — stack_assignments for {{ inventory_hostname }}"
+- name: "DEBUG — check host_roles type"
   ansible.builtin.debug:
     msg:
-      - "stack={{ stack | default('UNDEFINED') }}"
-      - "inventory_hostname={{ inventory_hostname }}"
-      - "in_docker_stacks={{ inventory_hostname in groups['docker_stacks'] | default([]) }}"
-      - "stack_assignments_keys={{ stack_assignments.keys() | list }}"
-      - "my_stacks={{ stack_assignments[inventory_hostname] | default('NOT_FOUND') }}"
-      - "host_roles_keys={{ host_roles.keys() | list }}"
+      - "host_roles defined: {{ host_roles is defined }}"
+      - "stack_roles defined: {{ stack_roles is defined }}"
+      - "vm_definitions defined: {{ vm_definitions is defined }}"
+      - "host_definitions defined: {{ host_definitions is defined }}"
   when: stack is defined
 
 - name: Skip host — stack not assigned here
