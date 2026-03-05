@@ -1,15 +1,21 @@
 ---
 # Category: Backup
-# Schedule: none
+# Schedule: weekly (template 26)
 # Sync backups to offline Synology storage.
-# Wakes Synology via WOL, mounts shares, rsyncs backup data, unmounts,
-# shuts down Synology, verifies shutdown. Sends notification + logs to MariaDB.
+# Wakes Synology via WOL, mounts single NFS share, rsyncs each source
+# into a subfolder, unmounts, shuts down Synology, verifies shutdown.
+# Sends notification + logs to MariaDB.
 #
 # Required extra vars:
 #   hosts_variable  — inventory group to target (pre-filled by Semaphore environment)
 #
+# Optional extra vars:
+#   synology_skip_shutdown=true  — leave Synology running after sync (for testing)
+#   synology_share_name=<name>   — override Synology NFS share name (default: Offline)
+#
 # Usage:
 #   ansible-playbook backup_offline.yaml -e hosts_variable=unraid
+#   ansible-playbook backup_offline.yaml -e hosts_variable=unraid -e synology_skip_shutdown=true
 
 - name: Sync backups to offline Synology storage
   gather_facts: true
@@ -36,7 +42,8 @@
     - name: Initialize sync state
       ansible.builtin.set_fact:
         sync_failed: false
-        backup_status: {results: []}
+        _sync_results: []
+        _nfs_path: "{{ vault_synology_name }}:{{ synology_mount_path }}"
 
     - block:
         - name: Check if Synology online
@@ -108,38 +115,74 @@
           delegate_to: localhost
           when: not ansible_check_mode
 
-        - name: Mount, Rsync, Unmount Share
-          loop: "{{ synology_shares }}"
-          register: backup_status
-          ignore_errors: true  # best-effort — individual share sync may fail; others continue
-          changed_when: true
+        # === Mount single NFS share ===
+        - name: Mount NFS share
+          ansible.builtin.shell: /usr/local/sbin/rc.unassigned mount {{ _nfs_path }}
+          register: _mount_result
+
+        - name: Wait for mount to settle
+          ansible.builtin.pause:
+            seconds: "{{ synology_mount_settle }}"
+
+        - name: Discover mount point
+          ansible.builtin.shell: >-
+            awk '$1 == "{{ _nfs_path }}" { print $2; exit }' /proc/mounts
+          register: _mount_point_raw
+          changed_when: false
+
+        - name: Assert mount point found
+          ansible.builtin.assert:
+            that: _mount_point_raw.stdout | trim | length > 0
+            fail_msg: "NFS share {{ _nfs_path }} mounted but mount point not found in /proc/mounts"
+
+        - name: Set mount point fact
+          ansible.builtin.set_fact:
+            _mount_point: "{{ _mount_point_raw.stdout | trim }}"
+
+        # === Rsync each share as subfolder ===
+        - name: Rsync {{ item }} to Synology
           ansible.builtin.shell: |
-            if /usr/local/sbin/rc.unassigned mount {{ vault_synology_name }}:{{ synology_mount_path }}; then
-              sleep {{ synology_mount_settle }}
-            else
-              exit 1
-            fi
-            MOUNT_POINT=$(awk '$1 == "{{ vault_synology_name }}:{{ synology_mount_path }}" { print $2; exit }' /proc/mounts)
-            if [ -z "$MOUNT_POINT" ]; then
-              exit 2
-            fi
-            rsync -a --stats {{ synology_src_base_path }}{{ item }}/ "$MOUNT_POINT"/ --delete-after
-            sync
-            sleep {{ synology_post_sync_delay }}
-            let "n = {{ umount_timeout }}"
-            while ! /usr/local/sbin/rc.unassigned umount {{ vault_synology_name }}:{{ synology_mount_path }}; do
-              if [ "$n" -eq 0 ]; then
-                exit 3
-              fi
-              let "n--"
+            rsync -a --stats {{ synology_src_base_path }}{{ item }}/ "{{ _mount_point }}/{{ item }}/" --delete-after 2>&1
+          loop: "{{ synology_shares }}"
+          register: _rsync_results
+          ignore_errors: true  # best-effort — individual share sync may fail; others continue
+
+        - name: Collect sync results
+          ansible.builtin.set_fact:
+            _sync_results: "{{ _rsync_results.results }}"
+
+        - name: Flush writes to disk
+          ansible.builtin.command: sync
+          changed_when: false
+
+        - name: Wait for writes to settle
+          ansible.builtin.pause:
+            seconds: "{{ synology_post_sync_delay }}"
+
+        # === Unmount ===
+        - name: Unmount NFS share
+          ansible.builtin.shell: |
+            n={{ umount_timeout }}
+            while ! /usr/local/sbin/rc.unassigned umount {{ _nfs_path }}; do
+              if [ "$n" -eq 0 ]; then exit 1; fi
+              n=$((n - 1))
               sleep {{ synology_umount_retry_delay }}
             done
-            exit 0
+          register: _umount_result
+
+        - name: Set sync_failed if any share failed
+          ansible.builtin.set_fact:
+            sync_failed: "{{ _sync_results | selectattr('rc', 'ne', 0) | list | length > 0 }}"
 
       rescue:
         - name: Set sync failed flag
           ansible.builtin.set_fact:
             sync_failed: true
+
+        - name: Best-effort unmount on failure
+          ansible.builtin.shell: /usr/local/sbin/rc.unassigned umount {{ _nfs_path }}
+          ignore_errors: true  # best-effort — cleanup after failure; share may not be mounted
+          when: _mount_result is defined and _mount_result is not failed
 
       always:
         - name: Shutdown Synology via Home Assistant
@@ -153,7 +196,9 @@
             body:
               entity_id: "{{ vault_ha_shutdown_button }}"
           delegate_to: localhost
-          when: not ansible_check_mode
+          when:
+            - not ansible_check_mode
+            - not (synology_skip_shutdown | default(false) | bool)
           no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
         - name: Verify Synology has shut down
@@ -165,21 +210,32 @@
           delay: 10
           failed_when: false  # observational — verifying Synology powered off; timeout is acceptable
           changed_when: false
-          when: not ansible_check_mode
+          when:
+            - not ansible_check_mode
+            - not (synology_skip_shutdown | default(false) | bool)
 
         - name: Log Synology shutdown verification
           ansible.builtin.debug:
             msg: >-
               {{ 'Synology confirmed offline' if _shutdown_ping.rc | default(1) != 0
                  else 'WARNING: Synology still responding after shutdown request' }}
-          when: not ansible_check_mode
+          when:
+            - not ansible_check_mode
+            - not (synology_skip_shutdown | default(false) | bool)
+
+        - name: Log skip-shutdown mode
+          ansible.builtin.debug:
+            msg: "Synology left running (synology_skip_shutdown=true)"
+          when: synology_skip_shutdown | default(false) | bool
 
         - name: Send notification for each sync result
           include_tasks: tasks/notify.yaml
-          loop: "{{ backup_status.results }}"
+          loop: "{{ _sync_results }}"
           loop_control:
             loop_var: _sync_result
-          when: not ansible_check_mode
+          when:
+            - not ansible_check_mode
+            - _sync_results | length > 0
           vars:
             discord_name: "{{ backup_name }}"
             discord_operation: "Sync"
@@ -198,7 +254,7 @@
 
         - name: Send notification for pre-sync failure
           include_tasks: tasks/notify.yaml
-          when: sync_failed
+          when: sync_failed and _sync_results | length == 0
           vars:
             discord_name: "{{ backup_name }}"
             discord_operation: "Sync"
@@ -209,10 +265,12 @@
 
         - name: Log sync results to MariaDB
           include_tasks: tasks/log_mariadb.yaml
-          loop: "{{ backup_status.results }}"
+          loop: "{{ _sync_results }}"
           loop_control:
             loop_var: _sync_result
-          when: not ansible_check_mode
+          when:
+            - not ansible_check_mode
+            - _sync_results | length > 0
           vars:
             log_table: backups
             log_application: "{{ backup_name }}"
@@ -227,7 +285,7 @@
 
         - name: Log pre-sync failure to MariaDB
           include_tasks: tasks/log_mariadb.yaml
-          when: sync_failed and backup_status.results | length == 0
+          when: sync_failed and _sync_results | length == 0
           vars:
             log_table: backups
             log_application: "{{ backup_name }}"
