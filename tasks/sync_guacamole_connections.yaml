@@ -151,6 +151,10 @@
     # Container connections from container_definitions (resolved via stack → role → hostname).
     # Containers with guacamole: + stack: are resolved through stack_roles to find the
     # host role, then look up vm_hostname from all_definitions.
+    # Same-host optimisation: when the container runs on the Guacamole host, Docker
+    # hairpin NAT prevents reaching mapped ports via the host IP. In that case, use
+    # the Docker container name and internal port (from compose.ports) so traffic
+    # stays on the shared Docker network.
     _container_json: >-
       {% set result = [] %}
       {% for entry in container_definitions | dict2items
@@ -164,13 +168,24 @@
       {% set hostname = all_definitions[host_role].vm_hostname | default('') %}
       {% if hostname %}
       {% set guac = entry.value.guacamole %}
+      {% set same_host = (hostname == _guac_host) %}
+      {% set container_name = entry.value.compose.container_name | default(entry.key | replace('_', '-')) if same_host else '' %}
+      {% set mapped_port = guac.port | default('') | string %}
+      {% set ns = namespace(internal_port='') %}
+      {% if same_host and mapped_port %}
+      {% for pm in entry.value.compose.ports | default([]) %}
+      {% set parts = pm | string | regex_replace('/.*', '') | split(':') %}
+      {% if parts | length == 2 and parts[0] == mapped_port %}{% set ns.internal_port = parts[1] %}{% endif %}
+      {% endfor %}
+      {% endif %}
       {% set conn = {
         'name': guac.name,
         'group': guac.group,
         'protocol': guac.protocol | default('ssh'),
-        'hostname': hostname,
+        'hostname': container_name if same_host else hostname,
       } %}
-      {% if guac.port is defined %}{% set conn = conn | combine({'port': guac.port | string}) %}{% endif %}
+      {% if ns.internal_port %}{% set conn = conn | combine({'port': ns.internal_port}) %}
+      {% elif guac.port is defined %}{% set conn = conn | combine({'port': guac.port | string}) %}{% endif %}
       {% if guac.password is defined %}{% set conn = conn | combine({'password': guac.password}) %}{% endif %}
       {% if guac.command is defined %}{% set conn = conn | combine({'command': guac.command}) %}{% endif %}
       {% set conn = conn | combine({'user_groups': guac.user_groups | default([])}) %}
