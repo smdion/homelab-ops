@@ -73,7 +73,6 @@
       vars:
         pre_playbook: "dr_rebuild.yaml"
         pre_hostname: "{{ controller_fqdn }}"
-        pre_run_vars: "{{ {'role': role | default(''), 'vm_name': vm_name | default('')} | to_json }}"
 
   tasks:
     - name: Initialize build state

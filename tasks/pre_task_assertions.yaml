@@ -9,7 +9,6 @@
 # Optional vars:
 #   pre_assert_config_file — include assert_config_file check (default: false)
 #   pre_hostname           — hostname for audit log (default: inventory_hostname)
-#   pre_run_vars           — JSON extra-vars for audit log (default: "{}")
 
 - name: Assert config_file is defined and non-empty
   include_tasks: tasks/assert_config_file.yaml
@@ -18,15 +17,42 @@
 - name: Assert MariaDB logging database is reachable
   include_tasks: tasks/assert_db_connectivity.yaml
 
-- name: Format run vars as CLI flags
+- name: Query Semaphore DB for current task arguments
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  become: false
+  connection: local
+  community.mysql.mysql_query:
+    login_host: "{{ vault_logging_db_host }}"
+    login_port: "{{ vault_logging_db_port }}"
+    login_user: "{{ vault_logging_db_user }}"
+    login_password: "{{ vault_logging_db_password }}"
+    login_db: "{{ semaphore_db_name | default('semaphore') }}"
+    query: "SELECT arguments FROM task ORDER BY id DESC LIMIT 1"
+  register: _semaphore_args_result
+  failed_when: false
+  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  when:
+    - not (skip_db | default(false) | bool)
+    - not ansible_check_mode
+    - vault_logging_db_host is defined
+    - vault_logging_db_password is defined
+
+- name: Auto-format run vars from Semaphore task arguments
+  vars:
+    _raw_args: "{{ _semaphore_args_result.query_result[0][0].arguments | default('null') }}"
+    _parsed: "{{ (_raw_args | from_json) if _raw_args not in ['null', '', None] else [] }}"
   ansible.builtin.set_fact:
-    _formatted_run_vars: >-
-      {{ (pre_run_vars | default('{}') | from_json).items()
-         | map('join', '=')
-         | map('regex_replace', '^', '-e ')
-         | join(' ')
-         if (pre_run_vars | default('{}') | from_json)
-         else '' }}
+    _formatted_run_vars: "{{ _parsed | join(' ') }}"
+  when:
+    - _semaphore_args_result is defined
+    - _semaphore_args_result is succeeded
+    - _semaphore_args_result.query_result | default([]) | flatten | length > 0
+
+- name: Default run vars to empty when Semaphore query unavailable
+  ansible.builtin.set_fact:
+    _formatted_run_vars: ""
+  when: _formatted_run_vars is not defined
 
 - name: Display run context
   ansible.builtin.debug:

@@ -40,7 +40,6 @@
       vars:
         pre_playbook: "restore_amp.yaml"
         pre_hostname: "{{ controller_fqdn }}"
-        pre_run_vars: "{{ {'restore_target': restore_target | default('')} | to_json }}"
 
   tasks:
     - name: Discover instances with backups on controller

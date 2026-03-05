@@ -34,7 +34,6 @@
       vars:
         pre_playbook: "verify_isolation.yaml"
         pre_hostname: "{{ controller_fqdn }}"
-        pre_run_vars: "{{ {'vm_name': vm_name | default('undefined')} | to_json }}"
 
     - name: Assert vm_name exists in vm_definitions
       ansible.builtin.assert:

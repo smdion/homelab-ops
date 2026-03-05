@@ -51,7 +51,6 @@
       vars:
         pre_playbook: "restore_app.yaml"
         pre_hostname: "{{ controller_fqdn }}"
-        pre_run_vars: "{{ {'restore_app': restore_app, 'restore_target': restore_target} | to_json }}"
 
   tasks:
     - name: Set app config

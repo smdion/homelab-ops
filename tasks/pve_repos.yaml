@@ -84,12 +84,13 @@
 # === Clean up stale repo files from PVE 8→9 upgrade ===
 # .bak and .disabled extensions are ignored by apt but are clutter.
 # Disabled .sources files pointing to the previous Debian release are stale.
-- name: Find stale repo files (.bak, .disabled, pve-test)
+- name: Find stale repo files (.bak, .disabled, .dpkg-dist, pve-test)
   ansible.builtin.find:
     paths: /etc/apt/sources.list.d
     patterns:
       - "*.bak"
       - "*.disabled"
+      - "*.dpkg-dist"
       - "pve-test.*"
     file_type: file
   register: _stale_repo_files
@@ -121,6 +122,33 @@
   loop: "{{ (_stale_sources_raw.stdout_lines | default([])) }}"
   loop_control:
     label: "{{ item | basename }}"
+  when: pve_debian_release != 'bookworm'
+
+# Multi-stanza DEB822 files (e.g. ceph.sources) may contain a stale stanza
+# for the previous release alongside the current one. Remove the old stanza
+# block (blank-line delimited) that references the previous release.
+- name: Remove stale release stanzas from DEB822 files
+  ansible.builtin.shell:
+    cmd: |
+      prev="{{ _previous_release }}"
+      for f in /etc/apt/sources.list.d/ceph.sources; do
+        [ -f "$f" ] || continue
+        if grep -q "Suites:.*$prev" "$f"; then
+          python3 -c "
+      import re, sys
+      text = open('$f').read()
+      # Split on blank lines into stanzas, keep only current release
+      stanzas = re.split(r'\n\n+', text.strip())
+      kept = [s for s in stanzas if 'Suites: $prev' not in s and 'Suites:  $prev' not in s]
+      open('$f', 'w').write('\n\n'.join(kept) + '\n')
+      "
+          echo "cleaned $f"
+        fi
+      done
+  vars:
+    _previous_release: "{{ 'bookworm' if pve_debian_release == 'trixie' else '' }}"
+  register: _stanza_cleanup
+  changed_when: "'cleaned' in (_stanza_cleanup.stdout | default(''))"
   when: pve_debian_release != 'bookworm'
 
 # === Remove subscription nag ===

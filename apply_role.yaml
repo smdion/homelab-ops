@@ -67,7 +67,6 @@
       vars:
         pre_playbook: "apply_role.yaml"
         pre_hostname: "{{ controller_fqdn }}"
-        pre_run_vars: "{{ {'role': role | default('all')} | to_json }}"
 
   tasks:
     - name: Determine target roles

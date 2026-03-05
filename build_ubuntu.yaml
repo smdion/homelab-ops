@@ -107,7 +107,6 @@
       vars:
         pre_playbook: "build_ubuntu.yaml"
         pre_hostname: "{{ controller_fqdn }}"
-        pre_run_vars: "{{ {'vm_name': vm_name | default(''), 'vm_index': vm_index | default(0)} | to_json }}"
 
   tasks:
     - name: Initialize build state

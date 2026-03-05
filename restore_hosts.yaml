@@ -80,7 +80,6 @@
       vars:
         pre_assert_config_file: true
         pre_playbook: "restore_hosts.yaml"
-        pre_run_vars: "{{ {'config_file': config_file | default('')} | to_json }}"
 
     - name: Assert DockerClient.php exists on unRAID
       ansible.builtin.stat:

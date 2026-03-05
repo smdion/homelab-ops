@@ -1698,7 +1698,7 @@
               "datasource": { "type": "mysql", "uid": "${DS_MYSQL}" },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT \n  timestamp,\n  playbook,\n  hostname,\n  run_vars\nFROM playbook_runs\nWHERE hostname IN ($hostname)\nORDER BY id DESC\nLIMIT 50",
+              "rawSql": "SELECT \n  timestamp,\n  playbook,\n  hostname,\n  run_vars\nFROM playbook_runs\nWHERE hostname IN ($hostname)\nAND playbook != 'download_videos.yaml'\nORDER BY id DESC\nLIMIT 50",
               "refId": "A"
             }
           ],
