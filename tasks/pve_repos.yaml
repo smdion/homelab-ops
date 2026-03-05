@@ -57,18 +57,20 @@
 # the legacy .list file to avoid duplicate source warnings. Otherwise,
 # template the .list file for fresh installs that don't have one yet.
 - name: Check for existing PVE no-subscription DEB822 source
-  ansible.builtin.find:
-    paths: /etc/apt/sources.list.d
-    patterns: "*.sources"
-    file_type: file
-    contains: "pve-no-subscription"
-  register: _nosub_deb822
+  ansible.builtin.shell:
+    cmd: grep -rl 'pve-no-subscription' /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+  register: _nosub_deb822_raw
+  changed_when: false
+
+- name: Set DEB822 no-subscription fact
+  ansible.builtin.set_fact:
+    _nosub_deb822_exists: "{{ _nosub_deb822_raw.stdout | trim | length > 0 }}"
 
 - name: Remove duplicate pve-no-subscription.list (DEB822 source exists)
   ansible.builtin.file:
     path: /etc/apt/sources.list.d/pve-no-subscription.list
     state: absent
-  when: _nosub_deb822.matched > 0
+  when: _nosub_deb822_exists
 
 - name: Template no-subscription repo (no DEB822 source found)
   ansible.builtin.template:
@@ -77,7 +79,7 @@
     owner: root
     group: root
     mode: "0644"
-  when: _nosub_deb822.matched == 0
+  when: not _nosub_deb822_exists
 
 # === Remove subscription nag ===
 - name: Template nag removal script
