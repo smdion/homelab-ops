@@ -11,6 +11,8 @@
 #
 # Required vars (caller must set or load via vars_files):
 #   _guac_host        — FQDN of the host running Guacamole container
+#   _guac_host_ip     — IP of the Guacamole host (used instead of FQDN for self-referencing connections,
+#                        since the host's /etc/hosts maps its own FQDN to loopback inside Docker)
 #   _guac_db_user     — Postgres username (from guacamole_db_user in vars/configs/guacamole.yaml)
 #   _guac_db_name     — Postgres database (from guacamole_db_name in vars/configs/guacamole.yaml)
 #   _guac_container   — Docker container name (from guacamole_container in vars/configs/guacamole.yaml)
@@ -206,6 +208,26 @@
       {% endif %}
       {% endfor %}
       {{ result | to_json }}
+
+# Guacamole runs on _guac_host — inside the container, the host's /etc/hosts
+# maps its own FQDN to a loopback address (127.0.1.1), which is unreachable
+# from Docker's bridge network. Replace the FQDN with the real IP for any
+# connection targeting the Guacamole host.
+- name: Rewrite self-referencing hostnames to IP
+  ansible.builtin.set_fact:
+    _desired_connections: "{{ _rewritten | trim | from_json }}"
+  vars:
+    _rewritten: >-
+      {% set result = [] %}
+      {% for conn in _desired_connections %}
+      {% if conn.hostname == _guac_host %}
+      {% set _ = result.append(conn | combine({'hostname': _guac_host_ip})) %}
+      {% else %}
+      {% set _ = result.append(conn) %}
+      {% endif %}
+      {% endfor %}
+      {{ result | to_json }}
+  when: _guac_host_ip | default('') | length > 0
 
 - name: Show desired connections
   ansible.builtin.debug:

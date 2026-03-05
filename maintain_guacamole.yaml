@@ -38,6 +38,7 @@
     maintenance_url: ""
     maintenance_description: "Converge Guacamole connection config from definition files"
     _guac_host: "{{ vm_definitions.apps.vm_hostname }}"  # TODO: move to apps VM after migration
+    _guac_host_ip: "{{ vm_definitions.apps.vm_ip }}"
     _guac_db_user: "{{ guacamole_db_user }}"
     _guac_db_name: "{{ guacamole_db_name }}"
     _guac_container: "{{ guacamole_container }}"
