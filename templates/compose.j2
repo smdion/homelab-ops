@@ -43,6 +43,12 @@ networks:
   {{ _network }}:
     external: true
 {% endif %}
+{% if _stack_def.compose_volumes | default([]) | length > 0 %}
+volumes:
+{% for vol in _stack_def.compose_volumes %}
+  {{ vol }}:
+{% endfor %}
+{% endif %}
 services:
 {% for name, def in _services.items() %}
 {% set c = def.compose %}

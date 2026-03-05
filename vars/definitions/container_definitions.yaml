@@ -143,6 +143,17 @@ container_definitions:
   beszel:
     image: "henrygd/beszel"
     tag: "latest"
+    stack: vpn
+    compose:
+      base: baseenv
+      network_mode: "service:wireguard"
+      depends_on: ["wireguard"]
+      labels:
+        homelab.backup.paths: "/opt/beszel"
+        homelab.health_timeout: "90"
+      volumes:
+        - "${APPSDIR}/beszel:/beszel_data"
+        - "${APPSDIR}/beszel_socket:/beszel_socket"
   beszel_agent:
     image: "henrygd/beszel-agent"
     tag: "latest"
@@ -182,6 +193,34 @@ container_definitions:
   code_server:
     image: "lscr.io/linuxserver/code-server"
     tag: "latest"
+    stack: dev
+    compose:
+      image_var: CODESERVER
+      base: baseuid
+      ports: ["8443:8443"]
+      labels:
+        homelab.backup.paths: "/opt/code-server,/opt/homelab-ops,/opt/homelab-docs,/opt/freshjams-ops"
+        homelab.health_timeout: "90"
+      environment:
+        PROXY_DOMAIN: "${CODESERVER_PROXY_DOMAIN}"
+        DEFAULT_WORKSPACE: "${CODESERVER_DEFAULT_WORKSPACE}"
+      volumes:
+        - "core:/workspace/core"
+        - "apps:/workspace/apps"
+        - "dev:/workspace/dev"
+        - "vps:/workspace/vps"
+        - "homelab-ops:/workspace/homelab-ops"
+        - "homelab-docs:/workspace/homelab-docs"
+        - "freshjams-ops:/workspace/freshjams-ops"
+        - "/opt/CLAUDE.md:/workspace/CLAUDE.md:ro"
+        - "${APPSDIR}/code-server:/config"
+        - "./custom-cont-init.d:/custom-cont-init.d:ro"
+      healthcheck:
+        test: ["CMD-SHELL", "ls /workspace/core /workspace/apps /workspace/dev /workspace/vps /workspace/homelab-ops /workspace/homelab-docs /workspace/freshjams-ops > /dev/null 2>&1 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
   crowdsec:
     image: "docker.io/crowdsecurity/crowdsec"
     tag: "latest"
@@ -235,6 +274,21 @@ container_definitions:
   docs:
     image: "nginx"
     tag: "alpine"
+    stack: dev
+    compose:
+      base: base
+      ports: ["8084:80"]
+      labels:
+        homelab.backup.paths: "/opt/homelab-docs"
+        homelab.test.skip_health: "true"
+      volumes:
+        - "${APPSDIR}/homelab-docs/site:/usr/share/nginx/html:ro"
+      healthcheck:
+        test: ["CMD-SHELL", "curl -fsk http://localhost:80 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "10s"
   dozzle:
     image: "amir20/dozzle"
     tag: "latest"
@@ -436,12 +490,50 @@ container_definitions:
   netbootxyz:
     image: "netbootxyz/netbootxyz"
     tag: "latest"
+    stack: dev
+    compose:
+      image_var: NETBOOT
+      base: baseuid
+      labels:
+        homelab.backup.paths: "/opt/netboot"
+      ports: ["3002:3000", "69:69/udp", "8082:80"]
+      volumes:
+        - "${APPSDIR}/netboot/config:/config"
+        - "${APPSDIR}/netboot/assets:/assets"
   nfs:
     image: "itsthenetwork/nfs-server-alpine"
     tag: "latest"
+    stack: vpn
+    compose:
+      base: base
+      network_mode: "service:wireguard"
+      depends_on: ["wireguard"]
+      environment:
+        SHARED_DIRECTORY: "${NFS_SHARED_DIRECTORY}"
+        SYNC: "${NFS_SYNC}"
+      volumes:
+        - "${APPSDIR}:/nfsshare"
+      privileged: true
   npm:
     image: "docker.io/jc21/nginx-proxy-manager"
     tag: "latest"
+    stack: vpn
+    compose:
+      base: baseuid
+      network_mode: "service:wireguard"
+      depends_on: ["wireguard"]
+      labels:
+        homelab.backup.paths: "/opt/npm,/opt/npm-le"
+      volumes:
+        - "${APPSDIR}/npm:/data:rw"
+        - "${APPSDIR}/npm-le:/etc/letsencrypt"
+      privileged: true
+      healthcheck:
+        test: ["CMD-SHELL", "curl -fs http://localhost:81 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "60s"
   postgres:
     image: "postgres"
     tag: "16-alpine"
@@ -572,6 +664,84 @@ container_definitions:
   wireguard:
     image: "lscr.io/linuxserver/wireguard"
     tag: "latest"
+    stack: vpn
+    compose:
+      image_var: WG
+      base: base
+      ports: ["51820:51820/udp", "443:443"]
+      labels:
+        homelab.backup.paths: "/opt/wireguard"
+      environment:
+        SERVERURL: "${WG_SERVERURL}"
+        SERVERPORT: "${WG_SERVERPORT}"
+        PEERS: "${WG_PEERS}"
+        INTERNAL_SUBNET: "${WG_INTERNAL_SUBNET}"
+      volumes:
+        - "${APPSDIR}/wireguard:/config"
+      sysctls:
+        - "net.ipv4.conf.all.src_valid_mark=1"
+      cap_add:
+        - NET_ADMIN
+      healthcheck:
+        test: ["CMD-SHELL", "wg show wg0 > /dev/null 2>&1 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
+  vpn_beszel_agent:
+    image: "henrygd/beszel-agent"
+    tag: "latest"
+    stack: vpn
+    compose:
+      image_var: BESZEL_AGENT
+      service_name: beszel-agent
+      container_name: beszel-agent
+      base: base
+      network_mode: "service:wireguard"
+      depends_on: ["wireguard"]
+      environment:
+        LISTEN: "${BESZEL_LISTEN}"
+        KEY: "${BESZEL_KEY}"
+      volumes:
+        - "${APPSDIR}/beszel_socket:/beszel_socket"
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+  vpn_dockerproxy:
+    image: "lscr.io/linuxserver/socket-proxy"
+    tag: "latest"
+    stack: vpn
+    compose:
+      image_var: SOCKET_PROXY
+      service_name: dockerproxy
+      container_name: dockerproxy
+      base: base
+      network_mode: "service:wireguard"
+      depends_on: ["wireguard"]
+      environment:
+        CONTAINERS: "${DP_CONTAINERS}"
+        POST: "${DP_POST}"
+        INFO: "${DP_INFO}"
+        VOLUMES: "${DP_VOLUMES}"
+        SECRETS: "${DP_SECRETS}"
+        IMAGES: "${DP_IMAGES}"
+        NETWORKS: "${DP_NETWORKS}"
+        ALLOW_RESTARTS: "${DP_ALLOW_RESTARTS}"
+      volumes:
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      privileged: true
+  vpn_dozzle_agent:
+    image: "amir20/dozzle"
+    tag: "latest"
+    stack: vpn
+    compose:
+      image_var: DOZZLE
+      service_name: dozzle-agent
+      container_name: dozzle-agent
+      base: baseenv
+      network_mode: "service:wireguard"
+      depends_on: ["wireguard"]
+      volumes:
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      command: agent
   xbackbone:
     image: "lscr.io/linuxserver/xbackbone"
     tag: "latest"

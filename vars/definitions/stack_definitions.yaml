@@ -13,6 +13,7 @@
 # Optional fields:
 #   generate_compose  — generate docker-compose.yaml from container_definitions (default: false)
 #   network           — external network name (default: homelab; omit for stacks without networks)
+#   compose_volumes   — list of named volumes to declare at top level (e.g., NFS mounts)
 
 stack_definitions:
   apps:
@@ -30,6 +31,15 @@ stack_definitions:
     generate_compose: true
   dev:
     description: "Development tools — code-server, netbootxyz"
+    generate_compose: true
+    compose_volumes:
+      - core
+      - apps
+      - dev
+      - vps
+      - homelab-ops
+      - homelab-docs
+      - freshjams-ops
   infra:
     description: "Core infrastructure — Docker proxy, monitoring agents, log aggregation"
     generate_compose: true
@@ -41,3 +51,5 @@ stack_definitions:
     generate_compose: true
   vpn:
     description: "VPN and NPM — WireGuard, Nginx Proxy Manager"
+    generate_compose: true
+    network: false
