@@ -44,23 +44,141 @@
 #     sysctls        — list of sysctl settings
 #     network_mode   — override network mode (e.g., "host", "service:wireguard")
 #     security_opt   — list of security options
+#     shm_size       — shared memory size (e.g., "2g")
+#     network_aliases — list of network aliases on the default network
 
 container_definitions:
   adminer:
     image: "adminer"
     tag: "latest"
+    stack: databases
+    compose:
+      base: base
+      ports: ["8087:8080"]
+      labels:
+        homelab.backup.paths: "/opt/adminer"
+      environment:
+        ADMINER_DESIGN: "${ADMINER_DESIGN}"
+      volumes:
+        - "${APPSDIR}/adminer/hydra.css:/var/www/html/designs/hydra/adminer.css"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   authentik:
     image: "ghcr.io/goauthentik/server"
     tag: "2025.12.4"
+    stack: auth
+    compose:
+      base: base
+      ports: ["9001:9000", "9443:9443"]
+      labels:
+        homelab.backup.paths: "/opt/authentik_worker"
+        homelab.health_timeout: "420"
+        homelab.restore.app: "authentik"
+        homelab.restore.db_config: "db_primary_postgres"
+        homelab.restore.db_names: "authentik"
+        homelab.restore.health_url: "http://localhost:9001/-/health/ready/"
+        homelab.restore.health_status: "204"
+      environment:
+        AUTHENTIK_POSTGRESQL__HOST: "${POSTGRES_HOST}"
+        AUTHENTIK_POSTGRESQL__USER: "${POSTGRES_USER}"
+        AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB}"
+        AUTHENTIK_POSTGRESQL__PASSWORD: "${POSTGRES_PASSWORD}"
+        AUTHENTIK_ERROR_REPORTING__ENABLED: "${AUTHENTIK_ERROR_REPORTING_ENABLED}"
+        AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY}"
+        AUTHENTIK_EMAIL__HOST: "${EMAIL_HOST}"
+        AUTHENTIK_EMAIL__PORT: "${EMAIL_PORT}"
+        AUTHENTIK_EMAIL__USERNAME: "${EMAIL_USERNAME}"
+        AUTHENTIK_EMAIL__PASSWORD: "${EMAIL_PASSWORD}"
+        AUTHENTIK_EMAIL__FROM: "${AUTHENTIK_EMAIL_FROM}"
+        AUTHENTIK_EMAIL__USE_TLS: "${AUTHENTIK_EMAIL_USE_TLS}"
+        AUTHENTIK_EMAIL__TIMEOUT: "${AUTHENTIK_EMAIL_TIMEOUT}"
+        AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS}"
+        AUTHENTIK_WORKERS: "${AUTHENTIK_WORKERS}"
+      volumes:
+        - "${APPSDIR}/authentik_worker/data:/data"
+        - "${APPSDIR}/authentik_worker/templates:/templates"
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      command: server
+      healthcheck:
+        test: ["CMD", "ak", "healthcheck"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "60s"
+  authentik_worker:
+    image: "ghcr.io/goauthentik/server"
+    tag: "2025.12.4"
+    stack: auth
+    compose:
+      image_var: AUTHENTIK
+      service_name: authentik_worker
+      container_name: authentik_worker
+      base: base
+      environment:
+        AUTHENTIK_POSTGRESQL__HOST: "${POSTGRES_HOST}"
+        AUTHENTIK_POSTGRESQL__USER: "${POSTGRES_USER}"
+        AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB}"
+        AUTHENTIK_POSTGRESQL__PASSWORD: "${POSTGRES_PASSWORD}"
+        AUTHENTIK_ERROR_REPORTING__ENABLED: "${AUTHENTIK_ERROR_REPORTING_ENABLED}"
+        AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY}"
+        AUTHENTIK_WORKER_CONCURRENCY: "${AUTHENTIK_WORKER_CONCURRENCY}"
+        AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS}"
+      volumes:
+        - "${APPSDIR}/authentik_worker/backups:/backups"
+        - "${APPSDIR}/authentik_worker/data:/data"
+        - "${APPSDIR}/authentik_worker/certs:/certs"
+        - "${APPSDIR}/authentik_worker/templates:/templates"
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      command: worker
+      healthcheck:
+        test: ["CMD", "ak", "healthcheck"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "60s"
   beszel:
     image: "henrygd/beszel"
     tag: "latest"
   beszel_agent:
     image: "henrygd/beszel-agent"
     tag: "latest"
+    stack: infra
+    compose:
+      base: base
+      network_mode: host
+      labels:
+        homelab.backup.paths: "/opt/beszel_socket"
+        homelab.test.skip_health: "true"
+      environment:
+        LISTEN: "${BESZEL_LISTEN}"
+        KEY: "${BESZEL_KEY}"
+      volumes:
+        - "${APPSDIR}/beszel_socket:/beszel_socket"
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
   cloudflareddns:
     image: "ghcr.io/hotio/cloudflareddns"
     tag: "latest"
+    stack: apps
+    compose:
+      image_var: DDNS
+      base: base
+      labels:
+        homelab.backup.paths: "/opt/cloudflareddns"
+      environment:
+        INTERVAL: "${DDNS_INTERVAL}"
+        DETECTION_MODE: "${DDNS_DETECTION_MODE}"
+        LOG_LEVEL: "${DDNS_LOG_LEVEL}"
+        CF_USER: "${EMAIL}"
+        CF_APIKEY: "${DDNS_CF_APIKEY}"
+        CF_HOSTS: "${DDNS_CF_HOSTS}"
+        CF_ZONES: "${DDNS_CF_ZONES}"
+        CF_RECORDTYPES: "${DDNS_CF_RECORDTYPES}"
+      volumes:
+        - "${APPSDIR}/cloudflareddns:/config"
   code_server:
     image: "lscr.io/linuxserver/code-server"
     tag: "latest"
@@ -72,6 +190,26 @@ container_definitions:
       name: Crowdsec
       group: Tools
       command: "sudo docker exec -it crowdsec /bin/bash"
+    compose:
+      base: base
+      ports: ["8080:8080", "6060:6060"]
+      labels:
+        homelab.backup.paths: "/opt/crowdsec"
+      environment:
+        COLLECTIONS: "${CROWDSEC_COLLECTIONS}"
+        CUSTOM_HOSTNAME: "${CROWDSEC_CUSTOM_HOSTNAME}"
+      volumes:
+        - "${APPSDIR}/crowdsec/config:/etc/crowdsec"
+        - "${APPSDIR}/crowdsec/data:/var/lib/crowdsec/data"
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      security_opt:
+        - "no-new-privileges=true"
+      healthcheck:
+        test: ["CMD", "cscli", "version"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "60s"
   crowdsec_web_ui:
     image: "ghcr.io/theduffman85/crowdsec-web-ui"
     tag: "latest"
@@ -100,6 +238,29 @@ container_definitions:
   dozzle:
     image: "amir20/dozzle"
     tag: "latest"
+    stack: infra
+    compose:
+      base: base
+      ports: ["8081:8080"]
+      environment:
+        DOZZLE_LEVEL: "${DOZZLE_LEVEL}"
+        DOZZLE_REMOTE_AGENT: "${DOZZLE_REMOTE_AGENT}"
+        DOZZLE_HOSTNAME: "${DOZZLE_HOSTNAME}"
+      volumes:
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      profiles: ["hub"]
+  dozzle_agent:
+    image: "amir20/dozzle"
+    tag: "latest"
+    stack: infra
+    compose:
+      image_var: DOZZLE
+      base: baseenv
+      ports: ["7007:7007"]
+      volumes:
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      command: agent
+      profiles: ["agent"]
   firefox:
     image: "jlesage/firefox"
     tag: "latest"
@@ -110,6 +271,20 @@ container_definitions:
       protocol: vnc
       port: 7914
       user_groups: [Guac-Firefox]
+    compose:
+      base: base
+      ports: ["7814:5800", "7914:5900"]
+      labels:
+        homelab.backup.paths: "/opt/firefox"
+      environment:
+        DISPLAY_WIDTH: "${FF_DISPLAY_WIDTH}"
+        DISPLAY_HEIGHT: "${FF_DISPLAY_HEIGHT}"
+        SECURE_CONNECTION: "${FF_SECURE_CONNECTION}"
+        DARK_MODE: "${FF_DARK_MODE}"
+        WEB_AUDIO: "${FF_WEB_AUDIO}"
+      volumes:
+        - "${APPSDIR}/firefox:/config"
+      shm_size: "2g"
   grafana:
     image: "grafana/grafana"
     tag: "latest"
@@ -146,15 +321,69 @@ container_definitions:
   guacamole:
     image: "abesnier/guacamole"
     tag: "latest"
+    stack: apps
+    compose:
+      image_var: GUAC
+      base: base
+      ports: ["8084:8080"]
+      labels:
+        homelab.backup.paths: "/opt/guacamole"
+      environment:
+        EXTENSIONS: "${GUAC_EXTENSIONS}"
+      volumes:
+        - "${APPSDIR}/guacamole:/config"
+        - "${APPSDIR}/guacamole/server.xml:/usr/local/tomcat/conf/server.xml"
+      privileged: true
   homeassistant:
     image: "lscr.io/linuxserver/homeassistant"
     tag: "latest"
+    stack: apps
+    compose:
+      image_var: HA
+      base: baseuid
+      ports: ["8123:8123"]
+      labels:
+        homelab.backup.paths: "/opt/home_assistant"
+        homelab.backup.exclude: ".cache,deps,__pycache__,*.pyc"
+        homelab.health_timeout: "150"
+      volumes:
+        - "${APPSDIR}/home_assistant/:/config"
+      healthcheck:
+        test: ["CMD-SHELL", "curl -fs http://localhost:8123/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "120s"
   homebox:
     image: "ghcr.io/sysadminsmedia/homebox"
     tag: "latest"
+    stack: apps
+    compose:
+      base: baseenv
+      ports: ["3100:7745"]
+      labels:
+        homelab.backup.paths: "/opt/homebox"
+      volumes:
+        - "${APPSDIR}/homebox:/data/"
   homepage:
     image: "ghcr.io/gethomepage/homepage"
     tag: "latest"
+    stack: apps
+    compose:
+      base: base
+      ports: ["3003:3000"]
+      labels:
+        homelab.backup.paths: "/opt/homepage"
+      environment:
+        HOMEPAGE_ALLOWED_HOSTS: "${HOMEPAGE_ALLOWED_HOSTS}"
+      volumes:
+        - "${APPSDIR}/homepage:/app/config"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
   jellyseerr:
     image: "fallenbagel/jellyseerr"
     tag: "preview-OIDC"
@@ -186,6 +415,24 @@ container_definitions:
   mariadb:
     image: "lscr.io/linuxserver/mariadb"
     tag: "latest"
+    stack: databases
+    compose:
+      image_var: MARIA
+      base: baseuid
+      ports: ["3306:3306"]
+      labels:
+        homelab.wait_port: "3306"
+        homelab.health_timeout: "180"
+      environment:
+        MYSQL_ROOT_PASSWORD: "${MARIA_PASSWORD}"
+      volumes:
+        - "${APPSDIR}/mariadb:/config"
+      healthcheck:
+        test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+        interval: "15s"
+        timeout: "5s"
+        retries: 3
+        start_period: "30s"
   netbootxyz:
     image: "netbootxyz/netbootxyz"
     tag: "latest"
@@ -198,6 +445,25 @@ container_definitions:
   postgres:
     image: "postgres"
     tag: "16-alpine"
+    stack: databases
+    compose:
+      base: baseuid
+      ports: ["5432:5432"]
+      labels:
+        homelab.wait_port: "5432"
+        homelab.health_timeout: "180"
+      environment:
+        POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+        POSTGRES_USER: "${POSTGRES_USER}"
+        POSTGRES_DB: "${POSTGRES_DEFAULT_DB}"
+      volumes:
+        - "${APPSDIR}/postgres:/var/lib/postgresql/data/"
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U postgres"]
+        interval: "15s"
+        timeout: "5s"
+        retries: 3
+        start_period: "30s"
   restic:
     image: "restic/restic"
     tag: "latest"
@@ -215,12 +481,77 @@ container_definitions:
   rickroll:
     image: "modem7/docker-rickroll"
     tag: "latest"
+    stack: apps
+    compose:
+      base: baseenv
+      ports: ["7344:8080"]
   socket_proxy:
     image: "lscr.io/linuxserver/socket-proxy"
     tag: "latest"
+    stack: infra
+    compose:
+      service_name: dockerproxy
+      container_name: dockerproxy
+      base: base
+      ports: ["2375:2375"]
+      environment:
+        CONTAINERS: "${DP_CONTAINERS}"
+        POST: "${DP_POST}"
+        INFO: "${DP_INFO}"
+        VOLUMES: "${DP_VOLUMES}"
+        SECRETS: "${DP_SECRETS}"
+        IMAGES: "${DP_IMAGES}"
+        NETWORKS: "${DP_NETWORKS}"
+        ALLOW_RESTARTS: "${DP_ALLOW_RESTARTS}"
+      volumes:
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      privileged: true
   swag:
     image: "lscr.io/linuxserver/swag"
     tag: "latest"
+    stack: auth
+    compose:
+      base: base
+      network_aliases: ["${SWAG_AUTH_ALIAS}"]
+      labels:
+        homelab.backup.paths: "/opt/swag"
+      ports: ["443:443", "8081:8081", "81:81"]
+      environment:
+        URL: "${SWAG_URL}"
+        VALIDATION: "${SWAG_VALIDATION}"
+        SUBDOMAINS: "${SWAG_SUBDOMAINS}"
+        ONLY_SUBDOMAINS: "${SWAG_ONLY_SUBDOMAINS}"
+        DNSPLUGIN: "${SWAG_DNSPLUGIN}"
+        EMAIL: "${EMAIL}"
+        EXTRA_DOMAINS: "${SWAG_EXTRA_DOMAINS}"
+        STAGING: "${SWAG_STAGING}"
+        SWAG_AUTORELOAD: "${SWAG_AUTORELOAD}"
+        DOCKER_MODS: "${SWAG_DOCKER_MODS}"
+        MAXMINDDB_LICENSE_KEY: "${MAXMINDDB_LICENSE_KEY}"
+        MAXMINDDB_USER_ID: "${MAXMINDDB_USER_ID}"
+        NGINX_LOG_PATH: "${SWAG_NGINX_LOG_PATH}"
+        GEO_MEASUREMENT: "${SWAG_GEO_MEASUREMENT}"
+        LOG_MEASUREMENT: "${SWAG_LOG_MEASUREMENT}"
+        SEND_NGINX_LOGS: "${SWAG_GEOIP2_SEND_NGINX_LOGS}"
+        GEOIP2INFLUX_LOG_LEVEL: "${SWAG_GEOIP2INFLUX_LOG_LEVEL}"
+        INFLUX_HOST: "${INFLUX_HOST}"
+        INFLUX_HOST_PORT: "${INFLUX_HOST_PORT}"
+        INFLUX_DATABASE: "${SWAG_INFLUX_DATABASE}"
+        INFLUX_RETENTION: "${INFLUX_RETENTION}"
+        INFLUX_SHARD: "${INFLUX_SHARD}"
+        CROWDSEC_API_KEY: "${SWAG_CROWDSEC_API_KEY}"
+        CROWDSEC_LAPI_URL: "${CROWDSEC_LAPI_URL}"
+        DISABLE_F2B: "${SWAG_DISABLE_F2B}"
+      volumes:
+        - "${APPSDIR}/swag:/config"
+      cap_add:
+        - NET_ADMIN
+      healthcheck:
+        test: ["CMD-SHELL", "curl -fsk https://localhost:443 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "60s"
   tautulli:
     image: "lscr.io/linuxserver/tautulli"
     tag: "latest"
@@ -244,3 +575,17 @@ container_definitions:
   xbackbone:
     image: "lscr.io/linuxserver/xbackbone"
     tag: "latest"
+    stack: apps
+    compose:
+      base: baseuid
+      ports: ["8088:80", "8444:443"]
+      labels:
+        homelab.backup.paths: "/opt/xbackbone"
+      volumes:
+        - "${APPSDIR}/xbackbone:/config"
+      healthcheck:
+        test: ["CMD-SHELL", "curl -fs http://localhost:80 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"

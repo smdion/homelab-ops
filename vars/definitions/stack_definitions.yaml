@@ -17,18 +17,22 @@
 stack_definitions:
   apps:
     description: "Application services — Home Assistant, Guacamole, Homepage, etc."
+    generate_compose: true
   auth:
     description: "Authentication and reverse proxy — Authentik, SWAG, CrowdSec"
+    generate_compose: true
   backups:
     description: "Backup agent — Restic"
     generate_compose: true
     network: false
   databases:
     description: "Database services — MariaDB, PostgreSQL, Adminer"
+    generate_compose: true
   dev:
     description: "Development tools — code-server, netbootxyz"
   infra:
     description: "Core infrastructure — Docker proxy, monitoring agents, log aggregation"
+    generate_compose: true
   media:
     description: "Media services — Tautulli, Jellyseerr"
     generate_compose: true

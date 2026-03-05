@@ -60,6 +60,13 @@ services:
     image: {{ '${' ~ _img_prefix ~ '_IMAGE}:${' ~ _img_prefix ~ '_TAG}' }}
 {% if c.network_mode is defined %}
     network_mode: {{ c.network_mode }}
+{% elif c.network_aliases | default([]) | length > 0 %}
+    networks:
+      {{ _network }}:
+        aliases:
+{% for alias in c.network_aliases %}
+          - {{ alias }}
+{% endfor %}
 {% elif c.networks | default([]) | length > 0 %}
     networks:
 {% for net in c.networks %}
@@ -147,5 +154,8 @@ services:
 {% for opt in c.security_opt %}
       - {{ opt }}
 {% endfor %}
+{% endif %}
+{% if c.shm_size is defined %}
+    shm_size: {{ c.shm_size }}
 {% endif %}
 {% endfor %}
