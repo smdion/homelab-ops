@@ -404,13 +404,20 @@
           loop_control:
             label: "{{ item.subdomain }}"
 
-        - name: Create output directory
+        - name: Create output directory (dry-run)
           ansible.builtin.file:
             path: "{{ _swag_output_dir }}"
             state: directory
             mode: "0755"
+          delegate_to: "{{ _swag_host }}"
+          become: true
           when: swag_dry_run | default(false) | bool
 
+        # Always delegate to the SWAG host (core VM). The omit filter does NOT
+        # work with delegate_to on Ansible ≤2.18 — the expression is passed as a
+        # literal string, causing tasks to run on localhost (Semaphore container)
+        # where sudo is unavailable. Dry-run mode writes to /tmp/swag-generated
+        # on the core VM instead.
         - name: Generate site-conf files
           ansible.builtin.template:
             src: templates/swag_site.conf.j2
@@ -424,8 +431,8 @@
           register: _generated_configs
           diff: "{{ swag_diff_only | default(false) | bool }}"
           check_mode: "{{ swag_diff_only | default(false) | bool }}"
-          delegate_to: "{{ omit if (swag_dry_run | default(false) | bool) else _swag_host }}"
-          become: "{{ not (swag_dry_run | default(false) | bool) }}"
+          delegate_to: "{{ _swag_host }}"
+          become: true
 
         - name: Record deploy detail
           ansible.builtin.set_fact:
