@@ -24,6 +24,7 @@
     - vars/definitions/host_definitions.yaml
     - vars/definitions/stack_definitions.yaml
     - vars/secrets.yaml
+    - vars/configs/docker_stacks.yaml
 
   vars:
     swag_config_dir: "{{ _swag_output_dir }}"
