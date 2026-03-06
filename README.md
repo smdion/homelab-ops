@@ -177,6 +177,8 @@ and the [playbook docs](https://homelab-docs/playbooks/) for detailed per-playbo
 Full documentation — architecture, patterns, playbook details, database schema, runbooks, and
 design decisions — lives on the [docs site](https://homelab-docs/).
 
+- [Quick Reference](docs/quick-reference.md) — all templates at a glance with their extra variables *(auto-generated)*
+
 Key pages:
 
 - [Playbook patterns](https://homelab-docs/architecture/playbook-patterns/) — block/rescue/always, variable loading, error handling
