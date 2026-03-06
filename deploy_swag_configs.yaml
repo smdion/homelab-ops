@@ -20,22 +20,22 @@
 
   vars_files:
     # NOTE: container_definitions.yaml is NOT listed here — it is loaded raw via
-    # pre_tasks (Python YAML parse → JSON) to avoid Ansible templating the
-    # {{ docker_* }} env values inside it. Those env vars come from
-    # vars/configs/docker_stacks.yaml, which this playbook doesn't need.
+    # a pre_task (Python YAML → JSON) to avoid Ansible templating {{ docker_* }}
+    # env values inside it. Those vars come from docker_stacks.yaml, which has
+    # derived vars (stack_assignments) that fail on implicit localhost in Ansible
+    # ≤2.18 (Semaphore's version as of 2026-03).
     #
-    # The stack→role lookup also avoids the derived stack_roles variable from
-    # vm_definitions.yaml — its self-referencing {{ vm_definitions | dict2items }}
-    # expression fails on implicit localhost in Ansible ≤2.18 (Semaphore's version
-    # as of 2026-03). Instead, tasks iterate vm_definitions/host_definitions directly.
+    # vm_definitions.yaml and host_definitions.yaml ARE loaded via vars_files
+    # because their {{ vault_* }} refs resolve fine. proxmox.yaml provides
+    # vm_hosted_slot_base needed by vm_definitions.yaml.
     #
-    # If Semaphore upgrades to Ansible ≥2.20 (tested locally), these workarounds
-    # can be removed: add container_definitions.yaml back to vars_files, add
-    # docker_stacks.yaml to vars_files, delete the two pre_tasks, and replace
-    # the vm_definitions/host_definitions loops with stack_roles.items().
+    # If Semaphore upgrades to Ansible ≥2.20, this workaround can be removed:
+    # add container_definitions.yaml + docker_stacks.yaml to vars_files and
+    # delete the pre_tasks.
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
     - vars/definitions/stack_definitions.yaml
+    - vars/configs/proxmox.yaml
     - vars/secrets.yaml
 
   vars:
@@ -44,11 +44,11 @@
 
   pre_tasks:
     # Workaround for Ansible ≤2.18 on Semaphore (see vars_files comment above).
-    # Loads container_definitions.yaml as raw YAML so {{ docker_* }} env values
-    # stay as literal strings instead of being templated.
+    # Loads definition files as raw YAML so {{ }} expressions stay as literal
+    # strings instead of being templated.
     - name: Load container definitions without templating env values
       ansible.builtin.command:
-        cmd: python3 -c "import yaml, json, sys; data=yaml.safe_load(open('vars/definitions/container_definitions.yaml')); print(json.dumps(data.get('container_definitions', {})))"
+        cmd: "python3 -c \"import yaml,json; print(json.dumps(yaml.safe_load(open('vars/definitions/container_definitions.yaml')).get('container_definitions', {})))\""
       register: _raw_container_defs
       changed_when: false
 
