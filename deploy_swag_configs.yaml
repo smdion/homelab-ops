@@ -415,6 +415,8 @@
           ansible.builtin.template:
             src: templates/swag_site.conf.j2
             dest: "{{ _swag_output_dir }}/{{ item.subdomain }}.conf"
+            owner: "911"
+            group: "911"
             mode: "0644"
           loop: "{{ _all_proxies }}"
           loop_control:
@@ -423,6 +425,7 @@
           diff: "{{ swag_diff_only | default(false) | bool }}"
           check_mode: "{{ swag_diff_only | default(false) | bool }}"
           delegate_to: "{{ omit if (swag_dry_run | default(false) | bool) else _swag_host }}"
+          become: "{{ not (swag_dry_run | default(false) | bool) }}"
 
         - name: Record deploy detail
           ansible.builtin.set_fact:
@@ -444,6 +447,7 @@
           changed_when: false
           failed_when: _nginx_test.rc != 0
           delegate_to: "{{ _swag_host }}"
+          become: true
           when:
             - not (swag_dry_run | default(false) | bool)
             - not (swag_diff_only | default(false) | bool)
@@ -454,6 +458,7 @@
             cmd: docker exec swag nginx -s reload
           changed_when: true
           delegate_to: "{{ _swag_host }}"
+          become: true
           when:
             - not (swag_dry_run | default(false) | bool)
             - not (swag_diff_only | default(false) | bool)
