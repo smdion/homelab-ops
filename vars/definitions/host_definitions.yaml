@@ -254,7 +254,7 @@ host_definitions:
     guacamole: { name: Synology, group: NAS }
     proxy:
       subdomain: synology
-      upstream_ip: "10.10.10.61"
+      upstream_ip: "10.10.10.31"
       listen: https
       locations:
         - path: /
