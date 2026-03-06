@@ -401,7 +401,7 @@ container_definitions:
     stack: infra
     proxy:
       subdomain: logs
-      upstream_ip: "{{ vault_vm_apps_ip }}"
+      # upstream_ip derived from stack chain (infra → apps VM)
       locations:
         - path: /
           port: 8081
