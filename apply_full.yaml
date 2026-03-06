@@ -1,0 +1,27 @@
+---
+# Category: Utilities
+# Schedule: none
+# Full reconciliation — apply roles, regenerate SWAG proxy configs, sync Guacamole connections.
+# Chains three independent playbooks in sequence so that a single Semaphore run
+# brings the entire infrastructure into alignment with definitions-as-code.
+#
+# Execution order:
+#   1. apply_role.yaml       — OS/Network/Docker/Application/Verification layers
+#   2. deploy_swag_configs.yaml — Regenerate reverse proxy site-confs from definitions
+#   3. maintain_guacamole.yaml  — Sync Guacamole connections from definitions
+#
+# All extra vars pass through to each sub-playbook (unrecognised vars are ignored).
+# If any playbook fails, subsequent playbooks do NOT run.
+#
+# Usage:
+#   ansible-playbook apply_full.yaml                          # all roles + SWAG + Guacamole
+#   ansible-playbook apply_full.yaml -e role=core             # single role + SWAG + Guacamole
+#   ansible-playbook apply_full.yaml -e role=core -e stack=auth
+#   ansible-playbook apply_full.yaml -e dry_run=true          # dry-run all three
+#
+# To skip a pipeline, run the individual playbooks instead:
+#   ansible-playbook apply_role.yaml && ansible-playbook deploy_swag_configs.yaml
+
+- import_playbook: apply_role.yaml
+- import_playbook: deploy_swag_configs.yaml
+- import_playbook: maintain_guacamole.yaml
