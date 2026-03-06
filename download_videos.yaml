@@ -107,8 +107,10 @@
             docker exec {{ metube_container }}
             yt-dlp --config-location {{ metube_config_path }}
           register: _ytdlp_result
-          changed_when: true
-          failed_when: _ytdlp_result.rc >= 2
+          # rc 0 = success, 1 = download error (handled by -i flag),
+          # 2 = no actionable URLs (all archived / empty batch) — expected on scheduled runs
+          changed_when: _ytdlp_result.rc == 0
+          failed_when: _ytdlp_result.rc > 2
           when: _batch_url_count.stdout | int > 0
 
         # -- Read download manifest ------------------------------------------
