@@ -45,7 +45,7 @@
     config_file: "{{ hosts_variable }}"
     maintenance_name: "Docker"
     maintenance_type: "Servers"
-    maintenance_subtype: "{{ 'Validate Deploy' if (validate_only | default('') == 'yes') else 'Deploy' }}"
+    maintenance_subtype: "{{ 'Validate Deploy' if (validate_only | default('') == 'yes') else ('Pull Images' if (pull_only | default('') == 'yes') else 'Deploy') }}"
     _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
   pre_tasks:
@@ -167,7 +167,7 @@
 
         - name: Record deploy detail
           ansible.builtin.set_fact:
-            _deploy_detail: "Stacks deployed: {{ _deploy_stacks | join(', ') }}"
+            _deploy_detail: "Stacks {{ 'validated' if (validate_only | default('') == 'yes') else 'deployed' }}: {{ _deploy_stacks | join(', ') }}"
 
       rescue:
         - name: Set deploy failed flag
@@ -180,7 +180,7 @@
           include_tasks: tasks/notify.yaml
           vars:
             discord_name: "{{ maintenance_name }}"
-            discord_operation: "Deploy"
+            discord_operation: "{{ maintenance_subtype }}"
             discord_status: "{{ 'failed' if deploy_failed else 'successful' }}"
             discord_color: "{{ discord_color_failure if deploy_failed else discord_color_success }}"
             discord_url: "{{ semaphore_ext_url }}"
