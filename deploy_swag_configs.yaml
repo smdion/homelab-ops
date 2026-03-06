@@ -19,12 +19,19 @@
   gather_facts: false
 
   vars_files:
-    - vars/definitions/container_definitions.yaml
+    # NOTE: container_definitions.yaml is NOT listed here — it is loaded raw via
+    # pre_tasks (Python YAML parse → JSON) to avoid Ansible templating the
+    # {{ docker_* }} env values inside it. Those env vars live in
+    # vars/configs/docker_stacks.yaml, but loading that file pulls in derived vars
+    # (stack_assignments, backup_stack_order) that reference host_roles/stack_roles,
+    # which fail on implicit localhost in Ansible ≤2.18 (Semaphore's version as of
+    # 2026-03). If Semaphore upgrades to Ansible ≥2.20, this workaround can be
+    # removed: add container_definitions.yaml and docker_stacks.yaml back to
+    # vars_files and delete the two pre_tasks below.
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
     - vars/definitions/stack_definitions.yaml
     - vars/secrets.yaml
-    - vars/configs/docker_stacks.yaml
 
   vars:
     swag_config_dir: "{{ _swag_output_dir }}"
@@ -43,6 +50,20 @@
         )
         | list
       ) }}
+
+  pre_tasks:
+    # Workaround for Ansible ≤2.18 on Semaphore (see vars_files comment above).
+    # Loads container_definitions.yaml as raw YAML so {{ docker_* }} env values
+    # stay as literal strings instead of being templated.
+    - name: Load container definitions without templating env values
+      ansible.builtin.command:
+        cmd: python3 -c "import yaml, json, sys; data=yaml.safe_load(open('vars/definitions/container_definitions.yaml')); print(json.dumps(data.get('container_definitions', {})))"
+      register: _raw_container_defs
+      changed_when: false
+
+    - name: Set container_definitions fact
+      ansible.builtin.set_fact:
+        container_definitions: "{{ _raw_container_defs.stdout | from_json }}"
 
   tasks:
     - name: Build proxy configs from container labels
