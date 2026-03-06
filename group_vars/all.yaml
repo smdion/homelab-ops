@@ -4,6 +4,10 @@
 ansible_remote_tmp: ~/.ansible/tmp
 ansible_python_interpreter: auto_silent
 
+# Global no_log toggle — suppresses sensitive output in normal runs.
+# Override with -e debug_no_log=true or -vvv to reveal hidden output.
+_no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
 # Backup defaults — override per-platform in vars/*.yaml where needed
 # Compression tool detection — shell snippet evaluated at runtime on whichever host runs the task.
 # Prefers pigz (parallel gzip) for speed, falls back to gzip. Change here to switch all backup/restore/verify.
