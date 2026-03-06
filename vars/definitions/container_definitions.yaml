@@ -51,6 +51,22 @@
 #     security_opt   — list of security options
 #     shm_size       — shared memory size (e.g., "2g")
 #     network_aliases — list of network aliases on the default network
+#
+# Proxy generation fields (optional — used by deploy_swag_configs.yaml):
+#   proxy          — dict of complex proxy config (subdomain, locations, upstream_ip, etc.)
+#                    Used for multi-location configs, custom headers, or IP overrides.
+#                    See deploy_swag_configs.yaml for full schema.
+#   Simple proxy configs use homelab.proxy.* labels in compose.labels instead:
+#     homelab.proxy.subdomain  — primary subdomain (required for proxy generation)
+#     homelab.proxy.port       — override upstream port (default: host port from compose.ports)
+#     homelab.proxy.proto      — http or https (default: http)
+#     homelab.proxy.auth       — include Authentik auth (default: true)
+#     homelab.proxy.listen     — both or https (default: both)
+#     homelab.proxy.websocket  — add WebSocket upgrade headers (default: false)
+#     homelab.proxy.buffering  — off to disable proxy buffering
+#     homelab.proxy.aliases    — comma-separated additional subdomains
+#     homelab.proxy.error_pages — include custom error pages (default: false)
+#     homelab.proxy.complex    — signals "use proxy: key for full config" (default: false)
 
 container_definitions:
   adminer:
@@ -64,6 +80,11 @@ container_definitions:
       ports: ["8087:8080"]
       labels:
         homelab.backup.paths: "/opt/adminer"
+        homelab.proxy.subdomain: "sql"
+        homelab.proxy.port: "8080"
+        homelab.proxy.listen: "https"
+        homelab.proxy.websocket: "true"
+        homelab.proxy.buffering: "off"
       environment:
         ADMINER_DESIGN: "${ADMINER_DESIGN}"
       volumes:
@@ -78,6 +99,22 @@ container_definitions:
     image: "ghcr.io/goauthentik/server"
     tag: "2025.12.4"
     stack: auth
+    proxy:
+      subdomain: auth
+      auth: false
+      buffer_size:
+        proxy_buffers: "8 16k"
+        proxy_buffer_size: "32k"
+      locations:
+        - path: /
+          port: 9000
+          upstream_name: authentik
+          includes: [proxy]
+        - path: "~ (/authentik)?/api"
+          port: 9000
+          upstream_name: authentik
+          includes: [proxy]
+          auth: false
     env:
       AUTHENTIK_SECRET_KEY: "{{ vault_docker_authentik_secret_key }}"
       AUTHENTIK_POSTGRES_DB: "authentik"
@@ -169,6 +206,14 @@ container_definitions:
     image: "henrygd/beszel"
     tag: "latest"
     stack: vpn
+    proxy:
+      subdomain: monitor
+      upstream_ip: "10.253.100.1"
+      locations:
+        - path: /
+          port: 8090
+          auth: true
+          includes: []
     compose:
       base: baseenv
       network_mode: "service:wireguard"
@@ -176,6 +221,8 @@ container_definitions:
       labels:
         homelab.backup.paths: "/opt/beszel"
         homelab.health_timeout: "90"
+        homelab.proxy.subdomain: "monitor"
+        homelab.proxy.complex: "true"
       volumes:
         - "${APPSDIR}/beszel:/beszel_data"
         - "${APPSDIR}/beszel_socket:/beszel_socket"
@@ -247,6 +294,8 @@ container_definitions:
       labels:
         homelab.backup.paths: "/opt/code-server,/opt/homelab-ops,/opt/homelab-docs,/opt/freshjams-ops"
         homelab.health_timeout: "90"
+        homelab.proxy.subdomain: "code"
+        homelab.proxy.websocket: "true"
       environment:
         PROXY_DOMAIN: "${CODESERVER_PROXY_DOMAIN}"
         DEFAULT_WORKSPACE: "${CODESERVER_DEFAULT_WORKSPACE}"
@@ -313,6 +362,7 @@ container_definitions:
       ports: ["3001:3000"]
       labels:
         homelab.backup.paths: "/opt/crowdsec-web-ui"
+        homelab.proxy.subdomain: "security"
       environment:
         CROWDSEC_URL: "${CSUI_CROWDSEC_URL}"
         CROWDSEC_USER: "${CSUI_CROWDSEC_USER}"
@@ -335,6 +385,8 @@ container_definitions:
       labels:
         homelab.backup.paths: "/opt/homelab-docs"
         homelab.test.skip_health: "true"
+        homelab.proxy.subdomain: "docs"
+        homelab.proxy.error_pages: "true"
       volumes:
         - "${APPSDIR}/homelab-docs/site:/usr/share/nginx/html:ro"
       healthcheck:
@@ -347,6 +399,18 @@ container_definitions:
     image: "amir20/dozzle"
     tag: "latest"
     stack: infra
+    proxy:
+      subdomain: logs
+      upstream_ip: "{{ vault_vm_apps_ip }}"
+      locations:
+        - path: /
+          port: 8081
+          auth: true
+          websocket: true
+          buffering: "off"
+          directives:
+            - "proxy_cache off"
+            - "chunked_transfer_encoding off"
     compose:
       base: base
       ports: ["8081:8080"]
@@ -415,6 +479,18 @@ container_definitions:
     image: "grafana/grafana"
     tag: "latest"
     stack: monitoring
+    proxy:
+      subdomain: grafana
+      auth: true
+      locations:
+        - path: /
+          port: 3000
+          auth: true
+          includes: [proxy]
+        - path: "~ (/grafana)?/api"
+          port: 3000
+          auth: false
+          includes: [proxy]
     env:
       GRAFANA_SERVER_ROOT_URL: "https://grafana.{{ vault_domain_ext }}"
       GRAFANA_SECURITY_ADMIN_PASSWORD: "{{ vault_docker_grafana_admin_password }}"
@@ -465,12 +541,28 @@ container_definitions:
     stack: apps
     env:
       GUAC_EXTENSIONS: "auth-sso-openid"
+    proxy:
+      subdomain: remote
+      buffer_size:
+        proxy_buffers: "4 32k"
+        proxy_buffer_size: "16k"
+      server_directives:
+        - "proxy_busy_buffers_size 64k"
+        - "fastcgi_buffers 16 16k"
+        - "fastcgi_buffer_size 32k"
+      locations:
+        - path: /
+          port: 8084
+          auth: true
+          includes: [proxy]
+          buffering: "off"
     compose:
       image_var: GUAC
       base: base
       ports: ["8084:8080"]
       labels:
         homelab.backup.paths: "/opt/guacamole"
+        homelab.proxy.complex: "true"
       environment:
         EXTENSIONS: "${GUAC_EXTENSIONS}"
       volumes:
@@ -487,6 +579,26 @@ container_definitions:
     image: "lscr.io/linuxserver/homeassistant"
     tag: "latest"
     stack: apps
+    proxy:
+      subdomain: home
+      auth: false
+      locations:
+        - path: /
+          port: 8123
+          auth: false
+          includes: []
+          websocket: true
+          headers:
+            Host: "$host"
+            X-Forwarded-For: "$proxy_add_x_forwarded_for"
+        - path: /api/websocket
+          port: 8123
+          auth: false
+          includes: []
+          websocket: true
+          headers:
+            Host: "$host"
+            X-Forwarded-For: "$proxy_add_x_forwarded_for"
     compose:
       image_var: HA
       base: baseuid
@@ -512,6 +624,8 @@ container_definitions:
       ports: ["3100:7745"]
       labels:
         homelab.backup.paths: "/opt/homebox"
+        homelab.proxy.subdomain: "inventory"
+        homelab.proxy.error_pages: "true"
       volumes:
         - "${APPSDIR}/homebox:/data/"
       healthcheck:
@@ -531,6 +645,9 @@ container_definitions:
       ports: ["3003:3000"]
       labels:
         homelab.backup.paths: "/opt/homepage"
+        homelab.proxy.subdomain: "dashboard"
+        homelab.proxy.aliases: "landing"
+        homelab.proxy.websocket: "true"
       environment:
         HOMEPAGE_ALLOWED_HOSTS: "${HOMEPAGE_ALLOWED_HOSTS}"
       volumes:
@@ -557,6 +674,8 @@ container_definitions:
       ports: ["5055:5055"]
       labels:
         homelab.backup.paths: "/opt/jellyseerr"
+        homelab.proxy.subdomain: "requests"
+        homelab.proxy.aliases: "request"
         homelab.restore.app: "jellyseerr"
         homelab.restore.db_config: "db_primary_postgres"
         homelab.restore.db_names: "jellyseerr"
@@ -608,6 +727,8 @@ container_definitions:
       base: baseuid
       labels:
         homelab.backup.paths: "/opt/netboot"
+        homelab.proxy.subdomain: "netboot"
+        homelab.proxy.listen: "https"
       ports: ["3002:3000", "69:69/udp", "8082:80"]
       volumes:
         - "${APPSDIR}/netboot/config:/config"
@@ -639,6 +760,15 @@ container_definitions:
     image: "docker.io/jc21/nginx-proxy-manager"
     tag: "latest"
     stack: vpn
+    proxy:
+      subdomain: npm
+      upstream_ip: "10.253.100.1"
+      listen: https
+      locations:
+        - path: /
+          port: 81
+          auth: true
+          includes: [proxy]
     compose:
       base: baseuid
       network_mode: "service:wireguard"
@@ -911,6 +1041,23 @@ container_definitions:
     image: "lscr.io/linuxserver/xbackbone"
     tag: "latest"
     stack: apps
+    proxy:
+      subdomain: img
+      aliases: [images, image, i]
+      auth: false
+      locations:
+        - path: /
+          port: 8444
+          proto: https
+          auth: false
+          includes: [proxy]
+          add_headers:
+            Strict-Transport-Security: '"max-age=15768000; includeSubDomains; preload;"'
+          headers:
+            X-Content-Type-Options: "nosniff"
+            X-Frame-Options: '"SAMEORIGIN"'
+          directives:
+            - "proxy_max_temp_file_size 5096m"
     compose:
       base: baseuid
       ports: ["8088:80", "8444:443"]

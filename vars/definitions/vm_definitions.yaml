@@ -86,6 +86,19 @@ vm_definitions:
     ufw_rules:
       - port: "8080"                     # AMP web panel
     guacamole: { name: AMP, group: Game Server, command: "sudo su -l amp" }
+    proxy:
+      subdomain: amp
+      listen: https
+      error_pages: true
+      server_directives:
+        - "proxy_redirect off"
+      locations:
+        - path: /
+          port: 8080
+          auth: true
+          includes: [proxy]
+          websocket: true
+          buffering: "off"
 
   # Native graphical desktop VM — ubuntu-desktop-minimal installed during bootstrap.
   # Access via Proxmox VNC (pve_args) through Guacamole + Authentik groups.
@@ -134,6 +147,14 @@ vm_definitions:
       group: Hosted Desktops
       protocol: vnc
       user_groups: [Guac-FreshJams]
+    proxy:
+      subdomain: freshjams
+      upstream_ip: "192.168.12.12"
+      locations:
+        - path: /
+          port: 8080
+          auth: true
+          includes: [proxy]
 
   personalfinance:
     vm_id: 1211
@@ -143,6 +164,50 @@ vm_definitions:
       name: PersonalFinance
       group: Hosted Desktops
       protocol: vnc
+    proxy:
+      - subdomain: personalfinance
+        upstream_ip: "192.168.12.13"
+        locations:
+          - path: /
+            port: 8080
+            auth: true
+            includes: [proxy]
+      - subdomain: budget
+        upstream_ip: "192.168.12.13"
+        auth: false
+        locations:
+          - path: /
+            port: 3000
+            auth: false
+            includes: [proxy]
+            websocket: true
+          - path: /ws
+            upstream_app: "10.10.10.13"
+            port: 3000
+            auth: false
+            includes: [proxy]
+            buffering: "off"
+            websocket: true
+            directives:
+              - "proxy_ssl_verify off"
+      - subdomain: devbudget
+        upstream_ip: "192.168.12.13"
+        auth: false
+        locations:
+          - path: /
+            port: 3001
+            auth: false
+            includes: [proxy]
+            websocket: true
+          - path: /ws
+            upstream_app: "10.10.10.13"
+            port: 3001
+            auth: false
+            includes: [proxy]
+            buffering: "off"
+            websocket: true
+            directives:
+              - "proxy_ssl_verify off"
 
   test-vm:
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"

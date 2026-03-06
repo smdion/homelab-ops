@@ -19,6 +19,10 @@
 # Optional fields:
 #   guacamole      — metadata for maintain_guacamole.yaml auto-discovery
 #                    { name: "Display Name", group: "Connection Group" }
+#   proxy          — SWAG reverse proxy config (dict or list of dicts).
+#                    Used by deploy_swag_configs.yaml to auto-generate site-confs.
+#                    A list generates one site-conf per entry.
+#                    See deploy_swag_configs.yaml for full schema.
 
 host_definitions:
   vps:
@@ -30,22 +34,487 @@ host_definitions:
   redemption:
     vm_hostname: "redemption.{{ vault_vm_search_domain }}"
     guacamole: { name: Redemption, group: unRAID }
+    proxy:
+      - subdomain: redemption
+        upstream_ip: "10.10.10.17"
+        listen: https
+        locations:
+          - path: /
+            port: 80
+            auth: true
+            includes: [proxy]
+          - path: /wss
+            port: 80
+            auth: false
+            includes: [proxy]
+            buffering: "off"
+            websocket: true
+            directives:
+              - "proxy_ssl_verify off"
+      - subdomain: photos
+        aliases: [immich]
+        upstream_ip: "10.10.10.17"
+        auth: true
+        locations:
+          - path: /
+            port: 8081
+            auth: true
+            includes: [proxy]
+          - path: "~ (/immich)?/api"
+            port: 8081
+            auth: false
+            includes: [proxy]
+      - subdomain: nextcloud
+        upstream_ip: "10.10.10.17"
+        auth: false
+        locations:
+          - path: "= /.well-known/carddav"
+            redirect_only: true
+            auth: false
+            includes: []
+            directives:
+              - 'return 301 $scheme://$host/remote.php/dav'
+          - path: "= /.well-known/caldav"
+            redirect_only: true
+            auth: false
+            includes: []
+            directives:
+              - 'return 301 $scheme://$host/remote.php/dav'
+          - path: "= /.well-known/webfinger"
+            redirect_only: true
+            auth: false
+            includes: []
+            directives:
+              - 'return 301 $scheme://$host/index.php/.well-known/webfinger'
+          - path: "= /.well-known/nodeinfo"
+            redirect_only: true
+            auth: false
+            includes: []
+            directives:
+              - 'return 301 $scheme://$host/index.php/.well-known/nodeinfo'
+          - path: "^~ /.well-known"
+            redirect_only: true
+            auth: false
+            includes: []
+            directives:
+              - 'return 301 $scheme://$host/index.php$request_uri'
+          - path: /
+            port: 446
+            proto: https
+            auth: false
+            includes: [proxy]
+            add_headers:
+              Strict-Transport-Security: '"max-age=15552000; includeSubDomains" always'
+            directives:
+              - "proxy_max_temp_file_size 5096m"
+      - subdomain: ansible
+        upstream_ip: "10.10.10.17"
+        server_directives:
+          - "proxy_redirect off"
+          - "chunked_transfer_encoding on"
+        locations:
+          - path: /
+            port: 3001
+            auth: true
+            includes: []
+            buffering: "off"
+            request_buffering: "off"
+            headers:
+              Host: "$http_host"
+              X-Real-IP: "$remote_addr"
+              X-Forwarded-For: "$proxy_add_x_forwarded_for"
+              X-Forwarded-Proto: "$scheme"
+          - path: /api/ws
+            port: 3001
+            auth: false
+            includes: []
+            websocket: true
+            headers:
+              Origin: '""'
+            proxy_pass_suffix: "$request_uri"
+
   liberty:
     vm_hostname: "liberty.{{ vault_vm_search_domain }}"
     guacamole: { name: Liberty, group: unRAID }
+    proxy:
+      - subdomain: liberty
+        upstream_ip: "10.10.10.18"
+        listen: https
+        locations:
+          - path: /
+            port: 80
+            auth: true
+            includes: [proxy]
+          - path: /wss
+            port: 80
+            auth: false
+            includes: [proxy]
+            buffering: "off"
+            websocket: true
+            directives:
+              - "proxy_ssl_verify off"
+      - subdomain: video
+        upstream_ip: "10.10.10.18"
+        auth: true
+        locations:
+          - path: /
+            port: 8096
+            auth: true
+            includes: [proxy]
+            headers:
+              Range: "$http_range"
+              If-Range: "$http_if_range"
+            add_headers:
+              Access-Control-Allow-Origin: '"luna://com.webos.service.config" always'
+          - path: "~ (/jellyfin)?/socket"
+            port: 8096
+            auth: false
+            includes: [proxy]
+            add_headers:
+              Access-Control-Allow-Origin: '"luna://com.webos.service.config" always'
+          - path: /metrics
+            port: 8096
+            auth: false
+            includes: [proxy]
+            ip_allow: ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.0/8"]
+      - subdomain: media
+        upstream_ip: "10.10.10.18"
+        auth: true
+        locations:
+          - path: "^~ /tautulli"
+            upstream_app: tautulli
+            port: 8181
+            auth: true
+            includes: [proxy]
+          - path: "^~ /radarr"
+            upstream_app: "10.10.10.18"
+            port: 7878
+            auth: true
+            includes: [proxy]
+          - path: "^~ /sonarr"
+            upstream_app: "10.10.10.18"
+            port: 8989
+            auth: true
+            includes: [proxy]
+          - path: "^~ /sabnzbd"
+            upstream_app: "192.168.11.19"
+            port: 8080
+            auth: true
+            includes: [proxy]
+          - path: "^~ /sabnzbd/api"
+            upstream_app: "192.168.11.19"
+            port: 8080
+            auth: false
+            includes: [proxy]
+          - path: "^~ /prowlarr"
+            upstream_app: "10.10.10.18"
+            port: 9696
+            auth: true
+            includes: [proxy]
+          - path: "^~ /transmission"
+            upstream_app: "192.168.11.18"
+            port: 9091
+            auth: true
+            includes: [proxy]
 
   # Proxmox Backup Server
   backup:
     vm_hostname: "backup.{{ vault_vm_search_domain }}"
     guacamole: { name: Backup, group: Proxmox }
+    proxy:
+      subdomain: backup
+      aliases: [backups]
+      upstream_ip: "10.10.10.60"
+      listen: https
+      locations:
+        - path: /
+          port: 8007
+          proto: https
+          auth: true
+          includes: [proxy]
 
   # PiKVM — IP-KVM appliance (read-only root filesystem)
   pikvm:
     vm_hostname: "pikvm.{{ vault_vm_search_domain }}"
     guacamole: { name: PiKVM, group: Appliances }
+    proxy:
+      subdomain: pikvm
+      upstream_ip: "10.10.10.30"
+      listen: https
+      locations:
+        - path: /
+          port: 443
+          proto: https
+          auth: true
+          includes: [proxy]
 
   # Synology NAS
   synology:
     vm_hostname: "synology.{{ vault_vm_search_domain }}"
     guacamole: { name: Synology, group: NAS }
+    proxy:
+      subdomain: synology
+      upstream_ip: "10.10.10.61"
+      listen: https
+      locations:
+        - path: /
+          port: 5001
+          proto: https
+          auth: true
+          includes: [proxy]
 
+  # --- Proxmox VE hypervisors ---
+  homeone:
+    vm_hostname: "homeone.{{ vault_vm_search_domain }}"
+    guacamole: { name: HomeOne, group: Proxmox }
+    proxy:
+      subdomain: homeone
+      upstream_ip: "10.10.10.10"
+      listen: https
+      server_directives:
+        - "proxy_redirect off"
+      locations:
+        - path: /
+          port: 8006
+          proto: https
+          auth: true
+          includes: [proxmox]
+
+  defiance:
+    vm_hostname: "defiance.{{ vault_vm_search_domain }}"
+    guacamole: { name: Defiance, group: Proxmox }
+    proxy:
+      subdomain: defiance
+      upstream_ip: "10.10.10.11"
+      listen: https
+      server_directives:
+        - "proxy_redirect off"
+      locations:
+        - path: /
+          port: 8006
+          proto: https
+          auth: true
+          includes: [proxmox]
+
+  independence:
+    vm_hostname: "independence.{{ vault_vm_search_domain }}"
+    guacamole: { name: Independence, group: Proxmox }
+    proxy:
+      - subdomain: independence
+        upstream_ip: "10.10.10.12"
+        listen: https
+        server_directives:
+          - "proxy_redirect off"
+        locations:
+          - path: /
+            port: 8006
+            proto: https
+            auth: true
+            includes: [proxmox]
+      - subdomain: drop
+        upstream_ip: "10.10.10.12"
+        error_pages: true
+        locations:
+          - path: /
+            port: 3000
+            auth: true
+            includes: [proxy]
+      - subdomain: urbackup
+        upstream_ip: "10.10.10.12"
+        listen: https
+        locations:
+          - path: /
+            port: 55414
+            auth: true
+            includes: [proxy]
+      - subdomain: office
+        upstream_ip: "10.10.10.12"
+        auth: false
+        listen: https
+        error_pages: true
+        locations:
+          - path: /
+            port: 9980
+            proto: https
+            auth: false
+            includes: [proxy]
+      - subdomain: disks1
+        upstream_ip: "10.10.10.12"
+        listen: https
+        error_pages: true
+        locations:
+          - path: /
+            port: 8089
+            auth: true
+            includes: [proxy]
+
+  sentinel:
+    vm_hostname: "sentinel.{{ vault_vm_search_domain }}"
+    guacamole: { name: Sentinel, group: Proxmox }
+    proxy:
+      - subdomain: sentinel
+        upstream_ip: "10.10.10.13"
+        listen: https
+        server_directives:
+          - "proxy_redirect off"
+        locations:
+          - path: /
+            port: 8006
+            proto: https
+            auth: true
+            includes: [proxmox]
+
+  # --- Services on misc hosts (not in container_definitions) ---
+  octoprint_host:
+    vm_hostname: "octoprint.{{ vault_vm_search_domain }}"
+    proxy:
+      - subdomain: octoprint
+        upstream_ip: "10.10.10.14"
+        listen: https
+        locations:
+          - path: /
+            port: 5002
+            auth: true
+            includes: [proxy]
+            headers:
+              X-Scheme: "https"
+      - subdomain: octoprintcam
+        upstream_ip: "10.10.10.14"
+        listen: https
+        locations:
+          - path: /
+            port: 5003
+            auth: true
+            includes: [proxy]
+            headers:
+              X-Scheme: "https"
+      - subdomain: octoprinttimelapse
+        upstream_ip: "10.10.10.14"
+        listen: https
+        locations:
+          - path: /
+            port: 5004
+            auth: true
+            includes: [proxy]
+            headers:
+              X-Scheme: "https"
+      - subdomain: status
+        upstream_ip: "10.10.10.14"
+        auth: false
+        error_pages: true
+        server_names: ["status.seandion.com", "status.smdion.com"]
+        locations:
+          - path: /
+            port: 3001
+            auth: false
+            includes: [proxy]
+            websocket: true
+      - subdomain: disks2
+        upstream_ip: "10.10.10.14"
+        listen: https
+        error_pages: true
+        locations:
+          - path: /
+            port: 8089
+            auth: true
+            includes: [proxy]
+
+  plex_host:
+    vm_hostname: "plex.{{ vault_vm_search_domain }}"
+    proxy:
+      subdomain: plex
+      upstream_ip: "10.10.10.19"
+      auth: false
+      server_directives:
+        - "proxy_redirect off"
+        - "proxy_buffering off"
+      locations:
+        - path: /
+          port: 32400
+          auth: false
+          includes: [proxy]
+          headers:
+            X-Plex-Client-Identifier: "$http_x_plex_client_identifier"
+            X-Plex-Device: "$http_x_plex_device"
+            X-Plex-Device-Name: "$http_x_plex_device_name"
+            X-Plex-Platform: "$http_x_plex_platform"
+            X-Plex-Platform-Version: "$http_x_plex_platform_version"
+            X-Plex-Product: "$http_x_plex_product"
+            X-Plex-Token: "$http_x_plex_token"
+            X-Plex-Version: "$http_x_plex_version"
+            X-Plex-Nocache: "$http_x_plex_nocache"
+            X-Plex-Provides: "$http_x_plex_provides"
+            X-Plex-Device-Vendor: "$http_x_plex_device_vendor"
+            X-Plex-Model: "$http_x_plex_model"
+        - path: /library/streams/
+          port: 32400
+          auth: false
+          includes: []
+          directives:
+            - "proxy_pass_request_headers off"
+
+  testunraid:
+    vm_hostname: "testunraid.{{ vault_vm_search_domain }}"
+    proxy:
+      subdomain: testunraid
+      upstream_ip: "10.10.10.245"
+      listen: https
+      locations:
+        - path: /
+          port: 443
+          proto: https
+          auth: true
+          includes: [proxy]
+        - path: /wss
+          port: 443
+          proto: https
+          auth: false
+          includes: [proxy]
+          buffering: off
+          websocket: true
+          directives:
+            - "proxy_ssl_verify off"
+
+  metube_host:
+    vm_hostname: "metube.{{ vault_vm_search_domain }}"
+    proxy:
+      subdomain: metube
+      upstream_ip: "192.168.11.17"
+      locations:
+        - path: /
+          port: 8081
+          auth: true
+          includes: [proxy]
+          websocket: true
+
+  coffee_host:
+    vm_hostname: "coffee.{{ vault_vm_search_domain }}"
+    proxy:
+      subdomain: coffee
+      upstream_ip: "10.10.13.232"
+      auth: true
+      error_pages: true
+      locations:
+        - path: /
+          port: 80
+          auth: true
+          includes: [proxy]
+        - path: /ws
+          port: 80
+          auth: false
+          includes: [proxy]
+          buffering: off
+          websocket: true
+          directives:
+            - "proxy_ssl_verify off"
+
+  gatherflock:
+    vm_hostname: "gatherflock.{{ vault_vm_search_domain }}"
+    proxy:
+      subdomain: gatherflock
+      upstream_ip: "192.168.12.11"
+      locations:
+        - path: /
+          port: 8080
+          auth: true
+          includes: [proxy]

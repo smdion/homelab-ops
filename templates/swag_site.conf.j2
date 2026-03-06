@@ -1,0 +1,88 @@
+{# Auto-generated SWAG reverse proxy site-conf.
+   Source: deploy_swag_configs.yaml + container_definitions / host_definitions.
+   Do not edit manually — changes will be overwritten on next deploy.
+#}
+{% set _listen = item.listen | default('both') %}
+{% set _auth = item.auth | default(true) %}
+{% set _server_names = item.server_names | default([item.subdomain ~ '.*'] + (item.aliases | default([]) | map('regex_replace', '$', '.*') | list)) %}
+server {
+{% if _listen == 'both' %}
+    listen 8081;
+{% endif %}
+    listen 443 ssl;
+
+{% for sn in _server_names %}
+    server_name {{ sn }};
+{% endfor %}
+
+    include /config/nginx/ssl.conf;
+{% if _auth %}
+    include /config/nginx/authentik-server.conf;
+{% endif %}
+    include /config/nginx/includes/maxmind.conf;
+{% if item.error_pages | default(false) %}
+    include /config/nginx/includes/smdion_errorpages.conf;
+{% endif %}
+
+    client_max_body_size 0;
+{% if item.buffer_size is defined %}
+    proxy_buffers {{ item.buffer_size.proxy_buffers }};
+    proxy_buffer_size {{ item.buffer_size.proxy_buffer_size }};
+{% endif %}
+{% for d in item.server_directives | default([]) %}
+    {{ d }};
+{% endfor %}
+
+{% for loc in item.locations %}
+    location {{ loc.path | default('/') }} {
+{% if loc.ip_allow is defined %}
+{% for cidr in loc.ip_allow %}
+        allow {{ cidr }};
+{% endfor %}
+        deny all;
+
+{% endif %}
+{% set _loc_includes = loc.includes | default(['proxy']) %}
+{% if not loc.redirect_only | default(false) %}
+{% if 'proxy' in _loc_includes and 'proxmox' not in _loc_includes %}
+        include /config/nginx/proxy.conf;
+{% endif %}
+{% if loc.auth | default(_auth) %}
+        include /config/nginx/authentik-location.conf;
+{% endif %}
+
+        set $upstream_app {{ loc.upstream_name | default(loc.upstream_app | default(item.upstream_ip)) }};
+        set $upstream_port {{ loc.port | default(item.port) }};
+        set $upstream_proto {{ loc.proto | default(item.proto | default('http')) }};
+{% if 'proxmox' in _loc_includes %}
+
+        include /config/nginx/includes/proxmox.conf;
+{% else %}
+        proxy_pass $upstream_proto://$upstream_app:$upstream_port{{ loc.proxy_pass_suffix | default('') }};
+{% endif %}
+{% endif %}
+{% if loc.websocket | default(false) %}
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+{% endif %}
+{% if loc.buffering | default('') | string | lower in ['off', 'false'] %}
+        proxy_buffering off;
+{% endif %}
+{% if loc.request_buffering | default('') | string | lower in ['off', 'false'] %}
+        proxy_request_buffering off;
+{% endif %}
+{% for key, value in (loc.headers | default({})).items() %}
+        proxy_set_header {{ key }} {{ value }};
+{% endfor %}
+{% for key, value in (loc.add_headers | default({})).items() %}
+        add_header {{ key }} {{ value }};
+{% endfor %}
+{% for d in loc.directives | default([]) %}
+        {{ d }};
+{% endfor %}
+    }
+
+{% endfor %}
+}
