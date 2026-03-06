@@ -1,22 +1,25 @@
 ---
-# deploy_swag_configs.yaml — Generate SWAG reverse proxy site-confs from definitions.
-#
+# Category: Deploy
+# Schedule: none
+# Generate SWAG reverse proxy site-confs from definitions-as-code.
 # Reads proxy metadata from container_definitions (homelab.proxy.* labels + proxy: keys)
-# and host_definitions (proxy: dicts), resolves upstream IPs via the stack→host→vm_ip
-# chain, renders Jinja2 templates, and deploys to SWAG.
+# and host/vm_definitions (proxy: dicts), resolves upstream IPs via the stack→host→vm_ip
+# chain, renders Jinja2 templates, and deploys to the SWAG container on the auth stack host.
+#
+# Optional extra vars:
+#   swag_dry_run=true    — write to /tmp/swag-generated/ instead of SWAG (default: false)
+#   swag_diff_only=true  — show diff without writing (default: false)
 #
 # Usage:
 #   ansible-playbook deploy_swag_configs.yaml
-#
-# Extra vars:
-#   swag_config_dir    — override SWAG site-confs path (default: /opt/swag/nginx/site-confs)
-#   swag_dry_run       — if true, write to /tmp/swag-generated/ instead (default: false)
-#   swag_diff_only     — if true, only show diff without writing (default: false)
+#   ansible-playbook deploy_swag_configs.yaml -e swag_dry_run=true
+#   ansible-playbook deploy_swag_configs.yaml -e swag_diff_only=true
 
 - name: Generate SWAG reverse proxy configs
   hosts: localhost
   connection: local
-  gather_facts: false
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
 
   vars_files:
     # NOTE: container_definitions.yaml is NOT listed here — it is loaded raw via
@@ -36,12 +39,13 @@
     - vars/definitions/host_definitions.yaml
     - vars/definitions/stack_definitions.yaml
     - vars/configs/proxmox.yaml
+    - vars/configs/semaphore_check.yaml
     - vars/secrets.yaml
 
   vars:
     swag_config_dir: "{{ _swag_output_dir }}"
     _swag_output_dir: "{{ '/tmp/swag-generated' if (swag_dry_run | default(false) | bool) else '/opt/swag/nginx/site-confs' }}"
-    # Resolve the SWAG host dynamically: find which role has the 'auth' stack
+    # Resolve the SWAG host dynamically: find which VM role has the 'auth' stack
     # (SWAG lives in the auth stack), then get its VM IP.
     _swag_host: >-
       {%- set ns = namespace(host='') -%}
@@ -51,11 +55,20 @@
         {%- endif -%}
       {%- endfor -%}
       {{ ns.host }}
+    maintenance_name: "SWAG"
+    maintenance_type: "Local"
+    maintenance_subtype: "Deploy"
 
   pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "deploy_swag_configs.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
     # Workaround for Ansible ≤2.18 on Semaphore (see vars_files comment above).
-    # Loads definition files as raw YAML so {{ }} expressions stay as literal
-    # strings instead of being templated.
+    # Loads container_definitions.yaml as raw YAML so {{ docker_* }} env values
+    # stay as literal strings instead of being templated.
     - name: Load container definitions without templating env values
       ansible.builtin.command:
         cmd: "python3 -c \"import yaml,json; print(json.dumps(yaml.safe_load(open('vars/definitions/container_definitions.yaml')).get('container_definitions', {})))\""
@@ -67,370 +80,418 @@
         container_definitions: "{{ _raw_container_defs.stdout | from_json }}"
 
   tasks:
-    - name: Build proxy configs from container labels
+    - name: Initialize deploy state
       ansible.builtin.set_fact:
-        _label_proxies: >-
-          {%- set results = [] -%}
-          {%- set _psd = 'homelab.proxy.subdomain' -%}
-          {%- set _pcx = 'homelab.proxy.complex' -%}
-          {%- set _ppt = 'homelab.proxy.port' -%}
-          {%- set _pun = 'homelab.proxy.upstream_name' -%}
-          {%- set _pal = 'homelab.proxy.aliases' -%}
-          {%- set _ppr = 'homelab.proxy.proto' -%}
-          {%- set _pau = 'homelab.proxy.auth' -%}
-          {%- set _pli = 'homelab.proxy.listen' -%}
-          {%- set _pws = 'homelab.proxy.websocket' -%}
-          {%- set _pbf = 'homelab.proxy.buffering' -%}
-          {%- set _pep = 'homelab.proxy.error_pages' -%}
-          {%- for name, def in container_definitions.items() -%}
-            {%- set labels = (def.compose | default({})).labels | default({}) -%}
-            {%- if _psd in labels and labels[_pcx] | default('false') != 'true' -%}
-              {%- set stack = def.stack | default('') -%}
-              {%- set ports = (def.compose | default({})).ports | default([]) -%}
-              {%- set first_port = ports[0].split(':')[0] if ports | length > 0 else '' -%}
-              {%- set proxy_port = labels[_ppt] | default(first_port) -%}
-              {%- set ns = namespace(role='') -%}
-              {%- for r, rdef in vm_definitions.items() -%}
-                {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
-                  {%- set ns.role = r -%}
-                {%- endif -%}
-              {%- endfor -%}
-              {%- if not ns.role -%}
-                {%- for r, rdef in (host_definitions | default({})).items() -%}
-                  {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
-                    {%- set ns.role = r -%}
-                  {%- endif -%}
-                {%- endfor -%}
-              {%- endif -%}
-              {%- set upstream_name = labels[_pun] | default('') -%}
-              {%- if upstream_name -%}
-                {%- set upstream_ip = upstream_name -%}
-              {%- elif ns.role and (vm_definitions[ns.role] | default({})).vm_ip is defined -%}
-                {%- set upstream_ip = vm_definitions[ns.role].vm_ip -%}
-              {%- else -%}
-                {%- set upstream_ip = '' -%}
-              {%- endif -%}
-              {%- set aliases = (labels[_pal] | default('')).split(',') | select | list -%}
-              {%- set proto = labels[_ppr] | default('http') -%}
-              {%- set auth = (labels[_pau] | default('true')) | lower == 'true' -%}
-              {%- set listen = labels[_pli] | default('both') -%}
-              {%- set websocket = (labels[_pws] | default('false')) | lower == 'true' -%}
-              {%- set buffering = labels[_pbf] | default('') -%}
-              {%- set error_pages = (labels[_pep] | default('false')) | lower == 'true' -%}
-              {%- set _ = results.append({
-                'name': name,
-                'subdomain': labels[_psd],
-                'aliases': aliases,
-                'upstream_ip': upstream_ip,
-                'port': proxy_port,
-                'proto': proto,
-                'auth': auth,
-                'listen': listen,
-                'websocket': websocket,
-                'buffering': buffering,
-                'error_pages': error_pages,
-                'locations': [{
-                  'path': '/',
-                  'port': proxy_port,
-                  'proto': proto,
-                  'auth': auth,
-                  'websocket': websocket,
-                  'buffering': buffering,
-                }],
-                'source': 'label'
-              }) -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {{ results }}
+        deploy_failed: false
+        _deploy_detail: ""
 
-    - name: Build proxy configs from container proxy keys
-      ansible.builtin.set_fact:
-        _complex_proxies: >-
-          {%- set results = [] -%}
-          {%- for name, def in container_definitions.items() -%}
-            {%- if def.proxy is defined -%}
-              {%- set proxy = def.proxy -%}
-              {%- set stack = def.stack | default('') -%}
-              {%- set ports = (def.compose | default({})).ports | default([]) -%}
-              {%- set first_port = ports[0].split(':')[0] if ports | length > 0 else '' -%}
-              {%- set ns = namespace(role='') -%}
-              {%- for r, rdef in vm_definitions.items() -%}
-                {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
-                  {%- set ns.role = r -%}
-                {%- endif -%}
-              {%- endfor -%}
-              {%- if not ns.role -%}
-                {%- for r, rdef in (host_definitions | default({})).items() -%}
-                  {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
-                    {%- set ns.role = r -%}
+    - block:
+        - name: Build proxy configs from container labels
+          ansible.builtin.set_fact:
+            _label_proxies: >-
+              {%- set results = [] -%}
+              {%- set _psd = 'homelab.proxy.subdomain' -%}
+              {%- set _pcx = 'homelab.proxy.complex' -%}
+              {%- set _ppt = 'homelab.proxy.port' -%}
+              {%- set _pun = 'homelab.proxy.upstream_name' -%}
+              {%- set _pal = 'homelab.proxy.aliases' -%}
+              {%- set _ppr = 'homelab.proxy.proto' -%}
+              {%- set _pau = 'homelab.proxy.auth' -%}
+              {%- set _pli = 'homelab.proxy.listen' -%}
+              {%- set _pws = 'homelab.proxy.websocket' -%}
+              {%- set _pbf = 'homelab.proxy.buffering' -%}
+              {%- set _pep = 'homelab.proxy.error_pages' -%}
+              {%- for name, def in container_definitions.items() -%}
+                {%- set labels = (def.compose | default({})).labels | default({}) -%}
+                {%- if _psd in labels and labels[_pcx] | default('false') != 'true' -%}
+                  {%- set stack = def.stack | default('') -%}
+                  {%- set ports = (def.compose | default({})).ports | default([]) -%}
+                  {%- set first_port = ports[0].split(':')[0] if ports | length > 0 else '' -%}
+                  {%- set proxy_port = labels[_ppt] | default(first_port) -%}
+                  {%- set ns = namespace(role='') -%}
+                  {%- for r, rdef in vm_definitions.items() -%}
+                    {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
+                      {%- set ns.role = r -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- if not ns.role -%}
+                    {%- for r, rdef in (host_definitions | default({})).items() -%}
+                      {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
+                        {%- set ns.role = r -%}
+                      {%- endif -%}
+                    {%- endfor -%}
                   {%- endif -%}
-                {%- endfor -%}
-              {%- endif -%}
-              {%- if proxy.upstream_ip is defined and proxy.upstream_ip -%}
-                {%- set upstream_ip = proxy.upstream_ip -%}
-              {%- elif proxy.upstream_name is defined and proxy.upstream_name -%}
-                {%- set upstream_ip = proxy.upstream_name -%}
-              {%- elif ns.role and (vm_definitions[ns.role] | default({})).vm_ip is defined -%}
-                {%- set upstream_ip = vm_definitions[ns.role].vm_ip -%}
-              {%- else -%}
-                {%- set upstream_ip = '' -%}
-              {%- endif -%}
-              {%- set config = {
-                'name': name,
-                'subdomain': proxy.subdomain | default(name),
-                'aliases': proxy.aliases | default([]),
-                'upstream_ip': upstream_ip,
-                'port': first_port,
-                'proto': proxy.proto | default('http'),
-                'auth': proxy.auth | default(true),
-                'listen': proxy.listen | default('both'),
-                'error_pages': proxy.error_pages | default(false),
-                'locations': proxy.locations | default([{'path': '/'}]),
-                'source': 'proxy_key'
-              } -%}
-              {%- if proxy.server_names is defined -%}
-                {%- set config = config | combine({'server_names': proxy.server_names}) -%}
-              {%- endif -%}
-              {%- if proxy.server_directives is defined -%}
-                {%- set config = config | combine({'server_directives': proxy.server_directives}) -%}
-              {%- endif -%}
-              {%- if proxy.buffer_size is defined -%}
-                {%- set config = config | combine({'buffer_size': proxy.buffer_size}) -%}
-              {%- endif -%}
-              {# Set default port on locations that don't specify one #}
-              {%- set fixed_locs = [] -%}
-              {%- for loc in config['locations'] -%}
-                {%- if loc.port is not defined -%}
-                  {%- set _ = fixed_locs.append(loc | combine({'port': first_port})) -%}
-                {%- else -%}
-                  {%- set _ = fixed_locs.append(loc) -%}
-                {%- endif -%}
-              {%- endfor -%}
-              {%- set config = config | combine({'locations': fixed_locs}) -%}
-              {%- set _ = results.append(config) -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {{ results }}
-
-    - name: Build proxy configs from host definitions
-      ansible.builtin.set_fact:
-        _host_proxies: >-
-          {%- set results = [] -%}
-          {%- for name, def in (host_definitions | default({})).items() -%}
-            {%- if def.proxy is defined and def.proxy is mapping -%}
-              {%- set proxy = def.proxy -%}
-              {%- set config = {
-                'name': name,
-                'subdomain': proxy.subdomain | default(name),
-                'aliases': proxy.aliases | default([]),
-                'upstream_ip': proxy.upstream_ip | default(''),
-                'port': proxy.port | default(''),
-                'proto': proxy.proto | default('http'),
-                'auth': proxy.auth | default(true),
-                'listen': proxy.listen | default('both'),
-                'error_pages': proxy.error_pages | default(false),
-                'locations': proxy.locations | default([{'path': '/'}]),
-                'source': 'host_def'
-              } -%}
-              {%- if proxy.server_names is defined -%}
-                {%- set config = config | combine({'server_names': proxy.server_names}) -%}
-              {%- endif -%}
-              {%- if proxy.server_directives is defined -%}
-                {%- set config = config | combine({'server_directives': proxy.server_directives}) -%}
-              {%- endif -%}
-              {%- if proxy.buffer_size is defined -%}
-                {%- set config = config | combine({'buffer_size': proxy.buffer_size}) -%}
-              {%- endif -%}
-              {# Set default port on locations #}
-              {%- set fixed_locs = [] -%}
-              {%- for loc in config['locations'] -%}
-                {%- if loc.port is not defined -%}
-                  {%- set _ = fixed_locs.append(loc | combine({'port': config['port']})) -%}
-                {%- else -%}
-                  {%- set _ = fixed_locs.append(loc) -%}
-                {%- endif -%}
-              {%- endfor -%}
-              {%- set config = config | combine({'locations': fixed_locs}) -%}
-              {%- set _ = results.append(config) -%}
-            {%- elif def.proxy is defined and def.proxy is sequence and def.proxy is not string -%}
-              {# Multiple proxy entries for hosts with multiple server blocks (e.g., unraid) #}
-              {%- for proxy in def.proxy -%}
-                {%- set config = {
-                  'name': name ~ '_' ~ loop.index0,
-                  'subdomain': proxy.subdomain | default(name),
-                  'aliases': proxy.aliases | default([]),
-                  'upstream_ip': proxy.upstream_ip | default(''),
-                  'port': proxy.port | default(''),
-                  'proto': proxy.proto | default('http'),
-                  'auth': proxy.auth | default(true),
-                  'listen': proxy.listen | default('both'),
-                  'error_pages': proxy.error_pages | default(false),
-                  'locations': proxy.locations | default([{'path': '/'}]),
-                  'source': 'host_def'
-                } -%}
-                {%- if proxy.server_names is defined -%}
-                  {%- set config = config | combine({'server_names': proxy.server_names}) -%}
-                {%- endif -%}
-                {%- if proxy.server_directives is defined -%}
-                  {%- set config = config | combine({'server_directives': proxy.server_directives}) -%}
-                {%- endif -%}
-                {%- if proxy.buffer_size is defined -%}
-                  {%- set config = config | combine({'buffer_size': proxy.buffer_size}) -%}
-                {%- endif -%}
-                {%- set fixed_locs = [] -%}
-                {%- for loc in config['locations'] -%}
-                  {%- if loc.port is not defined -%}
-                    {%- set _ = fixed_locs.append(loc | combine({'port': config['port']})) -%}
+                  {%- set upstream_name = labels[_pun] | default('') -%}
+                  {%- if upstream_name -%}
+                    {%- set upstream_ip = upstream_name -%}
+                  {%- elif ns.role and (vm_definitions[ns.role] | default({})).vm_ip is defined -%}
+                    {%- set upstream_ip = vm_definitions[ns.role].vm_ip -%}
                   {%- else -%}
-                    {%- set _ = fixed_locs.append(loc) -%}
+                    {%- set upstream_ip = '' -%}
                   {%- endif -%}
-                {%- endfor -%}
-                {%- set config = config | combine({'locations': fixed_locs}) -%}
-                {%- set _ = results.append(config) -%}
+                  {%- set aliases = (labels[_pal] | default('')).split(',') | select | list -%}
+                  {%- set proto = labels[_ppr] | default('http') -%}
+                  {%- set auth = (labels[_pau] | default('true')) | lower == 'true' -%}
+                  {%- set listen = labels[_pli] | default('both') -%}
+                  {%- set websocket = (labels[_pws] | default('false')) | lower == 'true' -%}
+                  {%- set buffering = labels[_pbf] | default('') -%}
+                  {%- set error_pages = (labels[_pep] | default('false')) | lower == 'true' -%}
+                  {%- set _ = results.append({
+                    'name': name,
+                    'subdomain': labels[_psd],
+                    'aliases': aliases,
+                    'upstream_ip': upstream_ip,
+                    'port': proxy_port,
+                    'proto': proto,
+                    'auth': auth,
+                    'listen': listen,
+                    'websocket': websocket,
+                    'buffering': buffering,
+                    'error_pages': error_pages,
+                    'locations': [{
+                      'path': '/',
+                      'port': proxy_port,
+                      'proto': proto,
+                      'auth': auth,
+                      'websocket': websocket,
+                      'buffering': buffering,
+                    }],
+                    'source': 'label'
+                  }) -%}
+                {%- endif -%}
               {%- endfor -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {{ results }}
+              {{ results }}
 
-    - name: Build proxy configs from VM definitions
-      ansible.builtin.set_fact:
-        _vm_proxies: >-
-          {%- set results = [] -%}
-          {%- for name, def in vm_definitions.items() -%}
-            {%- if def.proxy is defined and def.proxy is mapping -%}
-              {%- set proxy = def.proxy -%}
-              {%- set upstream_ip = proxy.upstream_ip | default(def.vm_ip | default('')) -%}
-              {%- set config = {
-                'name': name,
-                'subdomain': proxy.subdomain | default(name),
-                'aliases': proxy.aliases | default([]),
-                'upstream_ip': upstream_ip,
-                'port': proxy.port | default(''),
-                'proto': proxy.proto | default('http'),
-                'auth': proxy.auth | default(true),
-                'listen': proxy.listen | default('both'),
-                'error_pages': proxy.error_pages | default(false),
-                'locations': proxy.locations | default([{'path': '/'}]),
-                'source': 'vm_def'
-              } -%}
-              {%- if proxy.server_names is defined -%}
-                {%- set config = config | combine({'server_names': proxy.server_names}) -%}
-              {%- endif -%}
-              {%- if proxy.server_directives is defined -%}
-                {%- set config = config | combine({'server_directives': proxy.server_directives}) -%}
-              {%- endif -%}
-              {%- set fixed_locs = [] -%}
-              {%- for loc in config['locations'] -%}
-                {%- if loc.port is not defined -%}
-                  {%- set _ = fixed_locs.append(loc | combine({'port': config['port']})) -%}
-                {%- else -%}
-                  {%- set _ = fixed_locs.append(loc) -%}
-                {%- endif -%}
-              {%- endfor -%}
-              {%- set config = config | combine({'locations': fixed_locs}) -%}
-              {%- set _ = results.append(config) -%}
-            {%- elif def.proxy is defined and def.proxy is sequence and def.proxy is not string -%}
-              {%- for proxy in def.proxy -%}
-                {%- set upstream_ip = proxy.upstream_ip | default(def.vm_ip | default('')) -%}
-                {%- set config = {
-                  'name': name ~ '_' ~ loop.index0,
-                  'subdomain': proxy.subdomain | default(name),
-                  'aliases': proxy.aliases | default([]),
-                  'upstream_ip': upstream_ip,
-                  'port': proxy.port | default(''),
-                  'proto': proxy.proto | default('http'),
-                  'auth': proxy.auth | default(true),
-                  'listen': proxy.listen | default('both'),
-                  'error_pages': proxy.error_pages | default(false),
-                  'locations': proxy.locations | default([{'path': '/'}]),
-                  'source': 'vm_def'
-                } -%}
-                {%- if proxy.server_names is defined -%}
-                  {%- set config = config | combine({'server_names': proxy.server_names}) -%}
-                {%- endif -%}
-                {%- if proxy.server_directives is defined -%}
-                  {%- set config = config | combine({'server_directives': proxy.server_directives}) -%}
-                {%- endif -%}
-                {%- set fixed_locs = [] -%}
-                {%- for loc in config['locations'] -%}
-                  {%- if loc.port is not defined -%}
-                    {%- set _ = fixed_locs.append(loc | combine({'port': config['port']})) -%}
+        - name: Build proxy configs from container proxy keys
+          ansible.builtin.set_fact:
+            _complex_proxies: >-
+              {%- set results = [] -%}
+              {%- for name, def in container_definitions.items() -%}
+                {%- if def.proxy is defined -%}
+                  {%- set proxy = def.proxy -%}
+                  {%- set stack = def.stack | default('') -%}
+                  {%- set ports = (def.compose | default({})).ports | default([]) -%}
+                  {%- set first_port = ports[0].split(':')[0] if ports | length > 0 else '' -%}
+                  {%- set ns = namespace(role='') -%}
+                  {%- for r, rdef in vm_definitions.items() -%}
+                    {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
+                      {%- set ns.role = r -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- if not ns.role -%}
+                    {%- for r, rdef in (host_definitions | default({})).items() -%}
+                      {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
+                        {%- set ns.role = r -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                  {%- endif -%}
+                  {%- if proxy.upstream_ip is defined and proxy.upstream_ip -%}
+                    {%- set upstream_ip = proxy.upstream_ip -%}
+                  {%- elif proxy.upstream_name is defined and proxy.upstream_name -%}
+                    {%- set upstream_ip = proxy.upstream_name -%}
+                  {%- elif ns.role and (vm_definitions[ns.role] | default({})).vm_ip is defined -%}
+                    {%- set upstream_ip = vm_definitions[ns.role].vm_ip -%}
                   {%- else -%}
-                    {%- set _ = fixed_locs.append(loc) -%}
+                    {%- set upstream_ip = '' -%}
                   {%- endif -%}
-                {%- endfor -%}
-                {%- set config = config | combine({'locations': fixed_locs}) -%}
-                {%- set _ = results.append(config) -%}
+                  {%- set config = {
+                    'name': name,
+                    'subdomain': proxy.subdomain | default(name),
+                    'aliases': proxy.aliases | default([]),
+                    'upstream_ip': upstream_ip,
+                    'port': first_port,
+                    'proto': proxy.proto | default('http'),
+                    'auth': proxy.auth | default(true),
+                    'listen': proxy.listen | default('both'),
+                    'error_pages': proxy.error_pages | default(false),
+                    'locations': proxy.locations | default([{'path': '/'}]),
+                    'source': 'proxy_key'
+                  } -%}
+                  {%- if proxy.server_names is defined -%}
+                    {%- set config = config | combine({'server_names': proxy.server_names}) -%}
+                  {%- endif -%}
+                  {%- if proxy.server_directives is defined -%}
+                    {%- set config = config | combine({'server_directives': proxy.server_directives}) -%}
+                  {%- endif -%}
+                  {%- if proxy.buffer_size is defined -%}
+                    {%- set config = config | combine({'buffer_size': proxy.buffer_size}) -%}
+                  {%- endif -%}
+                  {# Set default port on locations that don't specify one #}
+                  {%- set fixed_locs = [] -%}
+                  {%- for loc in config['locations'] -%}
+                    {%- if loc.port is not defined -%}
+                      {%- set _ = fixed_locs.append(loc | combine({'port': first_port})) -%}
+                    {%- else -%}
+                      {%- set _ = fixed_locs.append(loc) -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- set config = config | combine({'locations': fixed_locs}) -%}
+                  {%- set _ = results.append(config) -%}
+                {%- endif -%}
               {%- endfor -%}
-            {%- endif -%}
-          {%- endfor -%}
-          {{ results }}
+              {{ results }}
 
-    - name: Merge all proxy configs
-      ansible.builtin.set_fact:
-        _all_proxies: "{{ _label_proxies + _complex_proxies + _host_proxies + _vm_proxies }}"
+        - name: Build proxy configs from host definitions
+          ansible.builtin.set_fact:
+            _host_proxies: >-
+              {%- set results = [] -%}
+              {%- for name, def in (host_definitions | default({})).items() -%}
+                {%- if def.proxy is defined and def.proxy is mapping -%}
+                  {%- set proxy = def.proxy -%}
+                  {%- set config = {
+                    'name': name,
+                    'subdomain': proxy.subdomain | default(name),
+                    'aliases': proxy.aliases | default([]),
+                    'upstream_ip': proxy.upstream_ip | default(''),
+                    'port': proxy.port | default(''),
+                    'proto': proxy.proto | default('http'),
+                    'auth': proxy.auth | default(true),
+                    'listen': proxy.listen | default('both'),
+                    'error_pages': proxy.error_pages | default(false),
+                    'locations': proxy.locations | default([{'path': '/'}]),
+                    'source': 'host_def'
+                  } -%}
+                  {%- if proxy.server_names is defined -%}
+                    {%- set config = config | combine({'server_names': proxy.server_names}) -%}
+                  {%- endif -%}
+                  {%- if proxy.server_directives is defined -%}
+                    {%- set config = config | combine({'server_directives': proxy.server_directives}) -%}
+                  {%- endif -%}
+                  {%- if proxy.buffer_size is defined -%}
+                    {%- set config = config | combine({'buffer_size': proxy.buffer_size}) -%}
+                  {%- endif -%}
+                  {# Set default port on locations #}
+                  {%- set fixed_locs = [] -%}
+                  {%- for loc in config['locations'] -%}
+                    {%- if loc.port is not defined -%}
+                      {%- set _ = fixed_locs.append(loc | combine({'port': config['port']})) -%}
+                    {%- else -%}
+                      {%- set _ = fixed_locs.append(loc) -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- set config = config | combine({'locations': fixed_locs}) -%}
+                  {%- set _ = results.append(config) -%}
+                {%- elif def.proxy is defined and def.proxy is sequence and def.proxy is not string -%}
+                  {# Multiple proxy entries for hosts with multiple server blocks (e.g., unraid) #}
+                  {%- for proxy in def.proxy -%}
+                    {%- set config = {
+                      'name': name ~ '_' ~ loop.index0,
+                      'subdomain': proxy.subdomain | default(name),
+                      'aliases': proxy.aliases | default([]),
+                      'upstream_ip': proxy.upstream_ip | default(''),
+                      'port': proxy.port | default(''),
+                      'proto': proxy.proto | default('http'),
+                      'auth': proxy.auth | default(true),
+                      'listen': proxy.listen | default('both'),
+                      'error_pages': proxy.error_pages | default(false),
+                      'locations': proxy.locations | default([{'path': '/'}]),
+                      'source': 'host_def'
+                    } -%}
+                    {%- if proxy.server_names is defined -%}
+                      {%- set config = config | combine({'server_names': proxy.server_names}) -%}
+                    {%- endif -%}
+                    {%- if proxy.server_directives is defined -%}
+                      {%- set config = config | combine({'server_directives': proxy.server_directives}) -%}
+                    {%- endif -%}
+                    {%- if proxy.buffer_size is defined -%}
+                      {%- set config = config | combine({'buffer_size': proxy.buffer_size}) -%}
+                    {%- endif -%}
+                    {%- set fixed_locs = [] -%}
+                    {%- for loc in config['locations'] -%}
+                      {%- if loc.port is not defined -%}
+                        {%- set _ = fixed_locs.append(loc | combine({'port': config['port']})) -%}
+                      {%- else -%}
+                        {%- set _ = fixed_locs.append(loc) -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {%- set config = config | combine({'locations': fixed_locs}) -%}
+                    {%- set _ = results.append(config) -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {{ results }}
 
-    - name: Show proxy config count
-      ansible.builtin.debug:
-        msg: "Found {{ _all_proxies | length }} proxy configs ({{ _label_proxies | length }} label, {{ _complex_proxies | length }} complex, {{ _host_proxies | length }} host, {{ _vm_proxies | length }} vm)"
+        - name: Build proxy configs from VM definitions
+          ansible.builtin.set_fact:
+            _vm_proxies: >-
+              {%- set results = [] -%}
+              {%- for name, def in vm_definitions.items() -%}
+                {%- if def.proxy is defined and def.proxy is mapping -%}
+                  {%- set proxy = def.proxy -%}
+                  {%- set upstream_ip = proxy.upstream_ip | default(def.vm_ip | default('')) -%}
+                  {%- set config = {
+                    'name': name,
+                    'subdomain': proxy.subdomain | default(name),
+                    'aliases': proxy.aliases | default([]),
+                    'upstream_ip': upstream_ip,
+                    'port': proxy.port | default(''),
+                    'proto': proxy.proto | default('http'),
+                    'auth': proxy.auth | default(true),
+                    'listen': proxy.listen | default('both'),
+                    'error_pages': proxy.error_pages | default(false),
+                    'locations': proxy.locations | default([{'path': '/'}]),
+                    'source': 'vm_def'
+                  } -%}
+                  {%- if proxy.server_names is defined -%}
+                    {%- set config = config | combine({'server_names': proxy.server_names}) -%}
+                  {%- endif -%}
+                  {%- if proxy.server_directives is defined -%}
+                    {%- set config = config | combine({'server_directives': proxy.server_directives}) -%}
+                  {%- endif -%}
+                  {%- set fixed_locs = [] -%}
+                  {%- for loc in config['locations'] -%}
+                    {%- if loc.port is not defined -%}
+                      {%- set _ = fixed_locs.append(loc | combine({'port': config['port']})) -%}
+                    {%- else -%}
+                      {%- set _ = fixed_locs.append(loc) -%}
+                    {%- endif -%}
+                  {%- endfor -%}
+                  {%- set config = config | combine({'locations': fixed_locs}) -%}
+                  {%- set _ = results.append(config) -%}
+                {%- elif def.proxy is defined and def.proxy is sequence and def.proxy is not string -%}
+                  {%- for proxy in def.proxy -%}
+                    {%- set upstream_ip = proxy.upstream_ip | default(def.vm_ip | default('')) -%}
+                    {%- set config = {
+                      'name': name ~ '_' ~ loop.index0,
+                      'subdomain': proxy.subdomain | default(name),
+                      'aliases': proxy.aliases | default([]),
+                      'upstream_ip': upstream_ip,
+                      'port': proxy.port | default(''),
+                      'proto': proxy.proto | default('http'),
+                      'auth': proxy.auth | default(true),
+                      'listen': proxy.listen | default('both'),
+                      'error_pages': proxy.error_pages | default(false),
+                      'locations': proxy.locations | default([{'path': '/'}]),
+                      'source': 'vm_def'
+                    } -%}
+                    {%- if proxy.server_names is defined -%}
+                      {%- set config = config | combine({'server_names': proxy.server_names}) -%}
+                    {%- endif -%}
+                    {%- if proxy.server_directives is defined -%}
+                      {%- set config = config | combine({'server_directives': proxy.server_directives}) -%}
+                    {%- endif -%}
+                    {%- set fixed_locs = [] -%}
+                    {%- for loc in config['locations'] -%}
+                      {%- if loc.port is not defined -%}
+                        {%- set _ = fixed_locs.append(loc | combine({'port': config['port']})) -%}
+                      {%- else -%}
+                        {%- set _ = fixed_locs.append(loc) -%}
+                      {%- endif -%}
+                    {%- endfor -%}
+                    {%- set config = config | combine({'locations': fixed_locs}) -%}
+                    {%- set _ = results.append(config) -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {{ results }}
 
-    - name: Validate all proxies have upstream IPs
-      ansible.builtin.assert:
-        that:
-          - item.upstream_ip | default('') | length > 0 or
-            (item.locations | map(attribute='upstream_app', default='') | select | list | length > 0)
-        fail_msg: "Proxy '{{ item.name }}' ({{ item.subdomain }}) has no upstream IP — check stack/definition mapping"
-        quiet: true
-      loop: "{{ _all_proxies }}"
-      loop_control:
-        label: "{{ item.subdomain }}"
+        - name: Merge all proxy configs
+          ansible.builtin.set_fact:
+            _all_proxies: "{{ _label_proxies + _complex_proxies + _host_proxies + _vm_proxies }}"
 
-    - name: Create output directory
-      ansible.builtin.file:
-        path: "{{ _swag_output_dir }}"
-        state: directory
-        mode: "0755"
-      when: swag_dry_run | default(false) | bool
+        - name: Show proxy config count
+          ansible.builtin.debug:
+            msg: "Found {{ _all_proxies | length }} proxy configs ({{ _label_proxies | length }} label, {{ _complex_proxies | length }} complex, {{ _host_proxies | length }} host, {{ _vm_proxies | length }} vm)"
 
-    - name: Generate site-conf files
-      ansible.builtin.template:
-        src: templates/swag_site.conf.j2
-        dest: "{{ _swag_output_dir }}/{{ item.subdomain }}.conf"
-        mode: "0644"
-      loop: "{{ _all_proxies }}"
-      loop_control:
-        label: "{{ item.subdomain }}.conf"
-      register: _generated_configs
-      diff: "{{ swag_diff_only | default(false) | bool }}"
-      check_mode: "{{ swag_diff_only | default(false) | bool }}"
-      delegate_to: "{{ omit if (swag_dry_run | default(false) | bool) else _swag_host }}"
+        - name: Validate all proxies have upstream IPs
+          ansible.builtin.assert:
+            that:
+              - item.upstream_ip | default('') | length > 0 or
+                (item.locations | map(attribute='upstream_app', default='') | select | list | length > 0)
+            fail_msg: "Proxy '{{ item.name }}' ({{ item.subdomain }}) has no upstream IP — check stack/definition mapping"
+            quiet: true
+          loop: "{{ _all_proxies }}"
+          loop_control:
+            label: "{{ item.subdomain }}"
 
-    - name: Report changes
-      ansible.builtin.debug:
-        msg: >-
-          Generated {{ _all_proxies | length }} site-confs.
-          {{ _generated_configs.results | selectattr('changed') | list | length }} changed.
-      when: not (swag_diff_only | default(false) | bool)
+        - name: Create output directory
+          ansible.builtin.file:
+            path: "{{ _swag_output_dir }}"
+            state: directory
+            mode: "0755"
+          when: swag_dry_run | default(false) | bool
 
-    - name: Validate nginx configuration
-      ansible.builtin.command:
-        cmd: docker exec swag nginx -t
-      register: _nginx_test
-      changed_when: false
-      failed_when: _nginx_test.rc != 0
-      delegate_to: "{{ _swag_host }}"
-      when:
-        - not (swag_dry_run | default(false) | bool)
-        - not (swag_diff_only | default(false) | bool)
-        - _generated_configs is changed
+        - name: Generate site-conf files
+          ansible.builtin.template:
+            src: templates/swag_site.conf.j2
+            dest: "{{ _swag_output_dir }}/{{ item.subdomain }}.conf"
+            mode: "0644"
+          loop: "{{ _all_proxies }}"
+          loop_control:
+            label: "{{ item.subdomain }}.conf"
+          register: _generated_configs
+          diff: "{{ swag_diff_only | default(false) | bool }}"
+          check_mode: "{{ swag_diff_only | default(false) | bool }}"
+          delegate_to: "{{ omit if (swag_dry_run | default(false) | bool) else _swag_host }}"
 
-    - name: Reload nginx
-      ansible.builtin.command:
-        cmd: docker exec swag nginx -s reload
-      changed_when: true
-      delegate_to: "{{ _swag_host }}"
-      when:
-        - not (swag_dry_run | default(false) | bool)
-        - not (swag_diff_only | default(false) | bool)
-        - _generated_configs is changed
-        - _nginx_test is succeeded
+        - name: Record deploy detail
+          ansible.builtin.set_fact:
+            _deploy_detail: >-
+              {{ _all_proxies | length }} configs generated |
+              {{ _generated_configs.results | selectattr('changed') | list | length }} changed
+
+        - name: Report changes
+          ansible.builtin.debug:
+            msg: >-
+              Generated {{ _all_proxies | length }} site-confs.
+              {{ _generated_configs.results | selectattr('changed') | list | length }} changed.
+          when: not (swag_diff_only | default(false) | bool)
+
+        - name: Validate nginx configuration
+          ansible.builtin.command:
+            cmd: docker exec swag nginx -t
+          register: _nginx_test
+          changed_when: false
+          failed_when: _nginx_test.rc != 0
+          delegate_to: "{{ _swag_host }}"
+          when:
+            - not (swag_dry_run | default(false) | bool)
+            - not (swag_diff_only | default(false) | bool)
+            - _generated_configs is changed
+
+        - name: Reload nginx
+          ansible.builtin.command:
+            cmd: docker exec swag nginx -s reload
+          changed_when: true
+          delegate_to: "{{ _swag_host }}"
+          when:
+            - not (swag_dry_run | default(false) | bool)
+            - not (swag_diff_only | default(false) | bool)
+            - _generated_configs is changed
+            - _nginx_test is succeeded
+
+      rescue:
+        - name: Set failure flag
+          ansible.builtin.set_fact:
+            deploy_failed: true
+            _deploy_detail: "{{ _deploy_detail }} | Error: {{ ansible_failed_result.msg | default('unknown') }}"
+
+      always:
+        - name: Send notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Deploy"
+            discord_status: "{{ 'failed' if deploy_failed else 'successful' }}"
+            discord_color: "{{ discord_color_failure if deploy_failed else discord_color_success }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "{{ '❌ ' if deploy_failed else '✅ ' }}Deploy"
+                value: "{{ _deploy_detail }}"
+                inline: true
+
+        - name: Log to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_hostname: "{{ controller_fqdn }}"
+            log_application: "{{ maintenance_name }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if deploy_failed else 'success' }}"
+
+        - name: Fail play if deploy errored
+          ansible.builtin.fail:
+            msg: "SWAG config deploy failed — see notification for details"
+          when: deploy_failed
