@@ -7,12 +7,12 @@
 # Pinned images (non-latest) require manual version bumps — do not auto-update.
 #
 # To add a new container:
-#   1. Add an entry below (image + tag), alphabetically by key
-#   2. Add IMAGE/TAG env vars to the stack's env.j2:
-#        MY_IMAGE={{ container_definitions.myapp.image }}
-#        MY_TAG={{ container_definitions.myapp.tag }}
-#   3. Update docker-compose.yaml image line: image: ${MY_IMAGE}:${MY_TAG}
+#   1. Add an entry below (image + tag + stack + env + compose), alphabetically by key
+#   2. If the stack has generate_env: true, add env: field with all non-secret config values
+#      and vault refs (e.g., "{{ vault_docker_foo }}")
+#   3. If the stack has generate_compose: true, add compose: block
 #   4. If the service has a database, add an entry in vars/definitions/app_definitions.yaml
+#   For stacks WITHOUT generate_env, manually add IMAGE/TAG to stacks/<name>/env.j2
 #
 # Optional fields:
 #   stack      — compose stack this container runs in (required if guacamole: is set)
@@ -23,6 +23,11 @@
 #     port           — VNC port on the host (e.g., 7914)
 #     command        — SSH exec command (e.g., "sudo docker exec -it foo /bin/bash")
 #     user_groups    — Authentik groups granted READ access (omit for admin-only)
+#
+# Env generation fields (optional — stacks with generate_env: true auto-generate .env):
+#   env            — dict of env var name → value (literals, {{ ansible_var }}, or {{ vault_* }})
+#                    Values are resolved by Ansible at deploy time. The .env is flat per-stack,
+#                    so vars are deduplicated (first definition wins).
 #
 # Compose generation fields (optional — stacks with these generate compose from definitions):
 #   compose        — dict of compose-level service configuration
@@ -73,6 +78,24 @@ container_definitions:
     image: "ghcr.io/goauthentik/server"
     tag: "2025.12.4"
     stack: auth
+    env:
+      AUTHENTIK_SECRET_KEY: "{{ vault_docker_authentik_secret_key }}"
+      AUTHENTIK_POSTGRES_DB: "authentik"
+      AUTHENTIK_ERROR_REPORTING_ENABLED: "true"
+      AUTHENTIK_WORKER_CONCURRENCY: "2"
+      AUTHENTIK_WORKERS: "2"
+      AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "{{ vault_docker_trusted_proxy_cidrs }}"
+      AUTHENTIK_EMAIL_FROM: "sso@{{ vault_domain_ext }}"
+      AUTHENTIK_EMAIL_USE_TLS: "true"
+      AUTHENTIK_EMAIL_TIMEOUT: "10"
+      POSTGRES_HOST: "postgres"
+      POSTGRES_USER: "{{ docker_postgres_user }}"
+      POSTGRES_PASSWORD: "{{ vault_docker_postgres_password }}"
+      EMAIL_HOST: "{{ docker_email_host }}"
+      EMAIL_PORT: "{{ docker_email_port }}"
+      EMAIL_USERNAME: "{{ vault_docker_email_username }}"
+      EMAIL_PASSWORD: "{{ vault_docker_email_password }}"
+      EMAIL: "{{ vault_docker_email }}"
     compose:
       base: base
       ports: ["9001:9000", "9443:9443"]
@@ -160,6 +183,9 @@ container_definitions:
     image: "henrygd/beszel-agent"
     tag: "latest"
     stack: infra
+    env:
+      BESZEL_LISTEN: "45876"
+      BESZEL_KEY: "{{ vault_docker_beszel_key }}"
     compose:
       base: base
       network_mode: host
@@ -239,6 +265,10 @@ container_definitions:
     image: "docker.io/crowdsecurity/crowdsec"
     tag: "latest"
     stack: auth
+    env:
+      CROWDSEC_COLLECTIONS: "crowdsecurity/nginx crowdsecurity/http-cve crowdsecurity/whitelist-good-actors firix/authentik crowdsecurity/wordpress"
+      CROWDSEC_CUSTOM_HOSTNAME: "crowdsec"
+      CROWDSEC_LAPI_URL: "http://crowdsec:8080"
     guacamole:
       name: Crowdsec
       group: Tools
@@ -267,6 +297,10 @@ container_definitions:
     image: "ghcr.io/theduffman85/crowdsec-web-ui"
     tag: "latest"
     stack: monitoring
+    env:
+      CSUI_CROWDSEC_URL: "http://{{ vault_vm_core_ip }}:8080"
+      CSUI_CROWDSEC_USER: "{{ vault_docker_crowdsec_web_ui_user }}"
+      CSUI_CROWDSEC_PASSWORD: "{{ vault_docker_crowdsec_web_ui_password }}"
     compose:
       image_var: CSUI
       base: base
@@ -363,6 +397,21 @@ container_definitions:
     image: "grafana/grafana"
     tag: "latest"
     stack: monitoring
+    env:
+      GRAFANA_SERVER_ROOT_URL: "https://grafana.{{ vault_domain_ext }}"
+      GRAFANA_SECURITY_ADMIN_PASSWORD: "{{ vault_docker_grafana_admin_password }}"
+      GRAFANA_OAUTH_ENABLED: "true"
+      GRAFANA_OAUTH_AUTO_LOGIN: "true"
+      GRAFANA_OAUTH_CLIENT_ID: "{{ vault_docker_grafana_oauth_client_id }}"
+      GRAFANA_OAUTH_CLIENT_SECRET: "{{ vault_docker_grafana_oauth_client_secret }}"
+      GRAFANA_OAUTH_SCOPES: "openid profile email groups"
+      GRAFANA_SIGNOUT_REDIRECT_URL: "https://auth.{{ vault_domain_ext }}/application/o/grafana/end-session/"
+      GRAFANA_ROLE_ATTRIBUTE_PATH: "contains(groups, 'Grafana-Admin') && 'Admin' || contains(groups, 'Grafana-Editor') && 'Editor' || 'Viewer'"
+      GRAFANA_GROUPS_ATTRIBUTE_PATH: "groups"
+      OAUTH_NAME: "authentik"
+      OAUTH_AUTH_URL: "https://auth.{{ vault_domain_ext }}/application/o/authorize/"
+      OAUTH_TOKEN_URL: "https://auth.{{ vault_domain_ext }}/application/o/token/"
+      OAUTH_API_URL: "https://auth.{{ vault_domain_ext }}/application/o/userinfo/"
     compose:
       base: base
       ports: ["3000:3000"]
@@ -621,6 +670,15 @@ container_definitions:
     image: "lscr.io/linuxserver/socket-proxy"
     tag: "latest"
     stack: infra
+    env:
+      DP_CONTAINERS: "1"
+      DP_POST: "1"
+      DP_INFO: "1"
+      DP_VOLUMES: "1"
+      DP_SECRETS: "1"
+      DP_IMAGES: "1"
+      DP_NETWORKS: "1"
+      DP_ALLOW_RESTARTS: "1"
     compose:
       service_name: dockerproxy
       container_name: dockerproxy
@@ -642,6 +700,31 @@ container_definitions:
     image: "lscr.io/linuxserver/swag"
     tag: "latest"
     stack: auth
+    env:
+      SWAG_URL: "{{ vault_domain_ext }}"
+      SWAG_AUTH_ALIAS: "auth.{{ vault_domain_ext }}"
+      SWAG_VALIDATION: "dns"
+      SWAG_SUBDOMAINS: "wildcard"
+      SWAG_ONLY_SUBDOMAINS: "false"
+      SWAG_DNSPLUGIN: "cloudflare"
+      SWAG_EXTRA_DOMAINS: "*.{{ domain_ext_secondary }}"
+      SWAG_STAGING: "false"
+      SWAG_AUTORELOAD: "true"
+      SWAG_DOCKER_MODS: "linuxserver/mods:swag-dashboard|linuxserver/mods:swag-maxmind|ghcr.io/linuxserver/mods:swag-crowdsec"
+      SWAG_NGINX_LOG_PATH: "/config/log/nginx/access.log"
+      SWAG_GEO_MEASUREMENT: "geoip2influx"
+      SWAG_LOG_MEASUREMENT: "nginx_access_logs"
+      SWAG_GEOIP2INFLUX_LOG_LEVEL: "error"
+      SWAG_GEOIP2_SEND_NGINX_LOGS: "true"
+      SWAG_INFLUX_DATABASE: "geoip2influx-{{ vault_domain_ext }}"
+      SWAG_DISABLE_F2B: "true"
+      SWAG_CROWDSEC_API_KEY: "{{ vault_docker_crowdsec_api_key }}"
+      MAXMINDDB_LICENSE_KEY: "{{ vault_docker_maxmind_license_key }}"
+      MAXMINDDB_USER_ID: "{{ vault_docker_maxmind_user_id }}"
+      INFLUX_HOST: "{{ vault_vm_core_ip }}"
+      INFLUX_HOST_PORT: "8086"
+      INFLUX_RETENTION: "30d"
+      INFLUX_SHARD: "7d"
     compose:
       base: base
       network_aliases: ["${SWAG_AUTH_ALIAS}"]

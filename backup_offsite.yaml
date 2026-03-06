@@ -163,6 +163,17 @@
                 state: directory
                 mode: "0755"
 
+            - name: Generate backups stack .env from definitions
+              become: true
+              ansible.builtin.template:
+                src: env.j2
+                dest: "{{ _stack_dir }}/.env"
+                mode: "0600"
+              vars:
+                _current_stack: backups
+              no_log: "{{ _no_log }}"
+              when: stack_definitions.backups.generate_env | default(false) | bool
+
             - name: Template backups stack .env
               become: true
               ansible.builtin.template:
@@ -170,6 +181,7 @@
                 dest: "{{ _stack_dir }}/.env"
                 mode: "0600"
               no_log: "{{ _no_log }}"
+              when: not (stack_definitions.backups.generate_env | default(false) | bool)
 
             - name: Copy backups stack docker-compose.yaml
               become: true

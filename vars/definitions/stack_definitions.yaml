@@ -6,7 +6,7 @@
 # To add a new stack:
 #   1. Add an entry below (alphabetically by key)
 #   2. Create stacks/<name>/ with docker-compose.yaml and env.j2
-#      (or set generate_compose: true and define services in container_definitions.yaml)
+#      (or set generate_compose/generate_env: true and define in container_definitions.yaml)
 #   3. Add the stack name to the host's `stacks:` list in vm_definitions.yaml
 #      or host_definitions.yaml
 #
@@ -15,6 +15,7 @@
 #   generate_env      — generate .env from container_definitions env: fields (default: false)
 #   globals           — list of global env vars to emit (default: all 7)
 #                       choices: mem_limit, restart, tz, puid, pgid, umask, appsdir
+#   env_extra         — raw Jinja2 block appended to generated .env (for dynamic per-host logic)
 #   network           — external network name (default: homelab; omit for stacks without networks)
 #   compose_volumes   — list of named volumes to declare at top level (e.g., NFS mounts)
 
@@ -27,6 +28,8 @@ stack_definitions:
   auth:
     description: "Authentication and reverse proxy — Authentik, SWAG, CrowdSec"
     generate_compose: true
+    generate_env: true
+    globals: [mem_limit, restart, tz, puid, pgid, umask, appsdir]
   backups:
     description: "Backup agent — Restic"
     generate_compose: true
@@ -52,6 +55,29 @@ stack_definitions:
   infra:
     description: "Core infrastructure — Docker proxy, monitoring agents, log aggregation"
     generate_compose: true
+    generate_env: true
+    globals: [mem_limit, restart, tz, appsdir]
+    env_extra: |-
+      ## Dozzle — profiles select agent vs hub per host role
+      ## Hub runs on apps (central log viewer); agents run on core + dev.
+      ## DOZZLE_REMOTE_AGENT uses peer VIPs — stable across VM reprovisions.
+      DOZZLE_LEVEL=
+      DOZZLE_REMOTE_AGENT=
+      DOZZLE_HOSTNAME=
+      {% set _role = host_roles.get(inventory_hostname, '') -%}
+      {% if _role == 'apps' -%}
+      COMPOSE_PROFILES=hub
+      DOZZLE_LEVEL={{ docker_dozzle_level }}
+      {% if _role_injected | default(false) -%}
+      {% set _subnet = ansible_default_ipv4.address.rsplit('.', 1)[0] -%}
+      DOZZLE_REMOTE_AGENT={{ _subnet }}.{{ docker_test_vip_offsets['core'] }}:7007,{{ _subnet }}.{{ docker_test_vip_offsets['dev'] }}:7007
+      {% else -%}
+      DOZZLE_REMOTE_AGENT={{ vault_core_vip }}:7007,{{ vault_dev_vip }}:7007
+      {% endif -%}
+      DOZZLE_HOSTNAME=Apps
+      {% else -%}
+      COMPOSE_PROFILES=agent
+      {% endif -%}
   media:
     description: "Media services — Tautulli, Jellyseerr"
     generate_compose: true
@@ -60,6 +86,8 @@ stack_definitions:
   monitoring:
     description: "Monitoring — Grafana, CrowdSec Web UI"
     generate_compose: true
+    generate_env: true
+    globals: [mem_limit, restart, tz, appsdir]
   vpn:
     description: "VPN and NPM — WireGuard, Nginx Proxy Manager"
     generate_compose: true
