@@ -41,6 +41,16 @@
   vars:
     swag_config_dir: "{{ _swag_output_dir }}"
     _swag_output_dir: "{{ '/tmp/swag-generated' if (swag_dry_run | default(false) | bool) else '/opt/swag/nginx/site-confs' }}"
+    # Resolve the SWAG host dynamically: find which role has the 'auth' stack
+    # (SWAG lives in the auth stack), then get its VM IP.
+    _swag_host: >-
+      {%- set ns = namespace(host='') -%}
+      {%- for r, rdef in vm_definitions.items() -%}
+        {%- if rdef.stacks is defined and 'auth' in rdef.stacks and not ns.host -%}
+          {%- set ns.host = rdef.vm_ip -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ ns.host }}
 
   pre_tasks:
     # Workaround for Ansible ≤2.18 on Semaphore (see vars_files comment above).
@@ -393,6 +403,7 @@
       register: _generated_configs
       diff: "{{ swag_diff_only | default(false) | bool }}"
       check_mode: "{{ swag_diff_only | default(false) | bool }}"
+      delegate_to: "{{ omit if (swag_dry_run | default(false) | bool) else _swag_host }}"
 
     - name: Report changes
       ansible.builtin.debug:
@@ -407,6 +418,7 @@
       register: _nginx_test
       changed_when: false
       failed_when: _nginx_test.rc != 0
+      delegate_to: "{{ _swag_host }}"
       when:
         - not (swag_dry_run | default(false) | bool)
         - not (swag_diff_only | default(false) | bool)
@@ -416,6 +428,7 @@
       ansible.builtin.command:
         cmd: docker exec swag nginx -s reload
       changed_when: true
+      delegate_to: "{{ _swag_host }}"
       when:
         - not (swag_dry_run | default(false) | bool)
         - not (swag_diff_only | default(false) | bool)
