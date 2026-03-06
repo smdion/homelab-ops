@@ -29,6 +29,7 @@
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
     - vars/definitions/container_definitions.yaml
+    - vars/configs/docker_stacks.yaml
     - vars/configs/proxmox.yaml
     - vars/configs/guacamole.yaml
   vars:
