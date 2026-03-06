@@ -176,6 +176,15 @@ container_definitions:
     image: "ghcr.io/hotio/cloudflareddns"
     tag: "latest"
     stack: apps
+    env:
+      DDNS_INTERVAL: "300"
+      DDNS_DETECTION_MODE: "dig-whoami.cloudflare"
+      DDNS_LOG_LEVEL: "1"
+      DDNS_CF_APIKEY: "{{ vault_docker_cloudflare_api_key }}"
+      DDNS_CF_HOSTS: "vpn.{{ vault_domain_ext }}"
+      DDNS_CF_ZONES: "{{ vault_domain_ext }}"
+      DDNS_CF_RECORDTYPES: "'A;A'"
+      EMAIL: "{{ vault_docker_email }}"
     compose:
       image_var: DDNS
       base: base
@@ -196,6 +205,9 @@ container_definitions:
     image: "lscr.io/linuxserver/code-server"
     tag: "latest"
     stack: dev
+    env:
+      CODESERVER_PROXY_DOMAIN: "code.{{ vault_domain_ext }}"
+      CODESERVER_DEFAULT_WORKSPACE: "/config/workspace.code-workspace"
     compose:
       image_var: CODESERVER
       base: baseuid
@@ -321,6 +333,12 @@ container_definitions:
     image: "jlesage/firefox"
     tag: "latest"
     stack: apps
+    env:
+      FF_DISPLAY_WIDTH: "{{ docker_firefox_display_width }}"
+      FF_DISPLAY_HEIGHT: "{{ docker_firefox_display_height }}"
+      FF_SECURE_CONNECTION: "{{ docker_firefox_secure_connection }}"
+      FF_DARK_MODE: "{{ docker_firefox_dark_mode }}"
+      FF_WEB_AUDIO: "{{ docker_firefox_web_audio }}"
     guacamole:
       name: Firefox
       group: Tools
@@ -378,6 +396,8 @@ container_definitions:
     image: "abesnier/guacamole"
     tag: "latest"
     stack: apps
+    env:
+      GUAC_EXTENSIONS: "auth-sso-openid"
     compose:
       image_var: GUAC
       base: base
@@ -425,6 +445,8 @@ container_definitions:
     image: "ghcr.io/gethomepage/homepage"
     tag: "latest"
     stack: apps
+    env:
+      HOMEPAGE_ALLOWED_HOSTS: "dashboard.{{ vault_domain_ext }},dashboard.{{ domain_ext_secondary }},landing.{{ vault_domain_ext }},landing.{{ domain_ext_secondary }}"
     compose:
       base: base
       ports: ["3003:3000"]
@@ -515,6 +537,9 @@ container_definitions:
     image: "itsthenetwork/nfs-server-alpine"
     tag: "latest"
     stack: vpn
+    env:
+      NFS_SHARED_DIRECTORY: "/nfsshare"
+      NFS_SYNC: "true"
     compose:
       base: base
       network_mode: "service:wireguard"
@@ -680,6 +705,11 @@ container_definitions:
     image: "lscr.io/linuxserver/wireguard"
     tag: "latest"
     stack: vpn
+    env:
+      WG_SERVERURL: "{{ vault_vps_fqdn }}"
+      WG_SERVERPORT: "51820"
+      WG_PEERS: "3"
+      WG_INTERNAL_SUBNET: "{{ vault_wg_internal_subnet }}"
     compose:
       image_var: WG
       base: base
@@ -707,6 +737,9 @@ container_definitions:
     image: "henrygd/beszel-agent"
     tag: "latest"
     stack: vpn
+    env:
+      BESZEL_LISTEN: "45876"
+      BESZEL_KEY: "{{ vault_docker_beszel_key }}"
     compose:
       image_var: BESZEL_AGENT
       service_name: beszel-agent
@@ -724,6 +757,15 @@ container_definitions:
     image: "lscr.io/linuxserver/socket-proxy"
     tag: "latest"
     stack: vpn
+    env:
+      DP_CONTAINERS: "1"
+      DP_POST: "1"
+      DP_INFO: "1"
+      DP_VOLUMES: "1"
+      DP_SECRETS: "1"
+      DP_IMAGES: "1"
+      DP_NETWORKS: "1"
+      DP_ALLOW_RESTARTS: "1"
     compose:
       image_var: SOCKET_PROXY
       service_name: dockerproxy

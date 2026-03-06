@@ -22,6 +22,8 @@ stack_definitions:
   apps:
     description: "Application services — Home Assistant, Guacamole, Homepage, etc."
     generate_compose: true
+    generate_env: true
+    globals: [mem_limit, restart, tz, puid, pgid, umask, appsdir]
   auth:
     description: "Authentication and reverse proxy — Authentik, SWAG, CrowdSec"
     generate_compose: true
@@ -37,6 +39,8 @@ stack_definitions:
   dev:
     description: "Development tools — code-server, netbootxyz"
     generate_compose: true
+    generate_env: true
+    globals: [mem_limit, restart, tz, puid, pgid, umask, appsdir]
     compose_volumes:
       - core
       - apps
@@ -59,4 +63,6 @@ stack_definitions:
   vpn:
     description: "VPN and NPM — WireGuard, Nginx Proxy Manager"
     generate_compose: true
+    generate_env: true
+    globals: [mem_limit, restart, tz, puid, pgid, umask, appsdir]
     network: false
