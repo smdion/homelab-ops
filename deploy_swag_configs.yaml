@@ -21,13 +21,18 @@
   vars_files:
     # NOTE: container_definitions.yaml is NOT listed here — it is loaded raw via
     # pre_tasks (Python YAML parse → JSON) to avoid Ansible templating the
-    # {{ docker_* }} env values inside it. Those env vars live in
-    # vars/configs/docker_stacks.yaml, but loading that file pulls in derived vars
-    # (stack_assignments, backup_stack_order) that reference host_roles/stack_roles,
-    # which fail on implicit localhost in Ansible ≤2.18 (Semaphore's version as of
-    # 2026-03). If Semaphore upgrades to Ansible ≥2.20, this workaround can be
-    # removed: add container_definitions.yaml and docker_stacks.yaml back to
-    # vars_files and delete the two pre_tasks below.
+    # {{ docker_* }} env values inside it. Those env vars come from
+    # vars/configs/docker_stacks.yaml, which this playbook doesn't need.
+    #
+    # The stack→role lookup also avoids the derived stack_roles variable from
+    # vm_definitions.yaml — its self-referencing {{ vm_definitions | dict2items }}
+    # expression fails on implicit localhost in Ansible ≤2.18 (Semaphore's version
+    # as of 2026-03). Instead, tasks iterate vm_definitions/host_definitions directly.
+    #
+    # If Semaphore upgrades to Ansible ≥2.20 (tested locally), these workarounds
+    # can be removed: add container_definitions.yaml back to vars_files, add
+    # docker_stacks.yaml to vars_files, delete the two pre_tasks, and replace
+    # the vm_definitions/host_definitions loops with stack_roles.items().
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
     - vars/definitions/stack_definitions.yaml
@@ -36,20 +41,6 @@
   vars:
     swag_config_dir: "{{ _swag_output_dir }}"
     _swag_output_dir: "{{ '/tmp/swag-generated' if (swag_dry_run | default(false) | bool) else '/opt/swag/nginx/site-confs' }}"
-
-    # --- Derivation: stack → role (first role that owns each stack) ---
-    _stack_to_role: >-
-      {{ dict(
-        stack_roles | dict2items
-        | map(attribute='value') | map('zip_longest', []) | sum(start=[])
-        | zip(
-          stack_roles | dict2items
-          | map('dict2items') | sum(start=[])
-          | map(attribute='key')
-          | list
-        )
-        | list
-      ) }}
 
   pre_tasks:
     # Workaround for Ansible ≤2.18 on Semaphore (see vars_files comment above).
@@ -89,11 +80,18 @@
               {%- set first_port = ports[0].split(':')[0] if ports | length > 0 else '' -%}
               {%- set proxy_port = labels[_ppt] | default(first_port) -%}
               {%- set ns = namespace(role='') -%}
-              {%- for r, stacks in stack_roles.items() -%}
-                {%- if stack in stacks and not ns.role -%}
+              {%- for r, rdef in vm_definitions.items() -%}
+                {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
                   {%- set ns.role = r -%}
                 {%- endif -%}
               {%- endfor -%}
+              {%- if not ns.role -%}
+                {%- for r, rdef in (host_definitions | default({})).items() -%}
+                  {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
+                    {%- set ns.role = r -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
               {%- set upstream_name = labels[_pun] | default('') -%}
               {%- if upstream_name -%}
                 {%- set upstream_ip = upstream_name -%}
@@ -146,11 +144,18 @@
               {%- set ports = (def.compose | default({})).ports | default([]) -%}
               {%- set first_port = ports[0].split(':')[0] if ports | length > 0 else '' -%}
               {%- set ns = namespace(role='') -%}
-              {%- for r, stacks in stack_roles.items() -%}
-                {%- if stack in stacks and not ns.role -%}
+              {%- for r, rdef in vm_definitions.items() -%}
+                {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
                   {%- set ns.role = r -%}
                 {%- endif -%}
               {%- endfor -%}
+              {%- if not ns.role -%}
+                {%- for r, rdef in (host_definitions | default({})).items() -%}
+                  {%- if rdef.stacks is defined and stack in rdef.stacks and not ns.role -%}
+                    {%- set ns.role = r -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endif -%}
               {%- if proxy.upstream_ip is defined and proxy.upstream_ip -%}
                 {%- set upstream_ip = proxy.upstream_ip -%}
               {%- elif proxy.upstream_name is defined and proxy.upstream_name -%}
