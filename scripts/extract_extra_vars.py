@@ -94,10 +94,13 @@ def parse_header(filepath: Path) -> dict:
     if "DEPRECATED" in text.upper():
         result["deprecated"] = True
 
-    # Extract description (first non-empty line)
+    # Extract description (first non-empty line that isn't metadata)
     for line in header_lines:
-        if line.strip():
-            result["description"] = line.strip()
+        stripped = line.strip()
+        if stripped and not re.match(
+            r"^(Category:|Schedule|DEPRECATED)", stripped, re.IGNORECASE
+        ):
+            result["description"] = stripped
             break
 
     # --- Multi-pass extraction ---
