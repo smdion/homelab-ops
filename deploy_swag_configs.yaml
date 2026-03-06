@@ -7,13 +7,12 @@
 # chain, renders Jinja2 templates, and deploys to the SWAG container on the auth stack host.
 #
 # Optional extra vars:
-#   swag_dry_run=true    — write to /tmp/swag-generated/ instead of SWAG (default: false)
-#   swag_diff_only=true  — show diff without writing (default: false)
+#   dry_run=true  — write to /tmp/swag-generated/ instead of live SWAG dir (default: false)
 #
 # Usage:
 #   ansible-playbook deploy_swag_configs.yaml
-#   ansible-playbook deploy_swag_configs.yaml -e swag_dry_run=true
-#   ansible-playbook deploy_swag_configs.yaml -e swag_diff_only=true
+#   ansible-playbook deploy_swag_configs.yaml -e dry_run=true
+#   ansible-playbook deploy_swag_configs.yaml --diff --check   # show diffs only
 
 - name: Generate SWAG reverse proxy configs
   hosts: localhost
@@ -44,7 +43,7 @@
 
   vars:
     swag_config_dir: "{{ _swag_output_dir }}"
-    _swag_output_dir: "{{ '/tmp/swag-generated' if (swag_dry_run | default(false) | bool) else '/opt/swag/nginx/site-confs' }}"
+    _swag_output_dir: "{{ '/tmp/swag-generated' if (dry_run | default(false) | bool) else '/opt/swag/nginx/site-confs' }}"
     # Resolve the SWAG host dynamically: find which VM role has the 'auth' stack
     # (SWAG lives in the auth stack), then get its VM IP.
     _swag_host: >-
@@ -420,7 +419,7 @@
           vars:
             ansible_connection: ssh
             ansible_user: "{{ vm_user }}"
-          when: swag_dry_run | default(false) | bool
+          when: dry_run | default(false) | bool
 
         - name: Generate site-conf files
           ansible.builtin.template:
@@ -433,8 +432,7 @@
           loop_control:
             label: "{{ item.subdomain }}.conf"
           register: _generated_configs
-          diff: "{{ swag_diff_only | default(false) | bool }}"
-          check_mode: "{{ swag_diff_only | default(false) | bool }}"
+          # --diff --check on the CLI enables diff mode for this task automatically
           delegate_to: "{{ _swag_host }}"
           become: true
           vars:
@@ -452,8 +450,6 @@
             msg: >-
               Generated {{ _all_proxies | length }} site-confs.
               {{ _generated_configs.results | selectattr('changed') | list | length }} changed.
-          when: not (swag_diff_only | default(false) | bool)
-
         - name: Validate nginx configuration
           ansible.builtin.command:
             cmd: docker exec swag nginx -t
@@ -466,8 +462,8 @@
             ansible_connection: ssh
             ansible_user: "{{ vm_user }}"
           when:
-            - not (swag_dry_run | default(false) | bool)
-            - not (swag_diff_only | default(false) | bool)
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
             - _generated_configs is changed
 
         - name: Reload nginx
@@ -480,8 +476,8 @@
             ansible_connection: ssh
             ansible_user: "{{ vm_user }}"
           when:
-            - not (swag_dry_run | default(false) | bool)
-            - not (swag_diff_only | default(false) | bool)
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
             - _generated_configs is changed
             - _nginx_test is succeeded
 

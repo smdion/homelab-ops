@@ -56,6 +56,10 @@
     _formatted_run_vars: ""
   when: _formatted_run_vars is not defined
 
+- name: Compute dry-run indicator
+  ansible.builtin.set_fact:
+    _is_dry_run: "{{ (dry_run | default(false) | bool) or ansible_check_mode }}"
+
 - name: Display run context
   ansible.builtin.debug:
     msg: "{{ pre_playbook }} on {{ pre_hostname | default(inventory_hostname) }} {{ _formatted_run_vars }}"

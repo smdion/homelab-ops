@@ -173,7 +173,7 @@
   until: _compose_up_result is not failed
   when:
     - not ansible_check_mode
-    - not (validate_only | default('') == 'yes')
+    - not (dry_run | default(false) | bool)
     - not (pull_only | default('') == 'yes')
 
 - name: "Discover wait ports from labels — {{ _current_stack }}"
@@ -197,6 +197,6 @@
   loop: "{{ _label_wait_ports.stdout_lines | default([]) | reject('eq', '') | list }}"
   when:
     - not ansible_check_mode
-    - not (validate_only | default('') == 'yes')
+    - not (dry_run | default(false) | bool)
     - not (pull_only | default('') == 'yes')
     - _label_wait_ports.stdout_lines | default([]) | reject('eq', '') | list | length > 0

@@ -21,7 +21,7 @@
 #   ansible-playbook deploy_stacks.yaml -e hosts_variable=docker_stacks -e role=core
 #
 # Optional extra vars:
-#   validate_only=yes     — render and validate only, skip docker compose up
+#   dry_run=true          — render and validate only, skip docker compose up
 #   pull_only=yes         — render, validate, and pull images, but skip docker compose up
 #   debug_no_log=yes      — show template output in logs (NEVER in production)
 
@@ -45,7 +45,7 @@
     config_file: "{{ hosts_variable }}"
     maintenance_name: "Docker"
     maintenance_type: "Servers"
-    maintenance_subtype: "{{ 'Validate Deploy' if (validate_only | default('') == 'yes') else ('Pull Images' if (pull_only | default('') == 'yes') else 'Deploy') }}"
+    maintenance_subtype: "{{ 'Validate Deploy' if (dry_run | default(false) | bool) else ('Pull Images' if (pull_only | default('') == 'yes') else 'Deploy') }}"
     _no_log: "{{ _no_log }}"
 
   pre_tasks:
@@ -167,7 +167,7 @@
 
         - name: Record deploy detail
           ansible.builtin.set_fact:
-            _deploy_detail: "Stacks {{ 'validated' if (validate_only | default('') == 'yes') else 'deployed' }}: {{ _deploy_stacks | join(', ') }}"
+            _deploy_detail: "Stacks {{ 'validated' if (dry_run | default(false) | bool) else 'deployed' }}: {{ _deploy_stacks | join(', ') }}"
 
       rescue:
         - name: Set deploy failed flag

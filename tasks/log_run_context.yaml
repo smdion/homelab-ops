@@ -29,5 +29,5 @@
   retries: 40
   delay: 10
   until: _log_run_result is succeeded
-  when: not (skip_db | default(false) | bool) and not ansible_check_mode
+  when: not (skip_db | default(false) | bool) and not ansible_check_mode and not (_is_dry_run | default(false) | bool)
   no_log: "{{ _no_log | default(true) }}"

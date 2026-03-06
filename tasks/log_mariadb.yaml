@@ -93,5 +93,5 @@
   retries: 40
   delay: 10
   until: _log_mariadb_result is succeeded
-  when: not (skip_db | default(false) | bool) and not ansible_check_mode
+  when: not (skip_db | default(false) | bool) and not ansible_check_mode and not (_is_dry_run | default(false) | bool)
   no_log: "{{ _no_log }}"

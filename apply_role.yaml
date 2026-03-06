@@ -19,13 +19,13 @@
 #   ansible-playbook apply_role.yaml -e role=vps              # hosted server (non-VM)
 #   ansible-playbook apply_role.yaml -e role=core -e stack=auth
 #   ansible-playbook apply_role.yaml -e role=core -e skip_stacks=yes
-#   ansible-playbook apply_role.yaml -e validate_only=yes     # dry-run all roles
+#   ansible-playbook apply_role.yaml -e dry_run=true           # dry-run all roles
 #
 # Optional extra vars:
 #   role                 — role filter (any key from vm/host definitions). Omit for all roles with stacks.
 #   deploy_ssh_key=yes   — install ansible SSH key (default: from VM spec)
 #   debug_no_log=yes     — show template output in logs
-#   validate_only=yes    — dry-run: resolve scope, skip apply
+#   dry_run=true         — resolve scope only, skip apply
 #   resize=yes           — enable Hardware layer (PVE resize + reboot)
 #   stack=<name>         — deploy only this stack (e.g. -e stack=auth)
 #   skip_bootstrap=yes   — skip OS + Network layers

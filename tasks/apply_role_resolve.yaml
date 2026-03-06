@@ -24,7 +24,7 @@
       Skip stacks:    {{ skip_stacks | default(false) | bool }}
       Skip verify:    {{ skip_verify | default(false) | bool }}
       Resize:         {{ resize | default(false) | bool }}
-      Validate only:  {{ validate_only | default(false) | bool }}
+      Dry run:        {{ dry_run | default(false) | bool }}
 
 - name: "Add target to inventory — {{ _current_role }}"
   ansible.builtin.add_host:
@@ -38,4 +38,4 @@
     _target_is_docker_vm: "{{ _resolve_def.stacks is defined }}"
     _target_stacks: "{{ _resolve_def.stacks | default([]) }}"
     _target_deploy_ssh_key: "{{ (deploy_ssh_key | default(false) | bool) or (_resolve_def.deploy_ssh_key | default(false) | bool) }}"
-  when: not (validate_only | default(false) | bool)
+  when: not (dry_run | default(false) | bool)
