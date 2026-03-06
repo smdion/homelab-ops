@@ -4,9 +4,7 @@
 # Targets a configurable Docker host (vault_offsite_host from vault) since the
 # Semaphore controller runs as a container and cannot execute Docker.
 #
-# Two runtime modes (auto-detected from inventory group membership):
-#   - docker_run hosts (unRAID): docker run --rm restic/restic
-#   - docker_stacks hosts (Ubuntu VMs): docker compose run --rm restic
+# Restic runs as an ephemeral container (docker run --rm) on all hosts.
 #
 # Two sync methods:
 #   - restic (default): S3-compatible incremental backup (encrypted, deduplicated)
@@ -68,18 +66,33 @@
     backup_name: "B2"
     backup_subtype: "Offsite"
     offsite_method: "restic"
-    _stack_dir: "{{ stacks_base_path }}/backups"
-    _is_docker_run: "{{ inventory_hostname in groups['docker_run'] | default([]) }}"
-    _is_docker_stacks: "{{ inventory_hostname in groups['docker_stacks'] | default([]) }}"
     _backup_source: "{{ offsite_backup_source | default(backup_base_dir) }}"
     _cache_dir: "{{ offsite_restic_cache_dir | default(restic_cache_dir | default('/opt/restic-cache')) }}"
     _restic_image: "{{ container_definitions.restic.image }}:{{ container_definitions.restic.tag }}"
     _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
-    # unRAID Docker UI labels — applied to ad-hoc docker run containers (e.g. Restic)
+    _restic_env:
+      AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
+      AWS_SECRET_ACCESS_KEY: "{{ vault_b2_application_key }}"
+      RESTIC_REPOSITORY: "{{ vault_restic_repository }}"
+      RESTIC_PASSWORD: "{{ vault_restic_password }}"
+    # unRAID Docker UI labels — applied on docker_run hosts only
     _unraid_docker_labels: >-
       --label net.unraid.docker.managed=composeman
       --label net.unraid.docker.icon=https://raw.githubusercontent.com/restic/restic/master/doc/logo/logo.png
       --label net.unraid.docker.shell=sh
+    _is_docker_run: "{{ inventory_hostname in groups['docker_run'] | default([]) }}"
+    _docker_labels: "{{ (_is_docker_run | bool) | ternary(_unraid_docker_labels, '') }}"
+    # Common docker run arguments shared across all restic commands
+    _restic_run: >-
+      docker run --rm --name restic
+      {{ _docker_labels }}
+      -v {{ _backup_source }}:/data:ro
+      -v {{ _cache_dir }}:/root/.cache/restic
+      -e AWS_ACCESS_KEY_ID
+      -e AWS_SECRET_ACCESS_KEY
+      -e RESTIC_REPOSITORY
+      -e RESTIC_PASSWORD
+      {{ _restic_image }}
 
   pre_tasks:
     - name: Load docker_run vars for docker_run hosts
@@ -88,7 +101,7 @@
 
     - name: Load docker_stacks vars for docker_stacks hosts
       ansible.builtin.include_vars: vars/configs/docker_stacks.yaml
-      when: _is_docker_stacks | bool
+      when: not (_is_docker_run | bool)
 
     - name: Reset backup_name after include_vars override
       ansible.builtin.set_fact:
@@ -153,94 +166,7 @@
 
     - block:
         # ═════════════════════════════════════════════════════════════════════
-        # Restic path — docker compose (docker_stacks hosts)
-        # ═════════════════════════════════════════════════════════════════════
-        - block:
-            - name: Create backups stack directory
-              become: true
-              ansible.builtin.file:
-                path: "{{ _stack_dir }}"
-                state: directory
-                mode: "0755"
-
-            - name: Generate backups stack .env from definitions
-              become: true
-              ansible.builtin.template:
-                src: env.j2
-                dest: "{{ _stack_dir }}/.env"
-                mode: "0600"
-              vars:
-                _current_stack: backups
-              no_log: "{{ _no_log }}"
-              when: stack_definitions.backups.generate_env | default(false) | bool
-
-            - name: Template backups stack .env
-              become: true
-              ansible.builtin.template:
-                src: stacks/backups/env.j2
-                dest: "{{ _stack_dir }}/.env"
-                mode: "0600"
-              no_log: "{{ _no_log }}"
-              when: not (stack_definitions.backups.generate_env | default(false) | bool)
-
-            - name: Copy backups stack docker-compose.yaml
-              become: true
-              ansible.builtin.copy:
-                src: stacks/backups/docker-compose.yaml
-                dest: "{{ _stack_dir }}/docker-compose.yaml"
-                mode: "0644"
-
-            - name: Check if Restic repository is initialized (compose)
-              become: true
-              ansible.builtin.command: >-
-                docker compose -f {{ _stack_dir }}/docker-compose.yaml
-                run --rm restic snapshots --latest 1
-              register: _restic_check
-              failed_when: false  # pre-flight probe — repo may not be initialized yet
-              changed_when: false
-              no_log: "{{ _no_log }}"
-
-            - name: Initialize Restic repository (compose)
-              become: true
-              ansible.builtin.command: >-
-                docker compose -f {{ _stack_dir }}/docker-compose.yaml
-                run --rm restic init
-              when: _restic_check.rc != 0
-              no_log: "{{ _no_log }}"
-
-            - name: Run Restic backup (compose)
-              become: true
-              ansible.builtin.command: >-
-                docker compose -f {{ _stack_dir }}/docker-compose.yaml
-                run --rm restic backup /data
-                --json
-                {{ '--dry-run' if dry_run | default(false) | bool else '' }}
-              register: _restic_result
-              timeout: 7200
-              no_log: "{{ _no_log }}"
-
-            - name: Apply Restic retention policy (compose)
-              become: true
-              ansible.builtin.command: >-
-                docker compose -f {{ _stack_dir }}/docker-compose.yaml
-                run --rm restic forget
-                --keep-weekly {{ restic_keep_weekly }}
-                --keep-monthly {{ restic_keep_monthly }}
-                --prune
-              when: not (dry_run | default(false) | bool)
-              no_log: "{{ _no_log }}"
-
-          rescue:
-            - name: Set sync failed flag (compose)
-              ansible.builtin.set_fact:
-                sync_failed: true
-
-          when:
-            - offsite_method == 'restic'
-            - _is_docker_stacks | bool
-
-        # ═════════════════════════════════════════════════════════════════════
-        # Restic path — docker run (docker_run hosts, e.g. unRAID)
+        # Restic path — docker run on all hosts
         # ═════════════════════════════════════════════════════════════════════
         - block:
             - name: Create Restic cache directory
@@ -250,106 +176,56 @@
                 state: directory
                 mode: "0755"
 
-            - name: Check if Restic repository is initialized (docker run)
+            - name: Check if Restic repository is initialized
               become: true
               ansible.builtin.command: >-
-                docker run --rm --name restic
-                {{ _unraid_docker_labels }}
-                -v {{ _backup_source }}:/data:ro
-                -v {{ _cache_dir }}:/root/.cache/restic
-                -e AWS_ACCESS_KEY_ID
-                -e AWS_SECRET_ACCESS_KEY
-                -e RESTIC_REPOSITORY
-                -e RESTIC_PASSWORD
-                {{ _restic_image }}
+                {{ _restic_run }}
                 snapshots --latest 1
-              environment:
-                AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
-                AWS_SECRET_ACCESS_KEY: "{{ vault_b2_application_key }}"
-                RESTIC_REPOSITORY: "{{ vault_restic_repository }}"
-                RESTIC_PASSWORD: "{{ vault_restic_password }}"
+              environment: "{{ _restic_env }}"
               register: _restic_check
               failed_when: false  # pre-flight probe — repo may not be initialized yet
               changed_when: false
               no_log: "{{ _no_log }}"
 
-            - name: Initialize Restic repository (docker run)
+            - name: Initialize Restic repository
               become: true
               ansible.builtin.command: >-
-                docker run --rm --name restic
-                {{ _unraid_docker_labels }}
-                -v {{ _backup_source }}:/data:ro
-                -v {{ _cache_dir }}:/root/.cache/restic
-                -e AWS_ACCESS_KEY_ID
-                -e AWS_SECRET_ACCESS_KEY
-                -e RESTIC_REPOSITORY
-                -e RESTIC_PASSWORD
-                {{ _restic_image }}
+                {{ _restic_run }}
                 init
-              environment:
-                AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
-                AWS_SECRET_ACCESS_KEY: "{{ vault_b2_application_key }}"
-                RESTIC_REPOSITORY: "{{ vault_restic_repository }}"
-                RESTIC_PASSWORD: "{{ vault_restic_password }}"
+              environment: "{{ _restic_env }}"
               when: _restic_check.rc != 0
               no_log: "{{ _no_log }}"
 
-            - name: Run Restic backup (docker run)
+            - name: Run Restic backup
               become: true
               ansible.builtin.command: >-
-                docker run --rm --name restic
-                {{ _unraid_docker_labels }}
-                -v {{ _backup_source }}:/data:ro
-                -v {{ _cache_dir }}:/root/.cache/restic
-                -e AWS_ACCESS_KEY_ID
-                -e AWS_SECRET_ACCESS_KEY
-                -e RESTIC_REPOSITORY
-                -e RESTIC_PASSWORD
-                {{ _restic_image }}
+                {{ _restic_run }}
                 backup /data
                 --json
                 {{ '--dry-run' if dry_run | default(false) | bool else '' }}
-              environment:
-                AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
-                AWS_SECRET_ACCESS_KEY: "{{ vault_b2_application_key }}"
-                RESTIC_REPOSITORY: "{{ vault_restic_repository }}"
-                RESTIC_PASSWORD: "{{ vault_restic_password }}"
+              environment: "{{ _restic_env }}"
               register: _restic_result
               timeout: 7200
               no_log: "{{ _no_log }}"
 
-            - name: Apply Restic retention policy (docker run)
+            - name: Apply Restic retention policy
               become: true
               ansible.builtin.command: >-
-                docker run --rm --name restic
-                {{ _unraid_docker_labels }}
-                -v {{ _backup_source }}:/data:ro
-                -v {{ _cache_dir }}:/root/.cache/restic
-                -e AWS_ACCESS_KEY_ID
-                -e AWS_SECRET_ACCESS_KEY
-                -e RESTIC_REPOSITORY
-                -e RESTIC_PASSWORD
-                {{ _restic_image }}
+                {{ _restic_run }}
                 forget
                 --keep-weekly {{ restic_keep_weekly }}
                 --keep-monthly {{ restic_keep_monthly }}
                 --prune
-              environment:
-                AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
-                AWS_SECRET_ACCESS_KEY: "{{ vault_b2_application_key }}"
-                RESTIC_REPOSITORY: "{{ vault_restic_repository }}"
-                RESTIC_PASSWORD: "{{ vault_restic_password }}"
+              environment: "{{ _restic_env }}"
               when: not (dry_run | default(false) | bool)
               no_log: "{{ _no_log }}"
 
           rescue:
-            - name: Set sync failed flag (docker run)
+            - name: Set sync failed flag (restic)
               ansible.builtin.set_fact:
                 sync_failed: true
 
-          when:
-            - offsite_method == 'restic'
-            - _is_docker_run | bool
+          when: offsite_method == 'restic'
 
         # ═════════════════════════════════════════════════════════════════════
         # Parse Restic JSON summary
@@ -426,7 +302,7 @@
             discord_url: "https://secure.backblaze.com/b2_buckets.htm"
             discord_fields: >-
               {{
-                [{'name': ('❌ ' if sync_failed else '✅ ') ~ offsite_method, 'value': (_is_docker_run | bool) | ternary('docker run', 'docker compose'), 'inline': true}]
+                [{'name': ('❌ ' if sync_failed else '✅ ') ~ offsite_method, 'value': 'docker run', 'inline': true}]
                 + ([{'name': 'Bucket', 'value': vault_b2_bucket_name}] if offsite_method == 'rclone' else [])
                 + ([{'name': 'Repository', 'value': vault_restic_repository}] if offsite_method == 'restic' else [])
                 + ([{'name': 'Changed', 'value': ((_restic_summary.data_added | default(0) | int) / 1048576) | round(1) | string ~ ' MiB', 'inline': true}] if _restic_summary | default({}) else [])

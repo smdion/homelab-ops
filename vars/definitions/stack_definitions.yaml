@@ -30,10 +30,6 @@ stack_definitions:
     generate_compose: true
     generate_env: true
     globals: [mem_limit, restart, tz, puid, pgid, umask, appsdir]
-  backups:
-    description: "Backup agent — Restic"
-    generate_compose: true
-    network: false
   databases:
     description: "Database services — MariaDB, PostgreSQL, Adminer"
     generate_compose: true
