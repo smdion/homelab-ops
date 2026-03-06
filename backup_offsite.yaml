@@ -61,14 +61,13 @@
   vars_files:
     - vars/secrets.yaml
     - vars/configs/semaphore_check.yaml
-    - vars/definitions/container_definitions.yaml
   vars:
     backup_name: "B2"
     backup_subtype: "Offsite"
     offsite_method: "restic"
     _backup_source: "{{ offsite_backup_source | default(backup_base_dir) }}"
     _cache_dir: "{{ offsite_restic_cache_dir | default(restic_cache_dir | default('/opt/restic-cache')) }}"
-    _restic_image: "{{ container_definitions.restic.image }}:{{ container_definitions.restic.tag }}"
+    _restic_image: "restic/restic:latest"
     _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
     _restic_env:
       AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
