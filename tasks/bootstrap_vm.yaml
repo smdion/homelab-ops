@@ -156,12 +156,12 @@
 
     - name: Write SSH private key
       ansible.builtin.copy:
-        content: "{{ ansible_user_ssh_private_key }}"
+        content: "{{ vault_ansible_user_ssh_private_key }}"
         dest: "/home/{{ vm_user }}/.ssh/id_ed25519"
         owner: "{{ vm_user }}"
         group: "{{ vm_user }}"
         mode: "0600"
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Write SSH client config (accept new host keys, no interactive prompts)
       ansible.builtin.copy:

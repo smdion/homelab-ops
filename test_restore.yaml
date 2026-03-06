@@ -309,7 +309,7 @@
             (_vm.vm_id | int) >= (vm_test_slot_base | int) and
             (_vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
           ignore_errors: true  # best-effort — VM may already be stopped; slot cleanup is primary goal
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Fail play if build failed
           ansible.builtin.fail:
@@ -390,7 +390,7 @@
             (hostvars['localhost']._vm.vm_id | int) >= (vm_test_slot_base | int) and
             (hostvars['localhost']._vm.vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
           ignore_errors: true  # best-effort — VM may already be stopped; slot cleanup is primary goal
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Fail play if bootstrap failed
           ansible.builtin.fail:
@@ -421,7 +421,7 @@
             headers:
               Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
             validate_certs: false
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
           register: _vm_snapshots
 
         - name: Delete existing pre-test snapshot if present
@@ -431,7 +431,7 @@
             headers:
               Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
             validate_certs: false
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
           when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
 
         - name: Wait for VM lock to clear after snapshot delete
@@ -445,7 +445,7 @@
           until: _vm_lock_status.json.data.lock is not defined
           retries: 20
           delay: 3
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
           when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
 
         - name: Create pre-test snapshot (post-bootstrap clean state)
@@ -459,7 +459,7 @@
               snapname: pre-test-restore
               vmstate: 0
             validate_certs: false
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
       rescue:
         - name: Set snapshot failed flag
@@ -482,7 +482,7 @@
             (vm_definitions[vm_name].vm_id | int) >= (vm_test_slot_base | int) and
             (vm_definitions[vm_name].vm_id | int) <= ((vm_test_slot_base + vm_test_slot_count - 1) | int)
           ignore_errors: true  # best-effort — VM may already be stopped; slot cleanup is primary goal
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Fail play if snapshot failed
           ansible.builtin.fail:
@@ -632,7 +632,7 @@
             vmid: "{{ vm_definitions[vm_name].vm_id }}"
             state: stopped
             force: true
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
           ignore_errors: true  # best-effort — VM may already be stopped before snapshot revert
 
         - name: Revert to pre-test snapshot
@@ -642,7 +642,7 @@
             headers:
               Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
             validate_certs: false
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Wait for test VM snapshot rollback to complete
           ansible.builtin.pause:
@@ -655,7 +655,7 @@
             headers:
               Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
             validate_certs: false
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
       when: not (dr_mode | default('') == 'yes')
 
     - name: Fail if test restore failed

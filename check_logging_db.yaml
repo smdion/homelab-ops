@@ -51,7 +51,7 @@
                 (SELECT COUNT(*) FROM restores      WHERE timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS restores_7d
           register: _counts_result
           when: not ansible_check_mode
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Query hosts with no backup in last 7 days
           vars:
@@ -73,7 +73,7 @@
               ORDER BY hostname
           register: _no_backup_result
           when: not ansible_check_mode
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Query failed operation counts in last 7 days
           vars:
@@ -93,7 +93,7 @@
                 (SELECT COUNT(*) FROM restores    WHERE status = 'failed' AND timestamp >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL {{ summary_report_days }} DAY)) AS failed_restores
           register: _failures_result
           when: not ansible_check_mode
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Extract query results into facts
           ansible.builtin.set_fact:

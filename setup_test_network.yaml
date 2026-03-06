@@ -62,7 +62,7 @@
         validate_certs: false
       register: _portconf
       check_mode: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Find Proxmox uplink port profile
       ansible.builtin.set_fact:
@@ -87,7 +87,7 @@
         validate_certs: false
       register: _all_networks
       check_mode: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Find test VLAN network _id
       ansible.builtin.set_fact:
@@ -138,7 +138,7 @@
         validate_certs: false
         status_code: [200, 201]
       when: not _test_vlan_exists and not ansible_check_mode
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       register: _create_vlan
 
     - name: Record VLAN status
@@ -205,7 +205,7 @@
           x-api-key: "{{ vault_unifi_network_api_key }}"
         validate_certs: false
       register: _verify_networks
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: not ansible_check_mode
 
     - name: Assert test-isolation VLAN exists

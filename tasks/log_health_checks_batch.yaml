@@ -29,5 +29,9 @@
         check_status = VALUES(check_status), check_value = VALUES(check_value),
         check_detail = VALUES(check_detail), timestamp = UTC_TIMESTAMP()
     positional_args: "{{ _all_results | json_query('[].[ hostname, check_name, status, value, detail ]') | flatten }}"
+  register: _log_health_batch_result
+  retries: 3
+  delay: 5
+  until: _log_health_batch_result is succeeded
   when: not (skip_db | default(false) | bool) and not ansible_check_mode
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"

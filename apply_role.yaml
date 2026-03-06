@@ -113,7 +113,7 @@
     maintenance_name: "Docker"
     maintenance_type: "Servers"
     maintenance_subtype: "Apply Role"
-    _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+    _no_log: "{{ _no_log }}"
 
   tasks:
     - name: Resolve Semaphore task URL for notifications

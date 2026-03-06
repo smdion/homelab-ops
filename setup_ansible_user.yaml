@@ -31,7 +31,7 @@
     - name: Deploy SSH public key for ansible user
       ansible.builtin.authorized_key:
         user: ansible
-        key: "{{ ansible_user_ssh_pubkey }}"
+        key: "{{ vault_ansible_user_ssh_pubkey }}"
         state: present
 
     - name: Harden SSH and configure passwordless sudo
@@ -76,7 +76,7 @@
 
     - name: Store authorized_keys in boot config
       ansible.builtin.copy:
-        content: "{{ ansible_user_ssh_pubkey }}\n"
+        content: "{{ vault_ansible_user_ssh_pubkey }}\n"
         dest: /boot/config/ssh/ansible_authorized_keys
         mode: "0600"
 

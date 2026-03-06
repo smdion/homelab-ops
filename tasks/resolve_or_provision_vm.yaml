@@ -30,7 +30,7 @@
       Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
     validate_certs: false
   register: _cluster_vms
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
 
 - name: Set VM existence and node facts
   ansible.builtin.set_fact:
@@ -66,7 +66,7 @@
     validate_certs: false
     status_code: [200, 500]
   register: _vm_start_result
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
   when:
     - _vm_exists
     - _vm_cluster_status == 'stopped'

@@ -26,7 +26,7 @@
       Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
     validate_certs: false
   register: _template_check
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
 
 - name: Set template existence fact
   ansible.builtin.set_fact:

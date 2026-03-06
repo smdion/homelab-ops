@@ -7,7 +7,7 @@
 #   _pve                     — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
 #   pve_template_vmid, pve_template_name — cloud-init template config
 #   pve_cloud_image_url, pve_storage, pve_bridge — infrastructure defaults
-#   vm_user, vault_pve_vm_password, ansible_user_ssh_pubkey — VM user credentials
+#   vm_user, vault_pve_vm_password, vault_ansible_user_ssh_pubkey — VM user credentials
 #   vm_cidr, vm_gateway, vm_dns, vm_search_domain — network config
 # Optional:
 #   _provision_target_group  — inventory group name for the new VM (default: 'build_target')
@@ -37,7 +37,7 @@
       Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
     validate_certs: false
   register: _cluster_vms
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
 
 - name: Set VM pre-exists fact
   ansible.builtin.set_fact:
@@ -119,7 +119,7 @@
         storage: "{{ pve_storage }}"
         target: "{{ _vm_resolved_node }}"
         timeout: 300
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: not _vm_already_exists
 
     # Wait for cloned VM to appear in cluster (any node)
@@ -134,7 +134,7 @@
       until: _clone_ready.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | length > 0
       retries: 30
       delay: 5
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: not _vm_already_exists and not ansible_check_mode
 
     # Resolve actual node the VM landed on (may differ from pve_target_node via VIP)
@@ -160,13 +160,13 @@
         agent: "enabled=1"
         ciuser: "{{ vm_user }}"
         cipassword: "{{ vault_pve_vm_password }}"
-        sshkeys: "{{ ansible_user_ssh_pubkey }}"
+        sshkeys: "{{ vault_ansible_user_ssh_pubkey }}"
         ipconfig:
           ipconfig0: "ip={{ _vm.vm_ip }}/{{ vm_cidr }},gw={{ _vm.vm_gateway | default(vm_gateway) }}"
         nameservers: "{{ _vm.vm_dns | default(vm_dns) }}"
         searchdomains: "{{ vm_search_domain }}"
         update: true
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     # Verify cloud-init IP was applied before starting (fail fast, not after 5-min SSH timeout)
     - name: Read back VM config to verify cloud-init IP
@@ -177,7 +177,7 @@
           Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
       register: _vm_config_check
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Assert cloud-init IP matches expected
       ansible.builtin.assert:
@@ -199,7 +199,7 @@
           disk: scsi0
           size: "{{ _vm.vm_disk_gb }}G"
         validate_certs: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: not _vm_already_exists and not ansible_check_mode
 
     # Configure net0: static MAC (stable Unifi identity) and/or VLAN tag (test isolation)
@@ -214,7 +214,7 @@
           net0: "virtio{{ '=' ~ _vm.vm_mac if _vm.vm_mac is defined else '' }},bridge={{ pve_bridge }}{{ ',tag=' ~ _vm.vm_vlan_tag if _vm.vm_vlan_tag is defined else '' }}"
         validate_certs: false
       when: (_vm.vm_mac is defined or _vm.vm_vlan_tag is defined) and not ansible_check_mode
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     # Derive effective QEMU args from vnc_display and/or pve_args
     - name: Derive effective QEMU args
@@ -239,7 +239,7 @@
           - --args
           - "{{ _effective_pve_args }}"
       when: _effective_pve_args is defined and _effective_pve_args | length > 0 and not ansible_check_mode
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     # Flag Guacamole sync when VNC args were applied and VM has guacamole metadata
     - name: Flag Guacamole sync needed for VNC VM
@@ -257,7 +257,7 @@
         node: "{{ _vm_actual_node }}"
         vmid: "{{ _vm.vm_id }}"
         state: started
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Assert SSH port reachable (firewall check)
       ansible.builtin.wait_for:
@@ -315,7 +315,7 @@
         _pool_add_result.status | default(0) not in [200] and
         'already a pool member' not in (_pool_add_result.json.message | default(''))
       when: _provision_pool | length > 0 and not ansible_check_mode
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
   rescue:
     - ansible.builtin.fail:

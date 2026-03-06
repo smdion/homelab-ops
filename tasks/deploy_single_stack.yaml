@@ -25,7 +25,7 @@
         owner: root
         group: root
         mode: "0600"
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: stack_definitions[_current_stack].generate_env | default(false) | bool
 
     - name: "Template .env (staging) — {{ _current_stack }}"
@@ -36,7 +36,7 @@
         owner: root
         group: root
         mode: "0600"
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: not (stack_definitions[_current_stack].generate_env | default(false) | bool)
   rescue:
     - ansible.builtin.fail:

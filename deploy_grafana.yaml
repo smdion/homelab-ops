@@ -9,10 +9,10 @@
 #   - Stale Updates: health_update_stale_days (SQL query + title)
 #
 # Runs from the Semaphore controller (localhost) — no SSH required.
-# Grafana must be reachable via grafana_url from the controller.
+# Grafana must be reachable via vault_grafana_url from the controller.
 #
 # Required variables (vars/secrets.yaml):
-#   grafana_url, grafana_service_account_token
+#   vault_grafana_url, vault_grafana_service_account_token
 #   vault_logging_db_host, vault_logging_db_port, vault_logging_db_user, vault_logging_db_password, vault_logging_db_name
 #   vault_discord_webhook_id, vault_discord_webhook_token
 #
@@ -50,22 +50,22 @@
         # ═══════════════════════════════════════════════════════════════════
         - name: Check if Ansible-Logging datasource exists
           ansible.builtin.uri:
-            url: "{{ grafana_url }}/api/datasources/name/Ansible-Logging"
+            url: "{{ vault_grafana_url }}/api/datasources/name/Ansible-Logging"
             method: GET
             headers:
-              Authorization: "Bearer {{ grafana_service_account_token }}"
+              Authorization: "Bearer {{ vault_grafana_service_account_token }}"
               Accept: "application/json"
             status_code: [200, 404]
           register: _ds_check
           when: not ansible_check_mode
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Create Ansible-Logging datasource
           ansible.builtin.uri:
-            url: "{{ grafana_url }}/api/datasources"
+            url: "{{ vault_grafana_url }}/api/datasources"
             method: POST
             headers:
-              Authorization: "Bearer {{ grafana_service_account_token }}"
+              Authorization: "Bearer {{ vault_grafana_service_account_token }}"
               Content-Type: "application/json"
             body_format: json
             body:
@@ -82,7 +82,7 @@
           when:
             - not ansible_check_mode
             - _ds_check.status == 404
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Record datasource status
           ansible.builtin.set_fact:
@@ -117,10 +117,10 @@
 
         - name: Import dashboard via API
           ansible.builtin.uri:
-            url: "{{ grafana_url }}/api/dashboards/db"
+            url: "{{ vault_grafana_url }}/api/dashboards/db"
             method: POST
             headers:
-              Authorization: "Bearer {{ grafana_service_account_token }}"
+              Authorization: "Bearer {{ vault_grafana_service_account_token }}"
               Content-Type: "application/json"
             body_format: json
             body:
@@ -130,7 +130,7 @@
               message: "Deployed via Ansible"
             status_code: 200
           when: not ansible_check_mode
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Record deploy detail
           ansible.builtin.set_fact:

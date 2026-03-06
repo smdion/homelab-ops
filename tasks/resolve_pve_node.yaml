@@ -29,7 +29,7 @@
           Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
       register: _pve_nodes
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Derive online candidate nodes
       ansible.builtin.set_fact:

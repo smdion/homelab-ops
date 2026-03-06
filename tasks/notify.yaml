@@ -46,9 +46,9 @@
 #   inventory_hostname, ansible_date_time
 #
 # Optional Apprise vars (from vars/secrets.yaml; both silent if unset):
-#   apprise_urls     — space-separated Apprise URL(s) for CLI mode (pip install apprise required)
-#   apprise_api_url  — Apprise API base URL for API mode (e.g., http://apprise-api:8000)
-#   apprise_api_key  — Apprise API key (default: "ansible")
+#   vault_apprise_urls     — space-separated Apprise URL(s) for CLI mode (pip install apprise required)
+#   vault_apprise_api_url  — Apprise API base URL for API mode (e.g., http://apprise-api:8000)
+#   vault_apprise_api_key  — Apprise API key (default: "ansible")
 
 - name: Send Discord notification
   community.general.discord:
@@ -92,7 +92,7 @@
     - not ansible_check_mode
     - vault_discord_webhook_id is defined
     - vault_discord_webhook_token is defined
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
 
 # --- Apprise notifications (optional) ---
 # Both tasks are silent if their respective vars are not set in secrets.yaml.
@@ -115,14 +115,14 @@
       - "{{ _apprise_title }}"
       - --body
       - "{{ _apprise_body }}"
-      - "{{ apprise_urls }}"
+      - "{{ vault_apprise_urls }}"
   delegate_to: localhost
   failed_when: false  # notification-guard — notification task; failure must not block playbook
   when:
     - not ansible_check_mode
-    - apprise_urls is defined
-    - apprise_urls | length > 0
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+    - vault_apprise_urls is defined
+    - vault_apprise_urls | length > 0
+  no_log: "{{ _no_log }}"
 
 - name: Send Apprise notification (API)
   vars:
@@ -141,7 +141,7 @@
          else ('warning' if discord_status | default('') == 'partial'
          else 'info')) }}
   ansible.builtin.uri:
-    url: "{{ apprise_api_url }}/notify/{{ apprise_api_key | default('ansible') }}"
+    url: "{{ vault_apprise_api_url }}/notify/{{ vault_apprise_api_key | default('ansible') }}"
     method: POST
     body_format: json
     body:
@@ -153,6 +153,6 @@
   failed_when: false  # notification-guard — notification task; failure must not block playbook
   when:
     - not ansible_check_mode
-    - apprise_api_url is defined
-    - apprise_api_url | length > 0
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+    - vault_apprise_api_url is defined
+    - vault_apprise_api_url | length > 0
+  no_log: "{{ _no_log }}"

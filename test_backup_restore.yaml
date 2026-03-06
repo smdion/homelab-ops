@@ -195,7 +195,7 @@
         headers:
           Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       register: _vm_snapshots
 
     - name: Delete existing pre-test snapshot if present
@@ -205,7 +205,7 @@
         headers:
           Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
 
     - name: Wait for VM lock to clear after snapshot delete
@@ -219,7 +219,7 @@
       until: _vm_lock_status.json.data.lock is not defined
       retries: 20
       delay: 3
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: _vm_snapshots.json.data | selectattr('name', 'equalto', 'pre-test-restore') | list | length > 0
 
     - name: Create pre-test snapshot (post-bootstrap clean state)
@@ -233,7 +233,7 @@
           snapname: pre-test-restore
           vmstate: 0
         validate_certs: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 4 — Restore and verify each app
@@ -374,7 +374,7 @@
             vmid: "{{ hostvars['localhost']._vm.vm_id }}"
             state: stopped
             force: true
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
           ignore_errors: true  # best-effort — VM may already be stopped before snapshot revert
 
         - name: Revert to pre-test snapshot
@@ -384,7 +384,7 @@
             headers:
               Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
             validate_certs: false
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Wait for test VM snapshot rollback to complete
           ansible.builtin.pause:
@@ -397,7 +397,7 @@
             headers:
               Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
             validate_certs: false
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
     - name: Fail if any app restore failed
       ansible.builtin.fail:

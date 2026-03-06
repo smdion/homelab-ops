@@ -1,0 +1,38 @@
+---
+# Shared PVE API call — eliminates duplicated uri boilerplate across playbooks.
+#
+# Supports both routing modes:
+#   1. Resolved credentials via resolve_pve_api.yaml → _pve dict (build_ubuntu, etc.)
+#   2. Direct vault vars → vault_pve_api_host/user/token_id/token_secret (maintain_pve, etc.)
+#
+# If _pve is defined (i.e. resolve_pve_api.yaml was called), those credentials are used.
+# Otherwise falls back to the vault_pve_api_* vars for cluster VIP access.
+#
+# Required vars (pass via vars: on include_tasks):
+#   pve_api_path          — API endpoint path (e.g. "/api2/json/nodes", "/api2/json/cluster/resources?type=vm")
+#
+# Optional vars:
+#   pve_api_method        — HTTP method (default: GET)
+#   pve_api_body          — request body dict (default: omitted)
+#   pve_api_body_format   — body format (default: form-urlencoded)
+#   pve_api_status_code   — expected status codes (default: [200])
+#
+# Registers: _pve_api_result
+
+- name: "PVE API {{ pve_api_method | default('GET') }} {{ pve_api_path }}"
+  ansible.builtin.uri:
+    url: "https://{{ _pve_api_effective_host }}:{{ pve_api_port }}{{ pve_api_path }}"
+    method: "{{ pve_api_method | default('GET') }}"
+    headers:
+      Authorization: "PVEAPIToken={{ _pve_api_effective_user }}!{{ _pve_api_effective_token_id }}={{ _pve_api_effective_secret }}"
+    body_format: "{{ pve_api_body_format | default('form-urlencoded') }}"
+    body: "{{ pve_api_body | default(omit) }}"
+    validate_certs: false
+    status_code: "{{ pve_api_status_code | default([200]) }}"
+  register: _pve_api_result
+  no_log: "{{ _no_log }}"
+  vars:
+    _pve_api_effective_host: "{{ (_pve.api_host | default('')) if (_pve is defined) else vault_pve_api_host }}"
+    _pve_api_effective_user: "{{ (_pve.api_user | default('')) if (_pve is defined) else vault_pve_api_user }}"
+    _pve_api_effective_token_id: "{{ (_pve.api_token_id | default('')) if (_pve is defined) else vault_pve_api_token_id }}"
+    _pve_api_effective_secret: "{{ (_pve.api_token_secret | default('')) if (_pve is defined) else vault_pve_api_token_secret }}"

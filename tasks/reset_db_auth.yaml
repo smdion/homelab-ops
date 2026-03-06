@@ -59,7 +59,7 @@
     DB_PASSWORD: "{{ _db_mariadb_password }}"
     MARIA_CONTAINER: "{{ _db_mariadb_container | default('mariadb') }}"
   become: true
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
   when: _mariadb_running | bool
   changed_when: true
 
@@ -86,7 +86,7 @@
     PG_CONTAINER: "{{ _db_postgres_container | default('postgres') }}"
     PG_USER: "{{ _db_postgres_username | default('postgres') }}"
   become: true
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
   when: _postgres_running | bool
   changed_when: true
 
@@ -102,5 +102,5 @@
     MARIA_CONTAINER: "{{ _db_mariadb_container | default('mariadb') }}"
   become: true
   changed_when: false
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
   when: _mariadb_running | bool

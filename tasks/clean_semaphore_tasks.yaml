@@ -24,7 +24,7 @@
     query: "SELECT template_id FROM task ORDER BY id DESC LIMIT 1"
   register: _clean_tpl_result
   failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
   when:
     - not ansible_check_mode
     - vault_logging_db_host is defined
@@ -61,7 +61,7 @@
       - "{{ _tpl_id }}"
   register: _clean_delete_result
   failed_when: false  # pre-flight probe — optional state check; downstream handles missing case
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
   when:
     - not ansible_check_mode
     - _clean_tpl_result is defined

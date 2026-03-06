@@ -22,7 +22,7 @@
     state: stopped
     force: true
   ignore_errors: true  # best-effort — VM may already be stopped or destroyed
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
 
 - name: Wait for VM to stop
   ansible.builtin.pause:
@@ -37,4 +37,4 @@
     node: "{{ _destroy_node }}"
     vmid: "{{ _destroy_vmid }}"
     state: absent
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"

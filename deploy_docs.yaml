@@ -107,35 +107,35 @@
             deploy_failed: true
             _deploy_detail: "{{ ansible_failed_result.msg | default(ansible_failed_task.name | default('unknown')) }}"
 
-    # ── Notification ─────────────────────────────────────────────────
-    - name: Send notification
-      include_tasks: tasks/notify.yaml
-      vars:
-        discord_name: "{{ maintenance_name }}"
-        discord_operation: "Deploy"
-        discord_status: >-
-          {{ 'failed' if deploy_failed
-             else ('partial' if (_mkdocs_warnings | default([]) | length > 0)
-             else 'successful') }}
-        discord_detail: >-
-          {{ _deploy_detail if deploy_failed
-             else (_mkdocs_warnings | length | string ~ ' build warning(s)')
-                  if (_mkdocs_warnings | default([]) | length > 0)
-             else '' }}
-        discord_color: >-
-          {{ discord_color_failure if deploy_failed
-             else (discord_color_warning if (_mkdocs_warnings | default([]) | length > 0)
-             else discord_color_success) }}
-        discord_url: "{{ semaphore_ext_url }}"
-        discord_author: "{{ controller_fqdn }}"
-        discord_fields: >-
-          {{ [{'name': ('⚠️ MkDocs Warnings' if (_mkdocs_warnings | default([]) | length > 0) else '✅ Build'),
-               'value': (_mkdocs_warnings | join('\n') if (_mkdocs_warnings | default([]) | length > 0)
-                         else 'Docs site built and deployed'),
-               'inline': false}] }}
-      when: _is_semaphore | default(false)
+      always:
+        - name: Send notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Deploy"
+            discord_status: >-
+              {{ 'failed' if deploy_failed
+                 else ('partial' if (_mkdocs_warnings | default([]) | length > 0)
+                 else 'successful') }}
+            discord_detail: >-
+              {{ _deploy_detail if deploy_failed
+                 else (_mkdocs_warnings | length | string ~ ' build warning(s)')
+                      if (_mkdocs_warnings | default([]) | length > 0)
+                 else '' }}
+            discord_color: >-
+              {{ discord_color_failure if deploy_failed
+                 else (discord_color_warning if (_mkdocs_warnings | default([]) | length > 0)
+                 else discord_color_success) }}
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields: >-
+              {{ [{'name': ('⚠️ MkDocs Warnings' if (_mkdocs_warnings | default([]) | length > 0) else '✅ Build'),
+                   'value': (_mkdocs_warnings | join('\n') if (_mkdocs_warnings | default([]) | length > 0)
+                             else 'Docs site built and deployed'),
+                   'inline': false}] }}
+          when: _is_semaphore | default(false)
 
-    - name: Fail play if deploy failed
-      ansible.builtin.fail:
-        msg: "Deploy failed: {{ _deploy_detail }}"
-      when: deploy_failed
+        - name: Fail play if deploy failed
+          ansible.builtin.fail:
+            msg: "Deploy failed: {{ _deploy_detail }}"
+          when: deploy_failed

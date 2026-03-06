@@ -32,7 +32,7 @@ guacamole_connection_groups:
 guacamole_ssh_defaults:
   port: 22
   username: ansible
-  private_key: "{{ ansible_user_ssh_private_key }}"
+  private_key: "{{ vault_ansible_user_ssh_private_key }}"
   enable_sftp: true
   sftp_root_directory: /
 

@@ -81,7 +81,7 @@
           Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
         validate_certs: false
       register: _cluster_vms
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: _vm_state == 'absent'
 
     - name: Resolve PVE target node
@@ -317,7 +317,7 @@
             ANSWER_INSTALLDOCKER: "y"
             ANSWER_HTTPS: "n"
             SKIP_INSTALL: "y"
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Add AMP user to docker group
           ansible.builtin.user:
@@ -627,7 +627,7 @@
         sudo su -l {{ amp_user }} -c 'ampinstmgr reactivate {{ item }} {{ vault_amp_licence_key }}'
       loop: "{{ _restore_instances }}"
       changed_when: true
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: vault_amp_licence_key is defined
 
 # ═══════════════════════════════════════════════════════════════════

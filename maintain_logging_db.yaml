@@ -69,7 +69,7 @@
             - "TRUNCATE TABLE playbook_runs"
           loop_control:
             label: "{{ item.split('TABLE ')[1] }}"
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Purge ansible_logging failure records
           vars:
@@ -93,7 +93,7 @@
             - "DELETE FROM health_checks WHERE check_status IN ('warning', 'critical') AND timestamp < UTC_TIMESTAMP()"
           loop_control:
             label: "{{ item.split('FROM ')[1].split(' WHERE')[0] }}"
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
       rescue:
         - name: Set maintenance failed

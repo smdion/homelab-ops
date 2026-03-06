@@ -65,7 +65,7 @@
     validate_certs: false
   register: _cluster_vms
   when: _vnc_vms | length > 0
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
 
 - name: Warn about skipped extra connections (ref no longer in definitions)
   ansible.builtin.debug:
@@ -444,7 +444,7 @@
   register: _conn_results
   changed_when: true
   when: not ansible_check_mode
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
 
 # Remove duplicate connections (same name, multiple rows).
 # Uses plain SQL (no DO $$ wrapper) so each DELETE commits
@@ -578,7 +578,7 @@
     label: "{{ item.name }}"
   changed_when: true
   when: not ansible_check_mode
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
 
 # 6d. Grant connection group READ for folder visibility
 # User groups need READ on a connection group to see it in the UI.

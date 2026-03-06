@@ -30,7 +30,7 @@
     - vault_semaphore_api_token is defined
     - _semaphore_task_url is not defined
     - not ansible_check_mode
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log | default(true) }}"
 
 - name: Set Semaphore task URL fact
   vars:

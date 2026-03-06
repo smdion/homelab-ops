@@ -156,7 +156,7 @@
               - "{{ update_name }}"
               - "{{ inventory_hostname }}"
           register: _previous_version_result
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
           changed_when: false
           check_mode: false
 
@@ -409,7 +409,7 @@
               fi
             done
             pull_failed=false
-            docker compose pull $target_services >&2 || pull_failed=true
+            timeout 600 docker compose pull $target_services >&2 || pull_failed=true
             approved=""
             for svc in $target_services; do
               if [ "$delay_days" -le 0 ]; then
@@ -430,7 +430,7 @@
               fi
             done
             if [ -n "$approved" ]; then
-              docker compose up -d $approved >&2
+              timeout 300 docker compose up -d $approved >&2
             fi
             echo '['
             first=true

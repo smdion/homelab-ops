@@ -68,7 +68,7 @@
     _backup_source: "{{ offsite_backup_source | default(backup_base_dir) }}"
     _cache_dir: "{{ offsite_restic_cache_dir | default(restic_cache_dir | default('/opt/restic-cache')) }}"
     _restic_image: "restic/restic:latest"
-    _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+    _no_log: "{{ _no_log }}"
     _restic_env:
       AWS_ACCESS_KEY_ID: "{{ vault_b2_account_id }}"
       AWS_SECRET_ACCESS_KEY: "{{ vault_b2_application_key }}"

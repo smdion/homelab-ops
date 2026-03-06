@@ -179,6 +179,12 @@ container_definitions:
       volumes:
         - "${APPSDIR}/beszel:/beszel_data"
         - "${APPSDIR}/beszel_socket:/beszel_socket"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8090 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
   beszel_agent:
     image: "henrygd/beszel-agent"
     tag: "latest"
@@ -351,6 +357,12 @@ container_definitions:
       volumes:
         - "/var/run/docker.sock:/var/run/docker.sock:ro"
       profiles: ["hub"]
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/healthcheck || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   dozzle_agent:
     image: "amir20/dozzle"
     tag: "latest"
@@ -363,6 +375,12 @@ container_definitions:
         - "/var/run/docker.sock:/var/run/docker.sock:ro"
       command: agent
       profiles: ["agent"]
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7007/healthcheck || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   firefox:
     image: "jlesage/firefox"
     tag: "latest"
@@ -459,6 +477,12 @@ container_definitions:
         - "${APPSDIR}/guacamole:/config"
         - "${APPSDIR}/guacamole/server.xml:/usr/local/tomcat/conf/server.xml"
       privileged: true
+      healthcheck:
+        test: ["CMD-SHELL", "curl -fs http://localhost:8080/guacamole/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "60s"
   homeassistant:
     image: "lscr.io/linuxserver/homeassistant"
     tag: "latest"
@@ -490,12 +514,18 @@ container_definitions:
         homelab.backup.paths: "/opt/homebox"
       volumes:
         - "${APPSDIR}/homebox:/data/"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7745 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   homepage:
     image: "ghcr.io/gethomepage/homepage"
     tag: "latest"
     stack: apps
     env:
-      HOMEPAGE_ALLOWED_HOSTS: "dashboard.{{ vault_domain_ext }},dashboard.{{ domain_ext_secondary }},landing.{{ vault_domain_ext }},landing.{{ domain_ext_secondary }}"
+      HOMEPAGE_ALLOWED_HOSTS: "dashboard.{{ vault_domain_ext }},dashboard.{{ vault_domain_ext_secondary }},landing.{{ vault_domain_ext }},landing.{{ vault_domain_ext_secondary }}"
     compose:
       base: base
       ports: ["3003:3000"]
@@ -582,6 +612,12 @@ container_definitions:
       volumes:
         - "${APPSDIR}/netboot/config:/config"
         - "${APPSDIR}/netboot/assets:/assets"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   nfs:
     image: "itsthenetwork/nfs-server-alpine"
     tag: "latest"
@@ -696,7 +732,7 @@ container_definitions:
       SWAG_SUBDOMAINS: "wildcard"
       SWAG_ONLY_SUBDOMAINS: "false"
       SWAG_DNSPLUGIN: "cloudflare"
-      SWAG_EXTRA_DOMAINS: "*.{{ domain_ext_secondary }}"
+      SWAG_EXTRA_DOMAINS: "*.{{ vault_domain_ext_secondary }}"
       SWAG_STAGING: "false"
       SWAG_AUTORELOAD: "true"
       SWAG_DOCKER_MODS: "linuxserver/mods:swag-dashboard|linuxserver/mods:swag-maxmind|ghcr.io/linuxserver/mods:swag-crowdsec"

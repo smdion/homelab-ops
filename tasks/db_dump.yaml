@@ -31,7 +31,7 @@
       register: _db_dump_result
       become: true
       delegate_to: "{{ _db_delegate_host | default(inventory_hostname) }}"
-      no_log: "{{ not (_db_is_influxdb | default(false) | bool) and not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ not (_db_is_influxdb | default(false) | bool) and (_no_log | default(true) | bool) }}"
       changed_when: true
   rescue:
     - ansible.builtin.fail:

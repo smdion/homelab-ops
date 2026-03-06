@@ -39,3 +39,13 @@ host_definitions:
     vm_hostname: "backup.{{ vault_vm_search_domain }}"
     guacamole: { name: Backup, group: Proxmox }
 
+  # PiKVM — IP-KVM appliance (read-only root filesystem)
+  pikvm:
+    vm_hostname: "pikvm.{{ vault_vm_search_domain }}"
+    guacamole: { name: PiKVM, group: Appliances }
+
+  # Synology NAS
+  synology:
+    vm_hostname: "synology.{{ vault_vm_search_domain }}"
+    guacamole: { name: Synology, group: NAS }
+

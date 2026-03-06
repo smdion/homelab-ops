@@ -30,5 +30,5 @@
   register: _db_grant_dump_result
   become: true
   delegate_to: "{{ _db_delegate_host | default(inventory_hostname) }}"
-  no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+  no_log: "{{ _no_log }}"
   changed_when: true

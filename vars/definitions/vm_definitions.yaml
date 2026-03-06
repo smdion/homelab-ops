@@ -211,6 +211,7 @@ vm_definitions:
 
 # stack_roles: role → ordered stack list.
 # Includes all entries with a stacks key from both vm_definitions and host_definitions.
+# Output shape: {"core": ["infra", "databases", "auth", "media"], "apps": ["infra", "apps", "monitoring"], ...}
 stack_roles: >-
   {{ dict(
     (vm_definitions | dict2items
@@ -229,6 +230,7 @@ stack_roles: >-
 
 # Helper: all host entries with stacks, excluding test VMs (vm_vlan_tag).
 # Used by host_roles below — avoids repeating the filter chain.
+# Output shape: [{"key": "core", "value": {vm_hostname: ..., stacks: [...]}}, {"key": "apps", ...}, ...]
 _host_entries: >-
   {{ vm_definitions | dict2items
      | rejectattr('value.vm_vlan_tag', 'defined')
@@ -240,6 +242,7 @@ _host_entries: >-
 # Maps both internal (vault_domain_local) and external (vault_domain_ext) FQDNs so hosts
 # work regardless of which domain is used in the inventory.
 # Merges vm_definitions (Proxmox VMs) + host_definitions (VPS, NAS, legacy hosts).
+# Output shape: {"core.home.local": "core", "core.example.com": "core", "apps.home.local": "apps", ...}
 host_roles: >-
   {{ dict(
     _host_entries | map(attribute='key')
@@ -256,6 +259,7 @@ host_roles: >-
 # Merges all definition sources into a single lookup for playbooks that need
 # to resolve a role without knowing which file it came from.
 # Add new definition files here (e.g. cloud_definitions) to extend coverage.
+# Output shape: {"core": {vm_id: 400, vm_name: "core", ...}, "vps": {vm_hostname: ..., stacks: [...]}, ...}
 all_definitions: >-
   {{ vm_definitions
      | combine(host_definitions | default({})) }}

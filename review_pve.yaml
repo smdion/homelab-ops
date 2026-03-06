@@ -63,7 +63,7 @@
         validate_certs: false
       register: _cluster_status
       check_mode: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     # ===== CLUSTER RESOURCES (nodes, VMs, storage in one call) =====
     - name: Get all cluster resources
@@ -75,7 +75,7 @@
         validate_certs: false
       register: _cluster_resources
       check_mode: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     # ===== NODE VERSIONS =====
     - name: Get PVE version for each node
@@ -94,7 +94,7 @@
         label: "{{ item.node }}"
       check_mode: false
       ignore_errors: true  # observational — PVE API info-gathering; offline nodes handled gracefully
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Build node version lookup
       ansible.builtin.set_fact:
@@ -178,7 +178,7 @@
       register: _ceph_status
       check_mode: false
       ignore_errors: true  # observational — Ceph may not be configured on this cluster
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Display Ceph overview
       ansible.builtin.debug:
@@ -212,7 +212,7 @@
       register: _ha_status
       check_mode: false
       ignore_errors: true  # observational — HA may not be enabled on this cluster
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Display HA overview
       ansible.builtin.debug:
@@ -241,7 +241,7 @@
       register: _replication_status
       check_mode: false
       ignore_errors: true  # observational — replication may not be configured
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Display replication overview
       ansible.builtin.debug:
@@ -296,7 +296,7 @@
       register: _fw_rules
       check_mode: false
       ignore_errors: true  # observational — firewall API may be unavailable
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Display cluster firewall rules
       ansible.builtin.debug:
@@ -332,7 +332,7 @@
       register: _backup_jobs
       check_mode: false
       ignore_errors: true  # observational — backup job API may be unavailable
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Get included VMs for each backup job
       ansible.builtin.uri:
@@ -347,7 +347,7 @@
         label: "{{ item.id | default('?') }}"
       check_mode: false
       ignore_errors: true  # observational — individual job VM list may fail
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: _backup_jobs is not failed
 
     - name: Display datacenter backup jobs
@@ -417,7 +417,7 @@
         validate_certs: false
       register: _cluster_nodes_raw
       check_mode: false
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Derive node names
       ansible.builtin.set_fact:
@@ -441,7 +441,7 @@
         label: "{{ item }}"
       check_mode: false
       ignore_errors: true  # observational — node network API may be unreachable
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Display per-node network summary
       ansible.builtin.debug:

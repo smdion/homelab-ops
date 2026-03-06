@@ -1,0 +1,26 @@
+---
+profile: production
+
+exclude_paths:
+  - stacks/
+  - future/
+  - .git/
+  - vars/secrets.yaml
+  - inventory.yaml
+  - playbook.example.yaml
+
+skip_list:
+  - yaml[line-length]
+  - name[missing]
+  - no-changed-when
+  - command-instead-of-shell
+  - risky-shell-pipe
+  - jinja[spacing]
+  - no-handler
+
+warn_list:
+  - experimental
+  - role-name
+
+use_default_rules: true
+offline: true

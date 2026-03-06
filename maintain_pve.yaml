@@ -14,7 +14,7 @@
 #   ansible-playbook maintain_pve.yaml
 #
 # Required vault vars: vault_pve_vip, vault_pve_vrrp_password, vault_pve_vrrp_priorities,
-#                       ansible_user_ssh_pubkey
+#                       vault_ansible_user_ssh_pubkey
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Maintain Proxmox node OS-level configuration
@@ -97,7 +97,7 @@
         - name: Deploy SSH public key for ansible user
           ansible.builtin.authorized_key:
             user: ansible
-            key: "{{ ansible_user_ssh_pubkey }}"
+            key: "{{ vault_ansible_user_ssh_pubkey }}"
             state: present
 
         - name: Harden SSH and configure passwordless sudo
@@ -205,16 +205,17 @@
 
     # ===== FETCH CLUSTER VM LIST =====
     - name: Get all cluster VMs
-      ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
-        method: GET
-        headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
-        validate_certs: false
-      register: _cluster_vms
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      include_tasks: tasks/pve_api_call.yaml
+      vars:
+        pve_api_path: "/api2/json/cluster/resources?type=vm"
+
+    - name: Store cluster VM result
+      ansible.builtin.set_fact:
+        _cluster_vms: "{{ _pve_api_result }}"
 
     # ===== FETCH SNAPSHOTS PER VM =====
+    # NOTE: Looped API calls use uri directly — include_tasks + loop + register
+    # does not capture per-iteration results in .results[] the way uri does.
     - name: Get snapshots for each QEMU VM
       ansible.builtin.uri:
         url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/snapshot"
@@ -226,7 +227,7 @@
       loop: "{{ _cluster_vms.json.data | selectattr('type', 'equalto', 'qemu') | list }}"
       loop_control:
         label: "{{ item.name }} ({{ item.vmid }})"
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       ignore_errors: true  # observational — individual VM snapshot API may fail; others continue
 
     # ===== IDENTIFY STALE SNAPSHOTS =====
@@ -406,24 +407,22 @@
 
     - block:
         - name: Get all cluster VMs
-          ansible.builtin.uri:
-            url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
-            method: GET
-            headers:
-              Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
-            validate_certs: false
-          register: _cluster_vms
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          include_tasks: tasks/pve_api_call.yaml
+          vars:
+            pve_api_path: "/api2/json/cluster/resources?type=vm"
+
+        - name: Store cluster VM result
+          ansible.builtin.set_fact:
+            _cluster_vms: "{{ _pve_api_result }}"
 
         - name: Get existing PVE pools
-          ansible.builtin.uri:
-            url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/pools"
-            method: GET
-            headers:
-              Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
-            validate_certs: false
-          register: _existing_pools
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          include_tasks: tasks/pve_api_call.yaml
+          vars:
+            pve_api_path: "/api2/json/pools"
+
+        - name: Store pools result
+          ansible.builtin.set_fact:
+            _existing_pools: "{{ _pve_api_result }}"
 
         - name: Set cluster facts
           ansible.builtin.set_fact:
@@ -446,7 +445,7 @@
           loop_control:
             label: "{{ item.name }} ({{ item.vmid }})"
           ignore_errors: true  # observational — individual VM config API may fail; others continue
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         # Build intermediate list of all no-tag VMIDs for splitting into
         # production vs hosted based on VMID range.
@@ -502,7 +501,7 @@
               comment: "Production VMs (Docker, game servers, manual)"
             validate_certs: false
           when: pve_pool_production not in _pool_ids
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Create hosted pool
           ansible.builtin.uri:
@@ -516,7 +515,7 @@
               comment: "Hosted VMs (VMID {{ pve_pool_hosted_vmid_min }}-{{ pve_pool_hosted_vmid_max }}, local)"
             validate_certs: false
           when: pve_pool_hosted not in _pool_ids
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Create public_hosted pool
           ansible.builtin.uri:
@@ -530,7 +529,7 @@
               comment: "Public Hosted VMs (VLAN {{ pve_pool_public_hosted_vlan }})"
             validate_certs: false
           when: pve_pool_public_hosted not in _pool_ids
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Create test pool
           ansible.builtin.uri:
@@ -544,30 +543,28 @@
               comment: "Ephemeral test VMs (VLAN {{ vault_test_vlan_id }}) — excluded from PBS backup jobs"
             validate_certs: false
           when: pve_pool_test not in _pool_ids
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         # ── Fetch current pool membership (PVE API returns 500 if a VM
         #    is already a member, so we only PUT the diff) ──
 
         - name: Get current production pool members
-          ansible.builtin.uri:
-            url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_production }}"
-            method: GET
-            headers:
-              Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
-            validate_certs: false
-          register: _production_pool
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          include_tasks: tasks/pve_api_call.yaml
+          vars:
+            pve_api_path: "/api2/json/pools/{{ pve_pool_production }}"
+
+        - name: Store production pool result
+          ansible.builtin.set_fact:
+            _production_pool: "{{ _pve_api_result }}"
 
         - name: Get current hosted pool members
-          ansible.builtin.uri:
-            url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/pools/{{ pve_pool_hosted }}"
-            method: GET
-            headers:
-              Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
-            validate_certs: false
-          register: _hosted_pool
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          include_tasks: tasks/pve_api_call.yaml
+          vars:
+            pve_api_path: "/api2/json/pools/{{ pve_pool_hosted }}"
+
+        - name: Store hosted pool result
+          ansible.builtin.set_fact:
+            _hosted_pool: "{{ _pve_api_result }}"
 
         - name: Get current public_hosted pool members
           ansible.builtin.uri:
@@ -577,7 +574,7 @@
               Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
             validate_certs: false
           register: _public_hosted_pool
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Get current test pool members
           ansible.builtin.uri:
@@ -587,7 +584,7 @@
               Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
             validate_certs: false
           register: _test_pool
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Compute pool membership diffs
           ansible.builtin.set_fact:
@@ -630,7 +627,7 @@
               allow-move: 1
             validate_certs: false
           when: _production_new_vmids | length > 0
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Add new hosted VMs to hosted pool
           ansible.builtin.uri:
@@ -644,7 +641,7 @@
               allow-move: 1
             validate_certs: false
           when: _hosted_new_vmids | length > 0
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Add new public_hosted VMs to public_hosted pool
           ansible.builtin.uri:
@@ -658,7 +655,7 @@
               allow-move: 1
             validate_certs: false
           when: _public_hosted_new_vmids | length > 0
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Add new test VMs to test pool
           ansible.builtin.uri:
@@ -672,7 +669,7 @@
               allow-move: 1
             validate_certs: false
           when: _test_new_vmids | length > 0
-          no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+          no_log: "{{ _no_log }}"
 
         - name: Report pool assignments
           ansible.builtin.debug:
@@ -747,15 +744,16 @@
         _unused_disks: []
 
     - name: Get all cluster VMs
-      ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
-        method: GET
-        headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
-        validate_certs: false
-      register: _cluster_vms
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      include_tasks: tasks/pve_api_call.yaml
+      vars:
+        pve_api_path: "/api2/json/cluster/resources?type=vm"
 
+    - name: Store cluster VM result
+      ansible.builtin.set_fact:
+        _cluster_vms: "{{ _pve_api_result }}"
+
+    # NOTE: Looped API calls use uri directly — include_tasks + loop + register
+    # does not capture per-iteration results in .results[] the way uri does.
     - name: Get config for each QEMU VM
       ansible.builtin.uri:
         url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
@@ -772,7 +770,7 @@
       loop_control:
         label: "{{ item.name }} ({{ item.vmid }})"
       ignore_errors: true  # observational — individual VM config API may fail; others continue
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     - name: Build list of VMs with unused disks
       ansible.builtin.set_fact:
@@ -854,15 +852,16 @@
         _flagged_vms: []
 
     - name: Get all cluster VMs
-      ansible.builtin.uri:
-        url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/cluster/resources?type=vm"
-        method: GET
-        headers:
-          Authorization: "PVEAPIToken={{ vault_pve_api_user }}!{{ vault_pve_api_token_id }}={{ vault_pve_api_token_secret }}"
-        validate_certs: false
-      register: _cluster_vms
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      include_tasks: tasks/pve_api_call.yaml
+      vars:
+        pve_api_path: "/api2/json/cluster/resources?type=vm"
 
+    - name: Store cluster VM result
+      ansible.builtin.set_fact:
+        _cluster_vms: "{{ _pve_api_result }}"
+
+    # NOTE: Looped API calls use uri directly — include_tasks + loop + register
+    # does not capture per-iteration results in .results[] the way uri does.
     - name: Get config for each QEMU VM
       ansible.builtin.uri:
         url: "https://{{ vault_pve_api_host }}:{{ pve_api_port }}/api2/json/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
@@ -879,7 +878,7 @@
       loop_control:
         label: "{{ item.name }} ({{ item.vmid }})"
       ignore_errors: true  # observational — individual VM config API may fail; others continue
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
 
     # Production = net0 defined with no VLAN tag, minus excluded VMIDs (same rule as pool sync)
     - name: Derive production VM list
@@ -905,7 +904,7 @@
       loop_control:
         label: "{{ item.name }} ({{ item.vmid }})"
       ignore_errors: true  # observational — individual VM RRD API may fail; others continue
-      no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+      no_log: "{{ _no_log }}"
       when: _production_qemu_vms | length > 0
 
     # RRD points with cpu=null or missing cpu key indicate the VM was off during

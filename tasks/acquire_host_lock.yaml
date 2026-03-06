@@ -1,0 +1,30 @@
+---
+# Acquire a host-level advisory lock to prevent overlapping Ansible runs.
+# Uses flock on a per-playbook lock file. The lock is automatically released
+# when the shell process exits (playbook completion or failure).
+#
+# Required vars:
+#   lock_playbook — playbook name for the lock file (e.g. "deploy_stacks")
+#
+# Optional vars:
+#   lock_timeout  — seconds to wait for lock before failing (default: 10)
+#   lock_dir      — lock file directory (default: /var/lock/ansible)
+
+- name: Ensure lock directory exists
+  ansible.builtin.file:
+    path: "{{ lock_dir | default('/var/lock/ansible') }}"
+    state: directory
+    mode: "0755"
+
+- name: Acquire host-level lock for {{ lock_playbook }}
+  ansible.builtin.shell: |
+    exec 200>"{{ lock_dir | default('/var/lock/ansible') }}/{{ lock_playbook }}.lock"
+    if ! flock -w {{ lock_timeout | default(10) }} 200; then
+      echo "LOCK_FAILED: Another {{ lock_playbook }} run is active on this host"
+      exit 1
+    fi
+    echo "$$" >&200
+    echo "Lock acquired"
+  register: _lock_result
+  changed_when: false
+  failed_when: "'LOCK_FAILED' in _lock_result.stdout"

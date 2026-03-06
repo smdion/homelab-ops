@@ -70,3 +70,25 @@
 
 - name: Resolve Semaphore task URL for notifications
   include_tasks: tasks/resolve_semaphore_task.yaml
+
+- name: Compute shared _no_log fact
+  ansible.builtin.set_fact:
+    _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
+- name: Validate stack names against stack_definitions
+  ansible.builtin.assert:
+    that:
+      - _unknown_stacks | length == 0
+    fail_msg: >-
+      Unknown stack name(s): {{ _unknown_stacks | join(', ') }}.
+      Valid stacks: {{ stack_definitions.keys() | list | join(', ') }}.
+    quiet: true
+  vars:
+    _all_stack_names: >-
+      {{ stack_roles | default({}) | dict2items
+         | map(attribute='value') | flatten | unique | list }}
+    _unknown_stacks: >-
+      {{ _all_stack_names | difference(stack_definitions | default({}) | list) | list }}
+  when:
+    - stack_roles is defined
+    - stack_definitions is defined
