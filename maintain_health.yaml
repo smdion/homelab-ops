@@ -746,12 +746,13 @@
         - name: Build live schedule keys (template_name||cron)
           ansible.builtin.set_fact:
             _drift_live_named: >-
-              {% set result = [] %}
-              {% for sched in _drift_active_schedules %}
-              {%   set tname = _drift_template_map.get(sched.template_id | int, 'Unknown-' ~ sched.template_id) %}
-              {%   set _ = result.append(tname ~ '||' ~ sched.cron_format) %}
-              {% endfor %}
-              {{ result }}
+              {{ _drift_active_schedules
+                 | map(attribute='template_id')
+                 | map('int')
+                 | map('extract', _drift_template_map)
+                 | zip(_drift_active_schedules | map(attribute='cron_format'))
+                 | map('join', '||')
+                 | list }}
 
         - name: Build baseline schedule keys
           ansible.builtin.set_fact:
