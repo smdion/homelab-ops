@@ -43,6 +43,9 @@ wget -qO /usr/local/bin/yq \
   "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${ARCH}"
 chmod +x /usr/local/bin/yq
 
+# pnpm — fast, strict package manager for Node.js projects
+npm install -g pnpm
+
 # Clean up apt cache
 apt-get clean
 rm -rf /var/lib/apt/lists/*
