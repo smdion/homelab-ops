@@ -28,7 +28,14 @@
       ON DUPLICATE KEY UPDATE
         check_status = VALUES(check_status), check_value = VALUES(check_value),
         check_detail = VALUES(check_detail), timestamp = UTC_TIMESTAMP()
-    positional_args: "{{ _all_results | json_query('[].[ hostname, check_name, status, value, detail ]') | flatten }}"
+    positional_args: >-
+      {{ _all_results | map(attribute='hostname')
+         | zip(
+             _all_results | map(attribute='check_name'),
+             _all_results | map(attribute='status'),
+             _all_results | map(attribute='value'),
+             _all_results | map(attribute='detail'))
+         | map('list') | sum(start=[]) }}
   register: _log_health_batch_result
   retries: 3
   delay: 5
