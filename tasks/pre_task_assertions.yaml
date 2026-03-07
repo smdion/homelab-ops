@@ -10,6 +10,10 @@
 #   pre_assert_config_file — include assert_config_file check (default: false)
 #   pre_hostname           — hostname for audit log (default: inventory_hostname)
 
+- name: Compute shared _no_log fact
+  ansible.builtin.set_fact:
+    _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+
 - name: Assert config_file is defined and non-empty
   include_tasks: tasks/assert_config_file.yaml
   when: pre_assert_config_file | default(false) | bool
@@ -74,10 +78,6 @@
 
 - name: Resolve Semaphore task URL for notifications
   include_tasks: tasks/resolve_semaphore_task.yaml
-
-- name: Compute shared _no_log fact
-  ansible.builtin.set_fact:
-    _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
 - name: Validate stack names against stack_definitions
   ansible.builtin.assert:
