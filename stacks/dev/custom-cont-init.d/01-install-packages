@@ -25,8 +25,6 @@ apt-get install -y --no-install-recommends \
   python3-venv \
   python3-requests \
   python3-pymysql \
-  nodejs \
-  npm \
   shellcheck \
   yamllint \
   rsync \
@@ -34,7 +32,15 @@ apt-get install -y --no-install-recommends \
   zip \
   gh \
   make \
-  wget
+  wget \
+  ca-certificates \
+  curl \
+  gnupg
+
+# Node.js 20 LTS via NodeSource (replaces apt nodejs/npm)
+NODE_MAJOR=20
+curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
+apt-get install -y --no-install-recommends nodejs
 
 # yq — YAML processor (single static binary)
 YQ_VERSION="v4.44.6"
