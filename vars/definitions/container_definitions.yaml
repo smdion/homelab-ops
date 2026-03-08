@@ -290,7 +290,7 @@ container_definitions:
     compose:
       image_var: CODESERVER
       base: baseuid
-      ports: ["8443:8443"]
+      ports: ["8443:8443", "3001:3001"]
       labels:
         homelab.backup.paths: "/opt/code-server,/opt/homelab-ops,/opt/homelab-docs,/opt/freshjams-ops"
         homelab.health_timeout: "90"
