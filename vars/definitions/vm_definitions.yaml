@@ -71,6 +71,15 @@ vm_definitions:
         path: "/mnt/nfs/apps"
     stacks: [infra, dev]
     guacamole: { name: Dev, group: Docker }
+    proxy:
+      subdomain: financial
+      auth: false
+      locations:
+        - path: /
+          port: 3001
+          auth: false
+          includes: [proxy]
+          websocket: true
 
   amp:
     vm_id: 700
@@ -156,7 +165,7 @@ vm_definitions:
           auth: true
           includes: [proxy]
 
-  personalfinance:
+  personalfinance:  # TODO: remove — replaced by dion-financial on dev VM (financial subdomain)
     vm_id: 1211
     vm_hostname: "personalfinance.{{ vault_vm_search_domain }}"
     vnc_display: 80
