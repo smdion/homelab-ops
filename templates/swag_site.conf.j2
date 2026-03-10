@@ -2,11 +2,11 @@
    Source: deploy_swag_configs.yaml + container_definitions / host_definitions.
    Do not edit manually — changes will be overwritten on next deploy.
 #}
-{% set _listen = item.listen | default('both') %}
+{% set _external = item.external | default(true) %}
 {% set _auth = item.auth | default(true) %}
 {% set _server_names = item.server_names | default([item.subdomain ~ '.*'] + (item.aliases | default([]) | map('regex_replace', '$', '.*') | list)) %}
 server {
-{% if _listen == 'both' %}
+{% if _external %}
     listen 8081 ssl;
 {% endif %}
     listen 443 ssl;

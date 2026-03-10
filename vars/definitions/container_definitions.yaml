@@ -61,7 +61,7 @@
 #     homelab.proxy.port       — override upstream port (default: host port from compose.ports)
 #     homelab.proxy.proto      — http or https (default: http)
 #     homelab.proxy.auth       — include Authentik auth (default: true)
-#     homelab.proxy.listen     — both or https (default: both)
+#     homelab.proxy.external   — allow external access on port 8081 (default: true)
 #     homelab.proxy.websocket  — add WebSocket upgrade headers (default: false)
 #     homelab.proxy.buffering  — off to disable proxy buffering
 #     homelab.proxy.aliases    — comma-separated additional subdomains
@@ -82,7 +82,7 @@ container_definitions:
         homelab.backup.paths: "/opt/adminer"
         homelab.proxy.subdomain: "sql"
         homelab.proxy.port: "8080"
-        homelab.proxy.listen: "https"
+        homelab.proxy.external: "false"
         homelab.proxy.websocket: "true"
         homelab.proxy.buffering: "off"
       environment:
@@ -728,7 +728,7 @@ container_definitions:
       labels:
         homelab.backup.paths: "/opt/netboot"
         homelab.proxy.subdomain: "netboot"
-        homelab.proxy.listen: "https"
+        homelab.proxy.external: "false"
       ports: ["3002:3000", "69:69/udp", "8082:80"]
       volumes:
         - "${APPSDIR}/netboot/config:/config"
@@ -763,7 +763,7 @@ container_definitions:
     proxy:
       subdomain: npm
       upstream_ip: "10.253.100.1"
-      listen: https
+      external: false
       locations:
         - path: /
           port: 81

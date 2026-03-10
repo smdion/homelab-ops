@@ -37,7 +37,7 @@ host_definitions:
     proxy:
       - subdomain: redemption
         upstream_ip: "10.10.10.17"
-        listen: https
+        external: false
         locations:
           - path: /
             port: 80
@@ -139,7 +139,7 @@ host_definitions:
     proxy:
       - subdomain: liberty
         upstream_ip: "10.10.10.18"
-        listen: https
+        external: false
         locations:
           - path: /
             port: 80
@@ -225,7 +225,7 @@ host_definitions:
       subdomain: backup
       aliases: [backups]
       upstream_ip: "10.10.10.60"
-      listen: https
+      external: false
       locations:
         - path: /
           port: 8007
@@ -240,7 +240,7 @@ host_definitions:
     proxy:
       subdomain: pikvm
       upstream_ip: "10.10.10.30"
-      listen: https
+      external: false
       locations:
         - path: /
           port: 443
@@ -255,7 +255,7 @@ host_definitions:
     proxy:
       subdomain: synology
       upstream_ip: "10.10.10.31"
-      listen: https
+      external: false
       locations:
         - path: /
           port: 5001
@@ -270,7 +270,7 @@ host_definitions:
     proxy:
       subdomain: homeone
       upstream_ip: "10.10.10.10"
-      listen: https
+      external: false
       server_directives:
         - "proxy_redirect off"
       locations:
@@ -286,7 +286,7 @@ host_definitions:
     proxy:
       subdomain: defiance
       upstream_ip: "10.10.10.11"
-      listen: https
+      external: false
       server_directives:
         - "proxy_redirect off"
       locations:
@@ -302,7 +302,7 @@ host_definitions:
     proxy:
       - subdomain: independence
         upstream_ip: "10.10.10.12"
-        listen: https
+        external: false
         server_directives:
           - "proxy_redirect off"
         locations:
@@ -321,7 +321,7 @@ host_definitions:
             includes: [proxy]
       - subdomain: urbackup
         upstream_ip: "10.10.10.12"
-        listen: https
+        external: false
         locations:
           - path: /
             port: 55414
@@ -330,7 +330,7 @@ host_definitions:
       - subdomain: office
         upstream_ip: "10.10.10.12"
         auth: false
-        listen: https
+        external: false
         error_pages: true
         locations:
           - path: /
@@ -340,7 +340,7 @@ host_definitions:
             includes: [proxy]
       - subdomain: disks1
         upstream_ip: "10.10.10.12"
-        listen: https
+        external: false
         error_pages: true
         locations:
           - path: /
@@ -354,7 +354,7 @@ host_definitions:
     proxy:
       - subdomain: sentinel
         upstream_ip: "10.10.10.13"
-        listen: https
+        external: false
         server_directives:
           - "proxy_redirect off"
         locations:
@@ -370,7 +370,7 @@ host_definitions:
     proxy:
       - subdomain: octoprint
         upstream_ip: "10.10.10.14"
-        listen: https
+        external: false
         locations:
           - path: /
             port: 5002
@@ -380,7 +380,7 @@ host_definitions:
               X-Scheme: "https"
       - subdomain: octoprintcam
         upstream_ip: "10.10.10.14"
-        listen: https
+        external: false
         locations:
           - path: /
             port: 5003
@@ -390,7 +390,7 @@ host_definitions:
               X-Scheme: "https"
       - subdomain: octoprinttimelapse
         upstream_ip: "10.10.10.14"
-        listen: https
+        external: false
         locations:
           - path: /
             port: 5004
@@ -411,7 +411,7 @@ host_definitions:
             websocket: true
       - subdomain: disks2
         upstream_ip: "10.10.10.14"
-        listen: https
+        external: false
         error_pages: true
         locations:
           - path: /
@@ -458,7 +458,7 @@ host_definitions:
     proxy:
       subdomain: testunraid
       upstream_ip: "10.10.10.245"
-      listen: https
+      external: false
       locations:
         - path: /
           port: 443

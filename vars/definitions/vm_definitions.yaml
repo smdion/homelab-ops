@@ -73,6 +73,7 @@ vm_definitions:
     guacamole: { name: Dev, group: Docker }
     proxy:
       subdomain: financial
+      external: false
       auth: false
       locations:
         - path: /
@@ -97,7 +98,7 @@ vm_definitions:
     guacamole: { name: AMP, group: Game Server, command: "sudo su -l amp" }
     proxy:
       subdomain: amp
-      listen: https
+      external: false
       error_pages: true
       server_directives:
         - "proxy_redirect off"

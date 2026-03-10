@@ -106,7 +106,7 @@
               {%- set _pal = 'homelab.proxy.aliases' -%}
               {%- set _ppr = 'homelab.proxy.proto' -%}
               {%- set _pau = 'homelab.proxy.auth' -%}
-              {%- set _pli = 'homelab.proxy.listen' -%}
+              {%- set _pli = 'homelab.proxy.external' -%}
               {%- set _pws = 'homelab.proxy.websocket' -%}
               {%- set _pbf = 'homelab.proxy.buffering' -%}
               {%- set _pep = 'homelab.proxy.error_pages' -%}
@@ -144,7 +144,7 @@
                   {%- set aliases = (labels[_pal] | default('')).split(',') | select | list -%}
                   {%- set proto = labels[_ppr] | default('http') -%}
                   {%- set auth = (labels[_pau] | default('true')) | lower == 'true' -%}
-                  {%- set listen = labels[_pli] | default('both') -%}
+                  {%- set external = (labels[_pli] | default('true')) | lower == 'true' -%}
                   {%- set websocket = (labels[_pws] | default('false')) | lower == 'true' -%}
                   {%- set buffering = labels[_pbf] | default('') -%}
                   {%- set error_pages = (labels[_pep] | default('false')) | lower == 'true' -%}
@@ -156,7 +156,7 @@
                     'port': proxy_port,
                     'proto': proto,
                     'auth': auth,
-                    'listen': listen,
+                    'external': external,
                     'websocket': websocket,
                     'buffering': buffering,
                     'error_pages': error_pages,
@@ -217,7 +217,7 @@
                     'port': first_port,
                     'proto': proxy.proto | default('http'),
                     'auth': proxy.auth | default(true),
-                    'listen': proxy.listen | default('both'),
+                    'external': proxy.external | default(true),
                     'error_pages': proxy.error_pages | default(false),
                     'locations': proxy.locations | default([{'path': '/'}]),
                     'source': 'proxy_key'
@@ -261,7 +261,7 @@
                     'port': proxy.port | default(''),
                     'proto': proxy.proto | default('http'),
                     'auth': proxy.auth | default(true),
-                    'listen': proxy.listen | default('both'),
+                    'external': proxy.external | default(true),
                     'error_pages': proxy.error_pages | default(false),
                     'locations': proxy.locations | default([{'path': '/'}]),
                     'source': 'host_def'
@@ -297,7 +297,7 @@
                       'port': proxy.port | default(''),
                       'proto': proxy.proto | default('http'),
                       'auth': proxy.auth | default(true),
-                      'listen': proxy.listen | default('both'),
+                      'external': proxy.external | default(true),
                       'error_pages': proxy.error_pages | default(false),
                       'locations': proxy.locations | default([{'path': '/'}]),
                       'source': 'host_def'
@@ -342,7 +342,7 @@
                     'port': proxy.port | default(''),
                     'proto': proxy.proto | default('http'),
                     'auth': proxy.auth | default(true),
-                    'listen': proxy.listen | default('both'),
+                    'external': proxy.external | default(true),
                     'error_pages': proxy.error_pages | default(false),
                     'locations': proxy.locations | default([{'path': '/'}]),
                     'source': 'vm_def'
@@ -374,7 +374,7 @@
                       'port': proxy.port | default(''),
                       'proto': proxy.proto | default('http'),
                       'auth': proxy.auth | default(true),
-                      'listen': proxy.listen | default('both'),
+                      'external': proxy.external | default(true),
                       'error_pages': proxy.error_pages | default(false),
                       'locations': proxy.locations | default([{'path': '/'}]),
                       'source': 'vm_def'
