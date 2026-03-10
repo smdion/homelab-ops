@@ -54,6 +54,16 @@
         {%- endif -%}
       {%- endfor -%}
       {{ ns.host }}
+    # Resolve the SWAG host role name so container proxies on the same VM
+    # can use Docker container names instead of the VM IP (avoids hairpin NAT).
+    _swag_role: >-
+      {%- set ns = namespace(role='') -%}
+      {%- for r, rdef in vm_definitions.items() -%}
+        {%- if rdef.stacks is defined and 'auth' in rdef.stacks and not ns.role -%}
+          {%- set ns.role = r -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ ns.role }}
     maintenance_name: "SWAG"
     maintenance_type: "Local"
     maintenance_subtype: "Deploy"
@@ -123,6 +133,9 @@
                   {%- set upstream_name = labels[_pun] | default('') -%}
                   {%- if upstream_name -%}
                     {%- set upstream_ip = upstream_name -%}
+                  {%- elif ns.role == _swag_role -%}
+                    {# Container is on the same VM as SWAG — use Docker name to avoid hairpin NAT #}
+                    {%- set upstream_ip = name -%}
                   {%- elif ns.role and (vm_definitions[ns.role] | default({})).vm_ip is defined -%}
                     {%- set upstream_ip = vm_definitions[ns.role].vm_ip -%}
                   {%- else -%}
@@ -188,6 +201,9 @@
                     {%- set upstream_ip = proxy.upstream_ip -%}
                   {%- elif proxy.upstream_name is defined and proxy.upstream_name -%}
                     {%- set upstream_ip = proxy.upstream_name -%}
+                  {%- elif ns.role == _swag_role -%}
+                    {# Container is on the same VM as SWAG — use Docker name to avoid hairpin NAT #}
+                    {%- set upstream_ip = name -%}
                   {%- elif ns.role and (vm_definitions[ns.role] | default({})).vm_ip is defined -%}
                     {%- set upstream_ip = vm_definitions[ns.role].vm_ip -%}
                   {%- else -%}
@@ -427,7 +443,7 @@
             dest: "{{ _swag_output_dir }}/{{ item.subdomain }}.conf"
             owner: "911"
             group: "911"
-            mode: "0644"
+            mode: "0664"
           loop: "{{ _all_proxies }}"
           loop_control:
             label: "{{ item.subdomain }}.conf"
