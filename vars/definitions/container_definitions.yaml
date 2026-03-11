@@ -401,7 +401,9 @@ container_definitions:
     stack: infra
     proxy:
       subdomain: logs
-      # upstream_ip derived from stack chain (infra → apps VM)
+      # infra stack is on both core and apps — hub runs only on apps (profile: hub)
+      # so we must explicitly set upstream_ip to avoid picking core (where SWAG lives)
+      upstream_ip: "{{ vault_vm_apps_ip }}"
       locations:
         - path: /
           port: 8081
@@ -422,7 +424,7 @@ container_definitions:
         - "/var/run/docker.sock:/var/run/docker.sock:ro"
       profiles: ["hub"]
       healthcheck:
-        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/healthcheck || exit 1"]
+        test: ["CMD", "/dozzle", "healthcheck"]
         interval: "30s"
         timeout: "10s"
         retries: 3
@@ -440,7 +442,7 @@ container_definitions:
       command: agent
       profiles: ["agent"]
       healthcheck:
-        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7007/healthcheck || exit 1"]
+        test: ["CMD", "/dozzle", "healthcheck"]
         interval: "30s"
         timeout: "10s"
         retries: 3
@@ -570,7 +572,7 @@ container_definitions:
         - "${APPSDIR}/guacamole/server.xml:/usr/local/tomcat/conf/server.xml"
       privileged: true
       healthcheck:
-        test: ["CMD-SHELL", "curl -fs http://localhost:8080/guacamole/ || exit 1"]
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/guacamole/ || exit 1"]
         interval: "30s"
         timeout: "10s"
         retries: 3
