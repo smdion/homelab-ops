@@ -402,8 +402,8 @@ container_definitions:
     proxy:
       subdomain: logs
       # infra stack is on both core and apps — hub runs only on apps (profile: hub)
-      # so we must explicitly set upstream_ip to avoid picking core (where SWAG lives)
-      upstream_ip: "{{ vault_vm_apps_ip }}"
+      # so we must explicitly set upstream_role to avoid picking core (where SWAG lives)
+      upstream_role: apps
       locations:
         - path: /
           port: 8081

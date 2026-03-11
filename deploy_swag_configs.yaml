@@ -197,6 +197,10 @@
                       {%- endif -%}
                     {%- endfor -%}
                   {%- endif -%}
+                  {# upstream_role overrides auto-detected role (for multi-VM stacks with profiles) #}
+                  {%- if proxy.upstream_role is defined and proxy.upstream_role -%}
+                    {%- set ns.role = proxy.upstream_role -%}
+                  {%- endif -%}
                   {%- if proxy.upstream_ip is defined and proxy.upstream_ip -%}
                     {%- set upstream_ip = proxy.upstream_ip -%}
                   {%- elif proxy.upstream_name is defined and proxy.upstream_name -%}
