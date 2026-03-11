@@ -211,7 +211,7 @@
         - name: Set apply failed flag
           ansible.builtin.set_fact:
             _apply_failed: true
-            _apply_detail: "{{ ansible_failed_result.msg | default('check Semaphore logs') }}"
+            _apply_detail: "{{ ansible_failed_result.msg | default('', true) | ternary(ansible_failed_result.msg, ansible_failed_task.name | default('check Semaphore logs')) }}"
 
       always:
         - name: Send notification
