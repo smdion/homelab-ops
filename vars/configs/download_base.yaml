@@ -23,7 +23,7 @@ ytdlp_output: "%(extractor_key)s/%(uploader)s - %(title)s - %(id)s.%(ext)s"
 ytdlp_extractor_args: "youtube:player-client=default,-tv,web_safari,web_embedded"
 
 # Download defaults — profiles override per-user preferences
-ytdlp_quality: "res:1080"
+ytdlp_quality: "res"
 ytdlp_format: "mp4"
 ytdlp_rate_limit: "50M"
 ytdlp_playlist_end: 2
