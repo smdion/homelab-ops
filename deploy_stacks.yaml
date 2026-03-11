@@ -46,7 +46,7 @@
     maintenance_name: "Docker"
     maintenance_type: "Servers"
     maintenance_subtype: "{{ 'Validate Deploy' if (dry_run | default(false) | bool) else ('Pull Images' if (pull_only | default('') == 'yes') else 'Deploy') }}"
-    _no_log: "{{ _no_log }}"
+    _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
 
   pre_tasks:
     - name: Resolve deploy_stack → stack alias
