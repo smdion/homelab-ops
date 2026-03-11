@@ -572,7 +572,7 @@ container_definitions:
         - "${APPSDIR}/guacamole/server.xml:/usr/local/tomcat/conf/server.xml"
       privileged: true
       healthcheck:
-        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/guacamole/ || exit 1"]
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O /dev/null http://localhost:8080/ || exit 1"]
         interval: "30s"
         timeout: "10s"
         retries: 3
