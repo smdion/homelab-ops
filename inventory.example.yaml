@@ -68,11 +68,15 @@ pve01.home.local
 pve02.home.local
 pve03.home.local
 
+[pve_standalone]
+pve04.home.local
+
 [pbs]
 pbs01.home.local
 
 [proxmox:children]
 pve
+pve_standalone
 pbs
 
 [docker_stacks]

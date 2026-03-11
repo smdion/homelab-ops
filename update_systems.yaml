@@ -615,30 +615,38 @@
             for name in {{ _plugin_target_list | join(' ') }}; do
               plg_file="/boot/config/plugins/${name}.plg"
               [ ! -f "$plg_file" ] && continue
-              # Get current version from PLG entity
-              old_version=$(grep -oP '<!ENTITY\s+version\s+"[^"]*"' "$plg_file" | grep -oP '"[^"]*"' | tr -d '"' 2>/dev/null) || old_version="unknown"
-              # Check for update — non-empty stdout means update available
-              check_output=$(plugin check "$plg_file" 2>/dev/null) || true
+              # Get current version from installed PLG
+              old_version=$(grep -oP '<!ENTITY\s+version\s+"\K[^"]+' "$plg_file" 2>/dev/null) || old_version="unknown"
+              # Run plugin check to download latest PLG to /tmp/plugins/
+              plugin check "$plg_file" >/dev/null 2>&1 || true
+              # Compare versions: downloaded PLG vs installed PLG
+              downloaded="/tmp/plugins/${name}.plg"
               has_update=false
-              [ -n "$check_output" ] && has_update=true
+              if [ -f "$downloaded" ]; then
+                dl_version=$(grep -oP '<!ENTITY\s+version\s+"\K[^"]+' "$downloaded" 2>/dev/null) || dl_version=""
+                if [ -n "$dl_version" ] && [ "$dl_version" != "$old_version" ]; then
+                  has_update=true
+                fi
+              fi
               updated=false
               new_version="$old_version"
               if $has_update; then
                 apply_update=true
-                # Delay check: use remote PLG modified time if delay_days > 0
-                if [ "$delay_days" -gt 0 ] && [ -n "$check_output" ]; then
-                  # check_output is the download URL; get Last-Modified header
-                  remote_date=$(curl -sI "$check_output" 2>/dev/null | grep -i 'last-modified' | sed 's/[Ll]ast-[Mm]odified: //')
-                  if [ -n "$remote_date" ]; then
-                    remote_epoch=$(date -d "$remote_date" +%s 2>/dev/null) || remote_epoch=0
-                    [ "$remote_epoch" -gt "$threshold_epoch" ] && apply_update=false
-                  fi
+                # Delay check: use downloaded PLG modified time if delay_days > 0
+                if [ "$delay_days" -gt 0 ] && [ -f "$downloaded" ]; then
+                  remote_epoch=$(stat -c %Y "$downloaded" 2>/dev/null) || remote_epoch=0
+                  [ "$remote_epoch" -gt "$threshold_epoch" ] && apply_update=false
                 fi
                 if $apply_update; then
+                  # Try plugin update first; fall back to copy + install
                   if plugin update "$plg_file" >/dev/null 2>&1; then
-                    updated=true
-                    new_version=$(grep -oP '<!ENTITY\s+version\s+"[^"]*"' "$plg_file" | grep -oP '"[^"]*"' | tr -d '"' 2>/dev/null) || new_version="unknown"
+                    new_version=$(grep -oP '<!ENTITY\s+version\s+"\K[^"]+' "$plg_file" 2>/dev/null) || new_version="unknown"
+                  else
+                    cp "$downloaded" "$plg_file" 2>/dev/null
+                    plugin install "$plg_file" >/dev/null 2>&1 || true
+                    new_version=$(grep -oP '<!ENTITY\s+version\s+"\K[^"]+' "$plg_file" 2>/dev/null) || new_version="unknown"
                   fi
+                  [ "$new_version" != "$old_version" ] && updated=true
                 fi
               fi
               $first || echo ','
