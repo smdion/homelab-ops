@@ -106,6 +106,7 @@
     - vars/definitions/host_definitions.yaml
     - vars/definitions/app_definitions.yaml
     - vars/definitions/container_definitions.yaml
+    - vars/definitions/stack_definitions.yaml
     - vars/configs/docker_stacks.yaml
     - vars/definitions/vip_definitions.yaml
     - vars/configs/semaphore_check.yaml
