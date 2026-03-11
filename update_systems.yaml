@@ -619,7 +619,8 @@
               plg_version() {
                 local v
                 v=$(grep -oP '<!ENTITY\s+version\s+"\K[^"]+' "$1" 2>/dev/null)
-                [ -z "$v" ] && v=$(grep -oP '<PLUGIN[^>]+version="\K[^"]+' "$1" 2>/dev/null)
+                # Fallback: version="..." on its own indented line (PLUGIN tag spans multiple lines)
+                [ -z "$v" ] && v=$(grep -m1 -oP '^\s+version="\K[^"]+' "$1" 2>/dev/null)
                 echo "${v:-unknown}"
               }
               old_version=$(plg_version "$plg_file")
