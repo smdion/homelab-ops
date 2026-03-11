@@ -615,16 +615,22 @@
             for name in {{ _plugin_target_list | join(' ') }}; do
               plg_file="/boot/config/plugins/${name}.plg"
               [ ! -f "$plg_file" ] && continue
-              # Get current version from installed PLG
-              old_version=$(grep -oP '<!ENTITY\s+version\s+"\K[^"]+' "$plg_file" 2>/dev/null) || old_version="unknown"
+              # Extract version from PLG — handles both ENTITY and PLUGIN tag formats
+              plg_version() {
+                local v
+                v=$(grep -oP '<!ENTITY\s+version\s+"\K[^"]+' "$1" 2>/dev/null)
+                [ -z "$v" ] && v=$(grep -oP '<PLUGIN[^>]+version="\K[^"]+' "$1" 2>/dev/null)
+                echo "${v:-unknown}"
+              }
+              old_version=$(plg_version "$plg_file")
               # Run plugin check to download latest PLG to /tmp/plugins/
               plugin check "$plg_file" >/dev/null 2>&1 || true
               # Compare versions: downloaded PLG vs installed PLG
               downloaded="/tmp/plugins/${name}.plg"
               has_update=false
               if [ -f "$downloaded" ]; then
-                dl_version=$(grep -oP '<!ENTITY\s+version\s+"\K[^"]+' "$downloaded" 2>/dev/null) || dl_version=""
-                if [ -n "$dl_version" ] && [ "$dl_version" != "$old_version" ]; then
+                dl_version=$(plg_version "$downloaded")
+                if [ "$dl_version" != "unknown" ] && [ "$dl_version" != "$old_version" ]; then
                   has_update=true
                 fi
               fi
@@ -640,11 +646,11 @@
                 if $apply_update; then
                   # Try plugin update first; fall back to copy + install
                   if plugin update "$plg_file" >/dev/null 2>&1; then
-                    new_version=$(grep -oP '<!ENTITY\s+version\s+"\K[^"]+' "$plg_file" 2>/dev/null) || new_version="unknown"
+                    new_version=$(plg_version "$plg_file")
                   else
                     cp "$downloaded" "$plg_file" 2>/dev/null
                     plugin install "$plg_file" >/dev/null 2>&1 || true
-                    new_version=$(grep -oP '<!ENTITY\s+version\s+"\K[^"]+' "$plg_file" 2>/dev/null) || new_version="unknown"
+                    new_version=$(plg_version "$plg_file")
                   fi
                   [ "$new_version" != "$old_version" ] && updated=true
                 fi
