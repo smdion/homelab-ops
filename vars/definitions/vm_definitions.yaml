@@ -81,6 +81,7 @@ vm_definitions:
           auth: true
           includes: [proxy]
           websocket: true
+          exernal: true
 
   amp:
     vm_id: 700
