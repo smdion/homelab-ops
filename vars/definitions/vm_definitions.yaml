@@ -73,15 +73,14 @@ vm_definitions:
     guacamole: { name: Dev, group: Docker }
     proxy:
       subdomain: financial
-      external: false
-      auth: false
+      external: true
+      auth: true
       locations:
         - path: /
           port: 3001
           auth: true
           includes: [proxy]
           websocket: true
-          exernal: true
 
   amp:
     vm_id: 700
