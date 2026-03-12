@@ -78,7 +78,7 @@ vm_definitions:
       locations:
         - path: /
           port: 3001
-          auth: false
+          auth: true
           includes: [proxy]
           websocket: true
 
