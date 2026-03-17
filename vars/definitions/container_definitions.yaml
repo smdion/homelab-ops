@@ -694,6 +694,52 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "60s"
+  ledgr:
+    image: "ledgr"
+    tag: "latest"
+    stack: dev
+    env:
+      LEDGR_DB_HOST: "{{ vault_db_host_primary }}"
+      LEDGR_DB_PORT: "5432"
+      LEDGR_DB_USER: "{{ docker_postgres_user }}"
+      LEDGR_DB_PASSWORD: "{{ vault_docker_postgres_password }}"
+      LEDGR_DB_NAME: "ledgr"
+      LEDGR_NEXTAUTH_SECRET: "{{ vault_docker_ledgr_nextauth_secret }}"
+      LEDGR_NEXTAUTH_URL: "https://ledgr.{{ vault_domain_ext }}"
+      LEDGR_CRON_SECRET: "{{ vault_docker_ledgr_cron_secret }}"
+      LEDGR_AUTH_AUTHENTIK_ISSUER: "https://auth.{{ vault_domain_ext }}/application/o/ledgr/"
+      LEDGR_AUTH_AUTHENTIK_ID: "{{ vault_docker_ledgr_authentik_client_id }}"
+      LEDGR_AUTH_AUTHENTIK_SECRET: "{{ vault_docker_ledgr_authentik_client_secret }}"
+    compose:
+      base: base
+      ports: ["3000:3000"]
+      labels:
+        homelab.backup.paths: "/opt/personalfinance"
+        homelab.proxy.subdomain: "ledgr"
+        homelab.proxy.port: "3000"
+        homelab.restore.app: "ledgr"
+        homelab.restore.db_config: "db_primary_postgres"
+        homelab.restore.db_names: "ledgr"
+        homelab.restore.health_url: "http://localhost:3000/"
+      environment:
+        DATABASE_HOST: "${LEDGR_DB_HOST}"
+        DATABASE_PORT: "${LEDGR_DB_PORT}"
+        DATABASE_USER: "${LEDGR_DB_USER}"
+        DATABASE_PASSWORD: "${LEDGR_DB_PASSWORD}"
+        DATABASE_NAME: "${LEDGR_DB_NAME}"
+        NEXTAUTH_URL: "${LEDGR_NEXTAUTH_URL}"
+        NEXTAUTH_SECRET: "${LEDGR_NEXTAUTH_SECRET}"
+        AUTH_TRUST_HOST: "true"
+        CRON_SECRET: "${LEDGR_CRON_SECRET}"
+        AUTH_AUTHENTIK_ISSUER: "${LEDGR_AUTH_AUTHENTIK_ISSUER}"
+        AUTH_AUTHENTIK_ID: "${LEDGR_AUTH_AUTHENTIK_ID}"
+        AUTH_AUTHENTIK_SECRET: "${LEDGR_AUTH_AUTHENTIK_SECRET}"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "60s"
   mariadb:
     image: "lscr.io/linuxserver/mariadb"
     tag: "latest"

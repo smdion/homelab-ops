@@ -29,6 +29,11 @@ app_definitions:
     db_stack: databases
     db_config: db_primary_postgres
     db_names: [jellyseerr]
+  ledgr:
+    stack: dev
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_names: [ledgr]
 
   # --- docker_run apps (no compose stack; selective restore via containers) ---
   sonarr:
