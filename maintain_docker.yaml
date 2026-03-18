@@ -39,6 +39,7 @@
             images_filters:
               dangling: "false"
             volumes: true
+            timeout: 300
           when: inventory_hostname in groups["docker_stacks"] | default([])
 
         - name: Prune unused Docker images and volumes (shell fallback)

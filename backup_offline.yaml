@@ -127,9 +127,12 @@
 
         - name: Discover mount point
           ansible.builtin.shell: >-
-            awk '$1 == "{{ _nfs_path }}" { print $2; exit }' /proc/mounts
+            grep -F "{{ _nfs_path }}" /proc/mounts | awk '{ print $2; exit }'
           register: _mount_point_raw
           changed_when: false
+          retries: 3
+          delay: 5
+          until: _mount_point_raw.stdout | trim | length > 0
 
         - name: Assert mount point found
           ansible.builtin.assert:
