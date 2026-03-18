@@ -21,6 +21,7 @@ db_container_deps:
   authentik: ["authentik", "authentik_worker"]
   jellyseerr: []
   ledgr: []
+  ledgrdemo: []
   prowlarr-log: []
   prowlarr-main: []
   radarr-log: []

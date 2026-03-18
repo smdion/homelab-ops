@@ -34,6 +34,11 @@ app_definitions:
     db_stack: databases
     db_config: db_primary_postgres
     db_names: [ledgr]
+  ledgrdemo:
+    stack: dev
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_names: [ledgrdemo]
 
   # --- docker_run apps (no compose stack; selective restore via containers) ---
   sonarr:

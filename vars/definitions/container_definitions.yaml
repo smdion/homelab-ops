@@ -740,6 +740,43 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "60s"
+  ledgrdemo:
+    image: "ledgr"
+    tag: "latest"
+    stack: dev
+    env:
+      LEDGRDEMO_DB_HOST: "{{ vault_db_host_primary }}"
+      LEDGRDEMO_DB_PORT: "5432"
+      LEDGRDEMO_DB_USER: "{{ docker_postgres_user }}"
+      LEDGRDEMO_DB_PASSWORD: "{{ vault_docker_postgres_password }}"
+      LEDGRDEMO_DB_NAME: "ledgrdemo"
+      LEDGRDEMO_NEXTAUTH_SECRET: "{{ vault_docker_ledgr_nextauth_secret }}"
+      LEDGRDEMO_NEXTAUTH_URL: "https://ledgrdemo.{{ vault_domain_ext }}"
+      LEDGRDEMO_CRON_SECRET: "{{ vault_docker_ledgr_cron_secret }}"
+    compose:
+      base: base
+      ports: ["3004:3000"]
+      labels:
+        homelab.proxy.subdomain: "ledgrdemo"
+        homelab.proxy.auth: "false"
+      environment:
+        DATABASE_HOST: "${LEDGRDEMO_DB_HOST}"
+        DATABASE_PORT: "${LEDGRDEMO_DB_PORT}"
+        DATABASE_USER: "${LEDGRDEMO_DB_USER}"
+        DATABASE_PASSWORD: "${LEDGRDEMO_DB_PASSWORD}"
+        DATABASE_NAME: "${LEDGRDEMO_DB_NAME}"
+        NEXTAUTH_URL: "${LEDGRDEMO_NEXTAUTH_URL}"
+        NEXTAUTH_SECRET: "${LEDGRDEMO_NEXTAUTH_SECRET}"
+        AUTH_TRUST_HOST: "true"
+        CRON_SECRET: "${LEDGRDEMO_CRON_SECRET}"
+        DEMO_ONLY: "true"
+        NEXT_PUBLIC_DEMO_ONLY: "true"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "60s"
   mariadb:
     image: "lscr.io/linuxserver/mariadb"
     tag: "latest"
