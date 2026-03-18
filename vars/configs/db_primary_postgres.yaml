@@ -19,6 +19,7 @@ is_postgres: true
 # Cross-host deps (app on a different host) are [] — use restore_hosts.yaml -e with_databases=yes.
 db_container_deps:
   authentik: ["authentik", "authentik_worker"]
+  dev_ledgr: []
   jellyseerr: []
   ledgr: []
   ledgrdemo: []
