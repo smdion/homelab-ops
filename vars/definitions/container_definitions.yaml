@@ -735,7 +735,7 @@ container_definitions:
         AUTH_AUTHENTIK_ID: "${LEDGR_AUTH_AUTHENTIK_ID}"
         AUTH_AUTHENTIK_SECRET: "${LEDGR_AUTH_AUTHENTIK_SECRET}"
       healthcheck:
-        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"]
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1"]
         interval: "30s"
         timeout: "10s"
         retries: 3
@@ -770,9 +770,8 @@ container_definitions:
         AUTH_TRUST_HOST: "true"
         CRON_SECRET: "${LEDGRDEMO_CRON_SECRET}"
         DEMO_ONLY: "true"
-        NEXT_PUBLIC_DEMO_ONLY: "true"
       healthcheck:
-        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1"]
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1"]
         interval: "30s"
         timeout: "10s"
         retries: 3
