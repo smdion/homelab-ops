@@ -93,16 +93,16 @@
           delegate_to: localhost
           when: _ping_result.rc != 0
 
-        - name: Trigger Home Assistant DSM automation
+        - name: Reload Synology DSM integration in Home Assistant
           ansible.builtin.uri:
-            url: "{{ vault_ha_url }}/api/services/automation/trigger"
+            url: "{{ vault_ha_url }}/api/services/homeassistant/reload_config_entry"
             method: POST
             headers:
               Authorization: "Bearer {{ vault_ha_bearer_token }}"
               Content-Type: "application/json"
             body_format: json
             body:
-              entity_id: "{{ vault_ha_dsm_automation }}"
+              entry_id: "{{ vault_ha_dsm_entry_id }}"
           delegate_to: localhost
           when: not ansible_check_mode
           no_log: "{{ _no_log }}"
@@ -215,7 +215,6 @@
           until: _shutdown_ping.rc != 0
           retries: 12
           delay: 10
-          failed_when: false  # observational — verifying Synology powered off; timeout is acceptable
           changed_when: false
           when:
             - not ansible_check_mode
@@ -225,7 +224,7 @@
           ansible.builtin.debug:
             msg: >-
               {{ 'Synology confirmed offline' if _shutdown_ping.rc | default(1) != 0
-                 else 'WARNING: Synology still responding after shutdown request' }}
+                 else 'FAILED: Synology still responding after shutdown request — check HA entity ' ~ vault_ha_shutdown_button }}
           when:
             - not ansible_check_mode
             - not (synology_skip_shutdown | default(false) | bool)
