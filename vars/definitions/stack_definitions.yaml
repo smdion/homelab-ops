@@ -45,9 +45,6 @@ stack_definitions:
       - apps
       - dev
       - vps
-      - homelab-ops
-      - homelab-docs
-      - freshjams-ops
   infra:
     description: "Core infrastructure — Docker proxy, monitoring agents, log aggregation"
     generate_compose: true

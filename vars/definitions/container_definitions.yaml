@@ -308,7 +308,7 @@ container_definitions:
         - "${APPSDIR}/code-server:/config"
         - "./custom-cont-init.d:/custom-cont-init.d:ro"
       healthcheck:
-        test: ["CMD-SHELL", "ls /workspace/core /workspace/apps /workspace/dev /workspace/vps /workspace/homelab-ops /workspace/homelab-docs /workspace/freshjams-ops > /dev/null 2>&1 || exit 1"]
+        test: ["CMD-SHELL", "ls /workspace/core /workspace/apps /workspace/dev /workspace/vps /workspace/dev/homelab-ops /workspace/dev/homelab-docs /workspace/dev/freshjams-ops > /dev/null 2>&1 || exit 1"]
         interval: "30s"
         timeout: "10s"
         retries: 3
