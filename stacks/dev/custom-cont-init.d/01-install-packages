@@ -59,7 +59,7 @@ apt-get clean
 rm -rf /var/lib/apt/lists/*
 
 # Ansible Galaxy collections (includes ansible.posix for syntax checks)
-ansible-galaxy collection install -r /workspace/homelab-ops/requirements.yaml --force
+ansible-galaxy collection install -r /workspace/dev/homelab-ops/requirements.yaml --force
 
 # Ensure Ansible tmp dir exists and is owned by abc (LSIO container user)
 mkdir -p /config/.ansible/tmp
