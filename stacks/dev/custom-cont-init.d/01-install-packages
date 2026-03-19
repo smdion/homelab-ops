@@ -18,6 +18,12 @@ echo "[custom-init] Installing development packages..."
 
 apt-get update -qq
 
+# Node.js 20 LTS via NodeSource — install BEFORE other packages so its
+# nodejs package is authoritative and apt won't pull Ubuntu's conflicting npm.
+NODE_MAJOR=20
+curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
+apt-get install -y --no-install-recommends nodejs
+
 apt-get install -y --no-install-recommends \
   ansible-core \
   python3 \
@@ -37,11 +43,6 @@ apt-get install -y --no-install-recommends \
   ca-certificates \
   curl \
   gnupg
-
-# Node.js 20 LTS via NodeSource (replaces apt nodejs/npm)
-NODE_MAJOR=20
-curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
-apt-get install -y --no-install-recommends nodejs
 
 # yq — YAML processor (single static binary)
 YQ_VERSION="v4.44.6"
