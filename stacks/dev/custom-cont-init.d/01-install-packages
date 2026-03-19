@@ -65,5 +65,8 @@ ansible-galaxy collection install -r /workspace/dev/homelab-ops/requirements.yam
 mkdir -p /config/.ansible/tmp
 chown -R abc:abc /config/.ansible
 
+# Fix npm/pnpm cache ownership — init runs as root but abc needs write access
+chown -R abc:abc /config/.npm 2>/dev/null || true
+
 echo "$SCRIPT_HASH" > "$MARKER"
 echo "[custom-init] Development packages installed successfully"
