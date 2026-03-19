@@ -72,12 +72,14 @@
 
 - name: "Sync custom-cont-init.d scripts — {{ _current_stack }}"
   become: true
-  ansible.builtin.copy:
-    src: "stacks/{{ _current_stack }}/custom-cont-init.d/"
+  ansible.posix.synchronize:
+    src: "{{ playbook_dir }}/stacks/{{ _current_stack }}/custom-cont-init.d/"
     dest: "{{ stacks_base_path }}/{{ _current_stack }}/custom-cont-init.d/"
-    owner: root
-    group: root
-    mode: "0755"
+    delete: true
+    recursive: true
+    rsync_opts:
+      - "--chmod=F755,D755"
+      - "--chown=root:root"
   when: _custom_init_stat.stat.exists | default(false)
 
 - name: "Check for docker-compose.override.j2 — {{ _current_stack }}"
