@@ -9,7 +9,7 @@ MARKER="/config/.packages-installed"
 SCRIPT_HASH=$(md5sum "$0" | cut -d' ' -f1)
 
 # Check hash AND verify packages exist (apt lives on overlay, marker on persistent storage)
-if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$SCRIPT_HASH" ] && command -v python3 >/dev/null 2>&1; then
+if [ -f "$MARKER" ] && [ "$(cat "$MARKER")" = "$SCRIPT_HASH" ] && command -v python3 >/dev/null 2>&1 && command -v g++ >/dev/null 2>&1; then
   echo "[custom-init] Packages already installed, skipping"
   exit 0
 fi
@@ -32,6 +32,7 @@ apt-get install -y --no-install-recommends \
   zip \
   gh \
   make \
+  g++ \
   wget \
   ca-certificates \
   curl \
