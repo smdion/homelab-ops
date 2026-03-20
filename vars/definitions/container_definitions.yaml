@@ -699,11 +699,7 @@ container_definitions:
     tag: "latest"
     stack: dev
     env:
-      LEDGR_DB_HOST: "{{ vault_db_host_primary }}"
-      LEDGR_DB_PORT: "5432"
-      LEDGR_DB_USER: "{{ docker_postgres_user }}"
-      LEDGR_DB_PASSWORD: "{{ vault_docker_postgres_password }}"
-      LEDGR_DB_NAME: "ledgr"
+      LEDGR_DATABASE_URL: "postgresql://{{ docker_postgres_user }}:{{ vault_docker_postgres_password }}@{{ vault_db_host_primary }}:5432/ledgr"
       LEDGR_NEXTAUTH_SECRET: "{{ vault_docker_ledgr_nextauth_secret }}"
       LEDGR_NEXTAUTH_URL: "https://ledgr.{{ vault_domain_ext }}"
       LEDGR_CRON_SECRET: "{{ vault_docker_ledgr_cron_secret }}"
@@ -722,11 +718,7 @@ container_definitions:
         homelab.restore.db_names: "ledgr"
         homelab.restore.health_url: "http://localhost:3000/"
       environment:
-        DATABASE_HOST: "${LEDGR_DB_HOST}"
-        DATABASE_PORT: "${LEDGR_DB_PORT}"
-        DATABASE_USER: "${LEDGR_DB_USER}"
-        DATABASE_PASSWORD: "${LEDGR_DB_PASSWORD}"
-        DATABASE_NAME: "${LEDGR_DB_NAME}"
+        DATABASE_URL: "${LEDGR_DATABASE_URL}"
         NEXTAUTH_URL: "${LEDGR_NEXTAUTH_URL}"
         NEXTAUTH_SECRET: "${LEDGR_NEXTAUTH_SECRET}"
         AUTH_TRUST_HOST: "true"
@@ -745,11 +737,7 @@ container_definitions:
     tag: "latest"
     stack: dev
     env:
-      LEDGRDEMO_DB_HOST: "{{ vault_db_host_primary }}"
-      LEDGRDEMO_DB_PORT: "5432"
-      LEDGRDEMO_DB_USER: "{{ docker_postgres_user }}"
-      LEDGRDEMO_DB_PASSWORD: "{{ vault_docker_postgres_password }}"
-      LEDGRDEMO_DB_NAME: "ledgrdemo"
+      LEDGRDEMO_DATABASE_URL: "postgresql://{{ docker_postgres_user }}:{{ vault_docker_postgres_password }}@{{ vault_db_host_primary }}:5432/ledgrdemo"
       LEDGRDEMO_NEXTAUTH_SECRET: "{{ vault_docker_ledgr_nextauth_secret }}"
       LEDGRDEMO_NEXTAUTH_URL: "https://ledgrdemo.{{ vault_domain_ext }}"
       LEDGRDEMO_CRON_SECRET: "{{ vault_docker_ledgr_cron_secret }}"
@@ -760,11 +748,7 @@ container_definitions:
         homelab.proxy.subdomain: "ledgrdemo"
         homelab.proxy.auth: "false"
       environment:
-        DATABASE_HOST: "${LEDGRDEMO_DB_HOST}"
-        DATABASE_PORT: "${LEDGRDEMO_DB_PORT}"
-        DATABASE_USER: "${LEDGRDEMO_DB_USER}"
-        DATABASE_PASSWORD: "${LEDGRDEMO_DB_PASSWORD}"
-        DATABASE_NAME: "${LEDGRDEMO_DB_NAME}"
+        DATABASE_URL: "${LEDGRDEMO_DATABASE_URL}"
         NEXTAUTH_URL: "${LEDGRDEMO_NEXTAUTH_URL}"
         NEXTAUTH_SECRET: "${LEDGRDEMO_NEXTAUTH_SECRET}"
         AUTH_TRUST_HOST: "true"
