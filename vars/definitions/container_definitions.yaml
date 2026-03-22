@@ -888,6 +888,18 @@ container_definitions:
         homelab.backup.paths: "/opt/profilarr"
         homelab.proxy.subdomain: "profilarr"
         homelab.proxy.port: "6868"
+        homelab.proxy.complex: "true"
+    proxy:
+      subdomain: profilarr
+      auth: true
+      buffer_size:
+        proxy_buffers: "8 16k"
+        proxy_buffer_size: "32k"
+      locations:
+        - path: /
+          port: 6868
+          auth: true
+          includes: [proxy]
       volumes:
         - "${APPSDIR}/profilarr:/app/data"
       healthcheck:
