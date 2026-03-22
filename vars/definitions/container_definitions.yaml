@@ -882,6 +882,7 @@ container_definitions:
     stack: media
     compose:
       base: baseenv
+      pull_policy: never
       ports: ["6868:6868"]
       labels:
         homelab.backup.paths: "/opt/profilarr"

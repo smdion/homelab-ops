@@ -64,6 +64,9 @@ services:
     container_name: {{ c.container_name | default(_svc_name) }}
 {% set _img_prefix = c.image_var | default(name | upper | replace('-', '_')) %}
     image: {{ '${' ~ _img_prefix ~ '_IMAGE}:${' ~ _img_prefix ~ '_TAG}' }}
+{% if c.pull_policy is defined %}
+    pull_policy: {{ c.pull_policy }}
+{% endif %}
 {% if c.mem_limit is defined %}
     mem_limit: {{ c.mem_limit }}
 {% endif %}
