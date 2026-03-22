@@ -891,7 +891,7 @@ container_definitions:
       volumes:
         - "${APPSDIR}/profilarr:/app/data"
       healthcheck:
-        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6868/ || exit 1"]
+        test: ["CMD-SHELL", "curl -fs http://localhost:6868/ || exit 1"]
         interval: "30s"
         timeout: "10s"
         retries: 3
