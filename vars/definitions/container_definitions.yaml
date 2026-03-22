@@ -884,6 +884,8 @@ container_definitions:
       base: baseenv
       pull_policy: never
       ports: ["6868:6868"]
+      environment:
+        AUTH: "off"
       labels:
         homelab.backup.paths: "/opt/profilarr"
         homelab.proxy.subdomain: "profilarr"
@@ -891,6 +893,7 @@ container_definitions:
         homelab.proxy.complex: "true"
     proxy:
       subdomain: profilarr
+      external: false
       auth: true
       buffer_size:
         proxy_buffers: "8 16k"

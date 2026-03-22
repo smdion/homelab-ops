@@ -58,8 +58,8 @@ vm_definitions:
     vm_mac: "02:00:00:00:04:02"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "dev.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_dev_ip | default('') }}"
-    vm_cores: 2
-    vm_memory_mb: 8192
+    vm_cores: 4
+    vm_memory_mb: 16384
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_dev_node | default('') }}"
     pve_args: "-cpu host"              # host CPU passthrough — required for Claude Code (AVX2)
