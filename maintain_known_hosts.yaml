@@ -103,10 +103,12 @@
               Synced {{ _known_hosts_targets | length - _keyscan_failures | length }}/{{ _known_hosts_targets | length }} hosts
               {{ ('| Unreachable: ' + _keyscan_failures | join(', ')) if _keyscan_failures | length > 0 else '' }}
 
-        - name: Fail if no hosts could be scanned at all
-          ansible.builtin.fail:
-            msg: "ssh-keyscan failed for all targets: {{ _keyscan_failures | join(', ') }}"
-          when: _keyscan_failures | length == _known_hosts_targets | length
+        - name: Warn if some hosts could not be scanned
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: {{ _keyscan_failures | length }} host(s) unreachable via ssh-keyscan
+              (expected for hosts on different networks, e.g. VPS ↔ LAN)
+          when: _keyscan_failures | length > 0
 
       rescue:
         - name: Set maintenance failed
