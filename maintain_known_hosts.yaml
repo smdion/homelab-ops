@@ -38,15 +38,19 @@
                  | difference([inventory_hostname]) }}
 
         - name: Ensure ~/.ssh directory exists with correct ownership
+          become: true
           ansible.builtin.file:
-            path: "~/.ssh"
+            path: "/home/{{ ansible_user_id }}/.ssh"
             state: directory
+            owner: "{{ ansible_user_id }}"
             mode: "0700"
 
         - name: Ensure known_hosts file exists with correct ownership
+          become: true
           ansible.builtin.file:
-            path: "~/.ssh/known_hosts"
+            path: "/home/{{ ansible_user_id }}/.ssh/known_hosts"
             state: touch
+            owner: "{{ ansible_user_id }}"
             mode: "0644"
             modification_time: preserve
             access_time: preserve
@@ -97,12 +101,12 @@
           ansible.builtin.debug:
             msg: >-
               Synced {{ _known_hosts_targets | length - _keyscan_failures | length }}/{{ _known_hosts_targets | length }} hosts
-              {{ ('| Failed: ' + _keyscan_failures | join(', ')) if _keyscan_failures | length > 0 else '' }}
+              {{ ('| Unreachable: ' + _keyscan_failures | join(', ')) if _keyscan_failures | length > 0 else '' }}
 
-        - name: Fail if any hosts could not be scanned
+        - name: Fail if no hosts could be scanned at all
           ansible.builtin.fail:
-            msg: "ssh-keyscan failed for: {{ _keyscan_failures | join(', ') }}"
-          when: _keyscan_failures | length > 0
+            msg: "ssh-keyscan failed for all targets: {{ _keyscan_failures | join(', ') }}"
+          when: _keyscan_failures | length == _known_hosts_targets | length
 
       rescue:
         - name: Set maintenance failed
