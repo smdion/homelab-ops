@@ -1,0 +1,121 @@
+---
+# Category: Maintain
+# Synchronize SSH known_hosts across all inventory hosts.
+# Ensures every host has SSH host keys for all other hosts (short name, FQDN, IP).
+# Runs on all health_check_groups hosts. Safe to re-run (idempotent via known_hosts module).
+
+- name: Synchronize SSH known_hosts
+  hosts: "{{ health_check_groups | join(':') }}"
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  ignore_unreachable: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/semaphore_check.yaml
+  vars:
+    maintenance_name: "SSH"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Known Hosts"
+    maintenance_url: ""
+    maintenance_description: "Synchronize SSH known_hosts across inventory hosts"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "maintain_known_hosts.yaml"
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+
+    - block:
+        - name: Build list of SSH hosts excluding self
+          ansible.builtin.set_fact:
+            _known_hosts_targets: >-
+              {{ (health_check_groups | map('extract', groups) | map('default', []) | flatten | unique)
+                 | difference([inventory_hostname]) }}
+
+        - name: Scan SSH host keys for each target (short, FQDN, IP)
+          ansible.builtin.command: >-
+            ssh-keyscan -T {{ health_keyscan_timeout }}
+            {{ item }}
+            {{ item }}.{{ vault_domain_local }}
+            {{ hostvars[item]['ansible_host'] | default(item) }}
+          loop: "{{ _known_hosts_targets }}"
+          loop_control:
+            label: "{{ item }}"
+          register: _keyscan_results
+          changed_when: false
+          failed_when: false
+          check_mode: false
+
+        - name: Add scanned host keys to known_hosts
+          ansible.builtin.known_hosts:
+            name: "{{ _key_line.split()[0] }}"
+            key: "{{ _key_line }}"
+            state: present
+          loop: >-
+            {{ _keyscan_results.results
+               | selectattr('stdout', 'defined')
+               | selectattr('stdout')
+               | map(attribute='stdout_lines')
+               | flatten | select | list }}
+          loop_control:
+            loop_var: _key_line
+            label: "{{ _key_line.split()[0] }}"
+          when:
+            - not ansible_check_mode
+            - _key_line | length > 0
+
+        - name: Identify hosts that failed ssh-keyscan
+          ansible.builtin.set_fact:
+            _keyscan_failures: >-
+              {{ _keyscan_results.results
+                 | selectattr('stdout', 'defined')
+                 | selectattr('stdout', 'equalto', '')
+                 | map(attribute='item') | list }}
+
+        - name: Report sync summary
+          ansible.builtin.debug:
+            msg: >-
+              Synced {{ _known_hosts_targets | length - _keyscan_failures | length }}/{{ _known_hosts_targets | length }} hosts
+              {{ ('| Failed: ' + _keyscan_failures | join(', ')) if _keyscan_failures | length > 0 else '' }}
+
+        - name: Fail if any hosts could not be scanned
+          ansible.builtin.fail:
+            msg: "ssh-keyscan failed for: {{ _keyscan_failures | join(', ') }}"
+          when: _keyscan_failures | length > 0
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send alert on failure
+          include_tasks: tasks/notify.yaml
+          when: maintenance_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Known Hosts Sync"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+        - name: Fail play if maintenance failed
+          ansible.builtin.fail:
+            msg: "Known hosts sync failed — see notification for details"
+          when: maintenance_failed

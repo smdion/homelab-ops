@@ -39,6 +39,7 @@ health_backup_size_exclude:            # application names to skip in size anoma
 health_update_stale_days: 14          # Grafana panel: flag updates older than N days as stale
 rightsize_cpu_threshold: 0.10         # flag if 1-month avg CPU < 10%
 rightsize_mem_threshold: 0.30         # flag if 1-month avg mem < 30% of configured max
+health_keyscan_timeout: 5             # ssh-keyscan timeout in seconds per host
 
 # Appliance reachability check — tested via TCP connect (port 443)
 # CUSTOMIZE: list your network appliances that lack SSH access

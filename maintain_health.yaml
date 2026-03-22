@@ -14,7 +14,7 @@
 #                      OOM kills, Docker health, SMART disk health, PVE cluster quorum,
 #                      Ceph health, APT repo health (PVE only), SSL certificate expiry, NTP sync,
 #                      DNS resolution, unRAID array, PBS datastore, ZFS pool,
-#                      BTRFS health, Docker HTTP
+#                      BTRFS health, Docker HTTP, known_hosts completeness
 # Play 3 (localhost):  Aggregate findings, unreachable host alerting,
 #                      alerts per host, DB logging, save state
 #
@@ -1930,6 +1930,54 @@
         host_health_issues: >-
           {{ host_health_issues + [{'check_name': 'opt_orphan_entries', 'status': 'ok', 'value': 'skipped', 'detail': 'not a docker_stacks host'}] }}
       when: inventory_hostname not in (groups['docker_stacks'] | default([]))
+
+    # ── CHECK 30: SSH known_hosts completeness ──────────────────────────────
+    # Verifies that every other inventory host (short name + FQDN) is present
+    # in the ansible user's known_hosts. Read-only — does not modify the file.
+    # Active sync is handled by maintain_known_hosts.yaml.
+    - name: Check SSH known_hosts completeness
+      block:
+        - name: Build list of SSH hosts excluding self
+          ansible.builtin.set_fact:
+            _known_hosts_targets: >-
+              {{ (health_check_groups | map('extract', groups) | map('default', []) | flatten | unique)
+                 | difference([inventory_hostname]) }}
+
+        - name: Check known_hosts for each target host
+          ansible.builtin.shell: |
+            missing=""
+            for host in {{ _known_hosts_targets | map('regex_replace', '^(.*)$', '\\1 \\1.' + vault_domain_local) | join(' ') }}; do
+              ssh-keygen -F "$host" -f ~/.ssh/known_hosts >/dev/null 2>&1 || missing="$missing $host"
+            done
+            echo "${missing## }"
+          register: _known_hosts_raw
+          changed_when: false
+          failed_when: false  # observational — known_hosts completeness probe; failure recorded in host_health_issues
+          check_mode: false
+
+        - name: Parse missing hosts
+          ansible.builtin.set_fact:
+            _known_hosts_missing: "{{ _known_hosts_raw.stdout | default('') | trim | split(' ') | select | list }}"
+
+        - name: Record known_hosts completeness result
+          ansible.builtin.set_fact:
+            host_health_issues: >-
+              {{
+                host_health_issues + [{
+                  'check_name': 'known_hosts',
+                  'status': ('warning' if _known_hosts_missing | length > 0 else 'ok'),
+                  'value': ((_known_hosts_missing | length | string + ' missing')
+                            if _known_hosts_missing | length > 0
+                            else (_known_hosts_targets | length | string + ' hosts present')),
+                  'detail': _known_hosts_missing | join(', ') if _known_hosts_missing | length > 0 else ''
+                }]
+              }}
+
+      rescue:
+        - name: Record known_hosts check error
+          ansible.builtin.set_fact:
+            host_health_issues: >-
+              {{ host_health_issues + [{'check_name': 'known_hosts', 'status': 'critical', 'value': 'check_error', 'detail': 'known_hosts check task failed'}] }}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PLAY 3 — LOCALHOST: AGGREGATE, ALERT, LOG, SAVE STATE
