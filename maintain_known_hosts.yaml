@@ -37,6 +37,20 @@
               {{ (health_check_groups | map('extract', groups) | map('default', []) | flatten | unique)
                  | difference([inventory_hostname]) }}
 
+        - name: Ensure ~/.ssh directory exists with correct ownership
+          ansible.builtin.file:
+            path: "~/.ssh"
+            state: directory
+            mode: "0700"
+
+        - name: Ensure known_hosts file exists with correct ownership
+          ansible.builtin.file:
+            path: "~/.ssh/known_hosts"
+            state: touch
+            mode: "0644"
+            modification_time: preserve
+            access_time: preserve
+
         - name: Scan SSH host keys for each target (short, FQDN, IP)
           ansible.builtin.command: >-
             ssh-keyscan -T {{ health_keyscan_timeout }}
@@ -61,7 +75,9 @@
                | selectattr('stdout', 'defined')
                | selectattr('stdout')
                | map(attribute='stdout_lines')
-               | flatten | select | list }}
+               | flatten | select
+               | reject('match', '^#')
+               | list }}
           loop_control:
             loop_var: _key_line
             label: "{{ _key_line.split()[0] }}"
