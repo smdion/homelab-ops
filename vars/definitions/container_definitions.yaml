@@ -876,6 +876,25 @@ container_definitions:
         timeout: "5s"
         retries: 3
         start_period: "30s"
+  profilarr:
+    image: "ghcr.io/dictionarry-hub/profilarr"
+    tag: "latest"
+    stack: media
+    compose:
+      base: baseenv
+      ports: ["6868:6868"]
+      labels:
+        homelab.backup.paths: "/opt/profilarr"
+        homelab.proxy.subdomain: "profilarr"
+        homelab.proxy.port: "6868"
+      volumes:
+        - "${APPSDIR}/profilarr:/app/data"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6868/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
   restic:
     image: "restic/restic"
     tag: "latest"
