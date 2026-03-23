@@ -1946,7 +1946,7 @@
         - name: Check known_hosts for each target host
           ansible.builtin.shell: |
             missing=""
-            for host in {{ _known_hosts_targets | map('regex_replace', '^(.*)$', '\\1 \\1.' + vault_domain_local) | join(' ') }}; do
+            for host in {{ (_known_hosts_targets + _known_hosts_targets | map('regex_replace', '\\..*', '') | list) | join(' ') }}; do
               ssh-keygen -F "$host" -f ~/.ssh/known_hosts >/dev/null 2>&1 || missing="$missing $host"
             done
             echo "${missing## }"

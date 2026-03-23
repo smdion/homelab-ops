@@ -58,8 +58,8 @@
         - name: Scan SSH host keys for each target (short, FQDN, IP)
           ansible.builtin.command: >-
             ssh-keyscan -T {{ health_keyscan_timeout }}
+            {{ item | regex_replace('\\..*', '') }}
             {{ item }}
-            {{ item }}.{{ vault_domain_local }}
             {{ hostvars[item]['ansible_host'] | default(item) }}
           loop: "{{ _known_hosts_targets }}"
           loop_control:
