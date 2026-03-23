@@ -59,6 +59,8 @@ schedule_baseline:
     cron_expression: "00 07,19 * * *"
   - template_name: "Maintain — Logging DB [Cleanup]"
     cron_expression: "0 5 1 * *"
+  - template_name: "Maintain — SSH [Known Hosts]"
+    cron_expression: "0 3 * * 0"
   - template_name: "Maintain — PVE [Config]"
     cron_expression: "0 2 * * 0"
   - template_name: "Maintain — Unifi [Restart]"

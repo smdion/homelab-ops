@@ -1937,11 +1937,13 @@
     # Active sync is handled by maintain_known_hosts.yaml.
     - name: Check SSH known_hosts completeness
       block:
-        - name: Build list of SSH hosts excluding self
+        - name: Build list of SSH hosts excluding self (same domain only)
           ansible.builtin.set_fact:
             _known_hosts_targets: >-
               {{ (health_check_groups | map('extract', groups) | map('default', []) | flatten | unique)
-                 | difference([inventory_hostname]) }}
+                 | difference([inventory_hostname])
+                 | select('search', inventory_hostname | regex_replace('^[^.]+\\.', ''))
+                 | list }}
 
         - name: Check known_hosts for each target host
           ansible.builtin.shell: |
