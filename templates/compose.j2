@@ -129,10 +129,12 @@ services:
 {% if c.healthcheck is defined %}
     healthcheck:
       test: {{ c.healthcheck.test | to_json }}
+{% if c.healthcheck.interval is defined %}
       interval: {{ c.healthcheck.interval }}
       timeout: {{ c.healthcheck.timeout }}
       retries: {{ c.healthcheck.retries }}
       start_period: {{ c.healthcheck.start_period }}
+{% endif %}
 {% endif %}
 {% if c.depends_on | default([]) | length > 0 %}
     depends_on:
