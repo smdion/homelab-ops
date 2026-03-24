@@ -470,6 +470,35 @@ container_definitions:
       volumes:
         - "${APPSDIR}/firefox:/config"
       shm_size: "2g"
+  gaggiuino_barista:
+    image: "gaggiuino-barista"
+    tag: "latest"
+    stack: apps
+    env:
+      GAGGIUINO_API_BASE: "http://10.10.13.232"
+      GAGGIUINO_ANTHROPIC_API_KEY: "{{ vault_docker_gaggiuino_anthropic_api_key }}"
+      GAGGIUINO_DISCORD_WEBHOOK: "{{ vault_docker_gaggiuino_discord_webhook }}"
+    compose:
+      base: base
+      ports: ["5000:5000"]
+      build:
+        context: "${APPSDIR}/gaggiuino-barista/repo"
+        dockerfile: Dockerfile.standalone
+        repo: "https://github.com/smdion/gaggiuino-barista.git"
+      labels:
+        homelab.backup.paths: "/opt/gaggiuino-barista"
+      environment:
+        API_BASE: "${GAGGIUINO_API_BASE}"
+        ANTHROPIC_API_KEY: "${GAGGIUINO_ANTHROPIC_API_KEY}"
+        DISCORD_WEBHOOK_URL: "${GAGGIUINO_DISCORD_WEBHOOK}"
+      volumes:
+        - "${APPSDIR}/gaggiuino-barista/data:/homeassistant/www/gaggiuino-barista"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:5000/status || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   grafana:
     image: "grafana/grafana"
     tag: "latest"

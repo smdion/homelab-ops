@@ -163,6 +163,43 @@
     - not ansible_check_mode
     - pull_only | default('') == 'yes'
 
+- name: "Collect build-from-source containers — {{ _current_stack }}"
+  ansible.builtin.set_fact:
+    _build_containers: >-
+      {{ container_definitions | dict2items
+         | selectattr('value.stack', 'defined')
+         | selectattr('value.stack', 'equalto', _current_stack)
+         | selectattr('value.compose', 'defined')
+         | selectattr('value.compose.build', 'defined')
+         | list }}
+
+- name: "Clone/update build repos — {{ _current_stack }}"
+  become: true
+  ansible.builtin.git:
+    repo: "{{ item.value.compose.build.repo }}"
+    dest: "{{ item.value.compose.build.context | replace('${APPSDIR}', docker_appsdir) }}"
+    version: "main"
+    force: true
+  loop: "{{ _build_containers }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when:
+    - _build_containers | length > 0
+    - item.value.compose.build.repo is defined
+    - not ansible_check_mode
+
+- name: "Build images — {{ _current_stack }}"
+  become: true
+  ansible.builtin.command:
+    cmd: docker compose build
+    chdir: "{{ stacks_base_path }}/{{ _current_stack }}"
+  register: _build_result
+  changed_when: "'Successfully built' in (_build_result.stdout | default('')) or 'exporting to image' in (_build_result.stderr | default(''))"
+  when:
+    - _build_containers | length > 0
+    - not ansible_check_mode
+    - not (dry_run | default(false) | bool)
+
 - name: "Start stack — {{ _current_stack }}"
   become: true
   community.docker.docker_compose_v2:
