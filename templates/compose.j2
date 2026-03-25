@@ -164,6 +164,21 @@ services:
       - {{ cap }}
 {% endfor %}
 {% endif %}
+{% if c.cap_drop | default([]) | length > 0 %}
+    cap_drop:
+{% for cap in c.cap_drop %}
+      - {{ cap }}
+{% endfor %}
+{% endif %}
+{% if c.read_only | default(false) %}
+    read_only: true
+{% endif %}
+{% if c.tmpfs | default([]) | length > 0 %}
+    tmpfs:
+{% for mount in c.tmpfs %}
+      - {{ mount }}
+{% endfor %}
+{% endif %}
 {% if c.sysctls | default([]) | length > 0 %}
     sysctls:
 {% for sysctl in c.sysctls %}
