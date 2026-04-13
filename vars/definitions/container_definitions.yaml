@@ -731,6 +731,12 @@ container_definitions:
       LEDGR_AUTH_AUTHENTIK_ISSUER: "https://auth.{{ vault_domain_ext }}/application/o/ledgr/"
       LEDGR_AUTH_AUTHENTIK_ID: "{{ vault_docker_ledgr_authentik_client_id }}"
       LEDGR_AUTH_AUTHENTIK_SECRET: "{{ vault_docker_ledgr_authentik_client_secret }}"
+      # Required by ledgr >= v0.5.0 for AES-256-GCM at-rest encryption of
+      # api_connections.config (YNAB/Actual API tokens). The vault key is
+      # named _ynab_ for historical reasons — it was provisioned when the
+      # feature was YNAB-only — but the value is a generic 32-byte base64
+      # key used for all budget API credential encryption.
+      LEDGR_ENCRYPTION_KEY: "{{ vault_docker_ledgr_ynab_encryption_key }}"
     compose:
       base: base
       ports: ["3000:3000"]
@@ -752,6 +758,7 @@ container_definitions:
         NEXTAUTH_SECRET: "${LEDGR_NEXTAUTH_SECRET}"
         AUTH_TRUST_HOST: "true"
         CRON_SECRET: "${LEDGR_CRON_SECRET}"
+        ENCRYPTION_KEY: "${LEDGR_ENCRYPTION_KEY}"
         AUTH_AUTHENTIK_ISSUER: "${LEDGR_AUTH_AUTHENTIK_ISSUER}"
         AUTH_AUTHENTIK_ID: "${LEDGR_AUTH_AUTHENTIK_ID}"
         AUTH_AUTHENTIK_SECRET: "${LEDGR_AUTH_AUTHENTIK_SECRET}"
