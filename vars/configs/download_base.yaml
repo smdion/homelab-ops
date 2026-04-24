@@ -22,6 +22,9 @@ ytdlp_output: "%(extractor_key)s/%(uploader)s - %(title)s - %(id)s.%(ext)s"
 # Extractor configuration
 ytdlp_extractor_args: "youtube:player-client=default,-tv,web_safari,web_embedded"
 
+# Cookies file (inside metube container) — required for YouTube bot-check bypass
+ytdlp_cookies: "/configs/default/www.youtube.com_cookies.txt"
+
 # Download defaults — profiles override per-user preferences
 ytdlp_quality: "res"
 ytdlp_format: "mp4"

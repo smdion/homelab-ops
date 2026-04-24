@@ -27,6 +27,11 @@
 # Extractor configuration
 --extractor-args "{{ ytdlp_extractor_args }}"
 
+# Cookies — required for YouTube bot-check bypass
+{% if ytdlp_cookies | default('') | length > 0 %}
+--cookies "{{ ytdlp_cookies }}"
+{% endif %}
+
 # Rate limiting
 --limit-rate {{ ytdlp_rate_limit }}
 
