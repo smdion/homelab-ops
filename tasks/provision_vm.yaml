@@ -145,6 +145,13 @@
              if not _vm_already_exists
              else (_cluster_vms.json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first).node }}
 
+    # Register the actual VM node in inventory so qm commands run on the right host
+    - name: Add actual VM node to in-memory inventory
+      ansible.builtin.add_host:
+        name: pve_vm_node
+        ansible_host: "{{ pve_definitions[_vm_actual_node].node_ip }}"
+        ansible_user: ansible
+
     # Configure hardware and cloud-init
     - name: Configure VM hardware and cloud-init
       community.general.proxmox_kvm:
@@ -228,8 +235,9 @@
       when: _vm.vnc_display is defined or _vm.pve_args is defined
 
     # Configure QEMU args via SSH — API tokens cannot set 'args' (Proxmox root-only restriction)
+    # Delegate to the actual VM node, not pve_builder (which is always the template/API node)
     - name: Configure VM QEMU args
-      delegate_to: pve_builder
+      delegate_to: pve_vm_node
       become: true
       ansible.builtin.command:
         argv:
