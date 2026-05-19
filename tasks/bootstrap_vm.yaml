@@ -49,7 +49,7 @@
     append: true
 
 - name: Install desktop environment
-  when: _vm.vm_name == 'desktop'
+  when: _vm.install_desktop | default(false) | bool
   block:
     - name: Install ubuntu-desktop-minimal and spice agent
       ansible.builtin.apt:
