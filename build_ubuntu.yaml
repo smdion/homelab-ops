@@ -296,6 +296,7 @@
   gather_subset: ['!all', 'date_time']
   vars_files:
     - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/vip_definitions.yaml
     - vars/configs/semaphore_check.yaml
