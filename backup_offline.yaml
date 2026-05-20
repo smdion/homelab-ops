@@ -216,6 +216,7 @@
           retries: 12
           delay: 10
           changed_when: false
+          failed_when: _shutdown_ping.rc == 0
           when:
             - not ansible_check_mode
             - not (synology_skip_shutdown | default(false) | bool)

@@ -62,7 +62,8 @@
           {
             'title': (('⚠️ DRY RUN — ' if (_is_dry_run | default(false) | bool) else '') ~ ((discord_name ~ ' ' ~ discord_operation) if (discord_name is defined and discord_operation is defined) else discord_title)),
             'color': discord_color,
-            'fields': (discord_fields | default([])) +
+            'fields': ((discord_fields | from_json) if (discord_fields is defined and discord_fields is string)
+                        else (discord_fields | default([]))) +
               ([{'name': '🔗 Task Log', 'value': '[View in Semaphore](' ~ _semaphore_task_url ~ ')', 'inline': false}]
                if _semaphore_task_url | default('') | length > 0 else []),
             'timestamp': discord_timestamp | default(ansible_date_time.iso8601),
