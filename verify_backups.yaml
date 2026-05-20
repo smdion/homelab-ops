@@ -602,13 +602,11 @@
         - name: Build combined notification fields for verification results
           ansible.builtin.set_fact:
             _verify_discord_fields: >-
-              [
-               {% for r in combined_results %}
-               {% if not loop.first %},{% endif %}
-               {"name": "{{ ('❌ ' if r.status == 'failed' else '✅ ') + r.db_name }}",
-                "value": "{{ 'FAILED' if r.status == 'failed' else (r.table_count | string + ' ' + ('measurements' if is_influxdb | default(false) | bool else 'tables' if is_postgres | default(false) | bool or is_mariadb | default(false) | bool else 'files')) }}",
-                "inline": true}
-               {% endfor %}]
+              {{ (_verify_discord_fields | default([])) +
+                 [{'name': ('❌ ' if item.status == 'failed' else '✅ ') + item.db_name,
+                   'value': 'FAILED' if item.status == 'failed' else (item.table_count | string + ' ' + ('measurements' if is_influxdb | default(false) | bool else 'tables' if is_postgres | default(false) | bool or is_mariadb | default(false) | bool else 'files')),
+                   'inline': true}] }}
+          loop: "{{ combined_results }}"
           when: combined_results | length > 0
 
         - name: Send combined verification notification

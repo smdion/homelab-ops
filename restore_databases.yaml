@@ -219,13 +219,11 @@
         - name: Build combined notification fields for restore results
           ansible.builtin.set_fact:
             _restore_discord_fields: >-
-              [
-               {% for r in combined_results %}
-               {% if not loop.first %},{% endif %}
-               {"name": "{{ ('❌ ' if restore_failed else '✅ ') + r.db_name }}",
-                "value": "{{ 'FAILED' if restore_failed else (r.table_count | string + ' ' + ('measurements' if is_influxdb | default(false) | bool else 'tables')) }}",
-                "inline": true}
-               {% endfor %}]
+              {{ (_restore_discord_fields | default([])) +
+                 [{'name': ('❌ ' if restore_failed else '✅ ') + item.db_name,
+                   'value': 'FAILED' if restore_failed else (item.table_count | string + ' ' + ('measurements' if is_influxdb | default(false) | bool else 'tables')),
+                   'inline': true}] }}
+          loop: "{{ combined_results }}"
           when: combined_results | length > 0
 
         - name: Send combined restore notification

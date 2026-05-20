@@ -117,13 +117,11 @@
         - name: Build combined notification fields for backup results
           ansible.builtin.set_fact:
             _db_discord_fields: >-
-              [
-               {% for r in combined_results %}
-               {% if not loop.first %},{% endif %}
-               {"name": "{{ ('❌ ' if r.backup_rc != 0 else '✅ ') + r.db_name }}",
-                "value": "{{ 'FAILED' if r.backup_rc != 0 else ((r.file_size / 1024 / 1024) | round(2) | string + ' MB') }}",
-                "inline": true}
-               {% endfor %}]
+              {{ (_db_discord_fields | default([])) +
+                 [{'name': ('❌ ' if item.backup_rc != 0 else '✅ ') + item.db_name,
+                   'value': 'FAILED' if item.backup_rc != 0 else ((item.file_size / 1024 / 1024) | round(2) | string + ' MB'),
+                   'inline': true}] }}
+          loop: "{{ combined_results }}"
           when: combined_results | length > 0
 
         - name: Send combined DB backup notification

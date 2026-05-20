@@ -768,11 +768,11 @@
         - name: Build per-stack notification fields for backup results
           ansible.builtin.set_fact:
             _stack_discord_fields: >-
-              [
-               {% for r in _stack_backup_results %}
-               {% if not loop.first %},{% endif %}
-               {"name": "{{ ('❌ ' if r.failed else '✅ ') + r.stack }}", "value": "{{ 'FAILED' if r.failed else ('empty' if r.file_size == 0 else ((r.file_size / 1024 / 1024) | round(2) | string + ' MB')) }}", "inline": true}
-               {% endfor %}]
+              {{ (_stack_discord_fields | default([])) +
+                 [{'name': ('❌ ' if item.failed else '✅ ') + item.stack,
+                   'value': 'FAILED' if item.failed else ('empty' if item.file_size == 0 else ((item.file_size / 1024 / 1024) | round(2) | string + ' MB')),
+                   'inline': true}] }}
+          loop: "{{ _stack_backup_results }}"
           when: inventory_hostname in groups["docker_stacks"] | default([])
 
         - name: Send per-stack backup notification
@@ -796,11 +796,11 @@
         - name: Build per-instance AMP notification fields for backup results
           ansible.builtin.set_fact:
             _amp_discord_fields: >-
-              [
-               {% for r in _amp_backup_results %}
-               {% if not loop.first %},{% endif %}
-               {"name": "{{ ('❌ ' if r.failed else '✅ ') + r.instance }}", "value": "{{ 'FAILED' if r.failed else ('empty' if r.file_size == 0 else ((r.file_size / 1024 / 1024) | round(2) | string + ' MB')) }}", "inline": true}
-               {% endfor %}]
+              {{ (_amp_discord_fields | default([])) +
+                 [{'name': ('❌ ' if item.failed else '✅ ') + item.instance,
+                   'value': 'FAILED' if item.failed else ('empty' if item.file_size == 0 else ((item.file_size / 1024 / 1024) | round(2) | string + ' MB')),
+                   'inline': true}] }}
+          loop: "{{ _amp_backup_results }}"
           when: inventory_hostname in groups["amp"] | default([])
 
         - name: Send per-instance AMP backup notification
@@ -858,11 +858,11 @@
         - name: Build combined DB notification fields for backup results
           ansible.builtin.set_fact:
             _db_discord_fields: >-
-              [
-               {% for r in _db_combined_results %}
-               {% if not loop.first %},{% endif %}
-               {"name": "{{ ('❌ ' if r.backup_rc != 0 else '✅ ') + r.db_name }}", "value": "{{ 'FAILED' if r.backup_rc != 0 else ((r.file_size / 1024 / 1024) | round(2) | string + ' MB') }}", "inline": true}
-               {% endfor %}]
+              {{ (_db_discord_fields | default([])) +
+                 [{'name': ('❌ ' if item.backup_rc != 0 else '✅ ') + item.db_name,
+                   'value': 'FAILED' if item.backup_rc != 0 else ((item.file_size / 1024 / 1024) | round(2) | string + ' MB'),
+                   'inline': true}] }}
+          loop: "{{ _db_combined_results | default([]) }}"
           when: _db_combined_results | default([]) | length > 0
 
         - name: Send combined DB backup notification

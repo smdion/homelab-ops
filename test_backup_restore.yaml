@@ -334,11 +334,11 @@
     - name: Build per-app notification fields for test restore results
       ansible.builtin.set_fact:
         _app_discord_fields: >-
-          [
-           {% for r in _all_results %}
-           {% if not loop.first %},{% endif %}
-           {"name": "{{ ('❌ ' if not r.passed else '✅ ') + r.app }}", "value": "{{ r.detail if not r.passed else 'OK' }}", "inline": true}
-           {% endfor %}]
+          {{ (_app_discord_fields | default([])) +
+             [{'name': ('❌ ' if not item.passed else '✅ ') + item.app,
+               'value': item.detail if not item.passed else 'OK',
+               'inline': true}] }}
+      loop: "{{ _all_results }}"
 
     - name: Send test restore summary
       include_tasks: tasks/notify.yaml

@@ -547,11 +547,11 @@
         - name: Build per-instance notification fields
           ansible.builtin.set_fact:
             _amp_restore_discord_fields: >-
-              [
-               {% for r in _amp_restore_results %}
-               {% if not loop.first %},{% endif %}
-               {"name": "{{ ('❌ ' if r.failed else '✅ ') + r.instance }}", "value": "{{ 'FAILED' if r.failed else (r.archive | basename | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2})\\.tar\\.gz$', '\\1')) }}", "inline": true}
-               {% endfor %}]
+              {{ (_amp_restore_discord_fields | default([])) +
+                 [{'name': ('❌ ' if item.failed else '✅ ') + item.instance,
+                   'value': 'FAILED' if item.failed else (item.archive | basename | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2})\\.tar\\.gz$', '\\1')),
+                   'inline': true}] }}
+          loop: "{{ _amp_restore_results }}"
           when: _amp_restore_results | length > 0
 
         - name: Send notification
@@ -564,8 +564,7 @@
             discord_url: "{{ backup_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields: >-
-              {{ (_amp_restore_discord_fields | from_json if _amp_restore_discord_fields is defined and _amp_restore_discord_fields is string
-                  else (_amp_restore_discord_fields | default([]))) +
+              {{ (_amp_restore_discord_fields | default([])) +
                  [{'name': 'Detail', 'value': _restore_detail}] }}
 
         - name: Log per-instance restore to MariaDB

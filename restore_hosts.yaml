@@ -160,11 +160,11 @@
         - name: Build per-stack notification fields
           ansible.builtin.set_fact:
             _stack_restore_discord_fields: >-
-              [
-               {% for r in _stack_restore_results %}
-               {% if not loop.first %},{% endif %}
-               {"name": "{{ ('❌ ' if r.failed else '✅ ') + r.stack }}", "value": "{{ 'FAILED' if r.failed else (r.archive | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2})\\.tar\\.gz$', '\\1')) }}", "inline": true}
-               {% endfor %}]
+              {{ (_stack_restore_discord_fields | default([])) +
+                 [{'name': ('❌ ' if item.failed else '✅ ') + item.stack,
+                   'value': 'FAILED' if item.failed else (item.archive | regex_replace('^.*_(\\d{4}-\\d{2}-\\d{2})\\.tar\\.gz$', '\\1')),
+                   'inline': true}] }}
+          loop: "{{ _stack_restore_results }}"
           when: _restore_path == 'stack'
 
         - name: Send per-stack notification
