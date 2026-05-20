@@ -12,11 +12,12 @@
 #   _pve — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
 
 - name: Stop {{ _destroy_name | default('VM') }} (VMID {{ _destroy_vmid }})
-  community.general.proxmox_kvm:
+  community.proxmox.proxmox_kvm:
     api_host: "{{ _pve.api_host }}"
     api_user: "{{ _pve.api_user }}"
     api_token_id: "{{ _pve.api_token_id }}"
     api_token_secret: "{{ _pve.api_token_secret }}"
+    validate_certs: false
     node: "{{ _destroy_node }}"
     vmid: "{{ _destroy_vmid }}"
     state: stopped
@@ -29,11 +30,12 @@
     seconds: 5
 
 - name: Remove {{ _destroy_name | default('VM') }} (VMID {{ _destroy_vmid }})
-  community.general.proxmox_kvm:
+  community.proxmox.proxmox_kvm:
     api_host: "{{ _pve.api_host }}"
     api_user: "{{ _pve.api_user }}"
     api_token_id: "{{ _pve.api_token_id }}"
     api_token_secret: "{{ _pve.api_token_secret }}"
+    validate_certs: false
     node: "{{ _destroy_node }}"
     vmid: "{{ _destroy_vmid }}"
     state: absent

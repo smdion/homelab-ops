@@ -178,11 +178,12 @@
         # REVERT PATH — vm_state == 'revert'
         # ═════════════════════════════════════════════════════════
         - name: Stop VM before revert
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ _pve.api_host }}"
             api_user: "{{ _pve.api_user }}"
             api_token_id: "{{ _pve.api_token_id }}"
             api_token_secret: "{{ _pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ _vm_actual_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
@@ -202,11 +203,12 @@
           when: _vm_state == 'revert' and not ansible_check_mode
 
         - name: Start VM after revert
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ _pve.api_host }}"
             api_user: "{{ _pve.api_user }}"
             api_token_id: "{{ _pve.api_token_id }}"
             api_token_secret: "{{ _pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ _vm_actual_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: started
@@ -265,11 +267,12 @@
             log_status: "{{ 'failed' if build_failed else 'success' }}"
 
         - name: Stop test VM on build failure (free the slot)
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ _pve.api_host }}"
             api_user: "{{ _pve.api_user }}"
             api_token_id: "{{ _pve.api_token_id }}"
             api_token_secret: "{{ _pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
@@ -382,11 +385,12 @@
             log_status: "{{ 'failed' if bootstrap_failed else 'success' }}"
 
         - name: Stop test VM on bootstrap failure (free the slot)
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ _pve.api_host }}"
             api_user: "{{ _pve.api_user }}"
             api_token_id: "{{ _pve.api_token_id }}"
             api_token_secret: "{{ _pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm_resolved_node) }}"
             vmid: "{{ hostvars['localhost']._vm.vm_id }}"
             state: stopped
@@ -726,11 +730,12 @@
 
       always:
         - name: Stop test VM on restore prep failure (free the slot)
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ _pve.api_host }}"
             api_user: "{{ _pve.api_user }}"
             api_token_id: "{{ _pve.api_token_id }}"
             api_token_secret: "{{ _pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
@@ -883,11 +888,12 @@
     - name: Revert test VM to pre-test snapshot
       block:
         - name: Stop test VM for snapshot revert
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ _pve.api_host }}"
             api_user: "{{ _pve.api_user }}"
             api_token_id: "{{ _pve.api_token_id }}"
             api_token_secret: "{{ _pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ _vm_actual_node }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped

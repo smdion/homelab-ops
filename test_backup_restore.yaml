@@ -365,11 +365,12 @@
     - name: Revert test VM to pre-test snapshot
       block:
         - name: Stop test VM
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ _pve.api_host }}"
             api_user: "{{ _pve.api_user }}"
             api_token_id: "{{ _pve.api_token_id }}"
             api_token_secret: "{{ _pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ hostvars['localhost']._vm_actual_node }}"
             vmid: "{{ hostvars['localhost']._vm.vm_id }}"
             state: stopped

@@ -106,11 +106,12 @@
 - block:
     # Clone template to new VM (skip if VMID already exists from a prior partial run)
     - name: Clone VM from cloud-init template
-      community.general.proxmox_kvm:
+      community.proxmox.proxmox_kvm:
         api_host: "{{ _pve.api_host }}"
         api_user: "{{ _pve.api_user }}"
         api_token_id: "{{ _pve.api_token_id }}"
         api_token_secret: "{{ _pve.api_token_secret }}"
+        validate_certs: false
         node: "{{ _pve.template_node }}"
         clone: "{{ pve_template_name }}"
         newid: "{{ _vm.vm_id }}"
@@ -154,11 +155,12 @@
 
     # Configure hardware and cloud-init
     - name: Configure VM hardware and cloud-init
-      community.general.proxmox_kvm:
+      community.proxmox.proxmox_kvm:
         api_host: "{{ _pve.api_host }}"
         api_user: "{{ _pve.api_user }}"
         api_token_id: "{{ _pve.api_token_id }}"
         api_token_secret: "{{ _pve.api_token_secret }}"
+        validate_certs: false
         node: "{{ _vm_actual_node }}"
         vmid: "{{ _vm.vm_id }}"
         name: "{{ _vm.vm_name }}"
@@ -257,11 +259,12 @@
 
     # Start VM
     - name: Start VM
-      community.general.proxmox_kvm:
+      community.proxmox.proxmox_kvm:
         api_host: "{{ _pve.api_host }}"
         api_user: "{{ _pve.api_user }}"
         api_token_id: "{{ _pve.api_token_id }}"
         api_token_secret: "{{ _pve.api_token_secret }}"
+        validate_certs: false
         node: "{{ _vm_actual_node }}"
         vmid: "{{ _vm.vm_id }}"
         state: started

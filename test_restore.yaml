@@ -295,11 +295,12 @@
 
       always:
         - name: Stop test VM on build failure (free the slot)
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ _pve.api_host }}"
             api_user: "{{ _pve.api_user }}"
             api_token_id: "{{ _pve.api_token_id }}"
             api_token_secret: "{{ _pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
             vmid: "{{ _vm.vm_id }}"
             state: stopped
@@ -375,11 +376,12 @@
 
       always:
         - name: Stop test VM on bootstrap failure (free the slot)
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ hostvars['localhost']._pve.api_host }}"
             api_user: "{{ hostvars['localhost']._pve.api_user }}"
             api_token_id: "{{ hostvars['localhost']._pve.api_token_id }}"
             api_token_secret: "{{ hostvars['localhost']._pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ hostvars['localhost']._vm_actual_node | default(hostvars['localhost']._vm_resolved_node) }}"
             vmid: "{{ hostvars['localhost']._vm.vm_id }}"
             state: stopped
@@ -468,11 +470,12 @@
 
       always:
         - name: Stop test VM on snapshot failure (free the slot)
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ _pve.api_host }}"
             api_user: "{{ _pve.api_user }}"
             api_token_id: "{{ _pve.api_token_id }}"
             api_token_secret: "{{ _pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ _vm_actual_node | default(_vm_resolved_node) }}"
             vmid: "{{ vm_definitions[vm_name].vm_id }}"
             state: stopped
@@ -623,11 +626,12 @@
     - name: Revert test VM to pre-test snapshot
       block:
         - name: Stop test VM
-          community.general.proxmox_kvm:
+          community.proxmox.proxmox_kvm:
             api_host: "{{ _pve.api_host }}"
             api_user: "{{ _pve.api_user }}"
             api_token_id: "{{ _pve.api_token_id }}"
             api_token_secret: "{{ _pve.api_token_secret }}"
+            validate_certs: false
             node: "{{ _vm_actual_node }}"
             vmid: "{{ vm_definitions[vm_name].vm_id }}"
             state: stopped
