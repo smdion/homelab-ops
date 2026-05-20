@@ -564,7 +564,8 @@
             discord_url: "{{ backup_url }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields: >-
-              {{ _amp_restore_discord_fields | default([]) +
+              {{ (_amp_restore_discord_fields | from_json if _amp_restore_discord_fields is defined and _amp_restore_discord_fields is string
+                  else (_amp_restore_discord_fields | default([]))) +
                  [{'name': 'Detail', 'value': _restore_detail}] }}
 
         - name: Log per-instance restore to MariaDB
