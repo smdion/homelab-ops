@@ -282,7 +282,7 @@
             log_table: backups
             log_application: "{{ backup_name }}"
             log_hostname: "{{ inventory_hostname }}"
-            log_file_name: "{{ ('FAILED_' if _sync_result.rc != 0 else '') }}sync_{{ _sync_result.item }}_{{ ansible_date_time.date }}"
+            log_file_name: "{{ ('FAILED_' if _sync_result.rc != 0 else '') }}sync_{{ _sync_result.item }}_{{ ansible_facts.date_time.date }}"
             log_file_size: >-
               {{ ((_sync_result.stdout | default('') |
                    regex_search('Total transferred file size: ([\d,]+)', '\1') |
@@ -297,7 +297,7 @@
             log_table: backups
             log_application: "{{ backup_name }}"
             log_hostname: "{{ inventory_hostname }}"
-            log_file_name: "FAILED_sync_{{ ansible_date_time.date }}"
+            log_file_name: "FAILED_sync_{{ ansible_facts.date_time.date }}"
             log_file_size: "0"
             log_backup_level: "offline"
 

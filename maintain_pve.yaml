@@ -28,7 +28,7 @@
     - vars/secrets.yaml
     - vars/configs/proxmox.yaml
   vars:
-    pve_debian_release: "{{ ansible_distribution_release | default('bookworm') }}"
+    pve_debian_release: "{{ ansible_facts.distribution_release | default('bookworm') }}"
     maintenance_name: "Proxmox"
     maintenance_type: "Appliances"
     maintenance_subtype: "Maintenance"
@@ -233,7 +233,7 @@
     # ===== IDENTIFY STALE SNAPSHOTS =====
     - name: Compute stale snapshot threshold (epoch minus max age)
       ansible.builtin.set_fact:
-        _snapshot_threshold: "{{ (ansible_date_time.epoch | int) - (snapshot_max_age_days | int * 86400) }}"
+        _snapshot_threshold: "{{ (ansible_facts.date_time.epoch | int) - (snapshot_max_age_days | int * 86400) }}"
 
     - name: Build stale snapshot list
       ansible.builtin.set_fact:
@@ -255,7 +255,7 @@
       ansible.builtin.set_fact:
         _stale_msg: |
           {% for s in _stale_snapshots -%}
-          {{ s.vm }} ({{ s.vmid }}): {{ s.name }} — {{ ((ansible_date_time.epoch | int - s.snaptime) / 86400) | int }}d old
+          {{ s.vm }} ({{ s.vmid }}): {{ s.name }} — {{ ((ansible_facts.date_time.epoch | int - s.snaptime) / 86400) | int }}d old
           {% endfor %}
       when: _stale_snapshots | length > 0
 
@@ -322,7 +322,7 @@
     # ===== IDENTIFY FAILED TASKS =====
     - name: Set task check cutoff timestamp
       ansible.builtin.set_fact:
-        _task_cutoff: "{{ (ansible_date_time.epoch | int) - (task_check_days | int * 86400) }}"
+        _task_cutoff: "{{ (ansible_facts.date_time.epoch | int) - (task_check_days | int * 86400) }}"
 
     - name: Filter tasks with errors within check window
       ansible.builtin.set_fact:

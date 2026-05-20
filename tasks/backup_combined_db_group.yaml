@@ -24,7 +24,7 @@
   become: true
   ansible.builtin.file:
     state: directory
-    path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
+    path: "{{ backup_base_dir }}/run_{{ ansible_facts.date_time.iso8601_basic_short }}"
   delegate_to: "{{ db_host }}"
 
 - name: "Seed accumulator — {{ _db_config_file }}"
@@ -37,7 +37,7 @@
   loop_control:
     loop_var: _current_db
   vars:
-    backup_tmp_dir: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
+    backup_tmp_dir: "{{ backup_base_dir }}/run_{{ ansible_facts.date_time.iso8601_basic_short }}"
     _db_delegate_host: "{{ db_host }}"
 
 - name: "Dump MariaDB grants — {{ _db_config_file }}"
@@ -46,14 +46,14 @@
     _db_container: "{{ db_container_name }}"
     _db_username: "{{ db_username }}"
     _db_password: "{{ vault_db_password | default('') }}"
-    _db_dest_file: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}/grants_{{ ansible_date_time.date }}.sql.gz"
+    _db_dest_file: "{{ backup_base_dir }}/run_{{ ansible_facts.date_time.iso8601_basic_short }}/grants_{{ ansible_facts.date_time.date }}.sql.gz"
     _db_delegate_host: "{{ db_host }}"
   when: is_mariadb | default(false) | bool
 
 - name: "Fetch MariaDB grants to controller — {{ _db_config_file }}"
   ansible.builtin.fetch:
-    src: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}/grants_{{ ansible_date_time.date }}.sql.gz"
-    dest: "{{ backup_base_dir }}/{{ backup_stack | default(inventory_hostname) }}/grants_{{ ansible_date_time.date }}.sql.gz"
+    src: "{{ backup_base_dir }}/run_{{ ansible_facts.date_time.iso8601_basic_short }}/grants_{{ ansible_facts.date_time.date }}.sql.gz"
+    dest: "{{ backup_base_dir }}/{{ backup_stack | default(inventory_hostname) }}/grants_{{ ansible_facts.date_time.date }}.sql.gz"
     flat: true
   become: false
   delegate_to: "{{ db_host }}"
@@ -67,5 +67,5 @@
   become: true
   ansible.builtin.file:
     state: absent
-    path: "{{ backup_base_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
+    path: "{{ backup_base_dir }}/run_{{ ansible_facts.date_time.iso8601_basic_short }}"
   delegate_to: "{{ db_host }}"

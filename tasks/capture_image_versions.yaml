@@ -24,7 +24,7 @@
 - name: "Save image versions manifest — {{ _versions_label }}"
   ansible.builtin.copy:
     content: "{{ _image_versions.stdout }}\n"
-    dest: "{{ _versions_dest }}/backup_{{ _versions_label }}_{{ ansible_date_time.date }}.versions.txt"
+    dest: "{{ _versions_dest }}/backup_{{ _versions_label }}_{{ ansible_facts.date_time.date }}.versions.txt"
     mode: "0644"
   delegate_to: localhost
   become: false

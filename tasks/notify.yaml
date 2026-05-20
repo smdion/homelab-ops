@@ -20,7 +20,7 @@
 # Optional vars — embed content:
 #   discord_url          — clickable link on title (backup/update/maintenance playbooks)
 #   discord_footer       — dict with 'text' and optional 'icon_url' keys (download_videos per-video)
-#   discord_timestamp    — ISO timestamp (defaults to ansible_date_time.iso8601)
+#   discord_timestamp    — ISO timestamp (defaults to ansible_facts.date_time.iso8601)
 #
 # Optional vars — author overrides:
 #   discord_author       — override author name (defaults to inventory_hostname;
@@ -66,7 +66,7 @@
                         else (discord_fields | default([]))) +
               ([{'name': '🔗 Task Log', 'value': '[View in Semaphore](' ~ _semaphore_task_url ~ ')', 'inline': false}]
                if _semaphore_task_url | default('') | length > 0 else []),
-            'timestamp': discord_timestamp | default(ansible_date_time.iso8601),
+            'timestamp': discord_timestamp | default(ansible_facts.date_time.iso8601),
             'author':
               {'name': discord_author | default(inventory_hostname),
                'icon_url': discord_author_icon | default('https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png')}

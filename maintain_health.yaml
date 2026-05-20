@@ -1066,7 +1066,7 @@
         - name: Evaluate load against threshold
           ansible.builtin.set_fact:
             load_5m: "{{ _load_raw.stdout | float }}"
-            load_threshold: "{{ (ansible_processor_vcpus | int * health_cpu_load_multiplier) | round(2) }}"
+            load_threshold: "{{ (ansible_facts.processor_vcpus | int * health_cpu_load_multiplier) | round(2) }}"
 
         - name: Record CPU load result
           ansible.builtin.set_fact:
@@ -1075,7 +1075,7 @@
                 host_health_issues + [{
                   'check_name': 'cpu_load',
                   'status': 'warning' if load_5m | float > load_threshold | float else 'ok',
-                  'value': 'load: ' + load_5m | string + ' / ' + ansible_processor_vcpus | string + ' vCPUs',
+                  'value': 'load: ' + load_5m | string + ' / ' + ansible_facts.processor_vcpus | string + ' vCPUs',
                   'detail': (
                     '5m avg ' + load_5m | string + ' exceeds threshold ' + load_threshold | string
                     if load_5m | float > load_threshold | float else ''

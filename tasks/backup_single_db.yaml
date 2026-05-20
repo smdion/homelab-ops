@@ -16,7 +16,7 @@
 
 - name: "Set file paths for {{ _current_db }}"
   ansible.builtin.set_fact:
-    _db_file: "backup_{{ _current_db }}_{{ ansible_date_time.date }}.{{ backup_ext | default('sql.gz') }}"
+    _db_file: "backup_{{ _current_db }}_{{ ansible_facts.date_time.date }}.{{ backup_ext | default('sql.gz') }}"
 
 - block:
     - name: "Dump {{ _current_db }}"

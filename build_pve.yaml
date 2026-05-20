@@ -36,7 +36,7 @@
     - vars/secrets.yaml
     - vars/configs/proxmox.yaml
   vars:
-    pve_debian_release: "{{ ansible_distribution_release | default('bookworm') }}"
+    pve_debian_release: "{{ ansible_facts.distribution_release | default('bookworm') }}"
 
   tasks:
     # === APT repos: disable enterprise, add no-subscription, remove nag ===

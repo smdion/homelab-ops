@@ -90,7 +90,7 @@
   tasks:
     - name: Set run-scoped temp directory (concurrency-safe)
       ansible.builtin.set_fact:
-        backup_tmp_dir: "{{ backup_tmp_dir }}/run_{{ ansible_date_time.iso8601_basic_short }}"
+        backup_tmp_dir: "{{ backup_tmp_dir }}/run_{{ ansible_facts.date_time.iso8601_basic_short }}"
 
     - name: Create run-scoped temp directory
       become: true
@@ -310,7 +310,7 @@
         - name: Save camera inventory to controller
           ansible.builtin.copy:
             content: "{{ _protect_cameras.json | to_nice_json }}"
-            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/protect_camera_inventory_{{ ansible_date_time.date }}.json"
+            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/protect_camera_inventory_{{ ansible_facts.date_time.date }}.json"
             mode: "0600"
           delegate_to: localhost
           become: false
@@ -339,7 +339,7 @@
         - name: Save Unifi Network device inventory to controller
           ansible.builtin.copy:
             content: "{{ _unifi_devices.json | to_nice_json }}"
-            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/unifi_device_inventory_{{ ansible_date_time.date }}.json"
+            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/unifi_device_inventory_{{ ansible_facts.date_time.date }}.json"
             mode: "0600"
           delegate_to: localhost
           become: false
@@ -365,7 +365,7 @@
         - name: Save instances.json registry to controller
           ansible.builtin.copy:
             content: "{{ _amp_instances_json.content | b64decode }}"
-            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/amp_instances_{{ ansible_date_time.date }}.json"
+            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/amp_instances_{{ ansible_facts.date_time.date }}.json"
             mode: "0600"
           delegate_to: localhost
           become: false
@@ -397,7 +397,7 @@
         - name: Save AMP instance inventory to controller
           ansible.builtin.copy:
             content: "{{ _amp_instances | default([]) | to_nice_json }}"
-            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/amp_instance_inventory_{{ ansible_date_time.date }}.json"
+            dest: "{{ backup_base_dir }}/{{ inventory_hostname }}/amp_instance_inventory_{{ ansible_facts.date_time.date }}.json"
             mode: "0600"
           delegate_to: localhost
           become: false

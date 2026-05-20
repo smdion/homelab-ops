@@ -62,7 +62,7 @@ stack_definitions:
       COMPOSE_PROFILES=hub
       DOZZLE_LEVEL={{ docker_dozzle_level }}
       {% if _role_injected | default(false) -%}
-      {% set _subnet = ansible_default_ipv4.address.rsplit('.', 1)[0] -%}
+      {% set _subnet = ansible_facts.default_ipv4.address.rsplit('.', 1)[0] -%}
       DOZZLE_REMOTE_AGENT={{ _subnet }}.{{ docker_test_vip_offsets['core'] }}:7007,{{ _subnet }}.{{ docker_test_vip_offsets['dev'] }}:7007
       {% else -%}
       DOZZLE_REMOTE_AGENT={{ vault_core_vip }}:7007,{{ vault_dev_vip }}:7007

@@ -194,7 +194,7 @@
           changed_when: false
 
         - name: Enable PVE node maintenance mode (HA migration)
-          ansible.builtin.shell: ha-manager crm-command node-maintenance enable {{ ansible_hostname }}
+          ansible.builtin.shell: ha-manager crm-command node-maintenance enable {{ ansible_facts.hostname }}
           become: true
           register: _pve_maint_enabled
           when:
@@ -205,11 +205,11 @@
         - name: Wait for HA guests to migrate off this node
           ansible.builtin.shell: |
             for i in $(seq 1 36); do
-              remaining=$(ha-manager status 2>/dev/null | grep -c "node {{ ansible_hostname }},") || remaining=0
+              remaining=$(ha-manager status 2>/dev/null | grep -c "node {{ ansible_facts.hostname }},") || remaining=0
               [ "$remaining" -eq 0 ] && echo "ALL_MIGRATED" && exit 0
               sleep 5
             done
-            echo "TIMEOUT: $(ha-manager status 2>/dev/null | grep 'node {{ ansible_hostname }},')"
+            echo "TIMEOUT: $(ha-manager status 2>/dev/null | grep 'node {{ ansible_facts.hostname }},')"
             exit 1
           register: _ha_migrate_wait
           changed_when: false
@@ -277,7 +277,7 @@
             - _ceph_available.rc | default(1) == 0
 
         - name: Disable PVE node maintenance mode
-          ansible.builtin.shell: ha-manager crm-command node-maintenance disable {{ ansible_hostname }}
+          ansible.builtin.shell: ha-manager crm-command node-maintenance disable {{ ansible_facts.hostname }}
           become: true
           when:
             - _version_scope == 'os'
@@ -720,7 +720,7 @@
             {% if _ceph_available.rc | default(1) == 0 %}
             ceph osd unset noout; ceph osd unset nobackfill; ceph osd unset norebalance
             {% endif %}
-            ha-manager crm-command node-maintenance disable {{ ansible_hostname }}
+            ha-manager crm-command node-maintenance disable {{ ansible_facts.hostname }}
           become: true
           failed_when: false  # best-effort — rescue block cleanup; primary error already captured
           when:

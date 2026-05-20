@@ -160,7 +160,7 @@
     - name: Initialize offsite sync state
       ansible.builtin.set_fact:
         sync_failed: false
-        _sync_start: "{{ ansible_date_time.epoch }}"
+        _sync_start: "{{ ansible_facts.date_time.epoch }}"
         _restic_summary: {}
 
     - block:
@@ -317,7 +317,7 @@
             log_table: backups
             log_application: "{{ backup_name }}"
             log_hostname: "{{ inventory_hostname }}"
-            log_file_name: "{{ ('FAILED_' if sync_failed else '') }}offsite_{{ offsite_method }}_{{ ansible_date_time.date }}"
+            log_file_name: "{{ ('FAILED_' if sync_failed else '') }}offsite_{{ offsite_method }}_{{ ansible_facts.date_time.date }}"
             log_file_size: "{{ ((_restic_summary.data_added | default(0) | int) / 1048576) | round(2) | string }}"
             log_backup_level: "offline"
 

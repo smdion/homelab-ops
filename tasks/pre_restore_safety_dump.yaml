@@ -25,7 +25,7 @@
     _db_container: "{{ _safety_container }}"
     _db_username: "{{ _safety_username }}"
     _db_password: "{{ _safety_password | default('') }}"
-    _db_dest_file: "{{ _safety_dest_dir }}/pre_restore_{{ item }}_{{ ansible_date_time.date }}.{{ _safety_ext | default('sql.gz') }}"
+    _db_dest_file: "{{ _safety_dest_dir }}/pre_restore_{{ item }}_{{ ansible_facts.date_time.date }}.{{ _safety_ext | default('sql.gz') }}"
     _db_is_postgres: "{{ _safety_is_postgres | default(false) }}"
     _db_is_mariadb: "{{ _safety_is_mariadb | default(false) }}"
     _db_is_influxdb: "{{ _safety_is_influxdb | default(false) }}"
