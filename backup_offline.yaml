@@ -144,13 +144,15 @@
             _mount_point: "{{ _mount_point_raw.stdout | trim }}"
 
         # === Rsync each share as subfolder ===
-        - name: Rsync {{ item }} to Synology
+        - name: Rsync share to Synology
           become: true
           ansible.builtin.shell: |
             rsync -a --stats {{ synology_src_base_path }}{{ item }}/ "{{ _mount_point }}/{{ item }}/" --delete-after 2>&1
           loop: "{{ synology_shares }}"
           register: _rsync_results
           ignore_errors: true  # best-effort — individual share sync may fail; others continue
+          loop_control:
+            label: "{{ item }}"
 
         - name: Collect sync results
           ansible.builtin.set_fact:

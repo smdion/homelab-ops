@@ -72,7 +72,7 @@
           No stack archive found for stack '{{ _app_cfg.stack }}'.
           Expected: {{ backup_base_dir }}/{{ _app_cfg.stack }}/backup_{{ _app_cfg.stack }}_*.tar.gz
 
-    - name: Find latest DB backup — {{ item }}
+    - name: Find latest DB backup
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ _app_cfg.db_stack }}/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
       loop: "{{ _app_cfg.db_names | default([]) }}"
@@ -80,13 +80,17 @@
       become: false
       changed_when: false
       check_mode: false
+      loop_control:
+        label: "{{ item }}"
       when: _app_cfg.db_names | default([]) | length > 0
 
-    - name: Assert DB backup found — {{ item.item }}
+    - name: Assert DB backup found
       ansible.builtin.assert:
         that: item.stdout | length > 0
         fail_msg: "No DB backup found for '{{ item.item }}' in {{ _app_cfg.db_stack }} stack"
       loop: "{{ _db_archive_results.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item }}"
       when: _app_cfg.db_names | default([]) | length > 0
 
     - name: Set backup path facts
@@ -154,11 +158,13 @@
             mode: "0755"
           when: not ansible_check_mode
 
-        - name: Copy DB backup to staging — {{ item }}
+        - name: Copy DB backup to staging
           ansible.builtin.copy:
             src: "{{ hostvars['localhost']._db_archive_map[item] }}"
             dest: "{{ _app_restore_tmp }}/{{ item }}.sql.gz"
           loop: "{{ hostvars['localhost']._app_cfg.db_names | default([]) }}"
+          loop_control:
+            label: "{{ item }}"
           when:
             - hostvars['localhost']._app_cfg.db_names | default([]) | length > 0
             - not ansible_check_mode

@@ -217,7 +217,7 @@
         _db_mariadb_username: "{{ _db_mariadb_username | default('') }}"
         _db_secondary_postgres_username: "{{ _db_secondary_postgres_username | default('') }}"
 
-    - name: Find latest SQL dump per database — {{ item }}
+    - name: Find latest SQL dump per database
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/databases/backup_{{ item }}_*.sql {{ backup_base_dir }}/databases/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
       loop: "{{ _db_postgres_all_names + _db_mariadb_all_names + _db_secondary_postgres_all_names }}"
@@ -225,6 +225,8 @@
       become: false
       changed_when: false
       check_mode: false
+      loop_control:
+        label: "{{ item }}"
       when: (_db_postgres_all_names + _db_mariadb_all_names + _db_secondary_postgres_all_names) | length > 0
 
     - name: Build DB archive map and name lists

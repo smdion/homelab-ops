@@ -84,7 +84,7 @@
       loop: "{{ _test_apps }}"
 
     # ===== FIND STACK ARCHIVES =====
-    - name: Find latest stack archive from production backups (read-only) — {{ item }}
+    - name: Find latest stack archive from production backups (read-only)
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/{{ app_definitions[item].stack }}/backup_{{ app_definitions[item].stack }}_*.tar.gz 2>/dev/null | head -1
       loop: "{{ _test_apps }}"
@@ -92,8 +92,10 @@
       become: false
       changed_when: false
       check_mode: false
+      loop_control:
+        label: "{{ item }}"
 
-    - name: Assert stack archive found — {{ item.item }}
+    - name: Assert stack archive found
       ansible.builtin.assert:
         that: item.stdout | length > 0
         fail_msg: >-
@@ -101,6 +103,8 @@
           (stack '{{ app_definitions[item.item].stack }}').
           Expected: {{ backup_base_dir }}/{{ app_definitions[item.item].stack }}/backup_{{ app_definitions[item.item].stack }}_*.tar.gz
       loop: "{{ _stack_archive_results.results }}"
+      loop_control:
+        label: "{{ item.item }}"
 
     - name: Build stack archive map
       ansible.builtin.set_fact:
@@ -114,7 +118,7 @@
           {{ _test_apps | map('extract', app_definitions)
              | map(attribute='db_names', default=[]) | flatten | unique | list }}
 
-    - name: Find latest DB backup from production backups (read-only) — {{ item }}
+    - name: Find latest DB backup from production backups (read-only)
       ansible.builtin.shell: >
         ls -t {{ backup_base_dir }}/databases/backup_{{ item }}_*.sql {{ backup_base_dir }}/databases/backup_{{ item }}_*.sql.gz 2>/dev/null | head -1
       loop: "{{ _all_test_db_names }}"
@@ -122,13 +126,17 @@
       become: false
       changed_when: false
       check_mode: false
+      loop_control:
+        label: "{{ item }}"
       when: _all_test_db_names | length > 0
 
-    - name: Assert DB backup found — {{ item.item }}
+    - name: Assert DB backup found
       ansible.builtin.assert:
         that: item.stdout | length > 0
         fail_msg: "No DB backup found for '{{ item.item }}' in databases stack (tried .sql and .sql.gz)"
       loop: "{{ _db_archive_results.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item }}"
       when: _all_test_db_names | length > 0
 
     - name: Build DB archive map

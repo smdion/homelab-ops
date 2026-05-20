@@ -17,9 +17,11 @@
 # Optional:
 #   _safety_delegate_host — delegate to a different host (cross-host restores)
 
-- name: Create pre-restore safety backup — {{ item }}
+- name: Create pre-restore safety backup
   include_tasks: tasks/db_dump.yaml
   loop: "{{ _safety_db_list }}"
+  loop_control:
+    label: "{{ item }}"
   vars:
     _db_name: "{{ item }}"
     _db_container: "{{ _safety_container }}"

@@ -107,7 +107,7 @@
   become: true
   when: hostvars['localhost']._db_archive_map | default({}) | length > 0
 
-- name: Copy production DB backup — {{ item.key }}
+- name: Copy production DB backup
   ansible.builtin.synchronize:
     src: "{{ item.value }}"
     dest: "/tmp/db_restore_staging/{{ item.value | basename }}"
@@ -123,7 +123,7 @@
     label: "{{ item.key }}"
   when: hostvars['localhost']._db_archive_map | default({}) | length > 0
 
-- name: "Rsync stalled — copy DB backup via Ansible — {{ item.key }}"
+- name: "Rsync stalled — copy DB backup via Ansible"
   ansible.builtin.copy:
     src: "{{ item.value }}"
     dest: "/tmp/db_restore_staging/{{ item.value | basename }}"

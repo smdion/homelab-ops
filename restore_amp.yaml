@@ -110,11 +110,12 @@
         _amp_restore_results: []
         _restore_failed: false
 
-    - name: Restore AMP instance {{ item }}
+    - name: Restore AMP instance
       include_tasks: tasks/restore_single_amp_instance.yaml
       loop: "{{ _restore_instances }}"
       loop_control:
         loop_var: _amp_instance
+        label: "{{ item }}"
 
     - name: Upgrade all AMP instances to current version
       become: true

@@ -60,7 +60,7 @@
           Found {{ _test_vms | length }} test VM(s):
           {{ _test_vms | map(attribute='name') | list | join(', ') | default('none') }}
 
-    - name: Destroy test VM — {{ item.name }} (VMID {{ item.vmid }})
+    - name: Destroy test VM
       include_tasks: tasks/destroy_vm.yaml
       vars:
         _destroy_vmid: "{{ item.vmid }}"
