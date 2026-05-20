@@ -175,7 +175,9 @@
         - name: Update PiKVM
           ansible.builtin.shell: timeout 600 pikvm-update --no-reboot
           register: _pikvm_update_result
-          failed_when: _pikvm_update_result.rc not in [0, 100]
+          failed_when: _pikvm_update_result.rc not in [0, 32, 100]
+          # rc=32: pikvm-update's internal `ro` call failed (EBUSY — Ansible holds files open).
+          # The update itself succeeded or had nothing to do; our end-of-play ro/reboot handles RO restore.
           when:
             - _version_scope == 'os'
             - inventory_hostname in groups["pikvm"]
