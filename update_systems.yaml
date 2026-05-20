@@ -770,10 +770,21 @@
 
         - name: Return PiKVM to RO mode
           raw: ro
+          register: _ro_result
+          failed_when: false  # reboot below handles the case where mount is busy
           when:
             - _version_scope == 'os'
             - inventory_hostname in groups["pikvm"]
             - _pikvm_update_result.rc | default(0) != 100
+            - not ansible_check_mode
+
+        - name: Reboot PiKVM if RO remount failed (filesystem busy after update)
+          ansible.builtin.reboot:
+          when:
+            - _version_scope == 'os'
+            - inventory_hostname in groups["pikvm"]
+            - _ro_result is defined
+            - _ro_result.rc | default(0) != 0
             - not ansible_check_mode
 
         - name: Send Docker update notification
