@@ -172,6 +172,17 @@
             - _version_scope == 'os'
             - inventory_hostname in groups["pikvm"]
 
+        - name: Remove tailscale from PiKVM
+          ansible.builtin.shell: |
+            if pacman -Q tailscale-pikvm &>/dev/null; then
+              systemctl disable --now tailscaled 2>/dev/null || true
+              pacman --noconfirm -R tailscale-pikvm
+            fi
+          when:
+            - _version_scope == 'os'
+            - inventory_hostname in groups["pikvm"]
+          changed_when: false
+
         - name: Update PiKVM
           ansible.builtin.shell: timeout 600 pikvm-update --no-reboot
           register: _pikvm_update_result
