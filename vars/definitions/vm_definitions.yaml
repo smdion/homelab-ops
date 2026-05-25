@@ -45,6 +45,7 @@ vm_definitions:
     vm_memory_mb: 24576
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_apps_node | default('') }}"
+    pve_args: "-cpu host"              # host CPU passthrough — required for AVX2 (numpy/mealie)
     deploy_ssh_key: true
     nfs_exports:                       # export /opt to LAN subnet (prod or test VLAN)
       - path: /opt
