@@ -817,7 +817,7 @@ container_definitions:
       labels:
         homelab.backup.paths: "/opt/mealie"
         homelab.proxy.subdomain: "mealie"
-        homelab.proxy.auth: "false"
+        homelab.proxy.auth: "true"
         homelab.restore.app: "mealie"
         homelab.restore.db_config: "db_primary_postgres"
         homelab.restore.db_names: "mealie"
@@ -838,6 +838,7 @@ container_definitions:
         OIDC_CLIENT_SECRET: "${MEALIE_OIDC_CLIENT_SECRET}"
         OIDC_PROVIDER_NAME: "Authentik"
         OIDC_SIGNING_ALGORITHM: "ES256"
+        OIDC_AUTO_REDIRECT: "true"
       volumes:
         - "${APPSDIR}/mealie:/app/data"
       healthcheck:
