@@ -29,6 +29,11 @@ app_definitions:
     db_stack: databases
     db_config: db_primary_postgres
     db_names: [jellyseerr]
+  mealie:
+    stack: apps
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_names: [mealie]
   dev_ledgr:
     stack: dev
     db_stack: databases

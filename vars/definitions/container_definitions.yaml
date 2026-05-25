@@ -800,6 +800,50 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "60s"
+  mealie:
+    image: "ghcr.io/mealie-recipes/mealie"
+    tag: "latest"
+    stack: apps
+    env:
+      MEALIE_POSTGRES_DB: "mealie"
+      MEALIE_POSTGRES_USER: "{{ docker_postgres_user }}"
+      MEALIE_POSTGRES_PASSWORD: "{{ vault_docker_postgres_password }}"
+      MEALIE_POSTGRES_SERVER: "{{ vault_db_host_primary }}"
+      MEALIE_OIDC_CLIENT_ID: "{{ vault_docker_mealie_oidc_client_id }}"
+      MEALIE_OIDC_CLIENT_SECRET: "{{ vault_docker_mealie_oidc_client_secret }}"
+    compose:
+      base: base
+      ports: ["9000:9000"]
+      labels:
+        homelab.backup.paths: "/opt/mealie"
+        homelab.proxy.subdomain: "mealie"
+        homelab.restore.app: "mealie"
+        homelab.restore.db_config: "db_primary_postgres"
+        homelab.restore.db_names: "mealie"
+        homelab.restore.health_url: "http://localhost:9000/"
+      environment:
+        DB_ENGINE: "postgres"
+        POSTGRES_USER: "${MEALIE_POSTGRES_USER}"
+        POSTGRES_PASSWORD: "${MEALIE_POSTGRES_PASSWORD}"
+        POSTGRES_SERVER: "${MEALIE_POSTGRES_SERVER}"
+        POSTGRES_PORT: "5432"
+        POSTGRES_DB: "${MEALIE_POSTGRES_DB}"
+        ALLOW_SIGNUP: "false"
+        OIDC_AUTH_ENABLED: "true"
+        OIDC_SIGNUP_ENABLED: "true"
+        OIDC_CONFIGURATION_URL: "https://auth.{{ vault_domain_ext }}/application/o/mealie/.well-known/openid-configuration"
+        OIDC_CLIENT_ID: "${MEALIE_OIDC_CLIENT_ID}"
+        OIDC_CLIENT_SECRET: "${MEALIE_OIDC_CLIENT_SECRET}"
+        OIDC_PROVIDER_NAME: "Authentik"
+      volumes:
+        - "${APPSDIR}/mealie:/app/data"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9000/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
+
   mariadb:
     image: "lscr.io/linuxserver/mariadb"
     tag: "latest"
