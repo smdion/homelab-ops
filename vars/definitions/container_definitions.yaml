@@ -837,6 +837,7 @@ container_definitions:
         OIDC_CLIENT_ID: "${MEALIE_OIDC_CLIENT_ID}"
         OIDC_CLIENT_SECRET: "${MEALIE_OIDC_CLIENT_SECRET}"
         OIDC_PROVIDER_NAME: "Authentik"
+        OIDC_SIGNING_ALGORITHM: "ES256"
       volumes:
         - "${APPSDIR}/mealie:/app/data"
       healthcheck:
