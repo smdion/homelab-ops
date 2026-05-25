@@ -829,6 +829,7 @@ container_definitions:
         POSTGRES_SERVER: "${MEALIE_POSTGRES_SERVER}"
         POSTGRES_PORT: "5432"
         POSTGRES_DB: "${MEALIE_POSTGRES_DB}"
+        BASE_URL: "https://mealie.{{ vault_domain_ext }}"
         ALLOW_SIGNUP: "false"
         OIDC_AUTH_ENABLED: "true"
         OIDC_SIGNUP_ENABLED: "true"
