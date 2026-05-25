@@ -817,6 +817,7 @@ container_definitions:
       labels:
         homelab.backup.paths: "/opt/mealie"
         homelab.proxy.subdomain: "mealie"
+        homelab.proxy.auth: "false"
         homelab.restore.app: "mealie"
         homelab.restore.db_config: "db_primary_postgres"
         homelab.restore.db_names: "mealie"
