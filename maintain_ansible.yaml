@@ -398,13 +398,13 @@
 
         - name: Determine overall embed color
           vars:
-            # ansible-core, collections, and Semaphore versions are container-managed —
-            # outdated versions are warnings only, never red.
+            # ansible-core is locked to the Semaphore container image — no independent
+            # action possible, so it never affects embed color (purely informational).
+            # Collections auto-update in-place; Semaphore staleness has its own signal.
             _any_red: >-
               {{ _dep_status == 'red' or _stuck_status == 'red' }}
             _any_yellow: >-
               {{ _dep_status == 'yellow' or
-                 _core_status in ['red', 'yellow'] or
                  _collections_status in ['red', 'yellow'] or
                  _semaphore_status in ['red', 'yellow'] }}
           ansible.builtin.set_fact:
@@ -418,7 +418,7 @@
             _embed_fields:
               - name: "{{ '❌' if _dep_status == 'red' else ('⚠️' if _dep_status == 'yellow' else '✅') }} Deprecations ({{ _dep_actionable | length }} actionable)"
                 value: "{{ _dep_field_value | truncate(900, False) }}"
-              - name: "{{ '⚠️' if _core_status in ['red', 'yellow'] else '✅' }} ansible-core"
+              - name: "✅ ansible-core"
                 value: "{{ _core_current }} installed / {{ _core_latest }} latest"
                 inline: true
               - name: "{{ '⚠️' if _collections_status in ['red', 'yellow'] else '✅' }} Collections"
