@@ -33,7 +33,7 @@ history, version status, stale detection, health trends, and maintenance logs.
 # 1. Clone and install dependencies
 git clone <this-repo> && cd homelab-ops
 pip install -r requirements.txt
-ansible-galaxy collection install -r requirements.yaml
+ansible-galaxy collection install -r requirements.yml
 
 # 2. Set up vault
 cp vars/secrets.yaml.example vars/secrets.yaml

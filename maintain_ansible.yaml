@@ -210,7 +210,7 @@
 
             - name: Update outdated collections
               ansible.builtin.shell: >-
-                ansible-galaxy collection install -r requirements.yaml --upgrade
+                ansible-galaxy collection install -r requirements.yml --upgrade
               args:
                 chdir: "{{ playbook_dir }}"
               when:
