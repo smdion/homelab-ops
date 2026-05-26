@@ -57,6 +57,7 @@
         _semaphore_latest: "unknown"
         _semaphore_status: "ok"
         _semaphore_image_version: "unknown"
+        _semaphore_image_stale: false
 
     - name: Run Ansible health checks
       block:
@@ -318,30 +319,47 @@
                   {%- elif _cur_parts[2] < _lat_parts[2] %}yellow
                   {%- else %}ok{% endif %}
 
-            - name: Get Semaphore container image tag
-              ansible.builtin.command: >-
-                docker inspect {{ ansible_health_semaphore_container_name }}
-                --format {% raw %}'{{.Config.Image}}'{% endraw %}
+            - name: Inspect Semaphore container and check registry for updates
+              ansible.builtin.shell: |
+                IMAGE=$(docker inspect {{ ansible_health_semaphore_container_name }} \
+                  --format {% raw %}'{{.Config.Image}}'{% endraw %} 2>/dev/null)
+                REPO_DIGEST=$(docker inspect {{ ansible_health_semaphore_container_name }} \
+                  --format {% raw %}'{{index .RepoDigests 0}}'{% endraw %} 2>/dev/null)
+                LOCAL_DIGEST="${REPO_DIGEST##*@}"
+                REPO="${REPO_DIGEST%%@*}"
+                echo "$REPO" | grep -q ':' && REPO="${REPO%:*}"
+                echo "$IMAGE" | grep -q ':' && TAG="${IMAGE##*:}" || TAG="latest"
+                TOKEN=$(curl -sf \
+                  "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${REPO}:pull" \
+                  | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null)
+                STALE="unknown"
+                if [ -n "$TOKEN" ]; then
+                  REMOTE=$(curl -sfI \
+                    -H "Authorization: Bearer ${TOKEN}" \
+                    -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+                    "https://registry-1.docker.io/v2/${REPO}/manifests/${TAG}" \
+                    | grep -i '^docker-content-digest:' | awk '{print $2}' | tr -d '\r\n')
+                  [ -n "$REMOTE" ] && { [ "$LOCAL_DIGEST" = "$REMOTE" ] && STALE="current" || STALE="stale"; }
+                fi
+                printf '%s\n%s\n%s\n' "$IMAGE" "$LOCAL_DIGEST" "$STALE"
               delegate_to: "{{ ansible_health_semaphore_docker_host }}"
               become: true
-              register: _sem_image_tag
+              register: _sem_inspect
               changed_when: false
               check_mode: false
 
-            - name: Get Semaphore container image digest
-              ansible.builtin.command: >-
-                docker inspect {{ ansible_health_semaphore_container_name }}
-                --format {% raw %}'{{.Image}}'{% endraw %}
-              delegate_to: "{{ ansible_health_semaphore_docker_host }}"
-              become: true
-              register: _sem_image_id
-              changed_when: false
-              check_mode: false
-
-            - name: Build Semaphore image version string
+            - name: Parse Semaphore container image info
+              vars:
+                _lines: "{{ _sem_inspect.stdout_lines | default([]) }}"
+                _local_digest: "{{ (_lines[1] | default('sha256:'))[7:19] }}"
               ansible.builtin.set_fact:
-                _semaphore_image_version: >-
-                  {{ _semaphore_current }} ({{ _sem_image_id.stdout[7:19] }})
+                _semaphore_image_version: "{{ _semaphore_current }} ({{ _local_digest }})"
+                _semaphore_image_stale: "{{ (_lines[2] | default('unknown')) == 'stale' }}"
+
+            - name: Mark Semaphore status yellow when image update is available
+              ansible.builtin.set_fact:
+                _semaphore_status: "yellow"
+              when: _semaphore_image_stale | bool
 
             - name: Log Semaphore container version to updates table
               include_tasks: tasks/log_mariadb.yaml
@@ -409,7 +427,9 @@
                      if (_collections_outdated | length > 0 and _galaxy_upgrade is defined and _galaxy_upgrade is changed)
                      else (_collections_outdated | join(', ') if _collections_outdated | length > 0 else 'All current') }}
               - name: "{{ '⚠️' if _semaphore_status in ['red', 'yellow'] else '✅' }} Semaphore"
-                value: "{{ _semaphore_current }} installed / {{ _semaphore_latest }} latest"
+                value: >-
+                  {{ _semaphore_current }} installed / {{ _semaphore_latest }} latest
+                  {%- if _semaphore_image_stale | bool %} — image update available{% endif %}
                 inline: true
               - name: "{{ '❌' if _stuck_status == 'red' else '✅' }} Stuck tasks (>{{ ansible_health_stuck_task_hours }}h)"
                 value: >-
