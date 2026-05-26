@@ -76,7 +76,7 @@
         - name: Query last check time
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -201,7 +201,7 @@
         - name: Query for hosts with no backup in last {{ health_backup_stale_days }} days
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -267,7 +267,7 @@
         - name: Query for anomalously small backups
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -322,7 +322,7 @@
         - name: Query maintenance table for failures since last check
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -386,7 +386,7 @@
         - name: Query for hosts with no successful maintenance in {{ health_maintenance_stale_days }} days
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -435,7 +435,7 @@
         - name: Check MariaDB connection usage
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -459,7 +459,7 @@
         - name: Check for crashed tables
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -902,7 +902,7 @@
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           become: false
           connection: local
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -2097,7 +2097,7 @@
         ansible_python_interpreter: "{{ ansible_playbook_python }}"
       become: false
       connection: local
-      community.mysql.mysql_query:
+      ansible.mysql.mysql_query:
         login_host: "{{ vault_logging_db_host }}"
         login_port: "{{ vault_logging_db_port }}"
         login_user: "{{ vault_logging_db_user }}"

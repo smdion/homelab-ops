@@ -40,7 +40,7 @@
           become: false
           connection: local
           when: not ansible_check_mode
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -55,7 +55,7 @@
           become: false
           connection: local
           when: not ansible_check_mode
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -78,7 +78,7 @@
           become: false
           connection: local
           when: not ansible_check_mode
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
@@ -98,7 +98,7 @@
           become: false
           connection: local
           when: not ansible_check_mode
-          community.mysql.mysql_query:
+          ansible.mysql.mysql_query:
             login_host: "{{ vault_logging_db_host }}"
             login_port: "{{ vault_logging_db_port }}"
             login_user: "{{ vault_logging_db_user }}"
