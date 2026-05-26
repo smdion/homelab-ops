@@ -2254,7 +2254,7 @@
               },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT \n  u1.hostname,\n  u1.application,\n  u1.update_subtype,\n  u1.version,\n  u1.timestamp as last_success,\n  DATEDIFF(UTC_TIMESTAMP(), u1.timestamp) as days_ago\nFROM updates u1\nINNER JOIN (\n  SELECT hostname, application, MAX(timestamp) as max_ts\n  FROM updates\n  WHERE status = 'success'\n  GROUP BY hostname, application\n) u2 ON u1.hostname = u2.hostname AND u1.application = u2.application AND u1.timestamp = u2.max_ts\nWHERE u1.hostname IN ($hostname)\n  AND u1.update_subtype IN ($update_subtype)\nORDER BY u1.hostname, u1.update_subtype, u1.application",
+              "rawSql": "SELECT \n  u1.hostname,\n  u1.application,\n  u1.update_subtype,\n  u1.version,\n  u1.last_seen as last_success,\n  DATEDIFF(UTC_TIMESTAMP(), u1.last_seen) as days_ago\nFROM updates u1\nINNER JOIN (\n  SELECT hostname, application, MAX(last_seen) as max_ls\n  FROM updates\n  WHERE status = 'success'\n  GROUP BY hostname, application\n) u2 ON u1.hostname = u2.hostname AND u1.application = u2.application AND u1.last_seen = u2.max_ls\nWHERE u1.hostname IN ($hostname)\n  AND u1.update_subtype IN ($update_subtype)\nORDER BY u1.hostname, u1.update_subtype, u1.application",
               "refId": "A"
             }
           ],
@@ -3135,7 +3135,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "last_updated"
+                  "options": "last_seen"
                 },
                 "properties": [
                   {
@@ -3179,6 +3179,22 @@
                     ]
                   }
                 ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "first_seen"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 160
+                  },
+                  {
+                    "id": "unit",
+                    "value": "dateTimeAsLocal"
+                  }
+                ]
               }
             ]
           },
@@ -3216,7 +3232,7 @@
               },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT \n  u1.update_type, \n  u1.update_subtype, \n  u1.hostname, \n  u1.application, \n  u1.version, \n  u1.status,\n  u1.timestamp as last_updated \nFROM updates u1 \nINNER JOIN (\n  SELECT application, hostname, MAX(timestamp) as max_timestamp \n  FROM updates \n  GROUP BY application, hostname\n) u2 ON u1.application = u2.application \n  AND u1.hostname = u2.hostname \n  AND u1.timestamp = u2.max_timestamp \nWHERE u1.hostname IN ($hostname)\nORDER BY u1.update_type, u1.hostname, u1.application",
+              "rawSql": "SELECT \n  u1.update_type, \n  u1.update_subtype, \n  u1.hostname, \n  u1.application, \n  u1.version, \n  u1.status,\n  u1.timestamp as first_seen,\n  u1.last_seen as last_seen\nFROM updates u1 \nINNER JOIN (\n  SELECT application, hostname, MAX(last_seen) as max_ls\n  FROM updates \n  GROUP BY application, hostname\n) u2 ON u1.application = u2.application \n  AND u1.hostname = u2.hostname \n  AND u1.last_seen = u2.max_ls \nWHERE u1.hostname IN ($hostname)\nORDER BY u1.update_type, u1.hostname, u1.application",
               "refId": "A"
             }
           ],
