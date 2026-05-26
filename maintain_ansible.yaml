@@ -1,0 +1,347 @@
+---
+# Category: Maintain
+# Schedule: weekly
+# Ansible environment health check. Runs entirely on localhost — no SSH to managed hosts.
+# Checks for actionable deprecation warnings, ansible-core version currency,
+# outdated Galaxy collections, and stuck Semaphore tasks.
+# Always sends a Discord embed regardless of status (low-noise weekly cadence).
+
+- name: Maintain — Ansible health check
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/semaphore_check.yaml
+  vars:
+    maintenance_name: "Ansible"
+    maintenance_type: "Local"
+    maintenance_subtype: "Health Check"
+    maintenance_url: "{{ semaphore_ext_url }}"
+
+    # Known-unfixable warnings excluded from actionable count.
+    # These come from collection routing tombstones or collection-internal Python
+    # code; upstream has not released fixes. They appear in the embed for awareness
+    # but do not affect green/yellow/red status.
+    _known_unfixable_patterns:
+      - "community.general.proxmox_kvm has been deprecated"
+      - "Importing 'to_bytes' from 'ansible.module_utils._text'"
+      - "Importing 'to_native' from 'ansible.module_utils._text'"
+      - "Importing 'to_text' from 'ansible.module_utils._text'"
+      - "ansible.module_utils.common._collections_compat"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "maintain_ansible.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
+  tasks:
+
+    - name: Initialize state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+        _dep_all: []
+        _dep_actionable: []
+        _core_current: "unknown"
+        _core_latest: "unknown"
+        _core_status: "ok"
+        _collections_outdated: []
+        _collections_status: "ok"
+        _stuck_tasks: []
+        _stuck_status: "ok"
+
+    - name: Run Ansible health checks
+      block:
+
+        # ── CHECK 1: Deprecation warnings ──────────────────────────────────────
+        - name: Check for deprecation warnings
+          block:
+            - name: Query unique deprecation warnings from last {{ ansible_health_deprecation_window_days }} days
+              vars:
+                ansible_python_interpreter: "{{ ansible_playbook_python }}"
+              become: false
+              connection: local
+              community.mysql.mysql_query:
+                login_host: "{{ vault_logging_db_host }}"
+                login_port: "{{ vault_logging_db_port }}"
+                login_user: "{{ vault_logging_db_user }}"
+                login_password: "{{ vault_logging_db_password }}"
+                login_db: "{{ semaphore_db_name }}"
+                query: >-
+                  SELECT DISTINCT
+                    TRIM(REGEXP_REPLACE(output, '\x1B\[[0-9;]*[mK]', '')) AS warning
+                  FROM task__output
+                  WHERE task_id IN (
+                    SELECT id FROM task
+                    WHERE created > UTC_TIMESTAMP() - INTERVAL %s DAY
+                  )
+                  AND output LIKE '%%[DEPRECATION WARNING]%%'
+                  AND output NOT LIKE '%%deprecation_warnings=False%%'
+                positional_args:
+                  - "{{ ansible_health_deprecation_window_days }}"
+              register: _dep_raw
+              no_log: "{{ _no_log }}"
+              changed_when: false
+              check_mode: false
+
+            - name: Parse all deprecation warnings
+              ansible.builtin.set_fact:
+                _dep_all: "{{ _dep_raw.query_result[0] | map(attribute='warning') | list }}"
+
+            - name: Filter to actionable warnings (exclude known-unfixable)
+              ansible.builtin.set_fact:
+                _dep_actionable: >-
+                  {{ _dep_all | reject('search', (_known_unfixable_patterns | join('|'))) | list }}
+
+          rescue:
+            - name: Set maintenance failed (deprecation check error)
+              ansible.builtin.set_fact:
+                maintenance_failed: true
+            - name: Log deprecation check failure
+              ansible.builtin.debug:
+                msg: "CHECK 1 FAILED: Deprecation warning query error"
+
+        # ── CHECK 2: ansible-core version ──────────────────────────────────────
+        - name: Check ansible-core version currency
+          block:
+            - name: Get installed ansible-core version
+              ansible.builtin.shell: ansible --version | head -1
+              register: _ansible_ver_raw
+              changed_when: false
+              check_mode: false
+
+            - name: Parse installed version
+              ansible.builtin.set_fact:
+                _core_current: "{{ _ansible_ver_raw.stdout | regex_search('core\\s+([0-9]+\\.[0-9]+\\.[0-9]+)', '\\1') | first }}"
+
+            - name: Query PyPI for latest ansible-core stable
+              ansible.builtin.uri:
+                url: "https://pypi.org/pypi/ansible-core/json"
+                method: GET
+                return_content: true
+                status_code: 200
+                timeout: 15
+              register: _pypi_raw
+              retries: 3
+              delay: 5
+              until: _pypi_raw is succeeded
+
+            - name: Parse latest stable version from PyPI
+              ansible.builtin.set_fact:
+                _core_latest: >-
+                  {{ (_pypi_raw.content | from_json).releases.keys()
+                     | reject('search', 'a|b|rc|dev')
+                     | list
+                     | sort(version_type='version')
+                     | last }}
+
+            - name: Evaluate version currency
+              vars:
+                _cur_parts: "{{ _core_current.split('.') | map('int') | list }}"
+                _lat_parts: "{{ _core_latest.split('.') | map('int') | list }}"
+              ansible.builtin.set_fact:
+                _core_status: >-
+                  {% if _cur_parts[0] < _lat_parts[0] or _cur_parts[1] < _lat_parts[1] %}red
+                  {%- elif _cur_parts[2] < _lat_parts[2] %}yellow
+                  {%- else %}ok{% endif %}
+
+          rescue:
+            - name: Set maintenance failed (version check error)
+              ansible.builtin.set_fact:
+                maintenance_failed: true
+            - name: Log version check failure
+              ansible.builtin.debug:
+                msg: "CHECK 2 FAILED: ansible-core version check error"
+
+        # ── CHECK 3: Galaxy collection currency ────────────────────────────────
+        - name: Check Galaxy collections for updates
+          block:
+            - name: Get installed collection versions
+              ansible.builtin.shell: ansible-galaxy collection list --format=json
+              register: _galaxy_raw
+              changed_when: false
+              check_mode: false
+
+            - name: Flatten installed collections into single lookup dict
+              ansible.builtin.set_fact:
+                _installed_flat: >-
+                  {{ _galaxy_raw.stdout | from_json | dict2items
+                     | map(attribute='value') | map('dict2items') | flatten | items2dict }}
+
+            - name: Query Galaxy API for latest version of each watched collection
+              ansible.builtin.uri:
+                url: "https://galaxy.ansible.com/api/v3/plugin/ansible/content/published/collections/index/{{ item.split('.')[0] }}/{{ item.split('.')[1] }}/"
+                method: GET
+                return_content: true
+                status_code: 200
+                timeout: 15
+              register: _galaxy_api_results
+              loop: "{{ ansible_health_collections_check }}"
+              retries: 3
+              delay: 5
+              until: _galaxy_api_results is succeeded
+
+            - name: Identify outdated collections
+              vars:
+                _fqcn: "{{ item.item }}"
+                _latest_raw: "{{ (item.content | from_json).highest_version.version | default('0.0.0') }}"
+                _latest: "{{ _latest_raw | regex_replace('-.*$', '') }}"
+                _installed_ver: "{{ (_installed_flat.get(_fqcn, {})).get('version', '0.0.0') }}"
+                _inst_parts: "{{ _installed_ver.split('.') | map('int') | list }}"
+                _lat_parts: "{{ _latest.split('.') | map('int') | list }}"
+              ansible.builtin.set_fact:
+                _collections_outdated: >-
+                  {{ _collections_outdated + [_fqcn + ' ' + _installed_ver + ' → ' + _latest] }}
+              loop: "{{ _galaxy_api_results.results }}"
+              when: >-
+                _inst_parts[0] < _lat_parts[0] or
+                _inst_parts[1] < _lat_parts[1]
+
+            - name: Evaluate collections status
+              ansible.builtin.set_fact:
+                _collections_status: >-
+                  {% if _collections_outdated | length >= 3 %}red
+                  {%- elif _collections_outdated | length >= 1 %}yellow
+                  {%- else %}ok{% endif %}
+
+          rescue:
+            - name: Set maintenance failed (collection check error)
+              ansible.builtin.set_fact:
+                maintenance_failed: true
+            - name: Log collection check failure
+              ansible.builtin.debug:
+                msg: "CHECK 3 FAILED: Galaxy collection check error"
+
+        # ── CHECK 4: Stuck Semaphore tasks ─────────────────────────────────────
+        - name: Check for stuck Semaphore tasks
+          block:
+            - name: Query stuck running tasks
+              vars:
+                ansible_python_interpreter: "{{ ansible_playbook_python }}"
+              become: false
+              connection: local
+              community.mysql.mysql_query:
+                login_host: "{{ vault_logging_db_host }}"
+                login_port: "{{ vault_logging_db_port }}"
+                login_user: "{{ vault_logging_db_user }}"
+                login_password: "{{ vault_logging_db_password }}"
+                login_db: "{{ semaphore_db_name }}"
+                query: >-
+                  SELECT t.id,
+                         pt.name AS template_name,
+                         TIMESTAMPDIFF(MINUTE, t.start, UTC_TIMESTAMP()) AS runtime_minutes
+                  FROM task t
+                  JOIN project__template pt ON t.template_id = pt.id
+                  WHERE t.status = 'running'
+                  AND t.start < UTC_TIMESTAMP() - INTERVAL %s HOUR
+                  ORDER BY t.start ASC
+                positional_args:
+                  - "{{ ansible_health_stuck_task_hours }}"
+              register: _stuck_raw
+              no_log: "{{ _no_log }}"
+              changed_when: false
+              check_mode: false
+
+            - name: Parse stuck tasks
+              ansible.builtin.set_fact:
+                _stuck_tasks: "{{ _stuck_raw.query_result[0] | default([]) }}"
+
+            - name: Evaluate stuck tasks status
+              ansible.builtin.set_fact:
+                _stuck_status: "{{ 'red' if _stuck_tasks | length > 0 else 'ok' }}"
+
+          rescue:
+            - name: Set maintenance failed (stuck task check error)
+              ansible.builtin.set_fact:
+                maintenance_failed: true
+            - name: Log stuck task check failure
+              ansible.builtin.debug:
+                msg: "CHECK 4 FAILED: Stuck task query error"
+
+      always:
+
+        # ── NOTIFY: Always send summary embed ──────────────────────────────────
+        - name: Compute deprecation status and field values
+          ansible.builtin.set_fact:
+            _dep_status: >-
+              {% if _dep_actionable | length >= 4 %}red
+              {%- elif _dep_actionable | length >= 1 %}yellow
+              {%- else %}ok{% endif %}
+            _dep_field_value: >-
+              {{ _dep_actionable | join('\n') if _dep_actionable | length > 0 else 'None' }}
+            _dep_known_value: >-
+              {{ _dep_all | select('search', (_known_unfixable_patterns | join('|'))) | list | join('\n')
+                 if (_dep_all | select('search', (_known_unfixable_patterns | join('|'))) | list | length > 0)
+                 else '' }}
+
+        - name: Determine overall embed color
+          vars:
+            _any_red: >-
+              {{ _dep_status == 'red' or _core_status == 'red' or
+                 _collections_status == 'red' or _stuck_status == 'red' }}
+            _any_yellow: >-
+              {{ _dep_status == 'yellow' or _core_status == 'yellow' or
+                 _collections_status == 'yellow' }}
+          ansible.builtin.set_fact:
+            _embed_color: >-
+              {{ discord_color_failure if (_any_red | bool or maintenance_failed)
+                 else (discord_color_warning if _any_yellow | bool
+                 else discord_color_success) }}
+
+        - name: Build embed fields
+          ansible.builtin.set_fact:
+            _embed_fields:
+              - name: "{{ '❌' if _dep_status == 'red' else ('⚠️' if _dep_status == 'yellow' else '✅') }} Deprecations ({{ _dep_actionable | length }} actionable)"
+                value: "{{ _dep_field_value | truncate(900, False) }}"
+              - name: "{{ '❌' if _core_status == 'red' else ('⚠️' if _core_status == 'yellow' else '✅') }} ansible-core"
+                value: "{{ _core_current }} installed / {{ _core_latest }} latest"
+                inline: true
+              - name: "{{ '❌' if _collections_status == 'red' else ('⚠️' if _collections_status == 'yellow' else '✅') }} Collections"
+                value: "{{ _collections_outdated | join(', ') if _collections_outdated | length > 0 else 'All current' }}"
+              - name: "{{ '❌' if _stuck_status == 'red' else '✅' }} Stuck tasks (>{{ ansible_health_stuck_task_hours }}h)"
+                value: >-
+                  {{ _stuck_tasks
+                     | map(attribute='template_name')
+                     | zip(_stuck_tasks | map(attribute='runtime_minutes') | map('string') | map('regex_replace', '$', 'm'))
+                     | map('join', ' — ')
+                     | join('\n')
+                     if _stuck_tasks | length > 0 else 'None' }}
+
+        - name: Append known-unfixable field if any present
+          ansible.builtin.set_fact:
+            _embed_fields: >-
+              {{ _embed_fields + [{
+                'name': '🔕 Known-unfixable (upstream)',
+                'value': _dep_known_value | truncate(900, False)
+              }] }}
+          when: _dep_known_value | length > 0
+
+        - name: Send Discord summary
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Health Check"
+            discord_status: "{{ 'failed' if maintenance_failed else ('warning' if _embed_color == discord_color_warning else ('ok' if _embed_color == discord_color_success else 'failed')) }}"
+            discord_color: "{{ _embed_color }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields: "{{ _embed_fields }}"
+            discord_footer:
+              text: "Ansible Health — {{ ansible_health_deprecation_window_days }}d deprecation window"
+            discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ controller_fqdn }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+        - name: Fail play if maintenance failed
+          ansible.builtin.fail:
+            msg: "Ansible health check failed — see Discord notification for details"
+          when: maintenance_failed

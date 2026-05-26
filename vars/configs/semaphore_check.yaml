@@ -55,6 +55,16 @@ appliance_check_port: 443
 # Requires vault_unifi_network_api_key (auto-skipped if missing)
 health_unifi_network_url: "https://udmp.{{ vault_domain_local }}"
 
+# Ansible health check (maintain_ansible.yaml)
+ansible_health_deprecation_window_days: 30
+ansible_health_stuck_task_hours: 2
+ansible_health_collections_check:
+  - community.general
+  - community.proxmox
+  - community.mysql
+  - community.docker
+  - ansible.posix
+
 # Schedule exemption marker — playbooks with "# Schedule: none" in their header
 # are excluded from CHECK 28 schedule coverage validation. Used for ad-hoc,
 # manual, one-time, and on-demand playbooks that intentionally have no schedule.
