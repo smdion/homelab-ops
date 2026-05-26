@@ -2171,44 +2171,6 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "days_ago"
-                },
-                "properties": [
-                  {
-                    "id": "custom.width",
-                    "value": 100
-                  },
-                  {
-                    "id": "thresholds",
-                    "value": {
-                      "mode": "absolute",
-                      "steps": [
-                        {
-                          "color": "green",
-                          "value": 0
-                        },
-                        {
-                          "color": "yellow",
-                          "value": 7
-                        },
-                        {
-                          "color": "red",
-                          "value": 14
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "id": "custom.cellOptions",
-                    "value": {
-                      "type": "color-background"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
                   "options": "last_checked"
                 },
                 "properties": [
@@ -2278,7 +2240,7 @@
               "refId": "A"
             }
           ],
-          "title": "Last Successful Update per Host",
+          "title": "Current Version per Host",
           "type": "table"
         },
         {
@@ -2419,6 +2381,22 @@
               {
                 "matcher": {
                   "id": "byName",
+                  "options": "first_seen"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 160
+                  },
+                  {
+                    "id": "unit",
+                    "value": "dateTimeAsLocal"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
                   "options": "hostname"
                 },
                 "properties": [
@@ -2500,7 +2478,7 @@
               },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT \n  timestamp,\n  update_type, \n  update_subtype, \n  hostname, \n  application, \n  version,\n  status\nFROM updates\nWHERE hostname IN ($hostname)\n  AND update_subtype IN ($update_subtype)\nORDER BY id DESC \nLIMIT 50",
+              "rawSql": "SELECT \n  timestamp as first_seen,\n  update_type,\n  update_subtype,\n  hostname,\n  application,\n  version,\n  status\nFROM updates\nWHERE hostname IN ($hostname)\n  AND update_subtype IN ($update_subtype)\nORDER BY timestamp DESC\nLIMIT 50",
               "refId": "A"
             }
           ],
