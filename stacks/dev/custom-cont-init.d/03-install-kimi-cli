@@ -1,0 +1,18 @@
+#!/bin/bash
+
+export PATH="/config/.local/bin:$PATH"
+
+# Install uv if not present
+if ! command -v uv &> /dev/null; then
+    echo "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | bash
+    export PATH="/config/.local/bin:$PATH"
+fi
+
+# Install kimi-cli via uv
+if ! command -v kimi &> /dev/null; then
+    echo "Installing kimi-cli..."
+    uv tool install kimi-cli
+fi
+
+echo "kimi-cli setup complete"
