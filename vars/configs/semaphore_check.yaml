@@ -56,7 +56,6 @@ appliance_check_port: 443
 health_unifi_network_url: "https://udmp.{{ vault_domain_local }}"
 
 # Ansible health check (maintain_ansible.yaml)
-ansible_health_deprecation_window_days: 30
 ansible_health_stuck_task_hours: 2
 ansible_health_collections_check:
   - community.general

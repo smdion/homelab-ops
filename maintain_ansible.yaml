@@ -45,6 +45,7 @@
         maintenance_failed: false
         _dep_all: []
         _dep_actionable: []
+        _galaxy_upgrade: {}
         _core_current: "unknown"
         _core_latest: "unknown"
         _core_status: "ok"
@@ -62,7 +63,7 @@
         # ── CHECK 1: Deprecation warnings ──────────────────────────────────────
         - name: Check for deprecation warnings
           block:
-            - name: Query unique deprecation warnings from last {{ ansible_health_deprecation_window_days }} days
+            - name: Query deprecation warnings from most recent run of each template
               vars:
                 ansible_python_interpreter: "{{ ansible_playbook_python }}"
               become: false
@@ -75,16 +76,16 @@
                 login_db: "{{ semaphore_db_name }}"
                 query: >-
                   SELECT DISTINCT
-                    TRIM(REGEXP_REPLACE(output, '\x1B\[[0-9;]*[mK]', '')) AS warning
-                  FROM task__output
-                  WHERE task_id IN (
-                    SELECT id FROM task
-                    WHERE created > UTC_TIMESTAMP() - INTERVAL %s DAY
+                    TRIM(REGEXP_REPLACE(o.output, '\x1B\[[0-9;]*[mK]', '')) AS warning
+                  FROM task__output o
+                  JOIN task t ON o.task_id = t.id
+                  WHERE t.id IN (
+                    SELECT MAX(id) FROM task
+                    WHERE status IN ('success', 'error')
+                    GROUP BY template_id
                   )
-                  AND output LIKE '%%[DEPRECATION WARNING]%%'
-                  AND output NOT LIKE '%%deprecation_warnings=False%%'
-                positional_args:
-                  - "{{ ansible_health_deprecation_window_days }}"
+                  AND o.output LIKE '%%[DEPRECATION WARNING]%%'
+                  AND o.output NOT LIKE '%%deprecation_warnings=False%%'
               register: _dep_raw
               no_log: "{{ _no_log }}"
               changed_when: false
@@ -401,7 +402,7 @@
             discord_author: "{{ controller_fqdn }}"
             discord_fields: "{{ _embed_fields }}"
             discord_footer:
-              text: "Ansible Health — {{ ansible_health_deprecation_window_days }}d deprecation window"
+              text: "Ansible Health — deprecations from most recent run per template"
             discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
 
         - name: Log maintenance to MariaDB
