@@ -875,11 +875,13 @@
             discord_detail: "{{ 'images may be stale' if _pull_failed | bool and not update_failed else '' }}"
             discord_color: "{{ discord_color_failure if update_failed or (_pull_failed | bool) else discord_color_success }}"
             discord_url: "{{ backup_url }}"
-            discord_fields: >-
-              {{ ([{'name': ('❌ ' if update_failed else ('⚠️ ' if (_pull_failed | bool) else '✅ ')) ~ 'Updated',
-                    'value': _updated_names if _updated_names | length > 0 else 'None'}])
-                 + ([{'name': '⚠️ Pull failed', 'value': _failed_names}] if _pull_failed | bool else [])
-                 | tojson }}
+            _discord_fields_updated:
+              - name: "{{ '❌ ' if update_failed else ('⚠️ ' if _pull_failed | bool else '✅ ') }}Updated"
+                value: "{{ _updated_names if _updated_names | length > 0 else 'None' }}"
+            _discord_fields_pf:
+              - name: "⚠️ Pull failed"
+                value: "{{ _failed_names }}"
+            discord_fields: "{{ _discord_fields_updated + (_discord_fields_pf if _pull_failed | bool else []) }}"
 
         - name: Log container updates to MariaDB
           include_tasks: tasks/log_mariadb.yaml
