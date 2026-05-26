@@ -831,7 +831,7 @@
 
         - name: Log update to MariaDB
           include_tasks: tasks/log_mariadb.yaml
-          when: (not _is_docker_update | bool) and (not _is_plugin_update | bool) and (update_failed or current_version != previous_version)
+          when: (not _is_docker_update | bool) and (not _is_plugin_update | bool) and not ansible_check_mode
           vars:
             log_table: updates
             log_application: "{{ update_name }}"
