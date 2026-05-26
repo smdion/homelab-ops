@@ -396,6 +396,7 @@
               SELECT CONCAT(hostname, ' — last: ',
               DATE_FORMAT(CONVERT_TZ(MAX(timestamp), '+00:00', %s), '%%m/%%d %%l:%%i %%p')) AS line
               FROM maintenance WHERE status = 'success'
+              AND subtype NOT IN ('Build', 'Validate Deploy')
               GROUP BY hostname
               HAVING MAX(timestamp) < UTC_TIMESTAMP() - INTERVAL %s DAY
               ORDER BY MAX(timestamp) ASC
