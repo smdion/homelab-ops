@@ -455,9 +455,9 @@
                   # Only mark as failed if the service image doesn't exist locally;
                   # local-only images (no registry, or build: context) should not
                   # trigger "images may be stale".
-                  svc_img=$(docker compose config --format json 2>/dev/null \
-                    | python3 -c {% raw %}"import sys,json; c=json.load(sys.stdin); svc=sys.argv[1]; print(c.get('services',{}).get(svc,{}).get('image',''))"{% endraw %} "$svc" 2>/dev/null)
-                  if [ -z "$svc_img" ] || docker image inspect "$svc_img" >/dev/null 2>&1; then
+                  _svc_cid=$(docker compose ps -q "$svc" 2>/dev/null)
+                  _svc_img=$(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$_svc_cid" 2>/dev/null)
+                  if [ -n "$_svc_img" ] && docker image inspect "$_svc_img" >/dev/null 2>&1; then
                     echo "[update] $svc image is local-only; skipping pull failure." >&2
                   else
                     failed_services="$failed_services $svc"
