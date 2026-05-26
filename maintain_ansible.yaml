@@ -18,7 +18,7 @@
     maintenance_type: "Local"
     maintenance_subtype: "Health Check"
     maintenance_url: "{{ semaphore_ext_url }}"
-    _semaphore_github_repo: "semaphoreui/semaphore"
+    _semaphore_docker_repo: "semaphoreui/semaphore"
 
     # Known-unfixable warnings excluded from actionable count.
     # These come from collection-internal Python code; upstream has not released
@@ -292,25 +292,21 @@
               ansible.builtin.set_fact:
                 _semaphore_current: "{{ (_semaphore_info.content | from_json).version | regex_replace('\\^.*$', '') }}"
 
-            - name: Query GitHub for latest Semaphore release
+            - name: Query Docker Hub for latest Semaphore tags
               ansible.builtin.uri:
-                url: "https://api.github.com/repos/{{ _semaphore_github_repo }}/releases?per_page=10"
+                url: "https://hub.docker.com/v2/repositories/{{ _semaphore_docker_repo }}/tags?page_size=100"
                 method: GET
                 return_content: true
                 status_code: 200
                 timeout: 15
-                headers:
-                  Accept: "application/vnd.github+json"
-              register: _semaphore_release
+              register: _semaphore_tags
 
-            - name: Parse latest Semaphore version
+            - name: Parse latest Semaphore version from Docker Hub tags
               vars:
-                _stable: "{{ _semaphore_release.content | from_json
-                              | selectattr('prerelease', 'equalto', false)
-                              | selectattr('draft', 'equalto', false)
-                              | list }}"
+                _all_tags: "{{ (_semaphore_tags.content | from_json).results | map(attribute='name') | list }}"
+                _stable_tags: "{{ _all_tags | select('match', '^v\\d+\\.\\d+\\.\\d+$') | list }}"
               ansible.builtin.set_fact:
-                _semaphore_latest: "{{ (_stable | first).tag_name | default('unknown') }}"
+                _semaphore_latest: "{{ _stable_tags | community.general.version_sort | last | default('unknown') }}"
 
             - name: Evaluate Semaphore version currency
               vars:
