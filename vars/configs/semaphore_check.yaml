@@ -57,6 +57,8 @@ health_unifi_network_url: "https://udmp.{{ vault_domain_local }}"
 
 # Ansible health check (maintain_ansible.yaml)
 ansible_health_stuck_task_hours: 2
+ansible_health_semaphore_docker_host: "redemption.{{ vault_domain_local }}"
+ansible_health_semaphore_container_name: semaphore
 ansible_health_collections_check:
   - community.general
   - community.proxmox

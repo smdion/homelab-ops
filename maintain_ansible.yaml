@@ -56,6 +56,7 @@
         _semaphore_current: "unknown"
         _semaphore_latest: "unknown"
         _semaphore_status: "ok"
+        _semaphore_image_version: "unknown"
 
     - name: Run Ansible health checks
       block:
@@ -316,6 +317,40 @@
                   {% if _cur_parts[0] < _lat_parts[0] or _cur_parts[1] < _lat_parts[1] %}red
                   {%- elif _cur_parts[2] < _lat_parts[2] %}yellow
                   {%- else %}ok{% endif %}
+
+            - name: Get Semaphore container image tag
+              ansible.builtin.command: >-
+                docker inspect {{ ansible_health_semaphore_container_name }}
+                --format {% raw %}'{{.Config.Image}}'{% endraw %}
+              delegate_to: "{{ ansible_health_semaphore_docker_host }}"
+              register: _sem_image_tag
+              changed_when: false
+              check_mode: false
+
+            - name: Get Semaphore container image digest
+              ansible.builtin.command: >-
+                docker inspect {{ ansible_health_semaphore_container_name }}
+                --format {% raw %}'{{.Image}}'{% endraw %}
+              delegate_to: "{{ ansible_health_semaphore_docker_host }}"
+              register: _sem_image_id
+              changed_when: false
+              check_mode: false
+
+            - name: Build Semaphore image version string
+              ansible.builtin.set_fact:
+                _semaphore_image_version: >-
+                  {{ _sem_image_tag.stdout.split(':') | last }} ({{ _sem_image_id.stdout[7:19] }})
+
+            - name: Log Semaphore container version to updates table
+              include_tasks: tasks/log_mariadb.yaml
+              vars:
+                log_table: updates
+                log_application: "{{ ansible_health_semaphore_container_name }}"
+                log_hostname: "{{ ansible_health_semaphore_docker_host }}"
+                log_version: "{{ _semaphore_image_version }}"
+                log_status: success
+                update_type: "Appliances"
+                update_subtype: "Container"
 
           rescue:
             - name: Set maintenance failed (Semaphore version check error)
