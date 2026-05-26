@@ -452,7 +452,7 @@
               echo "[update] Batch pull exited $_batch_rc; retrying failed services individually." >&2
               for svc in $target_services; do
                 if ! pull_with_retry "$svc" "compose"; then
-                  # Only mark as failed if the service image doesn't exist locally;
+                  # Only mark as failed if the service image does not exist locally;
                   # local-only images (no registry, or build: context) should not
                   # trigger "images may be stale".
                   _img_count=$(docker compose images "$svc" 2>/dev/null | wc -l)
@@ -583,7 +583,7 @@
             for img in $(printf '%s\n' $images | sort -u); do
               [ -z "$img" ] && continue
               if ! pull_with_retry "$img" "run"; then
-                # Only mark as failed if the image doesn't exist locally; a local-only
+                # Only mark as failed if the image does not exist locally; a local-only
                 # image (no registry entry) should not trigger "images may be stale".
                 if docker image inspect "$img" >/dev/null 2>&1; then
                   echo "[update] $img not in registry but exists locally; treating as local image." >&2
