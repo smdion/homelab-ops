@@ -294,7 +294,7 @@
 
             - name: Query GitHub for latest Semaphore release
               ansible.builtin.uri:
-                url: "https://api.github.com/repos/{{ _semaphore_github_repo }}/releases/latest"
+                url: "https://api.github.com/repos/{{ _semaphore_github_repo }}/releases?per_page=10"
                 method: GET
                 return_content: true
                 status_code: 200
@@ -304,8 +304,13 @@
               register: _semaphore_release
 
             - name: Parse latest Semaphore version
+              vars:
+                _stable: "{{ _semaphore_release.content | from_json
+                              | selectattr('prerelease', 'equalto', false)
+                              | selectattr('draft', 'equalto', false)
+                              | list }}"
               ansible.builtin.set_fact:
-                _semaphore_latest: "{{ (_semaphore_release.content | from_json).tag_name }}"
+                _semaphore_latest: "{{ (_stable | first).tag_name | default('unknown') }}"
 
             - name: Evaluate Semaphore version currency
               vars:
