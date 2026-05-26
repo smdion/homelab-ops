@@ -452,7 +452,16 @@
               echo "[update] Batch pull exited $_batch_rc; retrying failed services individually." >&2
               for svc in $target_services; do
                 if ! pull_with_retry "$svc" "compose"; then
-                  failed_services="$failed_services $svc"
+                  # Only mark as failed if the service image doesn't exist locally;
+                  # local-only images (no registry, or build: context) should not
+                  # trigger "images may be stale".
+                  svc_img=$(docker compose config --format json 2>/dev/null \
+                    | python3 -c "import sys,json; c=json.load(sys.stdin); print(c.get('services',{}).get('${svc}',{}).get('image',''))" 2>/dev/null)
+                  if [ -z "$svc_img" ] || docker image inspect "$svc_img" >/dev/null 2>&1; then
+                    echo "[update] $svc image is local-only; skipping pull failure." >&2
+                  else
+                    failed_services="$failed_services $svc"
+                  fi
                 fi
               done
             fi

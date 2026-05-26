@@ -13,9 +13,6 @@ update_subtype: "Container"
 update_delay_days: 3
 update_exclude_services:
   - semaphore
-  - gaggiuino-barista  # locally built image (build: context), no registry
-  - ledgr              # locally built image, deployed via deploy_stacks not update_systems
-  - ledgrdemo          # locally built image, deployed via deploy_stacks not update_systems
 
 # Stack assignments: host → ordered list of stack names.
 # Derived from host_roles + stack_roles (both from vars/definitions/vm_definitions.yaml).
