@@ -243,6 +243,18 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "type"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "last_updated"
             },
             "properties": [
@@ -301,7 +313,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  application,\n  hostname,\n  MAX(timestamp) as last_updated\nFROM updates\nWHERE hostname IN ($hostname)\nGROUP BY application, hostname\nHAVING MAX(timestamp) < UTC_TIMESTAMP() - INTERVAL 14 DAY\nORDER BY MAX(timestamp) ASC",
+          "rawSql": "SELECT\n  application,\n  hostname,\n  MAX(update_subtype) as type,\n  MAX(timestamp) as last_updated\nFROM updates\nWHERE hostname IN ($hostname)\nGROUP BY application, hostname\nHAVING MAX(timestamp) < UTC_TIMESTAMP() - INTERVAL 14 DAY\nORDER BY MAX(timestamp) ASC",
           "refId": "A"
         }
       ],
