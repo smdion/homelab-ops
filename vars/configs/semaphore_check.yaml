@@ -62,9 +62,9 @@ ansible_health_semaphore_container_name: semaphore
 ansible_health_collections_check:
   - community.general
   - community.proxmox
-  - community.mysql
   - community.docker
   - ansible.posix
+  - ansible.mysql
 
 # Schedule exemption marker — playbooks with "# Schedule: none" in their header
 # are excluded from CHECK 28 schedule coverage validation. Used for ad-hoc,

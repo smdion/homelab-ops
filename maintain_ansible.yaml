@@ -184,19 +184,20 @@
               delay: 5
               until: _galaxy_api_results is succeeded
 
-            - name: Identify outdated collections
+            - name: Identify outdated or missing collections
               vars:
                 _fqcn: "{{ item.item }}"
                 _latest_raw: "{{ (item.content | from_json).highest_version.version | default('0.0.0') }}"
                 _latest: "{{ _latest_raw | regex_replace('-.*$', '') }}"
-                _installed_ver: "{{ (_installed_flat.get(_fqcn, {})).get('version', '0.0.0') }}"
-                _inst_parts: "{{ _installed_ver.split('.') | map('int') | list }}"
+                _installed_ver: "{{ (_installed_flat.get(_fqcn, {})).get('version', 'missing') }}"
+                _inst_parts: "{{ (_installed_ver != 'missing') | ternary(_installed_ver.split('.') | map('int') | list, [-1, -1, -1]) }}"
                 _lat_parts: "{{ _latest.split('.') | map('int') | list }}"
               ansible.builtin.set_fact:
                 _collections_outdated: >-
                   {{ _collections_outdated + [_fqcn + ' ' + _installed_ver + ' → ' + _latest] }}
               loop: "{{ _galaxy_api_results.results }}"
               when: >-
+                _installed_ver == 'missing' or
                 _inst_parts[0] < _lat_parts[0] or
                 _inst_parts[1] < _lat_parts[1]
 
