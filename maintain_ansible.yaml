@@ -341,7 +341,7 @@
             - name: Build Semaphore image version string
               ansible.builtin.set_fact:
                 _semaphore_image_version: >-
-                  {{ _sem_image_tag.stdout.split(':') | last }} ({{ _sem_image_id.stdout[7:19] }})
+                  {{ _semaphore_current }} ({{ _sem_image_id.stdout[7:19] }})
 
             - name: Log Semaphore container version to updates table
               include_tasks: tasks/log_mariadb.yaml
