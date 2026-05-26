@@ -17,7 +17,7 @@ pull_with_retry() {
   while [ "$_pwr_attempt" -lt "$_pwr_max" ]; do
     _pwr_attempt=$((_pwr_attempt + 1))
     if [ "$_pwr_cmd" = "compose" ]; then
-      _pwr_out=$(timeout 300 docker compose pull "$_pwr_target" 2>&1)
+      _pwr_out=$(timeout 300 docker compose pull --ignore-buildable "$_pwr_target" 2>&1)
     else
       _pwr_out=$(timeout 300 docker pull "$_pwr_target" 2>&1)
     fi

@@ -446,7 +446,7 @@
               fi
             done
             failed_services=""
-            timeout 600 docker compose pull $target_services >/dev/null 2>&1
+            timeout 600 docker compose pull --ignore-buildable $target_services >/dev/null 2>&1
             _batch_rc=$?
             if [ "$_batch_rc" -ne 0 ]; then
               echo "[update] Batch pull exited $_batch_rc; retrying failed services individually." >&2
@@ -575,7 +575,13 @@
             for img in $(printf '%s\n' $images | sort -u); do
               [ -z "$img" ] && continue
               if ! pull_with_retry "$img" "run"; then
-                failed_images="$failed_images $img"
+                # Only mark as failed if the image doesn't exist locally; a local-only
+                # image (no registry entry) should not trigger "images may be stale".
+                if docker image inspect "$img" >/dev/null 2>&1; then
+                  echo "[update] $img not in registry but exists locally; treating as local image." >&2
+                else
+                  failed_images="$failed_images $img"
+                fi
               fi
             done
             echo '['
