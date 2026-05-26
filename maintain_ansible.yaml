@@ -18,6 +18,7 @@
     maintenance_type: "Local"
     maintenance_subtype: "Health Check"
     maintenance_url: "{{ semaphore_ext_url }}"
+    _semaphore_github_repo: "semaphoreui/semaphore"
 
     # Known-unfixable warnings excluded from actionable count.
     # These come from collection routing tombstones or collection-internal Python
@@ -51,6 +52,9 @@
         _collections_status: "ok"
         _stuck_tasks: []
         _stuck_status: "ok"
+        _semaphore_current: "unknown"
+        _semaphore_latest: "unknown"
+        _semaphore_status: "ok"
 
     - name: Run Ansible health checks
       block:
@@ -255,6 +259,60 @@
               ansible.builtin.debug:
                 msg: "CHECK 4 FAILED: Stuck task query error"
 
+        # ── CHECK 5: Semaphore version ─────────────────────────────────────────
+        - name: Check Semaphore version currency
+          block:
+            - name: Get installed Semaphore version from API
+              ansible.builtin.uri:
+                url: "{{ semaphore_url }}/api/info"
+                method: GET
+                headers:
+                  Authorization: "Bearer {{ vault_semaphore_api_token }}"
+                return_content: true
+                status_code: 200
+                timeout: 10
+              register: _semaphore_info
+              no_log: "{{ _no_log }}"
+
+            - name: Parse installed Semaphore version (strip build suffix)
+              ansible.builtin.set_fact:
+                _semaphore_current: "{{ (_semaphore_info.content | from_json).version | regex_replace('\\^.*$', '') }}"
+
+            - name: Query GitHub for latest Semaphore release
+              ansible.builtin.uri:
+                url: "https://api.github.com/repos/{{ _semaphore_github_repo }}/releases/latest"
+                method: GET
+                return_content: true
+                status_code: 200
+                timeout: 15
+                headers:
+                  Accept: "application/vnd.github+json"
+              register: _semaphore_release
+
+            - name: Parse latest Semaphore version
+              ansible.builtin.set_fact:
+                _semaphore_latest: "{{ (_semaphore_release.content | from_json).tag_name }}"
+
+            - name: Evaluate Semaphore version currency
+              vars:
+                _cur: "{{ _semaphore_current | regex_replace('^v', '') }}"
+                _lat: "{{ _semaphore_latest | regex_replace('^v', '') }}"
+                _cur_parts: "{{ _cur.split('.') | map('int') | list }}"
+                _lat_parts: "{{ _lat.split('.') | map('int') | list }}"
+              ansible.builtin.set_fact:
+                _semaphore_status: >-
+                  {% if _cur_parts[0] < _lat_parts[0] or _cur_parts[1] < _lat_parts[1] %}red
+                  {%- elif _cur_parts[2] < _lat_parts[2] %}yellow
+                  {%- else %}ok{% endif %}
+
+          rescue:
+            - name: Set maintenance failed (Semaphore version check error)
+              ansible.builtin.set_fact:
+                maintenance_failed: true
+            - name: Log Semaphore version check failure
+              ansible.builtin.debug:
+                msg: "CHECK 5 FAILED: Semaphore version check error"
+
       always:
 
         # ── NOTIFY: Always send summary embed ──────────────────────────────────
@@ -273,12 +331,15 @@
 
         - name: Determine overall embed color
           vars:
+            # ansible-core, collections, and Semaphore versions are container-managed —
+            # outdated versions are warnings only, never red.
             _any_red: >-
-              {{ _dep_status == 'red' or _core_status == 'red' or
-                 _collections_status == 'red' or _stuck_status == 'red' }}
+              {{ _dep_status == 'red' or _stuck_status == 'red' }}
             _any_yellow: >-
-              {{ _dep_status == 'yellow' or _core_status == 'yellow' or
-                 _collections_status == 'yellow' }}
+              {{ _dep_status == 'yellow' or
+                 _core_status in ['red', 'yellow'] or
+                 _collections_status in ['red', 'yellow'] or
+                 _semaphore_status in ['red', 'yellow'] }}
           ansible.builtin.set_fact:
             _embed_color: >-
               {{ discord_color_failure if (_any_red | bool or maintenance_failed)
@@ -290,11 +351,14 @@
             _embed_fields:
               - name: "{{ '❌' if _dep_status == 'red' else ('⚠️' if _dep_status == 'yellow' else '✅') }} Deprecations ({{ _dep_actionable | length }} actionable)"
                 value: "{{ _dep_field_value | truncate(900, False) }}"
-              - name: "{{ '❌' if _core_status == 'red' else ('⚠️' if _core_status == 'yellow' else '✅') }} ansible-core"
+              - name: "{{ '⚠️' if _core_status in ['red', 'yellow'] else '✅' }} ansible-core"
                 value: "{{ _core_current }} installed / {{ _core_latest }} latest"
                 inline: true
-              - name: "{{ '❌' if _collections_status == 'red' else ('⚠️' if _collections_status == 'yellow' else '✅') }} Collections"
+              - name: "{{ '⚠️' if _collections_status in ['red', 'yellow'] else '✅' }} Collections"
                 value: "{{ _collections_outdated | join(', ') if _collections_outdated | length > 0 else 'All current' }}"
+              - name: "{{ '⚠️' if _semaphore_status in ['red', 'yellow'] else '✅' }} Semaphore"
+                value: "{{ _semaphore_current }} installed / {{ _semaphore_latest }} latest"
+                inline: true
               - name: "{{ '❌' if _stuck_status == 'red' else '✅' }} Stuck tasks (>{{ ansible_health_stuck_task_hours }}h)"
                 value: >-
                   {{ _stuck_tasks
@@ -318,7 +382,7 @@
           vars:
             discord_name: "{{ maintenance_name }}"
             discord_operation: "Health Check"
-            discord_status: "{{ 'failed' if maintenance_failed else ('warning' if _embed_color == discord_color_warning else ('ok' if _embed_color == discord_color_success else 'failed')) }}"
+            discord_status: "{{ 'failed' if (maintenance_failed or _embed_color == discord_color_failure) else ('warning' if _embed_color == discord_color_warning else 'ok') }}"
             discord_color: "{{ _embed_color }}"
             discord_author: "{{ controller_fqdn }}"
             discord_fields: "{{ _embed_fields }}"
