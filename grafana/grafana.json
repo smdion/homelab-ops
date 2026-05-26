@@ -2209,12 +2209,32 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "last_success"
+                  "options": "last_checked"
                 },
                 "properties": [
                   {
                     "id": "custom.width",
                     "value": 180
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "installed"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 160
+                  },
+                  {
+                    "id": "unit",
+                    "value": "dateTimeAsLocal"
+                  },
+                  {
+                    "id": "displayName",
+                    "value": "installed"
                   }
                 ]
               }
@@ -2254,7 +2274,7 @@
               },
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT \n  u1.hostname,\n  u1.application,\n  u1.update_subtype,\n  u1.version,\n  u1.last_seen as last_success,\n  DATEDIFF(UTC_TIMESTAMP(), u1.last_seen) as days_ago\nFROM updates u1\nINNER JOIN (\n  SELECT hostname, application, MAX(last_seen) as max_ls\n  FROM updates\n  WHERE status = 'success'\n  GROUP BY hostname, application\n) u2 ON u1.hostname = u2.hostname AND u1.application = u2.application AND u1.last_seen = u2.max_ls\nWHERE u1.hostname IN ($hostname)\n  AND u1.update_subtype IN ($update_subtype)\nORDER BY u1.hostname, u1.update_subtype, u1.application",
+              "rawSql": "SELECT \n  u1.hostname,\n  u1.application,\n  u1.update_subtype,\n  u1.version,\n  u1.timestamp as installed,\n  u1.last_seen as last_checked\nFROM updates u1\nINNER JOIN (\n  SELECT hostname, application, MAX(last_seen) as max_ls\n  FROM updates\n  WHERE status = 'success'\n  GROUP BY hostname, application\n) u2 ON u1.hostname = u2.hostname AND u1.application = u2.application AND u1.last_seen = u2.max_ls\nWHERE u1.hostname IN ($hostname)\n  AND u1.update_subtype IN ($update_subtype)\nORDER BY u1.hostname, u1.update_subtype, u1.application",
               "refId": "A"
             }
           ],
