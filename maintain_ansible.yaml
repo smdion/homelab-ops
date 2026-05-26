@@ -323,7 +323,7 @@
               ansible.builtin.shell: |
                 IMAGE=$(docker inspect {{ ansible_health_semaphore_container_name }} \
                   --format {% raw %}'{{.Config.Image}}'{% endraw %} 2>/dev/null)
-                REPO_DIGEST=$(docker inspect {{ ansible_health_semaphore_container_name }} \
+                REPO_DIGEST=$(docker image inspect "$IMAGE" \
                   --format {% raw %}'{{index .RepoDigests 0}}'{% endraw %} 2>/dev/null)
                 LOCAL_DIGEST="${REPO_DIGEST##*@}"
                 REPO="${REPO_DIGEST%%@*}"
