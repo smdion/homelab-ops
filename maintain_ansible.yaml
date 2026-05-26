@@ -130,12 +130,7 @@
 
             - name: Parse latest stable version from PyPI
               ansible.builtin.set_fact:
-                _core_latest: >-
-                  {{ (_pypi_raw.content | from_json).releases.keys()
-                     | reject('search', 'a|b|rc|dev')
-                     | list
-                     | sort(version_type='version')
-                     | last }}
+                _core_latest: "{{ (_pypi_raw.content | from_json).info.version }}"
 
             - name: Evaluate version currency
               vars:
