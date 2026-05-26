@@ -882,12 +882,12 @@
                 value: "{{ _failed_names }}"
             discord_fields: "{{ _discord_fields_updated + (_discord_fields_pf if _pull_failed | bool else []) }}"
 
-        - name: Log container updates to MariaDB
+        - name: Log container versions to MariaDB
           include_tasks: tasks/log_mariadb.yaml
-          loop: "{{ docker_update_results | selectattr('updated') | list }}"
+          loop: "{{ docker_update_results | rejectattr('pull_failed') | list }}"
           when:
             - _is_docker_update | bool
-            - docker_update_results | selectattr('updated') | list | length > 0
+            - docker_update_results | rejectattr('pull_failed') | list | length > 0
           vars:
             log_table: updates
             log_application: "{{ item.name }}"
@@ -922,12 +922,12 @@
               - name: "{{ '❌ ' if update_failed else '✅ ' }}Updated"
                 value: "{{ plugin_update_results | selectattr('updated') | map(attribute='name') | join(', ') | default('None', true) }}"
 
-        - name: Log plugin updates to MariaDB
+        - name: Log plugin versions to MariaDB
           include_tasks: tasks/log_mariadb.yaml
-          loop: "{{ plugin_update_results | selectattr('updated') | list }}"
+          loop: "{{ plugin_update_results | list }}"
           when:
             - _is_plugin_update | bool
-            - plugin_update_results | selectattr('updated') | list | length > 0
+            - plugin_update_results | list | length > 0
           vars:
             log_table: updates
             log_application: "{{ item.name }}"
