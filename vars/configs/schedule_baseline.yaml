@@ -43,6 +43,8 @@ schedule_baseline:
     cron_expression: "0 5 * * 3"
   - template_name: "Backup — B2 [Offsite]"
     cron_expression: "0 2 * * 0"
+  - template_name: "Maintain — Ansible [Health]"
+    cron_expression: "0 8 * * 0"
   - template_name: "Maintain — Logging DB [Summary]"
     cron_expression: "0 8 * * 0"
   - template_name: "Download — Videos [Channels]"
