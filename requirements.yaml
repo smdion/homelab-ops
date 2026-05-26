@@ -3,12 +3,12 @@
 # Install with: ansible-galaxy collection install -r requirements.yaml
 collections:
   - name: ansible.posix
-    version: ">=1.5.0"
+    version: ">=2.2.0"
   - name: community.docker
-    version: ">=3.0.0"
+    version: ">=5.2.0"
   - name: community.general
-    version: ">=6.0.0"
+    version: ">=13.0.1"
   - name: community.mysql
-    version: ">=3.0.0"
+    version: ">=5.0.2"
   - name: community.proxmox
-    version: ">=1.0.0"
+    version: ">=2.0.0"
