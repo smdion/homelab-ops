@@ -93,6 +93,16 @@
           inventory_hostname in groups["docker_run"] | default([])
         - update_delay_days | default(0) | int > 0
 
+    - name: Deploy pull_with_retry helper script
+      ansible.builtin.copy:
+        src: files/pull_with_retry.sh
+        dest: /tmp/pull_with_retry.sh
+        mode: "0644"
+      when:
+        - _version_scope == 'docker'
+        - inventory_hostname in groups["docker_stacks"] | default([]) or
+          inventory_hostname in groups["docker_run"] | default([])
+
     - name: Assert unRAID update_container script exists
       ansible.builtin.stat:
         path: /usr/local/emhttp/plugins/dynamix.docker.manager/scripts/update_container
@@ -415,6 +425,12 @@
           become: true
           ansible.builtin.shell: |
             [ -f /tmp/get_push_epoch.sh ] && . /tmp/get_push_epoch.sh
+            [ -f /tmp/pull_with_retry.sh ] && . /tmp/pull_with_retry.sh
+            if ! docker info >/dev/null 2>&1; then
+              echo "[update] Docker daemon not reachable, aborting." >&2
+              echo '[]'
+              exit 1
+            fi
             before_file=$(mktemp)
             trap 'rm -f "$before_file"' EXIT
             delay_days={{ update_delay_days | default(0) }}
@@ -429,10 +445,20 @@
                 echo "${svc}|${iid}" >> "$before_file"
               fi
             done
-            pull_failed=false
-            timeout 600 docker compose pull $target_services >&2 || pull_failed=true
+            failed_services=""
+            timeout 600 docker compose pull $target_services >/dev/null 2>&1
+            _batch_rc=$?
+            if [ "$_batch_rc" -ne 0 ]; then
+              echo "[update] Batch pull exited $_batch_rc; retrying failed services individually." >&2
+              for svc in $target_services; do
+                if ! pull_with_retry "$svc" "compose"; then
+                  failed_services="$failed_services $svc"
+                fi
+              done
+            fi
             approved=""
             for svc in $target_services; do
+              case " $failed_services " in *" $svc "*) continue ;; esac
               if [ "$delay_days" -le 0 ]; then
                 approved="$approved $svc"
               else
@@ -472,10 +498,12 @@
                 fi
                 updated=false
                 [ -n "$old_id" ] && [ "$old_id" != "$new_id" ] && updated=true
+                svc_pull_failed=false
+                case " $failed_services " in *" $svc "*) svc_pull_failed=true ;; esac
                 $first || echo ','
                 first=false
                 printf '{"name":"%s","image":"%s","old_id":"%s","new_id":"%s","tag":"%s","updated":%s,"pull_failed":%s}' \
-                  "$svc" "$img" "$old_id" "$new_id" "$version" "$updated" "$pull_failed"
+                  "$svc" "$img" "$old_id" "$new_id" "$version" "$updated" "$svc_pull_failed"
               fi
             done
             echo ']'
@@ -529,18 +557,26 @@
           become: true
           ansible.builtin.shell: |
             [ -f /tmp/get_push_epoch.sh ] && . /tmp/get_push_epoch.sh
+            [ -f /tmp/pull_with_retry.sh ] && . /tmp/pull_with_retry.sh
+            if ! docker info >/dev/null 2>&1; then
+              echo "[update] Docker daemon not reachable, aborting." >&2
+              echo '[]'
+              exit 1
+            fi
             delay_days={{ update_delay_days | default(0) }}
             if [ "$delay_days" -gt 0 ]; then
               threshold_epoch=$(date -d "-${delay_days} days" +%s)
             fi
-            # Batch pull all images first (faster than sequential per-container pulls)
-            pull_failed=false
+            failed_images=""
             images=""
             for name in {{ _docker_target_containers | join(' ') }}; do
               images="$images $(docker inspect --format {% raw %}'{{.Config.Image}}'{% endraw %} "$name")"
             done
-            for img in $(echo "$images" | tr ' ' '\n' | sort -u); do
-              [ -n "$img" ] && docker pull "$img" >&2 || pull_failed=true
+            for img in $(printf '%s\n' $images | sort -u); do
+              [ -z "$img" ] && continue
+              if ! pull_with_retry "$img" "run"; then
+                failed_images="$failed_images $img"
+              fi
             done
             echo '['
             first=true
@@ -579,10 +615,12 @@
               if [ -z "$version" ]; then
                 case "$img" in *:*) version="${img##*:}" ;; *) version="latest" ;; esac
               fi
+              img_pull_failed=false
+              case " $failed_images " in *" $img "*) img_pull_failed=true ;; esac
               $first || echo ','
               first=false
               printf '{"name":"%s","image":"%s","old_id":"%s","new_id":"%s","tag":"%s","updated":%s,"pull_failed":%s}' \
-                "$name" "$img" "$old_id" "$new_id" "$version" "$updated" "$pull_failed"
+                "$name" "$img" "$old_id" "$new_id" "$version" "$updated" "$img_pull_failed"
             done
             echo ']'
           register: _unraid_update_raw
@@ -754,6 +792,12 @@
         - name: Clean up get_push_epoch helper script
           ansible.builtin.file:
             path: /tmp/get_push_epoch.sh
+            state: absent
+          when: _version_scope == 'docker'
+
+        - name: Clean up pull_with_retry helper script
+          ansible.builtin.file:
+            path: /tmp/pull_with_retry.sh
             state: absent
           when: _version_scope == 'docker'
 
