@@ -263,6 +263,43 @@
                 "value": 180
               },
               {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "displayName",
+                "value": "last updated (by Ansible)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last_seen"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              },
+              {
+                "id": "unit",
+                "value": "dateTimeAsLocal"
+              },
+              {
                 "id": "custom.cellOptions",
                 "value": {
                   "type": "color-text"
@@ -274,6 +311,10 @@
                   "fixedColor": "red",
                   "mode": "fixed"
                 }
+              },
+              {
+                "id": "displayName",
+                "value": "last seen"
               }
             ]
           }
@@ -313,7 +354,7 @@
           },
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  application,\n  hostname,\n  MAX(update_subtype) as type,\n  MAX(timestamp) as last_updated\nFROM updates\nWHERE hostname IN ($hostname)\nGROUP BY application, hostname\nHAVING MAX(timestamp) < UTC_TIMESTAMP() - INTERVAL 14 DAY\nORDER BY MAX(timestamp) ASC",
+          "rawSql": "SELECT\n  application,\n  hostname,\n  MAX(update_subtype) as type,\n  MAX(CASE WHEN updated = 1 THEN timestamp END) as last_updated,\n  MAX(last_seen) as last_seen\nFROM updates\nWHERE hostname IN ($hostname)\nGROUP BY application, hostname\nHAVING MAX(last_seen) < UTC_TIMESTAMP() - INTERVAL 14 DAY\nORDER BY MAX(last_seen) ASC",
           "refId": "A"
         }
       ],

@@ -15,6 +15,7 @@
 # Required vars (log_table = 'updates'):
 #   log_version     — version string
 #   log_status      — 'success' or 'failed' (defaults to 'success' if omitted)
+#   log_updated     — true if Ansible performed the update; false for heartbeat/observation (defaults to false)
 #
 # Required vars (log_table = 'maintenance'):
 #   log_type        — 'Servers', 'Appliances', or 'Local'
@@ -44,9 +45,9 @@
       - "{{ backup_subtype }}"
       - "{{ log_backup_level | default('host') }}"
     _update_query: >-
-      INSERT INTO updates (application, hostname, version, timestamp, update_type, update_subtype, status)
-      VALUES (%s, %s, %s, UTC_TIMESTAMP(), %s, %s, %s)
-      ON DUPLICATE KEY UPDATE timestamp = UTC_TIMESTAMP(), status = VALUES(status)
+      INSERT INTO updates (application, hostname, version, timestamp, last_seen, update_type, update_subtype, status, updated)
+      VALUES (%s, %s, %s, UTC_TIMESTAMP(), UTC_TIMESTAMP(), %s, %s, %s, %s)
+      ON DUPLICATE KEY UPDATE last_seen = UTC_TIMESTAMP(), status = VALUES(status), updated = VALUES(updated)
     _update_args:
       - "{{ log_application }}"
       - "{{ log_hostname }}"
@@ -54,6 +55,7 @@
       - "{{ update_type }}"
       - "{{ update_subtype }}"
       - "{{ log_status | default('success') }}"
+      - "{{ log_updated | default(false) | bool | int }}"
     _maintenance_query: >-
       INSERT INTO maintenance (application, hostname, timestamp, type, subtype, status)
       VALUES (%s, %s, UTC_TIMESTAMP(), %s, %s, %s)

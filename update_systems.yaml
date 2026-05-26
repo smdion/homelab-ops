@@ -838,6 +838,7 @@
             log_hostname: "{{ inventory_hostname }}"
             log_version: "{{ 'FAILED' if update_failed else current_version }}"
             log_status: "{{ 'failed' if update_failed else 'success' }}"
+            log_updated: "{{ not update_failed and current_version != previous_version }}"
 
         - name: Return PiKVM to RO mode
           raw: ro
@@ -894,6 +895,7 @@
             log_hostname: "{{ inventory_hostname }}"
             log_version: "{{ item.tag }} ({{ item.new_id }})"
             log_status: "success"
+            log_updated: "{{ item.updated | bool }}"
 
         - name: Log Docker update failure
           include_tasks: tasks/log_mariadb.yaml
@@ -934,6 +936,7 @@
             log_hostname: "{{ inventory_hostname }}"
             log_version: "{{ item.new_version }}"
             log_status: "success"
+            log_updated: "{{ item.updated | bool }}"
 
         - name: Log plugin update failure
           include_tasks: tasks/log_mariadb.yaml

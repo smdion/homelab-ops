@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS updates (
   update_type VARCHAR(50),
   update_subtype VARCHAR(50),
   status VARCHAR(20) NOT NULL DEFAULT 'success',
+  last_seen DATETIME NULL,
+  updated TINYINT(1) NOT NULL DEFAULT 0,
   INDEX idx_hostname (hostname),
   INDEX idx_timestamp (timestamp),
   INDEX idx_update_type (update_type),
