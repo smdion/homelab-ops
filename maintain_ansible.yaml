@@ -205,6 +205,17 @@
                   {%- elif _collections_outdated | length >= 1 %}yellow
                   {%- else %}ok{% endif %}
 
+            - name: Update outdated collections
+              ansible.builtin.shell: >-
+                ansible-galaxy collection install -r requirements.yaml --upgrade
+              args:
+                chdir: "{{ playbook_dir }}"
+              when:
+                - _collections_outdated | length > 0
+                - not ansible_check_mode
+              register: _galaxy_upgrade
+              changed_when: "'was installed successfully' in _galaxy_upgrade.stdout"
+
           rescue:
             - name: Set maintenance failed (collection check error)
               ansible.builtin.set_fact:
@@ -355,7 +366,10 @@
                 value: "{{ _core_current }} installed / {{ _core_latest }} latest"
                 inline: true
               - name: "{{ '⚠️' if _collections_status in ['red', 'yellow'] else '✅' }} Collections"
-                value: "{{ _collections_outdated | join(', ') if _collections_outdated | length > 0 else 'All current' }}"
+                value: >-
+                  {{ ('Updated: ' + _collections_outdated | join(', '))
+                     if (_collections_outdated | length > 0 and _galaxy_upgrade is defined and _galaxy_upgrade is changed)
+                     else (_collections_outdated | join(', ') if _collections_outdated | length > 0 else 'All current') }}
               - name: "{{ '⚠️' if _semaphore_status in ['red', 'yellow'] else '✅' }} Semaphore"
                 value: "{{ _semaphore_current }} installed / {{ _semaphore_latest }} latest"
                 inline: true
