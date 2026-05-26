@@ -10,7 +10,6 @@ collections:
     version: ">=13.0.1"
   - name: ansible.mysql
     version: ">=5.0.1"
-  - name: community.mysql
-    version: ">=5.0.2"
+
   - name: community.proxmox
     version: ">=2.0.0"

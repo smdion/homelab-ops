@@ -21,11 +21,10 @@
     _semaphore_github_repo: "semaphoreui/semaphore"
 
     # Known-unfixable warnings excluded from actionable count.
-    # These come from collection routing tombstones or collection-internal Python
-    # code; upstream has not released fixes. They appear in the embed for awareness
-    # but do not affect green/yellow/red status.
+    # These come from collection-internal Python code; upstream has not released
+    # fixes. They appear in the embed for awareness but do not affect
+    # green/yellow/red status. Target removal: ansible-core 2.24.
     _known_unfixable_patterns:
-      - "community.general.proxmox_kvm has been deprecated"
       - "Importing 'to_bytes' from 'ansible.module_utils._text'"
       - "Importing 'to_native' from 'ansible.module_utils._text'"
       - "Importing 'to_text' from 'ansible.module_utils._text'"
