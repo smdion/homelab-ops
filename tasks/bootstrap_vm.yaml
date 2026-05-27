@@ -117,6 +117,37 @@
         groups: docker
         append: true
 
+    - name: Install avahi-daemon for mDNS reflection into Docker bridge
+      ansible.builtin.apt:
+        name: avahi-daemon
+        state: present
+
+    - name: Enable avahi mDNS reflector
+      ansible.builtin.lineinfile:
+        path: /etc/avahi/avahi-daemon.conf
+        regexp: '^#?enable-reflector='
+        line: 'enable-reflector=yes'
+      register: _avahi_reflector
+
+    - name: Allow avahi to coexist with other mDNS stacks (pyatv, go2rtc)
+      ansible.builtin.lineinfile:
+        path: /etc/avahi/avahi-daemon.conf
+        regexp: '^#?disallow-other-stacks='
+        line: 'disallow-other-stacks=no'
+      register: _avahi_stacks
+
+    - name: Enable and start avahi-daemon
+      ansible.builtin.systemd:
+        name: avahi-daemon
+        enabled: true
+        state: started
+
+    - name: Restart avahi-daemon if config changed
+      ansible.builtin.systemd:
+        name: avahi-daemon
+        state: restarted
+      when: _avahi_reflector.changed or _avahi_stacks.changed
+
     - name: Configure keepalived (VIP management)
       when:
         - host_roles is defined
