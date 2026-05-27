@@ -152,6 +152,23 @@ vm_definitions:
     vnc_display: 81                    # display :81 = port 5981
     guacamole: { name: TronLabs, group: Hosted Desktops, protocol: vnc, user_groups: [Guac-TronLabs] }
 
+  sandbox:
+    vm_id: 900
+    vm_name: sandbox
+    vm_mac: "02:00:00:00:03:84"         # static MAC — stable Unifi device identity; encodes VMID 900 (0x384)
+    vm_hostname: "sandbox.{{ vault_vm_search_domain }}"
+    vm_ip: "10.10.10.90"               # management VLAN — derived from VMID scheme (900 → .90)
+    vm_cores: 4
+    vm_memory_mb: 8192
+    vm_disk_gb: 30
+    pve_storage: "local-lvm"           # sentinel local storage — not replicated
+    pve_target_node: "sentinel"
+    deploy_ssh_key: true
+    install_docker: false
+    install_desktop: true
+    vnc_display: 80                    # display :80 = port 5980
+    guacamole: { name: Sandbox, group: Hosted Desktops, protocol: vnc, user_groups: [Guac-Sandbox] }
+
   # Hosted desktop VMs — VNC-only access through Guacamole + Authentik groups.
   # Not provisioned via build_ubuntu.yaml (manually created in Proxmox).
   # vm_id + vnc_display are the minimum fields needed for VNC connection resolution.
