@@ -72,7 +72,35 @@
             - remove_unmanaged | default('') == 'yes'
 
         # ═══════════════════════════════════════════════════════════════
-        # Steps 2-7 — Converge connections (shared tasks)
+        # Step 2 — Load Semaphore inventory login_password credentials
+        # Queries project__inventory JOIN access_key to build a map keyed
+        # by inventory name (= Ansible group = host_definitions dict key).
+        # host_definitions entries are auto-matched with zero annotation.
+        # ═══════════════════════════════════════════════════════════════
+        - name: Query Semaphore inventory to key mapping for login_password credentials
+          community.mysql.mysql_query:
+            login_host: "{{ vault_logging_db_host }}"
+            login_user: root
+            login_password: "{{ vault_docker_mariadb_password }}"
+            login_db: "{{ semaphore_db_name }}"
+            query: "SELECT inv.name AS inv_name, ak.secret FROM project__inventory inv JOIN access_key ak ON inv.ssh_key_id = ak.id WHERE ak.type = 'login_password'"
+          register: _semaphore_inv_raw
+          no_log: "{{ _no_log }}"
+
+        - name: Build Semaphore inventory credential map
+          ansible.builtin.set_fact:
+            _semaphore_inv_creds: "{{ _parsed | trim | from_json }}"
+          vars:
+            _parsed: >-
+              {% set result = {} %}
+              {% for row in _semaphore_inv_raw.query_result | default([[]]) | first | default([]) %}
+              {% set decoded = row.secret | b64decode | from_json %}
+              {% set _ = result.update({row.inv_name: {'username': decoded.login, 'password': decoded.password}}) %}
+              {% endfor %}
+              {{ result | to_json }}
+
+        # ═══════════════════════════════════════════════════════════════
+        # Steps 3-8 — Converge connections (shared tasks)
         # ═══════════════════════════════════════════════════════════════
         - name: Converge Guacamole connections
           include_tasks: tasks/sync_guacamole_connections.yaml

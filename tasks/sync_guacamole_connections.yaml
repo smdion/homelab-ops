@@ -116,14 +116,22 @@
     _host_json: >-
       {% set result = [] %}
       {% for entry in host_definitions | dict2items | selectattr('value.guacamole', 'defined') | list %}
-      {% if entry.value.guacamole.protocol | default('ssh') == 'ssh' %}
-      {% set _ = result.append({
-        'name': entry.value.guacamole.name,
-        'group': entry.value.guacamole.group,
+      {% set guac = entry.value.guacamole %}
+      {% if guac.protocol | default('ssh') == 'ssh' %}
+      {% set inv_creds = (_semaphore_inv_creds | default({}))[entry.key] | default({}) %}
+      {% set conn = {
+        'name': guac.name,
+        'group': guac.group,
         'protocol': 'ssh',
         'hostname': entry.value.vm_hostname,
-        'user_groups': entry.value.guacamole.user_groups | default([]),
-      }) %}
+        'user_groups': guac.user_groups | default([]),
+      } %}
+      {% set u = guac.username | default(inv_creds.username | default('')) %}
+      {% set p = guac.password | default(inv_creds.password | default('')) %}
+      {% if u %}{% set conn = conn | combine({'username': u}) %}{% endif %}
+      {% if p %}{% set conn = conn | combine({'password': p}) %}{% endif %}
+      {% if guac.command is defined %}{% set conn = conn | combine({'command': guac.command}) %}{% endif %}
+      {% set _ = result.append(conn) %}
       {% endif %}
       {% endfor %}
       {{ result | to_json }}
