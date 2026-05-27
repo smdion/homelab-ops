@@ -325,7 +325,7 @@
       failed_when: >-
         _pool_add_result.status | default(0) not in [200] and
         'already a pool member' not in (_pool_add_result.json.message | default(''))
-      when: _provision_pool | length > 0 and not ansible_check_mode
+      when: _provision_pool | length > 0 and not ansible_check_mode and not (_pve_is_standalone | default(false) | bool)
       no_log: "{{ _no_log }}"
 
   rescue:
