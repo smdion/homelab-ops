@@ -13,6 +13,8 @@
 #   config_file                             — vars/configs/ file to load (defaults to hosts_variable)
 #   update_scope=os|docker|software|plugin  — override auto-detected scope (auto-derived from config_file)
 #
+# Schedule-exempt: Standalone
+#
 # Usage:
 #   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu -e config_file=ubuntu_os
 #   ansible-playbook update_systems.yaml -e hosts_variable=docker_stacks
