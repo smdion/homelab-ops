@@ -626,7 +626,7 @@ container_definitions:
     compose:
       image_var: HA
       base: baseuid
-      ports: ["8123:8123", "18555:18555"]
+      ports: ["8123:8123", "18555:18555", "18555:18555/udp"]
       labels:
         homelab.backup.paths: "/opt/home_assistant"
         homelab.backup.exclude: ".cache,deps,__pycache__,*.pyc"
