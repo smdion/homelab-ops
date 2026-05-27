@@ -64,6 +64,17 @@
       ansible.builtin.command: systemctl set-default graphical.target
       changed_when: true
 
+    - name: Check display manager status
+      ansible.builtin.command: systemctl is-active display-manager
+      register: _dm_status
+      changed_when: false
+      failed_when: false
+
+    - name: Reboot to start display manager
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: _dm_status.rc != 0
+
 - name: Install dev tools
   when: _vm.vm_name == 'dev'
   block:
