@@ -144,6 +144,8 @@
         # ═════════════════════════════════════════════════════════
         - name: Provision VM on Proxmox
           include_tasks: tasks/provision_vm.yaml
+          vars:
+            pve_storage: "{{ _vm.pve_storage | default(pve_storage) }}"
           when: _vm_state == 'present'
 
         # ═════════════════════════════════════════════════════════
