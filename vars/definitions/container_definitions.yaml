@@ -499,6 +499,24 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "15s"
+  go2rtc:
+    image: "ghcr.io/alexxit/go2rtc"
+    tag: "latest"
+    stack: apps
+    compose:
+      image_var: GO2RTC
+      base: base
+      ports: ["1984:1984", "8555:8555", "8555:8555/udp"]
+      labels:
+        homelab.backup.paths: "/opt/go2rtc"
+      volumes:
+        - "${APPSDIR}/go2rtc:/config"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:1984/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   grafana:
     image: "grafana/grafana"
     tag: "latest"
@@ -626,7 +644,7 @@ container_definitions:
     compose:
       image_var: HA
       base: baseuid
-      ports: ["8123:8123", "18555:18555", "18555:18555/udp"]
+      ports: ["8123:8123"]
       labels:
         homelab.backup.paths: "/opt/home_assistant"
         homelab.backup.exclude: ".cache,deps,__pycache__,*.pyc"
