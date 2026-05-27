@@ -150,7 +150,7 @@ vm_definitions:
     install_docker: false
     install_desktop: true
     vnc_display: 81                    # display :81 = port 5981
-    guacamole: { name: TronLabs, group: Hosted Desktops, protocol: vnc }
+    guacamole: { name: TronLabs, group: Hosted Desktops, protocol: vnc, user_groups: [Guac-TronLabs] }
 
   # Hosted desktop VMs — VNC-only access through Guacamole + Authentik groups.
   # Not provisioned via build_ubuntu.yaml (manually created in Proxmox).
