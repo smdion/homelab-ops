@@ -38,11 +38,13 @@
            else 'docker' if config_file in ['docker_stacks', 'docker_run']
            else 'os'
          ) }}
+    _is_pve_node: "{{ inventory_hostname in groups['pve'] | default([]) or inventory_hostname in groups['pve_standalone'] | default([]) }}"
     _os_version_commands:
-      pikvm:  "pacman -Q | grep 'kvmd ' | cut -c 6-"
-      ubuntu: "uname -r | sed 's/-generic//'"
-      pve:    "pveversion | awk -F'/' '{print $2}'"
-      pbs:    "dpkg-query -W -f='${Version}' proxmox-backup-server"
+      pikvm:          "pacman -Q | grep 'kvmd ' | cut -c 6-"
+      ubuntu:         "uname -r | sed 's/-generic//'"
+      pve:            "pveversion | awk -F'/' '{print $2}'"
+      pve_standalone: "pveversion | awk -F'/' '{print $2}'"
+      pbs:            "dpkg-query -W -f='${Version}' proxmox-backup-server"
     _sw_version_commands:
       amp:    "ampinstmgr -version | sed -n 's/.*\\(v[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+\\).*/\\1/p'"
   hosts: "{{ hosts_variable }}"
@@ -207,12 +209,12 @@
           become: true
           ansible.builtin.apt:
             update_cache: true
-            upgrade: "{{ 'full' if (inventory_hostname in groups['pve'] or inventory_hostname in groups['pbs']) else 'yes' }}"
+            upgrade: "{{ 'full' if (_is_pve_node | bool or inventory_hostname in groups['pbs']) else 'yes' }}"
           when:
             - _version_scope == 'os'
             - >-
               inventory_hostname in groups["ubuntu"] or
-              inventory_hostname in groups["pve"] or
+              _is_pve_node | bool or
               inventory_hostname in groups["pbs"]
 
         - name: Check if a reboot is required
@@ -221,7 +223,7 @@
           register: _reboot_required_file
           when:
             - _version_scope == 'os'
-            - inventory_hostname in groups["ubuntu"] or inventory_hostname in groups["pve"] or inventory_hostname in groups["pbs"]
+            - inventory_hostname in groups["ubuntu"] or _is_pve_node | bool or inventory_hostname in groups["pbs"]
           changed_when: false
 
         - name: Enable PVE node maintenance mode (HA migration)
