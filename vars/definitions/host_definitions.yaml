@@ -19,6 +19,16 @@
 # Optional fields:
 #   guacamole      — metadata for maintain_guacamole.yaml auto-discovery
 #                    { name: "Display Name", group: "Connection Group" }
+#                    protocol: ssh (default) | rdp. SSH uses guacamole_ssh_defaults
+#                    (or per-host username/password); for hosts in the Semaphore
+#                    inventory, login_password creds auto-resolve for ssh and rdp.
+#                    RDP optional keys: port (default 3389), domain, and
+#                    secondary_monitors (count of EXTRA monitors beyond the
+#                    primary; 0 disables, 1 = dual). secondary_monitors requires
+#                    the ghcr.io/smdion/guacamole-multimonitor image and is
+#                    ignored by the stock guacamole build. Example:
+#                    { name: WinBox, group: Hosted Desktops, protocol: rdp,
+#                      secondary_monitors: 1, user_groups: [Guac-Admin] }
 #   proxy          — SWAG reverse proxy config (dict or list of dicts).
 #                    Used by deploy_swag_configs.yaml to auto-generate site-confs.
 #                    A list generates one site-conf per entry.

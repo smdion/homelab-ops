@@ -243,6 +243,9 @@ vm_definitions:
 #     name: "Display Name"              # connection name in Guacamole UI
 #     group: "Connection Group"         # connection group (Proxmox, Docker, unRAID, etc.)
 #     protocol: vnc                     # optional — default is ssh; set vnc for VNC connections
+#                                       # VMs emit ssh or vnc only; rdp (incl. multi-monitor
+#                                       # secondary_monitors) is supported on host_definitions,
+#                                       # container_definitions, and guacamole_extra_connections
 #     user_groups: [Guac-MacOS]         # optional — Authentik user groups granted READ access
 #                                       # omit for admin-only connections (guacamole_admin_groups)
 #

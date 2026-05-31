@@ -11,6 +11,9 @@
 # Optional fields:
 #   guacamole      — metadata for maintain_guacamole.yaml auto-discovery
 #                    { name: "Display Name", group: "Connection Group" }
+#                    PVE nodes emit ssh only. rdp (incl. multi-monitor
+#                    secondary_monitors) is supported on host_definitions,
+#                    container_definitions, and guacamole_extra_connections.
 #   standalone     — true if node is NOT part of the PVE cluster.
 #                    Standalone nodes use their own API endpoint instead of the
 #                    cluster VIP. Requires api_host, api_user, api_token_id,

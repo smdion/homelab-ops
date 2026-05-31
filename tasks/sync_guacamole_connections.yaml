@@ -117,12 +117,13 @@
       {% set result = [] %}
       {% for entry in host_definitions | dict2items | selectattr('value.guacamole', 'defined') | list %}
       {% set guac = entry.value.guacamole %}
-      {% if guac.protocol | default('ssh') == 'ssh' %}
+      {% set proto = guac.protocol | default('ssh') %}
+      {% if proto in ['ssh', 'rdp'] %}
       {% set inv_creds = (_semaphore_inv_creds | default({}))[entry.key] | default({}) %}
       {% set conn = {
         'name': guac.name,
         'group': guac.group,
-        'protocol': 'ssh',
+        'protocol': proto,
         'hostname': entry.value.vm_hostname,
         'user_groups': guac.user_groups | default([]),
       } %}
@@ -131,6 +132,11 @@
       {% if u %}{% set conn = conn | combine({'username': u}) %}{% endif %}
       {% if p %}{% set conn = conn | combine({'password': p}) %}{% endif %}
       {% if guac.command is defined %}{% set conn = conn | combine({'command': guac.command}) %}{% endif %}
+      {% if proto == 'rdp' %}
+      {% if guac.port is defined %}{% set conn = conn | combine({'port': guac.port | string}) %}{% endif %}
+      {% if guac.domain is defined %}{% set conn = conn | combine({'domain': guac.domain}) %}{% endif %}
+      {% if guac.secondary_monitors is defined %}{% set conn = conn | combine({'secondary_monitors': guac.secondary_monitors | string}) %}{% endif %}
+      {% endif %}
       {% set _ = result.append(conn) %}
       {% endif %}
       {% endfor %}
@@ -196,6 +202,11 @@
       {% elif guac.port is defined %}{% set conn = conn | combine({'port': guac.port | string}) %}{% endif %}
       {% if guac.password is defined %}{% set conn = conn | combine({'password': guac.password}) %}{% endif %}
       {% if guac.command is defined %}{% set conn = conn | combine({'command': guac.command}) %}{% endif %}
+      {% if guac.protocol | default('ssh') == 'rdp' %}
+      {% if guac.username is defined %}{% set conn = conn | combine({'username': guac.username}) %}{% endif %}
+      {% if guac.domain is defined %}{% set conn = conn | combine({'domain': guac.domain}) %}{% endif %}
+      {% if guac.secondary_monitors is defined %}{% set conn = conn | combine({'secondary_monitors': guac.secondary_monitors | string}) %}{% endif %}
+      {% endif %}
       {% set conn = conn | combine({'user_groups': guac.user_groups | default([])}) %}
       {% set _ = result.append(conn) %}
       {% endif %}
@@ -226,6 +237,11 @@
       {% if item.port is defined %}{% set conn = conn | combine({'port': item.port | string}) %}{% endif %}
       {% if item.password is defined %}{% set conn = conn | combine({'password': item.password}) %}{% endif %}
       {% if item.command is defined %}{% set conn = conn | combine({'command': item.command}) %}{% endif %}
+      {% if item.protocol | default('ssh') == 'rdp' %}
+      {% if item.username is defined %}{% set conn = conn | combine({'username': item.username}) %}{% endif %}
+      {% if item.domain is defined %}{% set conn = conn | combine({'domain': item.domain}) %}{% endif %}
+      {% if item.secondary_monitors is defined %}{% set conn = conn | combine({'secondary_monitors': item.secondary_monitors | string}) %}{% endif %}
+      {% endif %}
       {% set conn = conn | combine({'user_groups': item.user_groups | default([])}) %}
       {% set _ = result.append(conn) %}
       {% endif %}
@@ -409,7 +425,7 @@
 
       -- Port
       INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
-      VALUES (conn_id, 'port', '{{ item.port | default("22" if item.protocol == "ssh" else "5900") }}');
+      VALUES (conn_id, 'port', '{{ item.port | default("22" if item.protocol == "ssh" else ("3389" if item.protocol == "rdp" else "5900")) }}');
 
       {% if item.protocol == 'ssh' %}
       -- SSH defaults
@@ -440,6 +456,40 @@
       {% if item.password | default('') %}
       INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
       VALUES (conn_id, 'password', '{{ item.password }}');
+      {% endif %}
+      {% endif %}
+
+      {% if item.protocol == 'rdp' %}
+      -- RDP auth (creds resolve from the Semaphore login_password map for host entries)
+      {% if item.username | default('') %}
+      INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+      VALUES (conn_id, 'username', '{{ item.username }}');
+      {% endif %}
+
+      {% if item.password | default('') %}
+      INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+      VALUES (conn_id, 'password', '{{ item.password }}');
+      {% endif %}
+
+      {% if item.domain | default('') %}
+      INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+      VALUES (conn_id, 'domain', '{{ item.domain }}');
+      {% endif %}
+
+      -- Homelab RDP defaults (self-signed certs, dynamic resize)
+      INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+      VALUES (conn_id, 'security', 'any');
+
+      INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+      VALUES (conn_id, 'ignore-cert', 'true');
+
+      INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+      VALUES (conn_id, 'resize-method', 'display-update');
+
+      {% if item.secondary_monitors is defined %}
+      -- Multi-monitor (PR 560 + PR 1061): count of secondary monitors, 0 disables
+      INSERT INTO guacamole_connection_parameter (connection_id, parameter_name, parameter_value)
+      VALUES (conn_id, 'secondary-monitors', '{{ item.secondary_monitors }}');
       {% endif %}
       {% endif %}
 
