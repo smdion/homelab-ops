@@ -889,6 +889,32 @@ container_definitions:
         timeout: "5s"
         retries: 3
         start_period: "30s"
+  mosquitto:
+    image: "eclipse-mosquitto"
+    tag: "2"
+    stack: apps
+    env:
+      MQTT_HEALTH_USER: "{{ vault_docker_mqtt_user }}"
+      MQTT_HEALTH_PASS: "{{ vault_docker_mqtt_password }}"
+    compose:
+      base: base
+      ports: ["1883:1883"]
+      labels:
+        homelab.backup.paths: "/opt/mosquitto"
+        homelab.backup.exclude: "data/mosquitto.db,log"
+      environment:
+        MQTT_HEALTH_USER: "${MQTT_HEALTH_USER}"
+        MQTT_HEALTH_PASS: "${MQTT_HEALTH_PASS}"
+      volumes:
+        - "${APPSDIR}/mosquitto/config:/mosquitto/config"
+        - "${APPSDIR}/mosquitto/data:/mosquitto/data"
+        - "${APPSDIR}/mosquitto/log:/mosquitto/log"
+      healthcheck:
+        test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -t '$$SYS/broker/uptime' -C 1 -W 3 -u \"$$MQTT_HEALTH_USER\" -P \"$$MQTT_HEALTH_PASS\" || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "20s"
   netbootxyz:
     image: "netbootxyz/netbootxyz"
     tag: "latest"
@@ -1274,6 +1300,35 @@ container_definitions:
         - "${APPSDIR}/xbackbone:/config"
       healthcheck:
         test: ["CMD-SHELL", "curl -fs http://localhost:80 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
+  zigbee2mqtt:
+    image: "koenkk/zigbee2mqtt"
+    tag: "latest"
+    stack: apps
+    proxy:
+      subdomain: zigbee
+      external: false
+      auth: true
+      locations:
+        - path: /
+          port: 8080
+          websocket: true
+    compose:
+      base: baseenv
+      ports: ["8080:8080"]
+      labels:
+        homelab.backup.paths: "/opt/zigbee2mqtt"
+        homelab.backup.exclude: "log,*.db.backup"
+        homelab.proxy.subdomain: "zigbee"
+        homelab.proxy.external: "false"
+      volumes:
+        - "${APPSDIR}/zigbee2mqtt:/app/data"
+        - "/run/dbus:/run/dbus:ro"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1"]
         interval: "30s"
         timeout: "10s"
         retries: 3
