@@ -1,0 +1,41 @@
+---
+# Category: Utilities
+# Provision the read-only Home Assistant logging-DB user (ha_ro). HA's
+# sensor.homelab_backup_worst_age SQL sensor (the backup-freshness tile on the
+# /homelab-status dashboard) reads ansible_logging.backups through this account.
+# Idempotent: ensures the user exists with the vault password and holds SELECT on
+# the backups table ONLY, scoped to the LAN. Run once, or after a logging-DB
+# rebuild. Connects as the logging-DB admin from vault.
+
+- name: Provision read-only HA logging-DB user
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+  vars:
+    ro_user_host: "10.10.10.%"   # HA container's LAN subnet
+  tasks:
+    - name: Ensure ha_ro exists with SELECT on the backups table only
+      vars:
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+      become: false
+      connection: local
+      no_log: true   # query carries the ro user's password — keep it out of logs
+      ansible.mysql.mysql_query:
+        login_host: "{{ vault_logging_db_host }}"
+        login_port: "{{ vault_logging_db_port }}"
+        login_user: root   # CREATE USER / GRANT need admin; app user lacks it
+        login_password: "{{ vault_docker_mariadb_password }}"
+        login_db: "{{ vault_logging_db_name }}"
+        query:
+          - >-
+            CREATE USER IF NOT EXISTS
+            '{{ vault_ha_logging_ro_user }}'@'{{ ro_user_host }}'
+            IDENTIFIED BY '{{ vault_ha_logging_ro_password }}'
+          - >-
+            ALTER USER
+            '{{ vault_ha_logging_ro_user }}'@'{{ ro_user_host }}'
+            IDENTIFIED BY '{{ vault_ha_logging_ro_password }}'
+          - >-
+            GRANT SELECT ON {{ vault_logging_db_name }}.backups
+            TO '{{ vault_ha_logging_ro_user }}'@'{{ ro_user_host }}'
