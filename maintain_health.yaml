@@ -962,7 +962,10 @@
         # ZFS dataset names and mount points that contain spaces (e.g. "Windows Server 2016"),
         # which would shift fixed column indices and cause K-block counts to be read as percentages.
         # Type is always 4 columns before Use% in df -T output.
-        # Excludes: tmpfs, devtmpfs, squashfs, overlay (pseudo/read-only filesystems).
+        # Excludes: tmpfs, devtmpfs, squashfs, overlay, efivarfs (pseudo/read-only
+        # filesystems). efivarfs (/sys/firmware/efi/efivars) is the EFI NVRAM-variable
+        # kernel interface — ~128KB, normally runs high (e.g. 82%), and is not real disk;
+        # unlike most pseudo-fs it reports a real Use% so it must be denied explicitly.
         # Excludes /mnt/diskN — unRAID individual array disk mounts (xfs). These are checked
         # individually and cause false positives; /mnt/user (fuse.shfs) gives the meaningful
         # aggregate array usage and is intentionally included.
@@ -978,7 +981,7 @@
                 if (pct_col > 4) {
                   type = $(pct_col - 4)
                   mnt  = $(pct_col + 1)
-                  if (type !~ /^(tmpfs|devtmpfs|squashfs|overlay|none)$/ &&
+                  if (type !~ /^(tmpfs|devtmpfs|squashfs|overlay|none|efivarfs)$/ &&
                       mnt  !~ /^\/mnt\/(disk[0-9]|user0)$/) {
                     pct = $pct_col; gsub(/%/, "", pct)
                     if (pct + 0 > max) max = pct + 0
