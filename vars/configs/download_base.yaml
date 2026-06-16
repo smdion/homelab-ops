@@ -16,6 +16,18 @@ metube_manifest: "/tmp/downloads_{{ config_name }}.jsonl"
 # yt-dlp exit-status file (container /tmp) — written by the detached download
 # wrapper so the next dispatcher run can detect success/failure of a finished run.
 ytdlp_status_file: "/tmp/ytdlp_status_{{ config_name }}"
+# Detached-download PID marker (container /tmp). The wrapper writes its PID at
+# launch and removes it on exit; the dispatcher guard validates it against /proc
+# (alive = a download is in flight). Doubles as the source for the HA tracker.
+ytdlp_state_file: "/tmp/ytdlp_state_{{ config_name }}"
+
+# MQTT publish target for the Home Assistant download-in-progress tracker.
+# The dispatcher publishes the guard's running/idle truth (retained) to the
+# mosquitto container on the apps host, so HA always has the last-known state
+# without HA needing any access into the metube container.
+metube_mqtt_publish_host: "apps.{{ vault_vm_search_domain }}"
+metube_mqtt_container: "mosquitto"
+metube_mqtt_topic: "homelab/metube/{{ config_name }}"
 
 # Paths (inside metube container)
 ytdlp_download_path: "/downloads/"

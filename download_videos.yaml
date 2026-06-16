@@ -62,17 +62,53 @@
         downloaded_videos: []
 
     # == Guard: bail out fast if a download is already in flight ==============
-    # pgrep matches our detached `yt-dlp` process (the '[y]' bracket keeps pgrep
-    # from matching its own command line). While a download runs this run exits
-    # in a couple of seconds, so the 10-min schedule never queues behind it.
+    # The detached wrapper writes its PID to the state file at launch; here we
+    # validate that PID against /proc. Alive = a download is running, so this run
+    # exits in a couple of seconds and the 10-min schedule never queues behind it.
+    # (The previous pgrep approach was a no-op: pgrep is not installed in the
+    # metube image, so `docker exec ... pgrep` exited 127 and always read "idle".)
+    # Validating against /proc keeps it process-based — a crashed download leaves
+    # a stale PID file that is simply ignored, never a lock that wedges future runs.
+    # Output: "running <start-epoch>" or "idle".
     - name: Check whether a yt-dlp download is already running
       become: true
       ansible.builtin.shell: >
-        docker exec {{ metube_container }} pgrep -f '[y]t-dlp' >/dev/null 2>&1
-        && echo running || echo idle
+        docker exec {{ metube_container }} sh -c
+        'p=$(cat {{ ytdlp_state_file }} 2>/dev/null);
+        if [ -n "$p" ] && [ -d /proc/$p ];
+        then echo "running $(stat -c %Y {{ ytdlp_state_file }} 2>/dev/null)";
+        else echo idle; fi'
       register: _ytdlp_running
       changed_when: false
       check_mode: false
+
+    # Publish the guard's truth to MQTT (retained) so HA always has the last
+    # known state. Done here, before the early end_play, so it runs every cycle —
+    # including the runs that bail out because a download is in flight.
+    - name: Publish download state to MQTT for HA
+      delegate_to: "{{ metube_mqtt_publish_host }}"
+      become: true
+      vars:
+        _running: "{{ _ytdlp_running.stdout is search('running') }}"
+        _since: "{{ (_ytdlp_running.stdout.split() | last) if (_ytdlp_running.stdout is search('running')) else '' }}"
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ metube_mqtt_container }}"
+          - sh
+          - -c
+          - >-
+            mosquitto_pub -h 127.0.0.1 -u {{ vault_docker_mqtt_user }}
+            -P "{{ vault_docker_mqtt_password }}"
+            -t {{ metube_mqtt_topic }}/state -r
+            -m {{ 'ON' if (_running | bool) else 'OFF' }} ;
+            mosquitto_pub -h 127.0.0.1 -u {{ vault_docker_mqtt_user }}
+            -P "{{ vault_docker_mqtt_password }}"
+            -t {{ metube_mqtt_topic }}/info -r
+            -m '{"profile":"{{ config_name }}","status":"{{ 'downloading' if (_running | bool) else 'idle' }}","since":"{{ _since }}"}'
+      changed_when: false
+      no_log: true
 
     - name: End play early — a download is already in progress
       ansible.builtin.meta: end_play
@@ -254,6 +290,9 @@
              if metube_capture_dir is defined
              else (_batch_url_count.stdout | int > 0) }}
 
+    # The wrapper records its own PID (the state marker the guard validates),
+    # runs yt-dlp, writes the exit code for the next sweep, then clears the
+    # marker. A crash skips the cleanup, but the guard ignores a dead PID.
     - name: Launch yt-dlp (detached) in the metube container
       become: true
       ansible.builtin.command:
@@ -264,7 +303,7 @@
           - "{{ metube_container }}"
           - sh
           - -c
-          - "yt-dlp --config-location {{ metube_config_path }}; echo $? > {{ ytdlp_status_file }}"
+          - "echo $$ > {{ ytdlp_state_file }}; yt-dlp --config-location {{ metube_config_path }}; echo $? > {{ ytdlp_status_file }}; rm -f {{ ytdlp_state_file }}"
       changed_when: true
       when: _should_launch | bool
 
