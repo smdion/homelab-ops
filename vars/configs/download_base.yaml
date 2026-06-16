@@ -11,8 +11,11 @@ metube_temp_max_age_days: 15
 
 # Config file path inside metube container (profile-specific)
 metube_config_path: "/configs/{{ config_name }}/{{ config_name }}.conf"
-# Manifest file for tracking download results (host /tmp)
+# Manifest file for tracking download results (container /tmp)
 metube_manifest: "/tmp/downloads_{{ config_name }}.jsonl"
+# yt-dlp exit-status file (container /tmp) — written by the detached download
+# wrapper so the next dispatcher run can detect success/failure of a finished run.
+ytdlp_status_file: "/tmp/ytdlp_status_{{ config_name }}"
 
 # Paths (inside metube container)
 ytdlp_download_path: "/downloads/"
@@ -28,10 +31,28 @@ ytdlp_cookies: "/configs/default/www.youtube.com_cookies.txt"
 # Download defaults — profiles override per-user preferences
 ytdlp_quality: "res"
 ytdlp_format: "mp4"
-ytdlp_rate_limit: "50M"
-ytdlp_playlist_end: 2
+ytdlp_rate_limit: "100M"
+ytdlp_playlist_end: 5
 ytdlp_reject_title: "TMS|The Morning Stream|TWBD|Be Dungeons"
 ytdlp_archive: "/configs/default/downloaded"
+
+# Fragment / retry handling.
+# yt-dlp records a video in the download archive once it considers the download
+# "successful" (YoutubeDL.process_info). With the default --skip-unavailable-fragments,
+# fragmented downloads (all Twitch VODs, YouTube HLS) treat skipped 403 fragments as
+# success — so an incomplete file gets archived and is never retried. Twitch CDN tokens
+# commonly expire mid-download on long VODs, causing exactly this.
+# Aborting on a missing fragment keeps the run a failure, so it is NOT archived and
+# retries on the NEXT scheduled run (which re-extracts a fresh token).
+# Set ytdlp_abort_on_missing_fragments to false on a profile to revert to skip behavior.
+#
+# Retries must stay BOUNDED: --abort-on-unavailable-fragments only triggers once a
+# fragment's retries are exhausted. "infinite" would never exhaust, so a permanently
+# dead fragment would loop forever and hang the run instead of aborting. The bounded
+# values below absorb transient blips, then give up so the next run can retry cleanly.
+ytdlp_abort_on_missing_fragments: true
+ytdlp_fragment_retries: 25
+ytdlp_retries: 10
 
 # Discord notification URLs — used by download_videos.yaml
 metube_avatar: "https://github.com/alexta69/metube/blob/master/ui/src/assets/icons/android-chrome-384x384.png?raw=true"

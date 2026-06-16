@@ -35,6 +35,18 @@
 # Rate limiting
 --limit-rate {{ ytdlp_rate_limit }}
 
+# Retries — absorb transient errors (e.g. Twitch CDN blips), but stay bounded so
+# --abort-on-unavailable-fragments can actually fire instead of looping forever.
+--retries {{ ytdlp_retries | default(10) }}
+--fragment-retries {{ ytdlp_fragment_retries | default(25) }}
+{% if ytdlp_abort_on_missing_fragments | default(true) %}
+# Abort on a missing fragment so incomplete videos are NOT recorded in the archive
+# and get retried next run (instead of yt-dlp skipping fragments and marking success).
+--abort-on-unavailable-fragments
+{% else %}
+--skip-unavailable-fragments
+{% endif %}
+
 # Filters
 {% if ytdlp_filter_live | default(true) %}
 --match-filter !is_live
