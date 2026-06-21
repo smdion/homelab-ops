@@ -292,7 +292,7 @@ container_definitions:
       base: baseuid
       ports: ["8443:8443", "3001:3001"]
       labels:
-        homelab.backup.paths: "/opt/code-server,/opt/homelab-ops,/opt/homelab-docs,/opt/freshjams-ops,/opt/personalfinance,/opt/gaggiuino-barista"
+        homelab.backup.paths: "/opt/code-server,/opt/homelab-ops,/opt/homelab-docs,/opt/freshjams-ops,/opt/personalfinance,/opt/gaggiuino-barista,/opt/docker-guacamole"
         homelab.health_timeout: "90"
         homelab.proxy.subdomain: "code"
         homelab.proxy.websocket: "true"
