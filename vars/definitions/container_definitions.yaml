@@ -686,6 +686,10 @@ container_definitions:
     image: "ghcr.io/sysadminsmedia/homebox"
     tag: "latest"
     stack: apps
+    env:
+      # Required since upstream made api_key_pepper mandatory (>= 32 bytes).
+      # Persistent — rotating it invalidates all issued homebox API keys.
+      HBOX_AUTH_API_KEY_PEPPER: "{{ vault_docker_homebox_api_key_pepper }}"
     compose:
       base: baseenv
       ports: ["3100:7745"]
@@ -693,6 +697,8 @@ container_definitions:
         homelab.backup.paths: "/opt/homebox"
         homelab.proxy.subdomain: "inventory"
         homelab.proxy.error_pages: "true"
+      environment:
+        HBOX_AUTH_API_KEY_PEPPER: "${HBOX_AUTH_API_KEY_PEPPER}"
       volumes:
         - "${APPSDIR}/homebox:/data/"
       healthcheck:
