@@ -1351,6 +1351,13 @@
           changed_when: false
           failed_when: false  # observational — Ceph cluster health probe; failure recorded in host_health_issues
           check_mode: false
+          ignore_unreachable: true  # a become/SSH timeout under load must not surface as a false ceph failure
+
+        - name: Normalise Ceph probe output
+          # On unreachable (e.g. privilege-escalation timeout under load) _ceph_raw has no
+          # stdout; fall back to a sentinel so the recording set_fact below never crashes.
+          ansible.builtin.set_fact:
+            _ceph_out: "{{ (_ceph_raw.stdout | default('CEPH_UNREACHABLE')) | trim }}"
 
         - name: Record Ceph health result
           ansible.builtin.set_fact:
@@ -1359,15 +1366,20 @@
                 host_health_issues + [{
                   'check_name': 'ceph_health',
                   'status': (
-                    'ok' if _ceph_raw.stdout | trim in ['HEALTH_OK', 'CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED']
-                    else ('warning' if 'HEALTH_WARN' in _ceph_raw.stdout
+                    'ok' if _ceph_out in ['HEALTH_OK', 'CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED']
+                    else ('warning' if ('HEALTH_WARN' in _ceph_out or _ceph_out == 'CEPH_UNREACHABLE')
                     else 'critical')
                   ),
                   'value': (
-                    'not configured' if _ceph_raw.stdout | trim in ['CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED']
-                    else _ceph_raw.stdout | trim | truncate(60)
+                    'not configured' if _ceph_out in ['CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED']
+                    else ('unreachable' if _ceph_out == 'CEPH_UNREACHABLE'
+                    else _ceph_out | truncate(60))
                   ),
-                  'detail': '' if _ceph_raw.stdout | trim in ['HEALTH_OK', 'CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED'] else _ceph_raw.stdout | trim
+                  'detail': (
+                    '' if _ceph_out in ['HEALTH_OK', 'CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED']
+                    else ('ceph probe unreachable (privilege escalation/SSH timeout)' if _ceph_out == 'CEPH_UNREACHABLE'
+                    else _ceph_out)
+                  )
                 }]
               }}
 
