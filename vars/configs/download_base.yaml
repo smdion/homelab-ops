@@ -43,7 +43,7 @@ ytdlp_cookies: "/configs/default/www.youtube.com_cookies.txt"
 # Download defaults — profiles override per-user preferences
 ytdlp_quality: "res"
 ytdlp_format: "mp4"
-#ytdlp_rate_limit: "100M"
+ytdlp_rate_limit: "100M"
 ytdlp_playlist_end: 5
 ytdlp_reject_title: "TMS|The Morning Stream|TWBD|Be Dungeons"
 ytdlp_archive: "/configs/default/downloaded"
