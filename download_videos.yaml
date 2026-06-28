@@ -61,7 +61,7 @@
       ansible.builtin.set_fact:
         downloaded_videos: []
 
-    # == Guard: bail out fast if a download is already in flight ==============
+    # == Guard: bail out fast if a download is in flight OR the container is down =
     # The detached wrapper writes its PID to the state file at launch; here we
     # validate that PID against /proc. Alive = a download is running, so this run
     # exits in a couple of seconds and the 10-min schedule never queues behind it.
@@ -69,16 +69,39 @@
     # metube image, so `docker exec ... pgrep` exited 127 and always read "idle".)
     # Validating against /proc keeps it process-based — a crashed download leaves
     # a stale PID file that is simply ignored, never a lock that wedges future runs.
-    # Output: "running <start-epoch>" or "idle".
-    - name: Check whether a yt-dlp download is already running
+    #
+    # First, gate the whole thing on `docker ps`: the stack backups stop containers
+    # one at a time for a consistent snapshot, so on the every-10-min schedule a run
+    # routinely lands inside a backup window with metube briefly stopped. A bare
+    # `docker exec` against a stopped container exits non-zero and used to fail the
+    # whole play (firing a false Discord alert). When the container is not running we
+    # emit "down" and bail cleanly, exactly like the in-progress case.
+    # Output: "running <start-epoch>", "idle", or "down".
+    - name: Check container state and whether a yt-dlp download is already running
       become: true
       ansible.builtin.shell: >
-        docker exec {{ metube_container }} sh -c
+        if [ -z "$(docker ps -q -f name=^/{{ metube_container }}$ -f status=running)" ];
+        then echo down;
+        else docker exec {{ metube_container }} sh -c
         'p=$(cat {{ ytdlp_state_file }} 2>/dev/null);
         if [ -n "$p" ] && [ -d /proc/$p ];
         then echo "running $(stat -c %Y {{ ytdlp_state_file }} 2>/dev/null)";
-        else echo idle; fi'
+        else echo idle; fi';
+        fi
       register: _ytdlp_running
+      changed_when: false
+      check_mode: false
+
+    # The mosquitto sink lives in its own stack and is briefly stopped while that
+    # stack is backed up. The download run must not fail just because the HA state
+    # sink is momentarily unavailable — skip the publish when it is down; HA keeps
+    # the last retained value until the next cycle.
+    - name: Check whether the mosquitto sink is running
+      delegate_to: "{{ metube_mqtt_publish_host }}"
+      become: true
+      ansible.builtin.shell: >
+        docker ps -q -f name=^/{{ metube_mqtt_container }}$ -f status=running
+      register: _mosq_up
       changed_when: false
       check_mode: false
 
@@ -88,6 +111,7 @@
     - name: Publish download state to MQTT for HA
       delegate_to: "{{ metube_mqtt_publish_host }}"
       become: true
+      when: _mosq_up.stdout | default('') | length > 0
       vars:
         _running: "{{ _ytdlp_running.stdout is search('running') }}"
         _since: "{{ (_ytdlp_running.stdout.split() | last) if (_ytdlp_running.stdout is search('running')) else '' }}"
@@ -110,9 +134,75 @@
       changed_when: false
       no_log: true
 
-    - name: End play early — a download is already in progress
+    # == Down handling: tell an expected stop from an unexpected outage =========
+    # The container is down. If a homelab playbook intentionally stopped it (backup,
+    # restore, rollback) the host carries a fresh maintenance flag — that is routine,
+    # so bail quietly. Without the flag the container is down for some other reason
+    # (crash, OOM, a failed restart), which is worth an alert.
+    - name: Inspect the docker maintenance flag (container is down)
+      become: true
+      ansible.builtin.stat:
+        path: "{{ docker_maintenance_flag }}"
+      register: _maint_flag
+      when: _ytdlp_running.stdout is search('down')
+
+    - name: Inspect prior down-alert sentinel (container is down)
+      become: true
+      ansible.builtin.stat:
+        path: "{{ metube_down_alert_flag }}"
+      register: _down_alerted
+      when: _ytdlp_running.stdout is search('down')
+
+    - name: Classify the outage as unexpected
+      ansible.builtin.set_fact:
+        _metube_unexpected_down: >-
+          {{ not (
+               (_maint_flag.stat.exists | default(false))
+               and ((ansible_facts.date_time.epoch | int) - (_maint_flag.stat.mtime | default(0) | int)
+                     <= (docker_maintenance_flag_max_age | int))
+             ) }}
+      when: _ytdlp_running.stdout is search('down')
+
+    - name: Alert — metube is down outside any maintenance window
+      include_tasks: tasks/notify.yaml
+      when:
+        - _metube_unexpected_down | default(false) | bool
+        - not (_down_alerted.stat.exists | default(false))
+      vars:
+        discord_name: "MeTube"
+        discord_operation: "Container"
+        discord_status: "failed"
+        discord_detail: "{{ metube_container }} is down with no maintenance in progress"
+        discord_color: "{{ discord_color_failure }}"
+        discord_url: "{{ backup_url }}"
+        discord_fields:
+          - name: "Config"
+            value: "{{ config_name }}"
+
+    - name: Mark down alert as sent (one alert per outage)
+      become: true
+      ansible.builtin.file:
+        path: "{{ metube_down_alert_flag }}"
+        state: touch
+        mode: "0644"
+      changed_when: false
+      when:
+        - _metube_unexpected_down | default(false) | bool
+        - not (_down_alerted.stat.exists | default(false))
+
+    # Container is up — clear any leftover down sentinel so the next genuine
+    # outage alerts again. Runs on the in-progress/idle paths alike.
+    - name: Clear the down-alert sentinel (container is up)
+      become: true
+      ansible.builtin.file:
+        path: "{{ metube_down_alert_flag }}"
+        state: absent
+      changed_when: false
+      when: _ytdlp_running.stdout is not search('down')
+
+    - name: End play early — a download is in progress or the container is down
       ansible.builtin.meta: end_play
-      when: _ytdlp_running.stdout is search('running')
+      when: _ytdlp_running.stdout is search('running|down')
 
     # == Deploy config ========================================================
     # Rendered immediately before any launch so the detached yt-dlp reads the

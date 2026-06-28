@@ -21,6 +21,12 @@ ytdlp_status_file: "/tmp/ytdlp_status_{{ config_name }}"
 # (alive = a download is in flight). Doubles as the source for the HA tracker.
 ytdlp_state_file: "/tmp/ytdlp_state_{{ config_name }}"
 
+# One-shot sentinel (metube host /run) recording that an "unexpected down" alert
+# has already been sent for the current outage, so a sustained outage alerts once
+# instead of every scheduled run. Cleared automatically once the container is back
+# up; on tmpfs so a reboot also resets it.
+metube_down_alert_flag: "/run/metube_down_alerted_{{ config_name }}"
+
 # MQTT publish target for the Home Assistant download-in-progress tracker.
 # The dispatcher publishes the guard's running/idle truth (retained) to the
 # mosquitto container on the apps host, so HA always has the last-known state
@@ -43,7 +49,10 @@ ytdlp_cookies: "/configs/default/www.youtube.com_cookies.txt"
 # Download defaults — profiles override per-user preferences
 ytdlp_quality: "res"
 ytdlp_format: "mp4"
-ytdlp_rate_limit: "100M"
+# Per-download rate cap for yt-dlp (--limit-rate). Empty = uncapped, preferred on
+# the 1 Gbps line — shape/prioritize traffic at the firewall rather than throttling
+# each download here. Set a value (e.g. "50M") on a profile only to slow it on purpose.
+ytdlp_rate_limit: ""
 ytdlp_playlist_end: 5
 ytdlp_reject_title: "TMS|The Morning Stream|TWBD|Be Dungeons"
 ytdlp_archive: "/configs/default/downloaded"

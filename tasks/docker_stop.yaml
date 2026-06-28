@@ -14,6 +14,18 @@
 # Registers:
 #   _docker_containers — docker_run container list (referenced by docker_start.yaml)
 
+# Mark this host as under intentional docker maintenance before stopping anything,
+# so scheduled docker-exec playbooks (e.g. download_videos) can tell an expected
+# stop from an unexpected outage. tasks/docker_start.yaml removes the flag.
+- name: Mark intentional docker maintenance in progress
+  become: true
+  ansible.builtin.file:
+    path: "{{ docker_maintenance_flag }}"
+    state: touch
+    mode: "0644"
+  changed_when: false
+  failed_when: false  # advisory marker only — never block the stop over it
+
 - name: Stop named containers (selective)
   become: true
   ansible.builtin.command:

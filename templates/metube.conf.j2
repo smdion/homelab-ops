@@ -32,8 +32,11 @@
 --cookies "{{ ytdlp_cookies }}"
 {% endif %}
 
-# Rate limiting
+# Rate limiting — optional. Unset (default) = uncapped; shape/prioritize at the
+# firewall instead. Set ytdlp_rate_limit on a profile to deliberately throttle it.
+{% if ytdlp_rate_limit | default('') | length > 0 %}
 --limit-rate {{ ytdlp_rate_limit }}
+{% endif %}
 
 # Retries — absorb transient errors (e.g. Twitch CDN blips), but stay bounded so
 # --abort-on-unavailable-fragments can actually fire instead of looping forever.

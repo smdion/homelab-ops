@@ -13,6 +13,15 @@ _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity |
 # Prefers pigz (parallel gzip) for speed, falls back to gzip. Change here to switch all backup/restore/verify.
 _gz_detect: '_gz=$(command -v pigz >/dev/null 2>&1 && echo pigz || echo gzip)'
 stacks_base_path: "/opt/stacks"    # Docker Compose project root on all docker_stacks hosts
+
+# Docker maintenance marker — tasks/docker_stop.yaml writes this host flag when a
+# playbook intentionally stops containers (backups, restores, rollback) and
+# tasks/docker_start.yaml removes it once they are back up. Lets scheduled
+# docker-exec playbooks (e.g. download_videos) tell an expected stop from an
+# unexpected outage. On tmpfs so a reboot clears a flag any crashed run left
+# behind; the age cap below covers a crash without a reboot.
+docker_maintenance_flag: "/run/homelab-docker-maintenance.flag"
+docker_maintenance_flag_max_age: 3600   # seconds; a flag older than this is treated as stale
 backup_base_dir: "/backup"
 backup_tmp_dir: "/backup"          # override if host uses a different staging dir
 backup_file: "backup_{{ _backup_id | default(inventory_hostname) }}_{{ backup_subtype | lower }}_{{ ansible_facts.date_time.date }}.{{ backup_ext | default('tar.gz') }}"

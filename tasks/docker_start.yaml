@@ -110,3 +110,14 @@
   when:
     - _docker_wait_ssh | default(false)
     - inventory_hostname in groups["docker_stacks"] | default([])
+
+# Containers are back up — clear the maintenance marker so a later unexpected
+# outage is no longer masked as intentional. Best-effort: a leftover flag ages
+# out via docker_maintenance_flag_max_age, so never fail the play over it.
+- name: Clear the intentional docker maintenance flag
+  become: true
+  ansible.builtin.file:
+    path: "{{ docker_maintenance_flag }}"
+    state: absent
+  changed_when: false
+  failed_when: false  # advisory marker only — a leftover flag ages out via the cap
