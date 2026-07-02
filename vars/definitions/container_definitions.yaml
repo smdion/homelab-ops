@@ -202,6 +202,25 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "60s"
+  autoheal:
+    image: "willfarrell/autoheal"
+    tag: "latest"
+    stack: infra
+    compose:
+      base: base
+      environment:
+        # all = watch every container with a healthcheck (homelab-wide safety net).
+        # Docker restart:always only fires on process exit; autoheal covers the
+        # up-but-unhealthy case (e.g. z2m hanging after a TCP-coordinator drop).
+        AUTOHEAL_CONTAINER_LABEL: "all"
+        AUTOHEAL_INTERVAL: "5"
+        AUTOHEAL_START_PERIOD: "0"
+        # z2m shutdown can hang, so give SIGTERM room before SIGKILL.
+        AUTOHEAL_DEFAULT_STOP_TIMEOUT: "30"
+        DOCKER_SOCK: "/var/run/docker.sock"
+      volumes:
+        # RW: autoheal POSTs container restarts through the socket.
+        - "/var/run/docker.sock:/var/run/docker.sock"
   beszel:
     image: "henrygd/beszel"
     tag: "latest"
