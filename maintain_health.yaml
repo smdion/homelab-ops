@@ -11,12 +11,12 @@
 #                      appliance reachability, schedule coverage,
 #                      schedule drift, UniFi device health
 # Play 2 (SSH hosts):  Per-host system metrics — disk, memory, CPU, journal errors,
-#                      OOM kills, Docker health, SMART disk health, PVE cluster quorum,
-#                      Ceph health, APT repo health (PVE only), SSL certificate expiry, NTP sync,
-#                      DNS resolution, unRAID array, PBS datastore, ZFS pool,
-#                      BTRFS health, Docker HTTP, known_hosts completeness
+#                      OOM kills, Docker health, Docker image updates, SMART disk health,
+#                      PVE cluster quorum, Ceph health, APT repo health (PVE only),
+#                      SSL certificate expiry, NTP sync, DNS resolution, unRAID array,
+#                      PBS datastore, ZFS pool, BTRFS health, Docker HTTP, known_hosts completeness
 # Play 3 (localhost):  Aggregate findings, unreachable host alerting,
-#                      alerts per host, DB logging, save state
+#                      alerts per host, image-update alerts, DB logging, save state
 #
 # Hosts covered by Play 2: defined by health_check_groups in vars/configs/semaphore_check.yaml
 # Appliances (pikvm, unifi_network, unifi_protect) — covered via stale backup detection + UniFi API
@@ -952,6 +952,7 @@
     - name: Initialize host health issue list
       ansible.builtin.set_fact:
         host_health_issues: []   # list of {check_name, status, value, detail}
+        host_image_updates: []   # list of {container, repo, current, latest, newer, error}
         host_reachable: true
 
     # ── CHECK 9: Disk space ───────────────────────────────────────────────────
@@ -1242,6 +1243,49 @@
         host_health_issues: >-
           {{ host_health_issues + [{'check_name': 'docker_health', 'status': 'ok', 'value': 'skipped', 'detail': 'not a docker host'}] }}
       when: inventory_hostname not in (groups['docker_stacks'] | default([]) + groups['docker_run'] | default([]))
+
+    # ── CHECK 14b: Docker image updates (version-pinned containers) ─────────────
+    # For running containers pinned to a specific version tag, ask the registry (via
+    # skopeo, run as a throwaway container) whether a newer STABLE release exists in
+    # the same version family. Rolling tags (latest/nightly/branch) and local images
+    # are auto-skipped inside the helper — no hardcoded watchlist. Results are only
+    # gathered here; Play 3 aggregates, de-duplicates against the image_updates table,
+    # and alerts once per new version. Deliberately kept OUT of host_health_issues so a
+    # pending update does not re-fire the generic per-host health alert twice a day.
+    - name: Check for Docker image updates
+      when:
+        - health_image_check_enabled | default(true) | bool
+        - inventory_hostname in (groups['docker_stacks'] | default([]) + groups['docker_run'] | default([]))
+      block:
+        - name: Deploy image-update check helper
+          ansible.builtin.copy:
+            src: files/check_image_updates.py
+            dest: /tmp/check_image_updates.py
+            mode: "0755"
+          check_mode: false
+
+        - name: Run image-update check
+          ansible.builtin.command:
+            argv:
+              - python3
+              - /tmp/check_image_updates.py
+              - --skopeo-image
+              - "{{ health_image_skopeo_image | default('quay.io/skopeo/stable') }}"
+              - --exclude
+              - "{{ health_image_check_exclude | default([]) | join(',') }}"
+          register: _image_check_raw
+          changed_when: false
+          failed_when: false  # observational — image-update probe; per-image errors surface in JSON
+          check_mode: false
+
+        - name: Parse image-update results
+          ansible.builtin.set_fact:
+            host_image_updates: "{{ (_image_check_raw.stdout | from_json).results | default([]) }}"
+
+      rescue:
+        - name: Record image-update check error (non-fatal)
+          ansible.builtin.set_fact:
+            host_image_updates: []
 
     # ── CHECK 15: SMART disk health ───────────────────────────────────────────
     - name: Check SMART disk health
@@ -2076,6 +2120,148 @@
         discord_footer:
           text: "Health Check"
         discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+    # ── IMAGE UPDATE ALERTS — pinned containers with a newer release upstream ───
+    # Aggregate Play 2's per-host image-update findings, de-duplicate against the
+    # image_updates table's last_notified_version (so a pending update alerts once,
+    # not twice daily forever), Discord-alert the newly-available ones, then upsert
+    # current state. Separate from the `updates` table, which records applied updates.
+    - name: Aggregate image-update findings across hosts
+      ansible.builtin.set_fact:
+        _image_updates: >-
+          {{ _image_updates | default([]) +
+             (hostvars[item]['host_image_updates'] | default([])
+              | rejectattr('newer', 'undefined')
+              | map('combine', {'hostname': item}) | list) }}
+      loop: "{{ ssh_hosts }}"
+      loop_control:
+        label: "{{ item }}"
+      when: hostvars[item]['host_reachable'] | default(false)
+
+    - name: Initialize image-update aggregate
+      ansible.builtin.set_fact:
+        _image_updates: "{{ _image_updates | default([]) }}"
+        _image_alerts: []
+
+    - name: Image update processing
+      when: _image_updates | length > 0
+      block:
+        - name: Load prior image-update notify state
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          ansible.mysql.mysql_query:
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
+            query: "SELECT hostname, container, last_notified_version FROM image_updates"
+          register: _prior_image_state
+          no_log: "{{ _no_log }}"
+          changed_when: false
+          check_mode: false
+
+        - name: Build prior notify map (host||container → last_notified_version)
+          ansible.builtin.set_fact:
+            _prior_notify_map: >-
+              {{ dict(_prior_image_state.query_result[0]
+                 | map(attribute='hostname') | zip(_prior_image_state.query_result[0] | map(attribute='container'))
+                 | map('join', '||')
+                 | zip(_prior_image_state.query_result[0] | map(attribute='last_notified_version'))) }}
+
+        # New = an available update whose latest differs from what we last notified for
+        # that host+container (covers brand-new rows and bumped-to-a-newer-version rows).
+        - name: Determine newly-available image updates
+          ansible.builtin.set_fact:
+            _image_alerts: "{{ _image_alerts + [item] }}"
+          loop: "{{ _image_updates | selectattr('newer') | list }}"
+          loop_control:
+            label: "{{ item.hostname }}/{{ item.container }}"
+          when: item.latest != (_prior_notify_map[item.hostname ~ '||' ~ item.container] | default(''))
+
+        - name: Build image-update alert lines
+          ansible.builtin.set_fact:
+            _image_alert_lines: "{{ _image_alert_lines | default([]) + [item.hostname ~ ' · ' ~ item.container ~ ': ' ~ item.current ~ ' → ' ~ item.latest] }}"
+          loop: "{{ _image_alerts }}"
+          loop_control:
+            label: "{{ item.container }}"
+
+        - name: Send alert for newly-available image updates
+          include_tasks: tasks/notify.yaml
+          when: _image_alerts | length > 0
+          vars:
+            discord_name: "System"
+            discord_operation: "Image Updates"
+            discord_status: "warning"
+            discord_detail: "{{ _image_alerts | length }} pinned container(s) have a newer release available"
+            discord_color: "{{ discord_color_warning }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Update available"
+                value: "{{ _image_alert_lines | default([]) | join('\n') }}"
+            discord_footer:
+              text: "Health Check"
+            discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+        # Per-row upsert (loop, not a single multi-row INSERT) to stay injection-safe
+        # with positional_args and avoid the json_query/jmespath dependency. The set of
+        # version-pinned containers is tiny, so the extra round-trips are negligible.
+        - name: Upsert image-update state
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          ansible.mysql.mysql_query:
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
+            query: >-
+              INSERT INTO image_updates
+              (hostname, container, image, current_version, latest_version, update_available, first_seen, last_checked)
+              VALUES (%s, %s, %s, %s, %s, %s, UTC_TIMESTAMP(), UTC_TIMESTAMP())
+              ON DUPLICATE KEY UPDATE
+                image = VALUES(image), current_version = VALUES(current_version),
+                latest_version = VALUES(latest_version), update_available = VALUES(update_available),
+                last_checked = UTC_TIMESTAMP()
+            positional_args:
+              - "{{ item.hostname }}"
+              - "{{ item.container }}"
+              - "{{ item.repo }}"
+              - "{{ item.current }}"
+              - "{{ item.latest }}"
+              - "{{ item.newer | int }}"
+          loop: "{{ _image_updates }}"
+          loop_control:
+            label: "{{ item.hostname }}/{{ item.container }}"
+          when: not ansible_check_mode
+          no_log: "{{ _no_log }}"
+
+        # Record last_notified_version only for the rows we just alerted, so the next
+        # run stays quiet until an even-newer version appears.
+        - name: Mark alerted image updates as notified
+          vars:
+            ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          ansible.mysql.mysql_query:
+            login_host: "{{ vault_logging_db_host }}"
+            login_port: "{{ vault_logging_db_port }}"
+            login_user: "{{ vault_logging_db_user }}"
+            login_password: "{{ vault_logging_db_password }}"
+            login_db: "{{ vault_logging_db_name }}"
+            query: "UPDATE image_updates SET last_notified_version = %s WHERE hostname = %s AND container = %s"
+            positional_args:
+              - "{{ item.latest }}"
+              - "{{ item.hostname }}"
+              - "{{ item.container }}"
+          loop: "{{ _image_alerts }}"
+          loop_control:
+            label: "{{ item.hostname }}/{{ item.container }}"
+          when: not ansible_check_mode
+          no_log: "{{ _no_log }}"
+
+      rescue:
+        - name: Log image-update processing error (non-fatal)
+          ansible.builtin.debug:
+            msg: "Image update processing failed — skipping (health run continues)"
 
     # ── BATCH LOG — unified results to DB in a single INSERT ────────────────────
     - name: Build unified results — Play 1 checks
