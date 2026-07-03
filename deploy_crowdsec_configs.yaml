@@ -48,6 +48,9 @@
     # Output roots (live vs dry-run).
     _cs_dir: "{{ '/tmp/crowdsec-generated/crowdsec' if (dry_run | default(false) | bool) else '/opt/crowdsec/config' }}"
     _swag_bouncer_conf: "{{ '/tmp/crowdsec-generated/crowdsec-nginx-bouncer.conf' if (dry_run | default(false) | bool) else '/opt/swag/crowdsec/crowdsec-nginx-bouncer.conf' }}"
+    # SWAG's persisted nginx.conf — we manage two http-level access_log lines in it:
+    # ensure the dedicated CrowdSec file log exists, and remove the /dev/stdout console log.
+    _swag_nginx_conf: "/opt/swag/nginx/nginx.conf"
     maintenance_name: "CrowdSec"
     maintenance_type: "Local"
     maintenance_subtype: "Deploy"
@@ -138,6 +141,57 @@
             ansible_connection: ssh
             ansible_user: "{{ vm_user }}"
 
+        # SWAG feeds CrowdSec via file acquisition of a dedicated combined-format log.
+        # Anchored on the always-present default access.log line, so it self-heals even if
+        # SWAG resets nginx.conf to its sample. Idempotent.
+        - name: SWAG nginx.conf — ensure dedicated CrowdSec file access_log exists
+          ansible.builtin.lineinfile:
+            path: "{{ _swag_nginx_conf }}"
+            insertafter: '^\s*access_log /config/log/nginx/access\.log;\s*$'
+            line: '    access_log /config/log/nginx/crowdsec.log;'
+            firstmatch: true
+            state: present
+          register: _swag_cslog
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when: not (dry_run | default(false) | bool)
+
+        # Ensure the file exists before `crowdsec -t` and the crowdsec restart run — the file
+        # source would otherwise reference a not-yet-created log. nginx appends on reload.
+        - name: Ensure crowdsec.log exists (owner 911, idempotent)
+          ansible.builtin.file:
+            path: "/opt/swag/log/nginx/crowdsec.log"
+            state: touch
+            owner: "911"
+            group: "911"
+            mode: "0644"
+            modification_time: preserve
+            access_time: preserve
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when: not (dry_run | default(false) | bool)
+
+        # Drop the /dev/stdout console access_log — no longer read (CrowdSec now tails the
+        # file), and it keeps `docker logs swag` clean. Idempotent (no-op once removed).
+        - name: SWAG nginx.conf — remove /dev/stdout console access_log
+          ansible.builtin.lineinfile:
+            path: "{{ _swag_nginx_conf }}"
+            regexp: '^\s*access_log /dev/stdout;\s*$'
+            state: absent
+          register: _swag_stdout
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when: not (dry_run | default(false) | bool)
+
         - name: Remove stale CrowdSec config (old topology remnants)
           ansible.builtin.file:
             path: "{{ _cs_dir }}/{{ item }}"
@@ -161,6 +215,9 @@
                  or (_cs_scenarios.results | selectattr('changed') | list | length > 0)
                  or (_cs_removed.results | default([]) | selectattr('changed') | list | length > 0) }}
             _bouncer_changed: "{{ _bouncer_conf is changed }}"
+            _swag_nginx_changed: >-
+              {{ (_swag_cslog is defined and _swag_cslog is changed)
+                 or (_swag_stdout is defined and _swag_stdout is changed) }}
 
         - name: Validate CrowdSec configuration
           ansible.builtin.command:
@@ -178,9 +235,10 @@
             - not ansible_check_mode
             - _cs_changed | bool
 
-        # Flip the bouncer to stream+bypass FIRST, so the crowdsec restart below is
-        # cushioned by fail-open (old live+ban behavior would stall requests otherwise).
-        - name: Reload SWAG nginx to pick up bouncer conf
+        # Reload nginx for bouncer.conf AND/OR the access_log changes. Must run BEFORE the
+        # crowdsec restart so crowdsec.log exists (nginx opens it on reload) and the bouncer
+        # is already stream+bypass — cushioning the restart with fail-open.
+        - name: Reload SWAG nginx (bouncer conf + access_log changes)
           ansible.builtin.command:
             cmd: docker exec swag nginx -s reload
           changed_when: true
@@ -192,7 +250,7 @@
           when:
             - not (dry_run | default(false) | bool)
             - not ansible_check_mode
-            - _bouncer_changed | bool
+            - (_bouncer_changed | bool) or (_swag_nginx_changed | bool)
 
         - name: Restart CrowdSec to apply acquisition/config changes
           ansible.builtin.command:

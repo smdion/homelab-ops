@@ -384,6 +384,11 @@ container_definitions:
       volumes:
         - "${APPSDIR}/crowdsec/config:/etc/crowdsec"
         - "${APPSDIR}/crowdsec/data:/var/lib/crowdsec/data"
+        # SWAG nginx logs, read-only — CrowdSec file-acquires /var/log/swag/crowdsec.log
+        # (dedicated combined-format log) instead of reading SWAG's stdout over the socket.
+        - "${APPSDIR}/swag/log/nginx:/var/log/swag:ro"
+        # docker.sock stays (read-only) ONLY for Authentik acquisition — it logs to stdout,
+        # so it can't move to file. SWAG no longer depends on the socket.
         - "/var/run/docker.sock:/var/run/docker.sock:ro"
       security_opt:
         - "no-new-privileges=true"
