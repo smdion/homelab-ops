@@ -156,3 +156,25 @@ CREATE TABLE IF NOT EXISTS playbook_runs (
   INDEX idx_hostname  (hostname),
   INDEX idx_timestamp (timestamp)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Available image updates for version-pinned containers (proactive "a newer release
+-- is out" state, written by maintain_health.yaml). Distinct from `updates`, which
+-- records COMPLETED/applied updates. One row per host+container (current state);
+-- `last_notified_version` is the dedup memory so the Discord alert fires once per new
+-- version. `update_available` flips false once the container is updated to `latest`.
+CREATE TABLE IF NOT EXISTS image_updates (
+  id                    INT AUTO_INCREMENT PRIMARY KEY,
+  hostname              VARCHAR(255) NOT NULL,
+  container             VARCHAR(255) NOT NULL,
+  image                 VARCHAR(255) NOT NULL,
+  current_version       VARCHAR(100) NOT NULL,
+  latest_version        VARCHAR(100) NOT NULL,
+  update_available      BOOLEAN DEFAULT FALSE,
+  last_notified_version VARCHAR(100),
+  first_seen            DATETIME NOT NULL,
+  last_checked          DATETIME NOT NULL,
+  INDEX idx_hostname  (hostname),
+  INDEX idx_container (container),
+  INDEX idx_available (update_available),
+  UNIQUE INDEX idx_host_container (hostname, container)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
