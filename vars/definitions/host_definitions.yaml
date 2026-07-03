@@ -510,14 +510,3 @@ host_definitions:
           websocket: true
           directives:
             - "proxy_ssl_verify off"
-
-  gatherflock:
-    vm_hostname: "gatherflock.{{ vault_vm_search_domain }}"
-    proxy:
-      subdomain: gatherflock
-      upstream_ip: "192.168.12.11"
-      locations:
-        - path: /
-          port: 8080
-          auth: true
-          includes: [proxy]
