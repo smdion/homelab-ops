@@ -49,8 +49,9 @@ schedule_baseline:
     cron_expression: "0 8 * * 0"
   - template_name: "Download — Videos [Channels]"
     cron_expression: "0 */4 * * *"
-  - template_name: "Download — Videos [On Demand]"
-    cron_expression: "*/10 * * * *"
+  # "Download — Videos [On Demand]" is intentionally UNscheduled — it is event-driven
+  # (MeTube Exec → Semaphore → self re-trigger), so it has no baseline cron. The playbook
+  # header carries "# Schedule-exempt: On Demand" so the coverage check skips it too.
   - template_name: "Maintain — AMP [Cleanup]"
     cron_expression: "0 8 * * 1"
   - template_name: "Maintain — Docker [Cleanup]"
