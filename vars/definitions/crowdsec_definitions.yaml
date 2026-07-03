@@ -1,0 +1,64 @@
+---
+# CrowdSec configuration-as-code.
+#
+# Rendered and deployed by deploy_swag_configs.yaml's sibling, deploy_crowdsec_configs.yaml,
+# into the crowdsec appdata (/opt/crowdsec/config) and the swag appdata (bouncer conf).
+#
+# Split of responsibility (see docs/infrastructure/container-definitions.md):
+#   - Env-driven config (USE_WAL, COLLECTIONS, bouncer MODE/UPDATE_FREQUENCY/keys) lives in
+#     container_definitions.yaml — the crowdsec image and the swag-crowdsec mod template those
+#     from env on every boot. Do NOT duplicate them here.
+#   - Everything the images do NOT template from env lives below and is delivered as files.
+#
+# Secrets (Discord webhook, whitelisted WAN IPs) are vault_* refs, resolved at deploy time.
+
+crowdsec:
+  # Local API endpoint the nginx bouncer talks to (also injected by the mod from
+  # the SWAG CROWDSEC_LAPI_URL env; kept here so the rendered conf is correct pre-restart).
+  lapi_url: "http://crowdsec:8080"
+
+  # ── Log acquisition ────────────────────────────────────────────────────────
+  # CrowdSec reads these containers' docker logs via the local socket (mounted :ro).
+  # Each container must emit the relevant log lines on stdout (swag does via
+  # `access_log /dev/stdout`). Only local sources — no remote docker_host (a dead
+  # remote source is fatal and crashloops the agent, which is what this replaces).
+  acquisitions:
+    - container_name: swag
+      type: nginx
+    - container_name: authentik
+      type: authentik
+
+  # ── Remediation profile (LAPI) ─────────────────────────────────────────────
+  # Escalating ban: each repeat offense multiplies the 4h base. Notify Discord only
+  # (the old http_default → VictoriaMetrics notifier was decommissioned, commit 9315d85).
+  profile:
+    ban_duration: "4h"
+    duration_expr: "Sprintf('%dh', (GetDecisionsCount(Alert.GetValue()) + 1) * 4)"
+    notifications:
+      - discord
+
+  # ── nginx bouncer (swag-crowdsec mod) ──────────────────────────────────────
+  # MODE, UPDATE_FREQUENCY, API_KEY and API_URL are injected by the mod from the SWAG
+  # container env (SWAG_CROWDSEC_* in container_definitions.yaml) — authoritative there.
+  # The fields below are the remainder the mod does NOT template; they are owned by the
+  # bouncer.conf template.
+  bouncer:
+    enabled: true
+    bouncing_on_type: all
+    # Fail-open: if the bouncer cannot reach a decision (e.g. LAPI restarting) let the
+    # request through rather than ban. A CrowdSec hiccup must not take SWAG down.
+    fallback_remediation: bypass
+    # ms. In stream mode this only bounds background decision pulls, not per-request work.
+    request_timeout: 500
+    cache_expiration: 1
+    ban_template_path: /var/lib/crowdsec/lua/templates/ban.html
+    captcha_template_path: /var/lib/crowdsec/lua/templates/captcha.html
+    captcha_expiration: 3600
+
+  # ── Whitelisted source IPs ──────────────────────────────────────────────────
+  # RFC1918 ranges are always whitelisted; these are additional trusted public IPs
+  # (home WAN etc.). Sensitive (reveals location) → vault.
+  whitelist_ips: "{{ vault_crowdsec_whitelist_ips }}"
+
+  # ── Discord alerting ────────────────────────────────────────────────────────
+  discord_webhook: "{{ vault_docker_crowdsec_discord_webhook }}"

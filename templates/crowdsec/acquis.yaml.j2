@@ -1,0 +1,14 @@
+{#- Auto-generated CrowdSec acquisition config.
+    Source: crowdsec_definitions.yaml (crowdsec.acquisitions) + deploy_crowdsec_configs.yaml.
+    Do not edit manually — changes are overwritten on next deploy.
+
+    Local docker sources only. A remote docker_host that becomes unreachable is a FATAL
+    acquisition error that crashloops the whole agent — do not add remote sources here. -#}
+{% for a in crowdsec.acquisitions %}
+---
+source: docker
+container_name:
+ - {{ a.container_name }}
+labels:
+  type: {{ a.type }}
+{% endfor %}
