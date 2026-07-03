@@ -33,11 +33,18 @@ crowdsec:
       filenames:
         - /var/log/swag/crowdsec.log
       type: nginx
-    # Authentik only logs to stdout (no file), so it stays on docker acquisition — this is
-    # why the read-only docker socket mount remains on the crowdsec container.
-    - source: docker
-      container_name: authentik
-      type: authentik
+    # Authentik → syslog. It logs JSON to stdout only, and docker acquisition doesn't set
+    # evt.Parsed.program, so the stock firix/authentik-logs parser (filter: program in
+    # [authentik]) never fires. Instead the authentik container uses the docker `syslog`
+    # log driver (rfc5424, tag=authentik, UDP → this listener); crowdsecurity/syslog-logs
+    # then sets program=authentik and the STOCK firix parser + bf scenarios fire. This is
+    # the community-standard path (verified live: replaying 6 failed logins → firix/
+    # authentik-bf ban). UDP = non-blocking, so a crowdsec outage can't block authentik.
+    # Docker dual-logging keeps `docker logs authentik`/Dozzle working despite the driver.
+    - source: syslog
+      listen_addr: 0.0.0.0
+      listen_port: 514
+      type: syslog
 
   # ── Remediation profile (LAPI) ─────────────────────────────────────────────
   # Escalating ban: each repeat offense multiplies the 4h base. Notify Discord only
