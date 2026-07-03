@@ -23,9 +23,20 @@ crowdsec:
   # `access_log /dev/stdout`). Only local sources — no remote docker_host (a dead
   # remote source is fatal and crashloops the agent, which is what this replaces).
   acquisitions:
-    - container_name: swag
+    # SWAG → file acquisition of a dedicated combined-format log (nginx writes it via
+    # `access_log .../crowdsec.log` — see the nginx.conf replace in deploy_crowdsec_configs).
+    # File tailing needs no docker socket and no docker-events subscription (the fatal-on-EOF
+    # mechanism that caused the freshjams crashloop). Portable across a future VM split: add
+    # rsyslog on the CrowdSec host to receive nginx's syslog and write this same file, then
+    # only the filename changes — CrowdSec's documented log-centralization pattern.
+    - source: file
+      filenames:
+        - /var/log/swag/crowdsec.log
       type: nginx
-    - container_name: authentik
+    # Authentik only logs to stdout (no file), so it stays on docker acquisition — this is
+    # why the read-only docker socket mount remains on the crowdsec container.
+    - source: docker
+      container_name: authentik
       type: authentik
 
   # ── Remediation profile (LAPI) ─────────────────────────────────────────────
