@@ -97,7 +97,7 @@ container_definitions:
         start_period: "15s"
   authentik:
     image: "ghcr.io/goauthentik/server"
-    tag: "2026.5.2"
+    tag: "2026.5.3"
     stack: auth
     proxy:
       subdomain: auth
@@ -160,6 +160,9 @@ container_definitions:
         AUTHENTIK_POSTGRESQL__USER: "${POSTGRES_USER}"
         AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB}"
         AUTHENTIK_POSTGRESQL__PASSWORD: "${POSTGRES_PASSWORD}"
+        # Legacy alias authentik's config loader probes on boot; without it authentik logs a
+        # benign "POSTGRES_PASSWORD ... not found, using fallback" warning. Same vault value.
+        POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
         AUTHENTIK_ERROR_REPORTING__ENABLED: "${AUTHENTIK_ERROR_REPORTING_ENABLED}"
         AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY}"
         AUTHENTIK_EMAIL__HOST: "${EMAIL_HOST}"
@@ -183,8 +186,10 @@ container_definitions:
         retries: 3
         start_period: "60s"
   authentik_worker:
-    image: "ghcr.io/goauthentik/server"
-    tag: "2025.12.4"
+    # No image/tag here on purpose: compose.image_var (AUTHENTIK) below makes this service
+    # render ${AUTHENTIK_IMAGE}:${AUTHENTIK_TAG}, so it always tracks the authentik (server)
+    # tag from a single IaC source. Re-adding a tag here would be dead config (env.j2 dedups
+    # the shared prefix to the server's value) and risks version drift — don't.
     stack: auth
     compose:
       image_var: AUTHENTIK
@@ -196,6 +201,9 @@ container_definitions:
         AUTHENTIK_POSTGRESQL__USER: "${POSTGRES_USER}"
         AUTHENTIK_POSTGRESQL__NAME: "${AUTHENTIK_POSTGRES_DB}"
         AUTHENTIK_POSTGRESQL__PASSWORD: "${POSTGRES_PASSWORD}"
+        # Legacy alias authentik's config loader probes on boot; without it authentik logs a
+        # benign "POSTGRES_PASSWORD ... not found, using fallback" warning. Same vault value.
+        POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
         AUTHENTIK_ERROR_REPORTING__ENABLED: "${AUTHENTIK_ERROR_REPORTING_ENABLED}"
         AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY}"
         AUTHENTIK_WORKER_CONCURRENCY: "${AUTHENTIK_WORKER_CONCURRENCY}"
@@ -617,6 +625,10 @@ container_definitions:
       OAUTH_AUTH_URL: "https://auth.{{ vault_domain_ext }}/application/o/authorize/"
       OAUTH_TOKEN_URL: "https://auth.{{ vault_domain_ext }}/application/o/token/"
       OAUTH_API_URL: "https://auth.{{ vault_domain_ext }}/application/o/userinfo/"
+      # Quiet grafana's plugin update-checker logger — it emits routine INFO every cycle
+      # ("Update check succeeded" + a very verbose "flag evaluation succeeded" dump). This
+      # only raises that one logger's threshold to warn; genuine warn/error still log.
+      GRAFANA_LOG_FILTERS: "plugins.update.checker:warn"
     compose:
       base: base
       ports: ["3000:3000"]
@@ -638,6 +650,7 @@ container_definitions:
         GF_AUTH_OAUTH_AUTO_LOGIN: "${GRAFANA_OAUTH_AUTO_LOGIN}"
         GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "${GRAFANA_ROLE_ATTRIBUTE_PATH}"
         GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH: "${GRAFANA_GROUPS_ATTRIBUTE_PATH}"
+        GF_LOG_FILTERS: "${GRAFANA_LOG_FILTERS}"
       volumes:
         - "${APPSDIR}/grafana:/var/lib/grafana"
       healthcheck:
