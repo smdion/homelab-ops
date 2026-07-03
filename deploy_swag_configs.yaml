@@ -501,6 +501,42 @@
             - _generated_configs is changed
             - _nginx_test is succeeded
 
+        # Canary: nginx returns rc 0 even when it silently ignores duplicate server_names
+        # (orphaned/legacy site-confs), so a plain `nginx -t` hides them. Surface them here —
+        # non-failing — so future duplicates show up in the deploy output + Discord notice
+        # instead of drifting unnoticed. Runs every deploy (catches out-of-band confs too).
+        - name: Check for conflicting server names (duplicate/orphaned site-confs)
+          ansible.builtin.shell:
+            cmd: "docker exec swag nginx -t 2>&1 | grep 'conflicting server name' || true"
+          register: _nginx_conflicts
+          changed_when: false
+          delegate_to: "{{ _swag_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when:
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
+
+        - name: Surface conflicting server names (non-failing)
+          ansible.builtin.set_fact:
+            _deploy_detail: "{{ _deploy_detail }} | ⚠️ {{ _conflict_lines | length }} conflicting server name(s) — check for duplicate/orphaned site-confs"
+          vars:
+            _conflict_lines: "{{ (_nginx_conflicts.stdout | default('')).splitlines() | select | list }}"
+          when:
+            - _nginx_conflicts is defined
+            - (_nginx_conflicts.stdout | default('') | trim) | length > 0
+
+        - name: Warn on conflicting server names
+          ansible.builtin.debug:
+            msg: >-
+              ⚠️ nginx is ignoring duplicate server_names (orphaned/legacy site-confs):
+              {{ _nginx_conflicts.stdout_lines | default([]) }}
+          when:
+            - _nginx_conflicts is defined
+            - (_nginx_conflicts.stdout | default('') | trim) | length > 0
+
       rescue:
         - name: Set failure flag
           ansible.builtin.set_fact:
