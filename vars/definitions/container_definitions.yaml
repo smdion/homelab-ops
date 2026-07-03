@@ -365,6 +365,9 @@ container_definitions:
       CROWDSEC_COLLECTIONS: "crowdsecurity/nginx crowdsecurity/http-cve crowdsecurity/whitelist-good-actors firix/authentik crowdsecurity/wordpress"
       CROWDSEC_CUSTOM_HOSTNAME: "crowdsec"
       CROWDSEC_LAPI_URL: "http://crowdsec:8080"
+      # Enable SQLite Write-Ahead Logging (CrowdSec-recommended: more concurrency,
+      # avoids the startup WAL warning and DB-lock contention under decision load).
+      CROWDSEC_USE_WAL: "true"
     guacamole:
       name: Crowdsec
       group: Tools
@@ -377,6 +380,7 @@ container_definitions:
       environment:
         COLLECTIONS: "${CROWDSEC_COLLECTIONS}"
         CUSTOM_HOSTNAME: "${CROWDSEC_CUSTOM_HOSTNAME}"
+        USE_WAL: "${CROWDSEC_USE_WAL}"
       volumes:
         - "${APPSDIR}/crowdsec/config:/etc/crowdsec"
         - "${APPSDIR}/crowdsec/data:/var/lib/crowdsec/data"
@@ -1157,6 +1161,12 @@ container_definitions:
       SWAG_INFLUX_DATABASE: "geoip2influx-{{ vault_domain_ext }}"
       SWAG_DISABLE_F2B: "true"
       SWAG_CROWDSEC_API_KEY: "{{ vault_docker_crowdsec_api_key }}"
+      # Bouncer in STREAM mode: the bouncer caches the full decision list locally and
+      # refreshes every UPDATE_FREQUENCY seconds, instead of querying LAPI per request
+      # (live mode). Removes ~68ms/request and makes SWAG immune to CrowdSec LAPI blips.
+      # The swag-crowdsec mod injects these into crowdsec-nginx-bouncer.conf on start.
+      SWAG_CROWDSEC_MODE: "stream"
+      SWAG_CROWDSEC_UPDATE_FREQUENCY: "10"
       MAXMINDDB_LICENSE_KEY: "{{ vault_docker_maxmind_license_key }}"
       MAXMINDDB_USER_ID: "{{ vault_docker_maxmind_user_id }}"
       INFLUX_HOST: "{{ vault_vm_core_ip }}"
@@ -1194,11 +1204,21 @@ container_definitions:
         INFLUX_SHARD: "${INFLUX_SHARD}"
         CROWDSEC_API_KEY: "${SWAG_CROWDSEC_API_KEY}"
         CROWDSEC_LAPI_URL: "${CROWDSEC_LAPI_URL}"
+        CROWDSEC_MODE: "${SWAG_CROWDSEC_MODE}"
+        CROWDSEC_UPDATE_FREQUENCY: "${SWAG_CROWDSEC_UPDATE_FREQUENCY}"
         DISABLE_F2B: "${SWAG_DISABLE_F2B}"
       volumes:
         - "${APPSDIR}/swag:/config"
       cap_add:
         - NET_ADMIN
+      # Cap the docker json-file log. nginx access_log also writes /dev/stdout so
+      # CrowdSec can tail `docker logs swag` (docker acquisition); without a cap this
+      # grows unbounded (observed 38MB). Rotation keeps it bounded.
+      logging:
+        driver: json-file
+        options:
+          max-size: "10m"
+          max-file: "3"
       healthcheck:
         test: ["CMD-SHELL", "curl -fsk https://localhost:443 || exit 1"]
         interval: "30s"

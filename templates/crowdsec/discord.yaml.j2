@@ -1,0 +1,40 @@
+{#- Auto-generated CrowdSec Discord notifier.
+    Source: crowdsec_definitions.yaml (crowdsec.discord_webhook, from vault) + deploy_crowdsec_configs.yaml.
+    Do not edit manually — changes are overwritten on next deploy.
+    The format block is a Go template (CrowdSec-side) — wrapped in {% raw %} so Jinja leaves it intact. -#}
+type: http
+name: discord
+log_level: info
+format: |
+{% raw %}
+  {
+    "content": null,
+    "embeds": [
+      {{range . -}}
+      {{$alert := . -}}
+      {{range .Decisions -}}
+      {{if $alert.Source.Cn -}}
+      {
+        "title": "{{$alert.MachineID}}: {{.Scenario}}",
+        "description": ":flag_{{ $alert.Source.Cn | lower }}: {{$alert.Source.IP}} will get a {{.Type}} for the next {{.Duration}}. <https://www.shodan.io/host/{{$alert.Source.IP}}>",
+        "url": "https://db-ip.com/{{$alert.Source.IP}}",
+        "color": "16711680"
+      }
+      {{end}}
+      {{if not $alert.Source.Cn -}}
+      {
+        "title": "{{$alert.MachineID}}: {{.Scenario}}",
+        "description": ":pirate_flag: {{$alert.Source.IP}} will get a {{.Type}} for the next {{.Duration}}. <https://www.shodan.io/host/{{$alert.Source.IP}}>",
+        "url": "https://db-ip.com/{{$alert.Source.IP}}",
+        "color": "16711680"
+      }
+      {{end}}
+      {{end -}}
+      {{end -}}
+    ]
+  }
+{% endraw %}
+url: {{ crowdsec.discord_webhook }}
+method: POST
+headers:
+  Content-Type: application/json

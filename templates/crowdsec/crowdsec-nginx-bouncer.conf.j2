@@ -1,0 +1,37 @@
+{#- Auto-generated CrowdSec nginx bouncer config (delivered to the SWAG appdata).
+    Source: crowdsec_definitions.yaml (crowdsec.bouncer) + deploy_crowdsec_configs.yaml.
+    Do not edit manually — changes are overwritten on next deploy.
+
+    NOTE: the swag-crowdsec mod re-injects API_KEY, API_URL, MODE and UPDATE_FREQUENCY from
+    the SWAG container env (SWAG_CROWDSEC_* in container_definitions.yaml) on every container
+    start via sed — those lines MUST exist here for the sed to land. SWAG env is authoritative
+    for MODE/UPDATE_FREQUENCY; keep the values below in sync. -#}
+ENABLED={{ crowdsec.bouncer.enabled | string | lower }}
+API_URL={{ crowdsec.lapi_url }}
+API_KEY={{ vault_docker_crowdsec_api_key }}
+CACHE_EXPIRATION={{ crowdsec.bouncer.cache_expiration }}
+# bounce for all type of remediation that the bouncer can receive from the local API
+BOUNCING_ON_TYPE={{ crowdsec.bouncer.bouncing_on_type }}
+# fail-open: if no decision can be reached (e.g. LAPI restarting) let the request through
+FALLBACK_REMEDIATION={{ crowdsec.bouncer.fallback_remediation }}
+REQUEST_TIMEOUT={{ crowdsec.bouncer.request_timeout }}
+UPDATE_FREQUENCY=10
+# live or stream — stream caches decisions locally (see container_definitions SWAG_CROWDSEC_MODE)
+MODE=stream
+# exclude the bouncing on those location
+EXCLUDE_LOCATION=
+#those apply for "ban" action
+# /!\ REDIRECT_LOCATION and RET_CODE can't be used together. REDIRECT_LOCATION take priority over RET_CODE
+BAN_TEMPLATE_PATH={{ crowdsec.bouncer.ban_template_path }}
+REDIRECT_LOCATION=
+RET_CODE=
+#those apply for "captcha" action
+#valid providers are recaptcha, hcaptcha, turnstile
+CAPTCHA_PROVIDER=
+# Captcha Secret Key
+SECRET_KEY=
+# Captcha Site key
+SITE_KEY=
+CAPTCHA_TEMPLATE_PATH={{ crowdsec.bouncer.captcha_template_path }}
+CAPTCHA_EXPIRATION={{ crowdsec.bouncer.captcha_expiration }}
+APPSEC_URL=

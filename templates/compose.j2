@@ -194,4 +194,14 @@ services:
 {% if c.shm_size is defined %}
     shm_size: {{ c.shm_size }}
 {% endif %}
+{% if c.logging is defined %}
+    logging:
+      driver: {{ c.logging.driver | default('json-file') }}
+{% if c.logging.options | default({}) | length > 0 %}
+      options:
+{% for key, val in c.logging.options.items() %}
+        {{ key }}: "{{ val }}"
+{% endfor %}
+{% endif %}
+{% endif %}
 {% endfor %}

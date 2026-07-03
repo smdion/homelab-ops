@@ -1,0 +1,15 @@
+{#- Auto-generated CrowdSec whitelist parser (s02-enrich).
+    Source: crowdsec_definitions.yaml (crowdsec.whitelist_ips, from vault) + deploy_crowdsec_configs.yaml.
+    Do not edit manually — changes are overwritten on next deploy. -#}
+name: crowdsecurity/whitelists
+description: "Whitelist events from my ip addresses"
+whitelist:
+  reason: "my ip ranges"
+  ip:
+{% for ip in crowdsec.whitelist_ips %}
+    - "{{ ip }}"
+{% endfor %}
+  cidr:
+    - "192.168.0.0/16"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
