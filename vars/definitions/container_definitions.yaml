@@ -318,6 +318,9 @@ container_definitions:
       DDNS_CF_HOSTS: "vpn.{{ vault_domain_ext }}"
       DDNS_CF_ZONES: "{{ vault_domain_ext }}"
       DDNS_CF_RECORDTYPES: "'A;A'"
+      # No IPv6 on this network — disable IPv6 detection so it stops erroring every cycle
+      # ("Detected IPv6 is not valid!"). Only A records are updated anyway.
+      DDNS_UPDATE_IPV6: "false"
       EMAIL: "{{ vault_docker_email }}"
     compose:
       image_var: DDNS
@@ -333,6 +336,7 @@ container_definitions:
         CF_HOSTS: "${DDNS_CF_HOSTS}"
         CF_ZONES: "${DDNS_CF_ZONES}"
         CF_RECORDTYPES: "${DDNS_CF_RECORDTYPES}"
+        UPDATE_IPV6: "${DDNS_UPDATE_IPV6}"
       volumes:
         - "${APPSDIR}/cloudflareddns:/config"
   code_server:
