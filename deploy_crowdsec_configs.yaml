@@ -1,0 +1,256 @@
+---
+# Category: Deploy
+# Schedule: none
+# Generate CrowdSec configuration from definitions-as-code and deploy it to the
+# CrowdSec container (auth stack host) and the SWAG nginx bouncer.
+#
+# Renders: acquis.yaml, profiles.yaml, notifications/discord.yaml,
+# parsers/s02-enrich/mywhitelists.yaml, custom scenarios, and the swag
+# crowdsec-nginx-bouncer.conf. Removes stale config left over from old topology
+# (dead VictoriaMetrics notifier, unused MariaDB alt-configs).
+#
+# Env-driven CrowdSec/bouncer knobs (USE_WAL, MODE, UPDATE_FREQUENCY, keys) live in
+# container_definitions.yaml — apply those by redeploying the auth stack.
+#
+# Optional extra vars:
+#   dry_run=true  — write to /tmp/crowdsec-generated/ instead of the live dirs (default: false)
+#
+# Usage:
+#   ansible-playbook deploy_crowdsec_configs.yaml
+#   ansible-playbook deploy_crowdsec_configs.yaml -e dry_run=true
+#   ansible-playbook deploy_crowdsec_configs.yaml --diff --check
+
+- name: Generate CrowdSec configs
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+
+  vars_files:
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/stack_definitions.yaml
+    - vars/definitions/crowdsec_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/semaphore_check.yaml
+    - vars/secrets.yaml
+
+  vars:
+    # crowdsec + swag both live in the auth stack — resolve that VM's IP/role.
+    _cs_host: >-
+      {%- set ns = namespace(host='') -%}
+      {%- for r, rdef in vm_definitions.items() -%}
+        {%- if rdef.stacks is defined and 'auth' in rdef.stacks and not ns.host -%}
+          {%- set ns.host = rdef.vm_ip -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ ns.host }}
+    # Output roots (live vs dry-run).
+    _cs_dir: "{{ '/tmp/crowdsec-generated/crowdsec' if (dry_run | default(false) | bool) else '/opt/crowdsec/config' }}"
+    _swag_bouncer_conf: "{{ '/tmp/crowdsec-generated/crowdsec-nginx-bouncer.conf' if (dry_run | default(false) | bool) else '/opt/swag/crowdsec/crowdsec-nginx-bouncer.conf' }}"
+    maintenance_name: "CrowdSec"
+    maintenance_type: "Local"
+    maintenance_subtype: "Deploy"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "deploy_crowdsec_configs.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
+  tasks:
+    - name: Initialize deploy state
+      ansible.builtin.set_fact:
+        deploy_failed: false
+        _deploy_detail: ""
+
+    - block:
+        # Delegated file tasks run on the auth-stack VM over SSH. As in
+        # deploy_swag_configs.yaml, ansible_connection: ssh must be set explicitly
+        # because the play uses connection: local.
+        - name: Ensure CrowdSec config subdirectories exist
+          ansible.builtin.file:
+            path: "{{ _cs_dir }}/{{ item }}"
+            state: directory
+            owner: "root"
+            group: "root"
+            mode: "0755"
+          loop:
+            - notifications
+            - parsers/s02-enrich
+            - scenarios
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+
+        - name: Render CrowdSec config templates
+          ansible.builtin.template:
+            src: "templates/crowdsec/{{ item.src }}"
+            dest: "{{ _cs_dir }}/{{ item.dest }}"
+            owner: "root"
+            group: "root"
+            mode: "0644"
+          loop:
+            - { src: acquis.yaml.j2, dest: acquis.yaml }
+            - { src: profiles.yaml.j2, dest: profiles.yaml }
+            - { src: discord.yaml.j2, dest: notifications/discord.yaml }
+            - { src: mywhitelists.yaml.j2, dest: parsers/s02-enrich/mywhitelists.yaml }
+          loop_control:
+            label: "{{ item.dest }}"
+          register: _cs_templates
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+
+        - name: Copy custom CrowdSec scenarios
+          ansible.builtin.copy:
+            src: "files/crowdsec/scenarios/{{ item }}"
+            dest: "{{ _cs_dir }}/scenarios/{{ item }}"
+            owner: "root"
+            group: "root"
+            mode: "0644"
+          loop:
+            - http-wp-files.yaml
+            - http-wp-message.yaml
+          register: _cs_scenarios
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+
+        - name: Render SWAG nginx bouncer conf
+          ansible.builtin.template:
+            src: templates/crowdsec/crowdsec-nginx-bouncer.conf.j2
+            dest: "{{ _swag_bouncer_conf }}"
+            owner: "911"
+            group: "911"
+            mode: "0644"
+          register: _bouncer_conf
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+
+        - name: Remove stale CrowdSec config (old topology remnants)
+          ansible.builtin.file:
+            path: "{{ _cs_dir }}/{{ item }}"
+            state: absent
+          loop:
+            - notifications/http.yaml   # dead VictoriaMetrics notifier (VM decommissioned)
+            - dev.yaml                  # unused alt-config (nonexistent MariaDB backend)
+            - user.yaml                 # unused alt-config (nonexistent MariaDB backend)
+          register: _cs_removed
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when: not (dry_run | default(false) | bool)
+
+        - name: Compute change flags
+          ansible.builtin.set_fact:
+            _cs_changed: >-
+              {{ (_cs_templates.results | selectattr('changed') | list | length > 0)
+                 or (_cs_scenarios.results | selectattr('changed') | list | length > 0)
+                 or (_cs_removed.results | default([]) | selectattr('changed') | list | length > 0) }}
+            _bouncer_changed: "{{ _bouncer_conf is changed }}"
+
+        - name: Validate CrowdSec configuration
+          ansible.builtin.command:
+            cmd: docker exec crowdsec crowdsec -t
+          register: _cs_test
+          changed_when: false
+          failed_when: _cs_test.rc != 0
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when:
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
+            - _cs_changed | bool
+
+        # Flip the bouncer to stream+bypass FIRST, so the crowdsec restart below is
+        # cushioned by fail-open (old live+ban behavior would stall requests otherwise).
+        - name: Reload SWAG nginx to pick up bouncer conf
+          ansible.builtin.command:
+            cmd: docker exec swag nginx -s reload
+          changed_when: true
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when:
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
+            - _bouncer_changed | bool
+
+        - name: Restart CrowdSec to apply acquisition/config changes
+          ansible.builtin.command:
+            cmd: docker restart crowdsec
+          changed_when: true
+          delegate_to: "{{ _cs_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when:
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
+            - _cs_changed | bool
+            - _cs_test is succeeded
+
+        - name: Record deploy detail
+          ansible.builtin.set_fact:
+            _deploy_detail: >-
+              crowdsec config {{ 'changed' if _cs_changed | bool else 'unchanged' }} |
+              bouncer conf {{ 'changed' if _bouncer_changed | bool else 'unchanged' }}
+
+        - name: Report result
+          ansible.builtin.debug:
+            msg: "{{ _deploy_detail }}"
+
+      rescue:
+        - name: Set failure flag
+          ansible.builtin.set_fact:
+            deploy_failed: true
+            _deploy_detail: "{{ _deploy_detail }} | Error: {{ ansible_failed_result.msg | default('unknown') }}"
+
+      always:
+        - name: Send notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Deploy"
+            discord_status: "{{ 'failed' if deploy_failed else 'successful' }}"
+            discord_color: "{{ discord_color_failure if deploy_failed else discord_color_success }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "{{ '❌ ' if deploy_failed else '✅ ' }}Deploy"
+                value: "{{ _deploy_detail }}"
+                inline: true
+
+        - name: Log to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_hostname: "{{ controller_fqdn }}"
+            log_application: "{{ maintenance_name }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if deploy_failed else 'success' }}"
+
+        - name: Fail play if deploy errored
+          ansible.builtin.fail:
+            msg: "CrowdSec config deploy failed — see notification for details"
+          when: deploy_failed

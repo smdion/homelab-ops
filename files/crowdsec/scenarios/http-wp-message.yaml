@@ -1,0 +1,10 @@
+# Managed by homelab-ops (deploy_crowdsec_configs.yaml). Do not edit on the host.
+type: trigger
+name: smdion/http-wp-message
+description: "detect wp-files"
+filter: "evt.Meta.log_type == 'http_access-log' && evt.Parsed.message contains '/wp-'"
+groupby: evt.Meta.source_ip
+blackhole: 5m
+labels:
+  service: http
+  remediation: true
