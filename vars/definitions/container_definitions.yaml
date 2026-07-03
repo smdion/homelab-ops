@@ -136,6 +136,17 @@ container_definitions:
     compose:
       base: base
       ports: ["9001:9000", "9443:9443"]
+      # Ship logs to CrowdSec via the docker syslog driver (rfc5424, tag=authentik) so
+      # crowdsecurity/syslog-logs sets program=authentik and the STOCK firix parser +
+      # firix/authentik-bf scenario fire (docker acquisition can't set program). UDP →
+      # non-blocking: a crowdsec outage can't block authentik. Docker dual-logging keeps a
+      # local cache, so `docker logs authentik` / Dozzle still work despite the syslog driver.
+      logging:
+        driver: syslog
+        options:
+          syslog-address: "udp://127.0.0.1:514"
+          tag: "authentik"
+          syslog-format: "rfc5424"
       labels:
         homelab.backup.paths: "/opt/authentik_worker"
         homelab.health_timeout: "420"
@@ -374,7 +385,7 @@ container_definitions:
       command: "sudo docker exec -it crowdsec /bin/bash"
     compose:
       base: base
-      ports: ["8080:8080", "6060:6060"]
+      ports: ["8080:8080", "6060:6060", "514:514/udp"]
       labels:
         homelab.backup.paths: "/opt/crowdsec"
       environment:
@@ -387,9 +398,10 @@ container_definitions:
         # SWAG nginx logs, read-only — CrowdSec file-acquires /var/log/swag/crowdsec.log
         # (dedicated combined-format log) instead of reading SWAG's stdout over the socket.
         - "${APPSDIR}/swag/log/nginx:/var/log/swag:ro"
-        # docker.sock stays (read-only) ONLY for Authentik acquisition — it logs to stdout,
-        # so it can't move to file. SWAG no longer depends on the socket.
-        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+        # docker.sock removed: SWAG uses file acquisition and Authentik uses syslog, so
+        # nothing needs docker acquisition. Least-privilege — CrowdSec no longer has the
+        # docker socket (and this also eliminates the docker-events "fatal on failure"
+        # crashloop class entirely).
       security_opt:
         - "no-new-privileges=true"
       healthcheck:

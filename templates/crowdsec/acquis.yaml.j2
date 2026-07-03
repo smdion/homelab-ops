@@ -14,6 +14,12 @@ filenames:
 {% endfor %}
 labels:
   type: {{ a.type }}
+{% elif a.source == 'syslog' %}
+source: syslog
+listen_addr: {{ a.listen_addr | default('0.0.0.0') }}
+listen_port: {{ a.listen_port | default(514) }}
+labels:
+  type: {{ a.type }}
 {% else %}
 source: docker
 container_name:
