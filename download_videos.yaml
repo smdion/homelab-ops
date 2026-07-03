@@ -4,15 +4,27 @@
 #
 # Each run is a fast DISPATCHER, not a blocking download:
 #   1. Guard   — if a yt-dlp download is already running in the container, end the
-#                play immediately. This is why the every-10-min schedule no longer
-#                queues up "Waiting" tasks behind a long download (parallel tasks are
-#                disabled, so a blocking run used to hold the single slot for the whole
-#                download and every tick stacked behind it).
+#                play immediately (parallel tasks are disabled, so a blocking run
+#                would hold the single slot for the whole download and stack every
+#                trigger behind it). This is what lets triggers collapse to no-ops.
 #   2. Sweep   — yt-dlp is idle, so any manifest left by a previously-launched detached
 #                download is complete: send per-video notifications and clear it.
 #   3. Dispatch— process new bookmarklet captures, then launch yt-dlp DETACHED
 #                (docker exec -d) and return in seconds. The detached wrapper writes
-#                yt-dlp's exit code to a status file so the next sweep can alert on failure.
+#                yt-dlp's exit code to a status file so the next sweep can alert on
+#                failure, then re-invokes this template via the Semaphore API so the
+#                FOLLOW-UP run performs that sweep (see the launch task below).
+#
+# TRIGGERING (per template):
+#   • On Demand (template 47) is EVENT-DRIVEN and carries NO schedule. MeTube's
+#     capture Exec postprocessor (skip_download + writedesktoplink + an Exec that
+#     POSTs to the Semaphore API) fires this template the instant a URL is added,
+#     and the detached wrapper re-fires it on completion for the sweep. There is
+#     deliberately no periodic safety-net poll — a lost trigger surfaces as a
+#     missing download rather than being silently swept up later. (Reachability
+#     note: the metube container must be able to reach the Semaphore API — it runs
+#     bridge-networked on the download host for exactly this reason.)
+#   • Channels (template 46) still runs on a fixed schedule over a static batch.
 #
 # Required extra vars:
 #   hosts_variable  — inventory group to target (pre-filled by Semaphore environment)
@@ -383,8 +395,28 @@
     # The wrapper records its own PID (the state marker the guard validates),
     # runs yt-dlp, writes the exit code for the next sweep, then clears the
     # marker. A crash skips the cleanup, but the guard ignores a dead PID.
+    #
+    # On exit the wrapper re-invokes this same template via the Semaphore API so
+    # the FOLLOW-UP run performs the completion sweep (per-video notifications,
+    # manifest clear) and picks up any captures that arrived mid-download. This
+    # is what makes the flow event-driven instead of polled: MeTube's capture
+    # Exec hook fires this template on add, and this re-trigger fires it on
+    # finish, so template 47 carries NO schedule at all — there is deliberately
+    # no periodic safety-net poll. The guard (end_play when a download is in
+    # flight) collapses redundant triggers to fast no-ops, and the chain stops
+    # on its own once _should_launch is false (no new captures) — so there is no
+    # runaway loop. If this re-trigger is genuinely lost (Semaphore unreachable
+    # past the retries), the completed download's notifications simply do not
+    # send until the next capture triggers a run — an accepted, visible gap that
+    # nothing silently papers over. The trailing `|| true` is only so a failed
+    # trigger cannot wedge the detached wrapper (whose exit is unobserved anyway);
+    # --connect-timeout/--max-time keep a down controller from hanging it.
+    #
+    # no_log is required: the rendered argv carries the API token, and without
+    # it Semaphore would echo the token into this template's task log.
     - name: Launch yt-dlp (detached) in the metube container
       become: true
+      no_log: true
       ansible.builtin.command:
         argv:
           - docker
@@ -393,7 +425,7 @@
           - "{{ metube_container }}"
           - sh
           - -c
-          - "echo $$ > {{ ytdlp_state_file }}; yt-dlp --config-location {{ metube_config_path }}; echo $? > {{ ytdlp_status_file }}; rm -f {{ ytdlp_state_file }}"
+          - "echo $$ > {{ ytdlp_state_file }}; yt-dlp --config-location {{ metube_config_path }}; echo $? > {{ ytdlp_status_file }}; rm -f {{ ytdlp_state_file }}; curl -sf --connect-timeout 8 --max-time 25 --retry 3 --retry-delay 5 -X POST -H 'Authorization: Bearer {{ vault_semaphore_download_trigger_token }}' -H 'Content-Type: application/json' -d '{\"template_id\": {{ semaphore_download_template_id }}, \"project_id\": {{ semaphore_project_id }}, \"message\": \"post-download sweep\"}' {{ vault_semaphore_host_url }}/api/project/{{ semaphore_project_id }}/tasks >/dev/null 2>&1 || true"
       changed_when: true
       when: _should_launch | bool
 

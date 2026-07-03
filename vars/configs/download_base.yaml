@@ -35,6 +35,18 @@ metube_mqtt_publish_host: "apps.{{ vault_vm_search_domain }}"
 metube_mqtt_container: "mosquitto"
 metube_mqtt_topic: "homelab/metube/{{ config_name }}"
 
+# Event-driven trigger — Semaphore self-invocation.
+# The detached download wrapper re-invokes the On Demand template on exit so the
+# next run performs the completion sweep (notifications) and picks up captures
+# that arrived mid-download. MeTube's capture Exec postprocessor hits the same
+# endpoint on add. Template 47 is therefore trigger-only: the every-10-min
+# schedule was retired and NOT replaced by any periodic safety-net — a lost
+# trigger surfaces as a missing download/notification rather than being silently
+# swept up later. Host URL + token come from vault:
+#   vault_semaphore_host_url, vault_semaphore_download_trigger_token.
+semaphore_project_id: 1
+semaphore_download_template_id: 47   # "Download - Videos [On Demand]"
+
 # Paths (inside metube container)
 ytdlp_download_path: "/downloads/"
 ytdlp_temp_path: "/tempvideo"

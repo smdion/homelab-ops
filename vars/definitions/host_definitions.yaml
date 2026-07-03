@@ -479,7 +479,10 @@ host_definitions:
     vm_hostname: "metube.{{ vault_vm_search_domain }}"
     proxy:
       subdomain: metube
-      upstream_ip: "192.168.11.17"
+      # metube runs bridge-networked on liberty (port 8081 published on the host),
+      # so SWAG targets liberty's mgmt IP. Was 192.168.11.17 (metube's old
+      # macvlan IP on the isolated media VLAN) before the move to bridge.
+      upstream_ip: "10.10.10.18"
       locations:
         - path: /
           port: 8081
