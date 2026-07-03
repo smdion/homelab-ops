@@ -200,6 +200,7 @@
             - notifications/http.yaml   # dead VictoriaMetrics notifier (VM decommissioned)
             - dev.yaml                  # unused alt-config (nonexistent MariaDB backend)
             - user.yaml                 # unused alt-config (nonexistent MariaDB backend)
+            - scenarios/http-wordpress-message.yaml  # old duplicate of files/crowdsec/scenarios/http-wp-files.yaml (same name smdion/http-wp-files)
           register: _cs_removed
           delegate_to: "{{ _cs_host }}"
           become: true
