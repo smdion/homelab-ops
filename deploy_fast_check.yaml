@@ -52,6 +52,10 @@
         probe_template: templates/fast_check_probe_youtube.conf.j2
         state_dir_name: youtube_fast
         user_scripts_name: youtube-fast-check
+      twitch:
+        probe_template: templates/fast_check_probe_twitch.conf.j2
+        state_dir_name: twitch_fast
+        user_scripts_name: twitch-fast-check
     platform_cfg: "{{ fast_check_platforms[platform] }}"
 
   tasks:
