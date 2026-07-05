@@ -1,0 +1,30 @@
+# yt-dlp config for youtube_fast_check.py's channel-id/format probes ONLY.
+# Rendered by deploy_youtube_fast_check.yaml from the SAME on_demand profile vars
+# the real download uses (vars/configs/download_base.yaml + download_on_demand.yaml)
+# so probes never drift from what the actual download will do.
+#
+# Deliberately excludes anything download-time-specific (--batch-file, -P paths,
+# -o, --download-archive, --print-to-file, retries, post-processing) — those
+# either don't apply to a single-URL --skip-download probe or would actively
+# misbehave (e.g. --batch-file would pull in every channel_list URL alongside
+# the one being probed). Only settings that affect WHICH formats/videos are
+# visible belong here.
+
+# Extractor configuration — affects which formats/resolutions are exposed
+--extractor-args "{{ ytdlp_extractor_args }}"
+
+# Cookies — required for YouTube bot-check bypass
+{% if ytdlp_cookies | default('') | length > 0 %}
+--cookies "{{ ytdlp_cookies }}"
+{% endif %}
+
+# Quality sort — harmless for a format listing, kept for consistency
+-S {{ ytdlp_quality }}
+
+# Reject-title — a video excluded here will also be excluded from the real
+# download, so probing with the same filter avoids dispatching it pointlessly
+--reject-title "{{ ytdlp_reject_title }}"
+
+{% if ytdlp_filter_live | default(true) %}
+--match-filter !is_live
+{% endif %}
