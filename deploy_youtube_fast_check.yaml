@@ -66,13 +66,16 @@
     # log.txt (on the unRAID host) has no visibility into — so after each run we
     # tail that file into this run's own output, making recent history show up in
     # the User Scripts GUI's "View Log" without needing a separate viewer.
+    # 2000 lines ~= 1-2 weeks at typical activity (see youtube_fast_check.py's
+    # LOG_MAX_BYTES comment for the line-rate math) — well within a single
+    # un-rotated log file, so this window is always backed by real data.
     - name: Deploy User Scripts wrapper
       become: true
       ansible.builtin.copy:
         content: |
           #!/bin/bash
           docker exec metube python3 /configs/scripts/youtube_fast_check.py
-          echo "--- recent history (youtube_fast_check.log, last 200 lines) ---"
-          docker exec metube tail -n 200 /configs/youtube_fast/youtube_fast_check.log
+          echo "--- recent history (youtube_fast_check.log, last 2000 lines) ---"
+          docker exec metube tail -n 2000 /configs/youtube_fast/youtube_fast_check.log
         dest: "{{ user_scripts_dir }}/script"
         mode: "0600"
