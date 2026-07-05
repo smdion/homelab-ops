@@ -81,6 +81,18 @@
         dest: "{{ metube_config_host_dir }}/scripts/build_sweep_message.py"
         mode: "0755"
 
+    # Used by MeTube's own capture Exec postprocessor (its YTDL_OPTIONS env var
+    # lives outside this repo, set manually on the container — see
+    # files/build_capture_message.py's header for why this exists and how
+    # MeTube's exec_cmd calls it). Deployed here so it's guaranteed present
+    # before that env var is ever pointed at it.
+    - name: Deploy capture-message helper script
+      become: true
+      ansible.builtin.copy:
+        src: files/build_capture_message.py
+        dest: "{{ metube_config_host_dir }}/scripts/build_capture_message.py"
+        mode: "0755"
+
     - name: Clean old successful Semaphore task runs
       include_tasks: tasks/clean_semaphore_tasks.yaml
 
