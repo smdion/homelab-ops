@@ -33,17 +33,14 @@
   hosts: "{{ hosts_variable }}"
   gather_facts: false
   # Loaded so each platform's probe template renders from the real config, not
-  # a reimplementation of it. Order matters for YouTube: download_default.yaml
-  # supplies ytdlp_dateafter (only it sets one — channel-scanning scope, which
-  # this script replaces for YouTube); download_on_demand.yaml loads LAST so
-  # its overrides (ytdlp_filter_live=false, etc.) win where the two profiles
-  # differ, matching the profile fast-path dispatches actually route through.
-  # A future Twitch profile may need different vars_files — adjust per platform
-  # if/when its own download profile vars diverge from this list.
+  # a reimplementation of it. download_base.yaml alone supplies everything the
+  # probe templates use (cookies, extractor-args, quality, reject-title,
+  # live-filter, playlist-end, dateafter) — deliberately NOT download.yaml,
+  # which explicitly clears ytdlp_dateafter back to "" for the real download
+  # step; loading it here would silently defeat the enumeration scope this
+  # was set up for.
   vars_files:
     - vars/configs/download_base.yaml
-    - vars/configs/download_default.yaml
-    - vars/configs/download_on_demand.yaml
 
   vars:
     metube_appdata_dir: "/mnt/user/appdata/youtube-dl"

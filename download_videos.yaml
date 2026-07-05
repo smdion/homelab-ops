@@ -1,12 +1,16 @@
 ---
 # Category: Utilities
-# Schedule-exempt: On Demand
+# Schedule-exempt: Download — Videos
 # Download videos via MeTube / yt-dlp — dispatcher pattern.
 #
-#   The "Download — Videos [On Demand]" template is event-driven (MeTube Exec →
-#   Semaphore → self re-trigger), so it intentionally has no schedule. This marker
-#   exempts only that template from the health-check schedule-coverage check; the
-#   scheduled "Download — Videos [Channels]" template (same playbook) stays covered.
+#   The "Download — Videos" template is event-driven (MeTube Exec → Semaphore →
+#   self re-trigger), so it intentionally has no schedule. This marker exempts
+#   it from the health-check schedule-coverage check. This is the only
+#   template on this playbook — there used to be a second, separately
+#   scheduled "[Channels]" template that periodically scanned channel_list
+#   itself; that role is now fully covered by fast_check.py's automated
+#   discovery (files/fast_check.py, deploy_fast_check.yaml) for both YouTube
+#   and Twitch, so it was retired rather than kept as a second parallel path.
 #
 # Each run is a fast DISPATCHER, not a blocking download:
 #   1. Guard   — if a yt-dlp download is already running in the container, end the
@@ -15,35 +19,35 @@
 #                trigger behind it). This is what lets triggers collapse to no-ops.
 #   2. Sweep   — yt-dlp is idle, so any manifest left by a previously-launched detached
 #                download is complete: send per-video notifications and clear it.
-#   3. Dispatch— process new bookmarklet captures, then launch yt-dlp DETACHED
-#                (docker exec -d) and return in seconds. The detached wrapper writes
-#                yt-dlp's exit code to a status file so the next sweep can alert on
-#                failure, then re-invokes this template via the Semaphore API so the
-#                FOLLOW-UP run performs that sweep (see the launch task below).
+#   3. Dispatch— process new captures (bookmarklet or fast_check.py — both just call
+#                MeTube's /add, so there's nothing here that distinguishes the source),
+#                then launch yt-dlp DETACHED (docker exec -d) and return in seconds.
+#                The detached wrapper writes yt-dlp's exit code to a status file so
+#                the next sweep can alert on failure, then re-invokes this template
+#                via the Semaphore API so the FOLLOW-UP run performs that sweep (see
+#                the launch task below).
 #
-# TRIGGERING (per template):
-#   • On Demand (template 47) is EVENT-DRIVEN and carries NO schedule. MeTube's
-#     capture Exec postprocessor (skip_download + writedesktoplink + an Exec that
-#     POSTs to the Semaphore API) fires this template the instant a URL is added,
-#     and the detached wrapper re-fires it on completion for the sweep. There is
-#     deliberately no periodic safety-net poll — a lost trigger surfaces as a
-#     missing download rather than being silently swept up later. (Reachability
-#     note: the metube container must be able to reach the Semaphore API — it runs
-#     bridge-networked on the download host for exactly this reason.)
-#   • Channels (template 46) still runs on a fixed schedule over a static batch.
+# TRIGGERING: EVENT-DRIVEN, carries NO schedule. MeTube's capture Exec postprocessor
+# (skip_download + writedesktoplink + an Exec that POSTs to the Semaphore API) fires
+# this template the instant a URL is added — whether that URL came from the
+# bookmarklet or from fast_check.py's discovery makes no difference here, both just
+# call MeTube's /add — and the detached wrapper re-fires it on completion for the
+# sweep. There is deliberately no periodic safety-net poll — a lost trigger surfaces
+# as a missing download rather than being silently swept up later. (Reachability
+# note: the metube container must be able to reach the Semaphore API — it runs
+# bridge-networked on the download host for exactly this reason.)
 #
 # Required extra vars:
 #   hosts_variable  — inventory group to target (pre-filled by Semaphore environment)
 #   config_file     — download profile name, loads vars/<config_file>.yaml (pre-filled by Semaphore environment)
 #
-# Parameterized on config_file — each Semaphore template passes a different value
-# (e.g., "download_default"). Adding a new download profile = add vars/download_<name>.yaml
-# with per-user preferences + create a Semaphore template with config_file: download_<name>.
-# Shared infrastructure lives in vars/configs/download_base.yaml (loaded automatically).
+# Parameterized on config_file for historical/extensibility reasons, but there is
+# currently only one profile: "download" (vars/configs/download.yaml). Shared
+# infrastructure lives in vars/configs/download_base.yaml (loaded automatically).
 #
 # The concurrency guard is process-based (pgrep) rather than a lock file so a crashed
 # download cannot leave a stale lock that wedges all future runs. yt-dlp's own
-# --download-archive handles de-duplication, so the on-demand batch file is intentionally
+# --download-archive handles de-duplication, so the batch file is intentionally
 # never truncated — re-running over already-downloaded URLs is a fast no-op.
 #
 # NOTE: This playbook intentionally does not log to the maintenance table. Downloads
@@ -52,7 +56,7 @@
 # health check excludes this playbook.
 #
 # Usage:
-#   ansible-playbook download_videos.yaml -e hosts_variable=docker_stacks -e config_file=download_default
+#   ansible-playbook download_videos.yaml -e hosts_variable=docker_stacks -e config_file=download
 
 - name: Download videos via yt-dlp (dispatcher)
   hosts: "{{ hosts_variable }}"

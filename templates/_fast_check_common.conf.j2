@@ -15,7 +15,7 @@
 {% endif %}
 
 # How far back / how many items channel enumeration considers — same scope
-# download_default used to apply when it did this job.
+# the old, now-retired scheduled channel scan used to apply.
 --playlist-end {{ ytdlp_playlist_end }}
 {% if ytdlp_dateafter | default('') | length > 0 %}
 --dateafter {{ ytdlp_dateafter }}
