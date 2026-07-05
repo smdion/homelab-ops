@@ -1,0 +1,13 @@
+# yt-dlp config for fast_check.py's Twitch channel enumeration + format probes.
+#
+# Twitch needs none of YouTube's platform-specific settings — no cookies, no
+# extractor-args (nothing in the current download config sets any either; see
+# vars/configs/download_base.yaml). channel_list's Twitch URLs are already
+# scoped to past broadcasts only (?filter=archives&sort=time), so there's
+# nothing platform-specific left to add here beyond the shared rules.
+#
+# Shared (platform-agnostic) rules live in _fast_check_common.conf.j2:
+# quality sort, reject-title, live-filter, playlist-end, dateafter — same
+# ones download_default applied when it governed Twitch channel-scanning.
+
+{% include '_fast_check_common.conf.j2' %}
