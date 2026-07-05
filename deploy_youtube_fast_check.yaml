@@ -60,11 +60,19 @@
         dest: "{{ user_scripts_dir }}/name"
         mode: "0600"
 
+    # User Scripts overwrites log.txt fresh on every run, so it can only ever show
+    # the latest invocation. The persistent, size-capped log youtube_fast_check.py
+    # writes to /configs/youtube_fast/ lives inside the metube container, which
+    # log.txt (on the unRAID host) has no visibility into — so after each run we
+    # tail that file into this run's own output, making recent history show up in
+    # the User Scripts GUI's "View Log" without needing a separate viewer.
     - name: Deploy User Scripts wrapper
       become: true
       ansible.builtin.copy:
         content: |
           #!/bin/bash
           docker exec metube python3 /configs/scripts/youtube_fast_check.py
+          echo "--- recent history (youtube_fast_check.log, last 200 lines) ---"
+          docker exec metube tail -n 200 /configs/youtube_fast/youtube_fast_check.log
         dest: "{{ user_scripts_dir }}/script"
         mode: "0600"
