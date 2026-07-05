@@ -79,12 +79,19 @@
         dest: "{{ metube_appdata_dir }}/scripts/fast_check.py"
         mode: "0755"
 
+    # Owned by uid 99/gid 100 (metube's own container user, matching the rest of
+    # its /configs tree) — fast_check.py writes its log + JSON state files here,
+    # and the container does not run as root, so a root-owned directory (what
+    # Ansible/become would create by default) fails with a permission error the
+    # moment the script actually tries to write anything.
     - name: Ensure platform state directory exists
       become: true
       ansible.builtin.file:
         path: "{{ metube_appdata_dir }}/{{ platform_cfg.state_dir_name }}"
         state: directory
         mode: "0755"
+        owner: "99"
+        group: "100"
 
     # Same rules the real download uses (cookies/extractor-args/reject-title/
     # quality/live-filter/playlist-end/dateafter) — re-rendered on every
