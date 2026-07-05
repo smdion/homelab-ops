@@ -25,6 +25,8 @@
 
 import argparse
 import json
+import logging
+import logging.handlers
 import os
 import re
 import subprocess
@@ -42,11 +44,38 @@ MIN_HEIGHT = 1080
 BACKOFF_SECONDS = [900, 1800, 3600, 7200, 14400, 28800]  # 15m,30m,1h,2h,4h,8h
 MAX_AGE_SECONDS = 86400  # 24h — dispatch best-available rather than wait forever
 
+# Persistent history, capped so it never grows unbounded: youtube_fast_check.log
+# (current) plus up to LOG_BACKUP_COUNT rotated-out copies (.1, .2, ...) once the
+# current file passes LOG_MAX_BYTES. Separate from User Scripts' own log.txt,
+# which only ever holds the most recent single run.
+LOG_MAX_BYTES = 1_000_000  # 1MB per file
+LOG_BACKUP_COUNT = 5       # ~6MB ceiling total
+
 ATOM_NS = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
+
+_logger = logging.getLogger("youtube_fast_check")
+
+
+def setup_logging(state_dir):
+    _logger.setLevel(logging.INFO)
+    fmt = logging.Formatter("%(asctime)s [youtube_fast_check] %(message)s", "%Y-%m-%d %H:%M:%S")
+
+    file_handler = logging.handlers.RotatingFileHandler(
+        os.path.join(state_dir, "youtube_fast_check.log"),
+        maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT,
+    )
+    file_handler.setFormatter(fmt)
+    _logger.addHandler(file_handler)
+
+    # Keep stderr output too — this is what User Scripts' own per-run log.txt
+    # captures, so the "last run" view in its GUI still works unchanged.
+    stream_handler = logging.StreamHandler(sys.stderr)
+    stream_handler.setFormatter(logging.Formatter("[youtube_fast_check] %(message)s"))
+    _logger.addHandler(stream_handler)
 
 
 def log(msg):
-    print(f"[youtube_fast_check] {msg}", file=sys.stderr)
+    _logger.info(msg)
 
 
 def atomic_write_json(path, data):
@@ -157,6 +186,7 @@ def main():
     args = ap.parse_args()
 
     os.makedirs(args.state_dir, exist_ok=True)
+    setup_logging(args.state_dir)
     channel_ids_path = os.path.join(args.state_dir, "channel_ids.json")
     seen_ids_path = os.path.join(args.state_dir, "seen_ids.json")
     pending_path = os.path.join(args.state_dir, "pending.json")
