@@ -13,10 +13,11 @@
 #      / quota needed). Only unresolved entries do this work.
 #   3. Fetch each channel's public Atom feed (no auth). A video counts as "new" if
 #      it's in none of: the shared yt-dlp download archive (already downloaded,
-#      by any profile), the pending queue (already queued here), or the dispatched
-#      set (already sent to MeTube, awaiting the archive to confirm completion).
-#      Reusing the existing archive instead of keeping a second, ever-growing
-#      per-video "seen" list avoids duplicating state that already exists.
+#      by any profile), the pending queue (already queued here), the dispatched
+#      set (already sent to MeTube, awaiting the archive to confirm completion),
+#      or that channel's frozen first-pass baseline (see 6). Reusing the existing
+#      archive instead of keeping a second, ever-growing per-video "seen" list
+#      avoids duplicating state that already exists.
 #   4. New videos enter a pending queue. Due items get a quality check (yt-dlp -F);
 #      if the target height is available, or the item has aged past MAX_AGE_SECONDS,
 #      dispatch it; otherwise reschedule per BACKOFF_SECONDS.
@@ -24,10 +25,14 @@
 #      makes) — MeTube's existing capture config (skip_download + writedesktoplink
 #      + Exec-fires-Semaphore) does everything downstream unmodified. The video
 #      moves from pending to the dispatched set until it shows up in the archive.
-#   6. A channel's very first pass seeds nothing into pending — its current feed
-#      is just noted as "already covered," so opting a channel in doesn't trigger
-#      a backlog download (download_default's scan is the backstop for anything
-#      older). This is tracked per-channel (bounded by channel count), not per-video.
+#   6. A channel's very first pass freezes its current feed's video IDs as a
+#      baseline and queues nothing, so opting a channel in doesn't trigger a
+#      backlog download (download_default's scan is the backstop for anything
+#      older). The archive only records what was actually downloaded, not a
+#      channel's pre-existing back-catalog — without this baseline, those old,
+#      never-downloaded videos would look "new" on the very next check. Written
+#      once per channel and never appended to again: bounded by (channel count
+#      x typical feed size), not by time or upload frequency like seen_ids was.
 #
 # Usage (inside the metube container):
 #   python3 youtube_fast_check.py [--dry-run] [--channel-list PATH] [--state-dir PATH]
@@ -235,13 +240,20 @@ def main():
     dispatched_path = os.path.join(args.state_dir, "dispatched.json")
 
     channel_ids = load_json(channel_ids_path, {})       # url -> channel_id
-    seeded_channels = load_json(seeded_channels_path, [])  # [channel_id, ...] — bounded by channel count
+    # channel_id -> [video_id, ...]: the channel's feed snapshot at first-pass
+    # time, frozen forever after that one write — NOT appended to on later runs.
+    # Needed because the download archive only records videos that were
+    # actually downloaded; a channel's pre-existing back-catalog (never
+    # downloaded, just sitting in the feed) isn't there, so without this baseline
+    # every one of those old videos would look "new" on the very next check.
+    # Bounded by (channel count x typical feed size), one time only — unlike the
+    # old seen_ids.json, this never grows again once a channel has its baseline.
+    seeded_channels = load_json(seeded_channels_path, {})
     pending = load_json(pending_path, {})               # video_id -> {url, next_check_at, attempts, first_seen_at}
     dispatched = load_json(dispatched_path, {})         # video_id -> {url, dispatched_at} — awaiting archive
 
     now = time.time()
     channel_ids_dirty = False
-    seeded_channels = set(seeded_channels)
     seeded_dirty = False
 
     archive_ids = read_download_archive(args.archive)
@@ -274,15 +286,18 @@ def main():
         except Exception as e:  # noqa: BLE001
             log(f"feed fetch failed for {url} ({channel_id}): {e}")
             continue
-        # First time we've ever checked this channel: note it as covered without
-        # queuing anything, so opting a channel in doesn't trigger a backlog
-        # download (download_default's scheduled scan is the backstop for that).
+        # First time we've ever checked this channel: freeze its current feed
+        # snapshot as the baseline and queue nothing, so opting a channel in
+        # doesn't trigger a backlog download (download_default's scan is the
+        # backstop for anything older).
         if channel_id not in seeded_channels:
-            seeded_channels.add(channel_id)
+            seeded_channels[channel_id] = [video_id for video_id, _ in entries]
             seeded_dirty = True
             continue
+        baseline = seeded_channels.get(channel_id, [])
         for video_id, video_url in entries:
-            if video_id in archive_ids or video_id in pending or video_id in dispatched:
+            if (video_id in archive_ids or video_id in pending
+                    or video_id in dispatched or video_id in baseline):
                 continue
             pending[video_id] = {
                 "url": video_url, "next_check_at": now,
@@ -326,7 +341,7 @@ def main():
     if channel_ids_dirty:
         atomic_write_json(channel_ids_path, channel_ids)
     if seeded_dirty:
-        atomic_write_json(seeded_channels_path, sorted(seeded_channels))
+        atomic_write_json(seeded_channels_path, seeded_channels)
     atomic_write_json(pending_path, pending)
     atomic_write_json(dispatched_path, dispatched)
 
