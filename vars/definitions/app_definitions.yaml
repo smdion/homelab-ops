@@ -24,6 +24,11 @@ app_definitions:
     db_stack: databases
     db_config: db_primary_postgres
     db_names: [authentik]
+  crowdsec:
+    stack: auth
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_names: [crowdsec]
   jellyseerr:
     stack: media
     db_stack: databases

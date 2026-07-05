@@ -1,0 +1,17 @@
+# Managed by deploy_crowdsec_configs.yaml — do not edit manually.
+# Overrides the vendor-managed config.yaml: switches the LAPI database backend
+# from SQLite to the shared Postgres instance. SQLite hit checkpoint
+# starvation under the SWAG bouncer's 10s decision-stream polling against a
+# ~100k-row decision table (WAL grew unbounded, CPU pegged). Postgres has no
+# equivalent single-writer WAL-checkpoint bottleneck.
+db_config:
+  type: postgresql
+  host: postgres
+  port: 5432
+  user: "{{ docker_postgres_user }}"
+  password: "{{ vault_docker_postgres_password }}"
+  db_name: crowdsec
+  sslmode: disable
+  flush:
+    max_items: 5000
+    max_age: 7d
