@@ -11,14 +11,23 @@
 #      as the scheduled channel scan — nothing about that file changes).
 #   2. Resolve + cache channel_id per URL (yt-dlp already extracts this; no API key
 #      / quota needed). Only unresolved entries do this work.
-#   3. Fetch each channel's public Atom feed (no auth) and diff against seen_ids to
-#      find videos not seen before.
+#   3. Fetch each channel's public Atom feed (no auth). A video counts as "new" if
+#      it's in none of: the shared yt-dlp download archive (already downloaded,
+#      by any profile), the pending queue (already queued here), or the dispatched
+#      set (already sent to MeTube, awaiting the archive to confirm completion).
+#      Reusing the existing archive instead of keeping a second, ever-growing
+#      per-video "seen" list avoids duplicating state that already exists.
 #   4. New videos enter a pending queue. Due items get a quality check (yt-dlp -F);
 #      if the target height is available, or the item has aged past MAX_AGE_SECONDS,
 #      dispatch it; otherwise reschedule per BACKOFF_SECONDS.
 #   5. Dispatch = POST to MeTube's own /add endpoint (same call the bookmarklet
 #      makes) — MeTube's existing capture config (skip_download + writedesktoplink
-#      + Exec-fires-Semaphore) does everything downstream unmodified.
+#      + Exec-fires-Semaphore) does everything downstream unmodified. The video
+#      moves from pending to the dispatched set until it shows up in the archive.
+#   6. A channel's very first pass seeds nothing into pending — its current feed
+#      is just noted as "already covered," so opting a channel in doesn't trigger
+#      a backlog download (download_default's scan is the backstop for anything
+#      older). This is tracked per-channel (bounded by channel count), not per-video.
 #
 # Usage (inside the metube container):
 #   python3 youtube_fast_check.py [--dry-run] [--channel-list PATH] [--state-dir PATH]
@@ -36,6 +45,9 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 CHANNEL_LIST_DEFAULT = "/configs/default/channel_list"
+ARCHIVE_DEFAULT = "/configs/default/downloaded"  # yt-dlp --download-archive, shared
+                                                   # across every profile (channels,
+                                                   # on_demand, and this fast path)
 STATE_DIR_DEFAULT = "/configs/youtube_fast"
 METUBE_ADD_URL = "http://localhost:8081/add"
 FEED_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={}"
@@ -120,6 +132,20 @@ def parse_youtube_channels(channel_list_path):
     return urls
 
 
+def read_download_archive(archive_path):
+    """Return the set of YouTube video IDs yt-dlp has already downloaded."""
+    ids = set()
+    try:
+        with open(archive_path) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) == 2 and parts[0] == "youtube":
+                    ids.add(parts[1])
+    except FileNotFoundError:
+        pass
+    return ids
+
+
 def resolve_channel_id(url, timeout=30):
     proc = subprocess.run(
         ["yt-dlp", "--skip-download", "--playlist-items", "1", "--print", "channel_id", url],
@@ -183,6 +209,7 @@ def dispatch_to_metube(url, dry_run):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--channel-list", default=CHANNEL_LIST_DEFAULT)
+    ap.add_argument("--archive", default=ARCHIVE_DEFAULT)
     ap.add_argument("--state-dir", default=STATE_DIR_DEFAULT)
     ap.add_argument("--dry-run", action="store_true", help="log actions, never call MeTube's /add")
     args = ap.parse_args()
@@ -190,16 +217,29 @@ def main():
     os.makedirs(args.state_dir, exist_ok=True)
     setup_logging(args.state_dir)
     channel_ids_path = os.path.join(args.state_dir, "channel_ids.json")
-    seen_ids_path = os.path.join(args.state_dir, "seen_ids.json")
+    seeded_channels_path = os.path.join(args.state_dir, "seeded_channels.json")
     pending_path = os.path.join(args.state_dir, "pending.json")
+    dispatched_path = os.path.join(args.state_dir, "dispatched.json")
 
-    channel_ids = load_json(channel_ids_path, {})   # url -> channel_id
-    seen_ids = load_json(seen_ids_path, {})         # channel_id -> [video_id, ...]
-    pending = load_json(pending_path, {})           # video_id -> {url, next_check_at, attempts, first_seen_at}
+    channel_ids = load_json(channel_ids_path, {})       # url -> channel_id
+    seeded_channels = load_json(seeded_channels_path, [])  # [channel_id, ...] — bounded by channel count
+    pending = load_json(pending_path, {})               # video_id -> {url, next_check_at, attempts, first_seen_at}
+    dispatched = load_json(dispatched_path, {})         # video_id -> {url, dispatched_at} — awaiting archive
 
     now = time.time()
     channel_ids_dirty = False
-    seen_ids_dirty = False
+    seeded_channels = set(seeded_channels)
+    seeded_dirty = False
+
+    archive_ids = read_download_archive(args.archive)
+
+    # Self-prune: once a dispatched video shows up in the archive, the real
+    # download completed — stop tracking it. Anything still here after a long
+    # time is a stuck/failed download, which the archive will eventually absorb
+    # or which stays visible in this (small, in-flight-only) set for inspection.
+    for video_id in list(dispatched.keys()):
+        if video_id in archive_ids:
+            del dispatched[video_id]
 
     urls = parse_youtube_channels(args.channel_list)
     log(f"{len(urls)} YouTube channel(s) in {args.channel_list}")
@@ -216,32 +256,30 @@ def main():
 
     new_count = 0
     for url, channel_id in channel_ids.items():
-        seen = set(seen_ids.get(channel_id, []))
         try:
             entries = fetch_feed_video_ids(channel_id)
         except Exception as e:  # noqa: BLE001
             log(f"feed fetch failed for {url} ({channel_id}): {e}")
             continue
-        first_pass = channel_id not in seen_ids
+        # First time we've ever checked this channel: note it as covered without
+        # queuing anything, so opting a channel in doesn't trigger a backlog
+        # download (download_default's scheduled scan is the backstop for that).
+        if channel_id not in seeded_channels:
+            seeded_channels.add(channel_id)
+            seeded_dirty = True
+            continue
         for video_id, video_url in entries:
-            if video_id in seen:
+            if video_id in archive_ids or video_id in pending or video_id in dispatched:
                 continue
-            seen.add(video_id)
-            seen_ids_dirty = True
-            # First time we've ever checked this channel: seed seen_ids without
-            # queuing anything, so opting a channel in doesn't trigger a backlog
-            # download (download_default's scheduled scan is the backstop for that).
-            if not first_pass and video_id not in pending:
-                pending[video_id] = {
-                    "url": video_url, "next_check_at": now,
-                    "attempts": 0, "first_seen_at": now,
-                }
-                new_count += 1
-        seen_ids[channel_id] = list(seen)
+            pending[video_id] = {
+                "url": video_url, "next_check_at": now,
+                "attempts": 0, "first_seen_at": now,
+            }
+            new_count += 1
     if new_count:
         log(f"{new_count} new video(s) queued for quality check")
 
-    dispatched, rescheduled = 0, 0
+    dispatched_count, rescheduled = 0, 0
     for video_id in list(pending.keys()):
         item = pending[video_id]
         if item["next_check_at"] > now:
@@ -256,11 +294,12 @@ def main():
         if ready:
             try:
                 dispatch_to_metube(item["url"], args.dry_run)
-                dispatched += 1
+                dispatched_count += 1
                 log(f"dispatched {item['url']} (height={height}, age={int(age)}s)")
             except Exception as e:  # noqa: BLE001
                 log(f"dispatch failed for {item['url']}: {e} (will retry next pass)")
                 continue
+            dispatched[video_id] = {"url": item["url"], "dispatched_at": now}
             del pending[video_id]
         else:
             attempts = item["attempts"]
@@ -268,14 +307,15 @@ def main():
             item["attempts"] = attempts + 1
             item["next_check_at"] = now + delay
             rescheduled += 1
-    if dispatched or rescheduled:
-        log(f"dispatched={dispatched} rescheduled={rescheduled} still-pending={len(pending)}")
+    if dispatched_count or rescheduled:
+        log(f"dispatched={dispatched_count} rescheduled={rescheduled} still-pending={len(pending)}")
 
     if channel_ids_dirty:
         atomic_write_json(channel_ids_path, channel_ids)
-    if seen_ids_dirty:
-        atomic_write_json(seen_ids_path, seen_ids)
+    if seeded_dirty:
+        atomic_write_json(seeded_channels_path, sorted(seeded_channels))
     atomic_write_json(pending_path, pending)
+    atomic_write_json(dispatched_path, dispatched)
 
 
 if __name__ == "__main__":
