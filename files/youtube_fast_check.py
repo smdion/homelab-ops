@@ -49,6 +49,11 @@ ARCHIVE_DEFAULT = "/configs/default/downloaded"  # yt-dlp --download-archive, sh
                                                    # across every profile (channels,
                                                    # on_demand, and this fast path)
 STATE_DIR_DEFAULT = "/configs/youtube_fast"
+# Rendered by deploy_youtube_fast_check.yaml from the on_demand profile's own
+# cookies/extractor-args/reject-title/quality settings (templates/
+# youtube_fast_probe.conf.j2) — kept out of this script so it can never drift
+# from whatever those vars actually are; re-deploy to pick up changes.
+PROBE_CONFIG_DEFAULT = "/configs/youtube_fast/probe.conf"
 METUBE_ADD_URL = "http://localhost:8081/add"
 FEED_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={}"
 
@@ -146,9 +151,16 @@ def read_download_archive(archive_path):
     return ids
 
 
-def resolve_channel_id(url, timeout=30):
+def _probe_args(probe_config):
+    """--config-location for probe.conf if it's been rendered, else nothing —
+    a missing config degrades to an un-filtered probe rather than crashing."""
+    return ["--config-location", probe_config] if os.path.isfile(probe_config) else []
+
+
+def resolve_channel_id(url, probe_config, timeout=30):
     proc = subprocess.run(
-        ["yt-dlp", "--skip-download", "--playlist-items", "1", "--print", "channel_id", url],
+        ["yt-dlp", *_probe_args(probe_config), "--skip-download",
+         "--playlist-items", "1", "--print", "channel_id", url],
         capture_output=True, text=True, timeout=timeout,
     )
     if proc.returncode != 0:
@@ -183,9 +195,9 @@ def fetch_feed_video_ids(channel_id, timeout=20):
 HEIGHT_RE = re.compile(r"^\s*\S+\s+\S+\s+(\d+)x(\d+)", re.MULTILINE)
 
 
-def max_available_height(url, timeout=30):
+def max_available_height(url, probe_config, timeout=30):
     proc = subprocess.run(
-        ["yt-dlp", "--skip-download", "-F", url],
+        ["yt-dlp", *_probe_args(probe_config), "--skip-download", "-F", url],
         capture_output=True, text=True, timeout=timeout,
     )
     if proc.returncode != 0:
@@ -211,6 +223,7 @@ def main():
     ap.add_argument("--channel-list", default=CHANNEL_LIST_DEFAULT)
     ap.add_argument("--archive", default=ARCHIVE_DEFAULT)
     ap.add_argument("--state-dir", default=STATE_DIR_DEFAULT)
+    ap.add_argument("--probe-config", default=PROBE_CONFIG_DEFAULT)
     ap.add_argument("--dry-run", action="store_true", help="log actions, never call MeTube's /add")
     args = ap.parse_args()
 
@@ -248,7 +261,7 @@ def main():
         if url in channel_ids:
             continue
         try:
-            channel_ids[url] = resolve_channel_id(url)
+            channel_ids[url] = resolve_channel_id(url, args.probe_config)
             channel_ids_dirty = True
             log(f"resolved channel_id for {url} -> {channel_ids[url]}")
         except Exception as e:  # noqa: BLE001 — one bad channel must not stop the run
@@ -286,7 +299,7 @@ def main():
             continue
         age = now - item["first_seen_at"]
         try:
-            height = max_available_height(item["url"])
+            height = max_available_height(item["url"], args.probe_config)
         except Exception as e:  # noqa: BLE001
             log(f"quality check failed for {item['url']}: {e}")
             height = 0

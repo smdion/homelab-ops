@@ -23,6 +23,13 @@
 - name: Deploy YouTube fast-discovery check
   hosts: "{{ hosts_variable }}"
   gather_facts: false
+  # Loaded so youtube_fast_probe.conf.j2 renders from the SAME cookies/
+  # extractor-args/reject-title/quality settings the real on_demand download
+  # uses — fast-path dispatches route through that profile, so probing with
+  # its filters is what keeps this from drifting out of sync with it.
+  vars_files:
+    - vars/configs/download_base.yaml
+    - vars/configs/download_on_demand.yaml
 
   vars:
     metube_appdata_dir: "/mnt/user/appdata/youtube-dl"
@@ -42,6 +49,24 @@
         src: files/youtube_fast_check.py
         dest: "{{ metube_appdata_dir }}/scripts/youtube_fast_check.py"
         mode: "0755"
+
+    - name: Ensure youtube_fast state directory exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ metube_appdata_dir }}/youtube_fast"
+        state: directory
+        mode: "0755"
+
+    # Same cookies/extractor-args/reject-title/quality/live-filter the real
+    # on_demand download uses (see templates/youtube_fast_probe.conf.j2) —
+    # re-rendered on every deploy, so it can never silently drift from the
+    # profile it mirrors.
+    - name: Render probe config for channel-id/quality checks
+      become: true
+      ansible.builtin.template:
+        src: templates/youtube_fast_probe.conf.j2
+        dest: "{{ metube_appdata_dir }}/youtube_fast/probe.conf"
+        mode: "0644"
 
     - name: Ensure User Scripts entry directory exists
       become: true
