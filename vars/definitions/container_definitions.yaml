@@ -392,9 +392,6 @@ container_definitions:
       CROWDSEC_COLLECTIONS: "crowdsecurity/nginx crowdsecurity/http-cve crowdsecurity/whitelist-good-actors firix/authentik crowdsecurity/wordpress"
       CROWDSEC_CUSTOM_HOSTNAME: "crowdsec"
       CROWDSEC_LAPI_URL: "http://crowdsec:8080"
-      # Enable SQLite Write-Ahead Logging (CrowdSec-recommended: more concurrency,
-      # avoids the startup WAL warning and DB-lock contention under decision load).
-      CROWDSEC_USE_WAL: "true"
     guacamole:
       name: Crowdsec
       group: Tools
@@ -404,10 +401,12 @@ container_definitions:
       ports: ["8080:8080", "6060:6060", "514:514/udp"]
       labels:
         homelab.backup.paths: "/opt/crowdsec"
+        homelab.restore.app: "crowdsec"
+        homelab.restore.db_config: "db_primary_postgres"
+        homelab.restore.db_names: "crowdsec"
       environment:
         COLLECTIONS: "${CROWDSEC_COLLECTIONS}"
         CUSTOM_HOSTNAME: "${CROWDSEC_CUSTOM_HOSTNAME}"
-        USE_WAL: "${CROWDSEC_USE_WAL}"
       volumes:
         - "${APPSDIR}/crowdsec/config:/etc/crowdsec"
         - "${APPSDIR}/crowdsec/data:/var/lib/crowdsec/data"
