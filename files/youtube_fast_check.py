@@ -48,8 +48,10 @@ MAX_AGE_SECONDS = 86400  # 24h — dispatch best-available rather than wait fore
 # (current) plus up to LOG_BACKUP_COUNT rotated-out copies (.1, .2, ...) once the
 # current file passes LOG_MAX_BYTES. Separate from User Scripts' own log.txt,
 # which only ever holds the most recent single run.
-LOG_MAX_BYTES = 1_000_000  # 1MB per file
-LOG_BACKUP_COUNT = 5       # ~6MB ceiling total
+LOG_MAX_BYTES = 1_000_000  # 1MB per file — at typical activity levels (~150-250
+                            # lines/day idle-cadence), this alone covers 1-2 months
+                            # before ever rotating, well past the visible tail window
+LOG_BACKUP_COUNT = 3       # ~4MB ceiling total
 
 ATOM_NS = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
 
