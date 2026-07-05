@@ -5,9 +5,10 @@
 # CrowdSec container (auth stack host) and the SWAG nginx bouncer.
 #
 # Renders: acquis.yaml, profiles.yaml, notifications/discord.yaml,
-# parsers/s02-enrich/mywhitelists.yaml, custom scenarios, and the swag
-# crowdsec-nginx-bouncer.conf. Removes stale config left over from old topology
-# (dead VictoriaMetrics notifier, unused MariaDB alt-configs).
+# parsers/s02-enrich/mywhitelists.yaml, config.yaml.local (Postgres db_config
+# override), custom scenarios, and the swag crowdsec-nginx-bouncer.conf.
+# Removes stale config left over from old topology (dead VictoriaMetrics
+# notifier, unused MariaDB alt-configs).
 #
 # Env-driven CrowdSec/bouncer knobs (USE_WAL, MODE, UPDATE_FREQUENCY, keys) live in
 # container_definitions.yaml — apply those by redeploying the auth stack.
@@ -33,6 +34,7 @@
     - vars/definitions/crowdsec_definitions.yaml
     - vars/configs/proxmox.yaml
     - vars/configs/semaphore_check.yaml
+    - vars/configs/docker_stacks.yaml
     - vars/secrets.yaml
 
   vars:
@@ -101,6 +103,7 @@
             - { src: profiles.yaml.j2, dest: profiles.yaml }
             - { src: discord.yaml.j2, dest: notifications/discord.yaml }
             - { src: mywhitelists.yaml.j2, dest: parsers/s02-enrich/mywhitelists.yaml }
+            - { src: config.yaml.local.j2, dest: config.yaml.local }
           loop_control:
             label: "{{ item.dest }}"
           register: _cs_templates
