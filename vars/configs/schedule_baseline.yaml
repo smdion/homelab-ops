@@ -47,11 +47,12 @@ schedule_baseline:
     cron_expression: "0 8 * * 0"
   - template_name: "Maintain — Logging DB [Summary]"
     cron_expression: "0 8 * * 0"
-  - template_name: "Download — Videos [Channels]"
-    cron_expression: "0 */4 * * *"
-  # "Download — Videos [On Demand]" is intentionally UNscheduled — it is event-driven
-  # (MeTube Exec → Semaphore → self re-trigger), so it has no baseline cron. The playbook
-  # header carries "# Schedule-exempt: On Demand" so the coverage check skips it too.
+  # "Download — Videos" is intentionally UNscheduled — it is event-driven (MeTube
+  # Exec → Semaphore → self re-trigger), so it has no baseline cron. The playbook
+  # header carries "# Schedule-exempt: Download — Videos" so the coverage check
+  # skips it too. There used to be a second, separately-scheduled "[Channels]"
+  # template here (periodic channel_list scan) — retired now that fast_check.py
+  # covers discovery for both YouTube and Twitch.
   - template_name: "Maintain — AMP [Cleanup]"
     cron_expression: "0 8 * * 1"
   - template_name: "Maintain — Docker [Cleanup]"

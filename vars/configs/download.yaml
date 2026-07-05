@@ -1,0 +1,40 @@
+---
+# yt-dlp download profile: the one and only download profile.
+# Overrides download_base.yaml with per-user preferences.
+# Used by download_videos.yaml via -e config_file=download
+#
+# Every video reaches this profile the same way: MeTube's own capture
+# mechanism (skip_download + writedesktoplink + Exec-fires-Semaphore) fires
+# whether the URL was added by hand (bookmarklet) or by fast_check.py's
+# automated discovery for YouTube/Twitch (see deploy_fast_check.yaml,
+# files/fast_check.py) — there's no separate path per source, just this one.
+#
+# config_name stays "default" — it names the on-disk config dir/archive
+# (/configs/default/...), which predates and is independent of this file's
+# own name; renaming it would mean renaming live directories on liberty for
+# no benefit.
+
+config_name: "default"
+
+# Capture directory (inside metube container). MeTube writes .desktop link
+# files here via YTDL_OPTIONS (skip_download + writedesktoplink), regardless
+# of whether the /add call came from the bookmarklet or fast_check.py. The
+# playbook extracts URLs from these files into the batch file before running
+# yt-dlp.
+metube_capture_dir: "/configs/on_demand"
+
+# Verbose output (live streams are already allowed by download_base.yaml's
+# shared default — nothing to override here)
+ytdlp_quiet: false
+
+# Batch file (profile-specific path inside metube container)
+ytdlp_batch_file: "/configs/default/on_demand"
+
+# Explicitly unrestricted — download_base.yaml sets a 1-week default (for
+# fast_check.py's discovery scope), but a video that already made it into the
+# queue (bookmarklet or fast_check dispatch) must never be rejected here for
+# being "too old". fast_check's own dispatches are always recent by
+# construction anyway (they were just discovered within that same window);
+# this override matters for the bookmarklet, where grabbing an old video on
+# purpose is a completely normal thing to want to do.
+ytdlp_dateafter: ""

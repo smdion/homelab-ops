@@ -36,16 +36,16 @@ metube_mqtt_container: "mosquitto"
 metube_mqtt_topic: "homelab/metube/{{ config_name }}"
 
 # Event-driven trigger — Semaphore self-invocation.
-# The detached download wrapper re-invokes the On Demand template on exit so the
-# next run performs the completion sweep (notifications) and picks up captures
-# that arrived mid-download. MeTube's capture Exec postprocessor hits the same
-# endpoint on add. Template 47 is therefore trigger-only: the every-10-min
-# schedule was retired and NOT replaced by any periodic safety-net — a lost
-# trigger surfaces as a missing download/notification rather than being silently
-# swept up later. Host URL + token come from vault:
-#   vault_semaphore_host_url, vault_semaphore_download_trigger_token.
+# The detached download wrapper re-invokes this template on exit so the next
+# run performs the completion sweep (notifications) and picks up captures that
+# arrived mid-download. MeTube's capture Exec postprocessor hits the same
+# endpoint on add — whether the capture came from the bookmarklet or
+# fast_check.py's discovery. This template is therefore trigger-only: no
+# periodic safety-net poll — a lost trigger surfaces as a missing download/
+# notification rather than being silently swept up later. Host URL + token
+# come from vault: vault_semaphore_host_url, vault_semaphore_download_trigger_token.
 semaphore_project_id: 1
-semaphore_download_template_id: 47   # "Download - Videos [On Demand]"
+semaphore_download_template_id: 47   # "Download — Videos"
 
 # Paths (inside metube container)
 ytdlp_download_path: "/downloads/"
@@ -68,6 +68,19 @@ ytdlp_rate_limit: ""
 ytdlp_playlist_end: 5
 ytdlp_reject_title: "TMS|The Morning Stream|TWBD|Be Dungeons"
 ytdlp_archive: "/configs/default/downloaded"
+
+# Date filter — only fetch recent uploads. Shared default (used by
+# fast_check.py's probe config to scope channel enumeration — see
+# templates/_fast_check_common.conf.j2); download.yaml explicitly clears this
+# back to "" since a manually-added video (bookmarklet or fast_check dispatch)
+# should never be rejected for being old, only the enumeration/discovery step
+# should be scoped by it.
+ytdlp_dateafter: "now-1weeks"
+
+# Allow live streams — matches the one real download profile's (download.yaml)
+# actual desired behavior, so it no longer needs to override this itself;
+# fast_check.py's probe config reads it directly from here too.
+ytdlp_filter_live: false
 
 # Fragment / retry handling.
 # yt-dlp records a video in the download archive once it considers the download
