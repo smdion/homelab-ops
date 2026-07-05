@@ -125,6 +125,10 @@ container_definitions:
       AUTHENTIK_EMAIL_FROM: "sso@{{ vault_domain_ext }}"
       AUTHENTIK_EMAIL_USE_TLS: "true"
       AUTHENTIK_EMAIL_TIMEOUT: "10"
+      # Auto-creation of Authentik-managed outposts (unused here — outposts aren't used) is
+      # the only reason authentik/authentik_worker needed docker.sock; disabling it lets us
+      # drop the mount entirely.
+      AUTHENTIK_OUTPOSTS__DISCOVER: "false"
       POSTGRES_HOST: "postgres"
       POSTGRES_USER: "{{ docker_postgres_user }}"
       POSTGRES_PASSWORD: "{{ vault_docker_postgres_password }}"
@@ -174,10 +178,10 @@ container_definitions:
         AUTHENTIK_EMAIL__TIMEOUT: "${AUTHENTIK_EMAIL_TIMEOUT}"
         AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS}"
         AUTHENTIK_WORKERS: "${AUTHENTIK_WORKERS}"
+        AUTHENTIK_OUTPOSTS__DISCOVER: "${AUTHENTIK_OUTPOSTS__DISCOVER}"
       volumes:
         - "${APPSDIR}/authentik_worker/data:/data"
         - "${APPSDIR}/authentik_worker/templates:/templates"
-        - "/var/run/docker.sock:/var/run/docker.sock:ro"
       command: server
       healthcheck:
         test: ["CMD", "ak", "healthcheck"]
@@ -208,12 +212,12 @@ container_definitions:
         AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY}"
         AUTHENTIK_WORKER_CONCURRENCY: "${AUTHENTIK_WORKER_CONCURRENCY}"
         AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS}"
+        AUTHENTIK_OUTPOSTS__DISCOVER: "${AUTHENTIK_OUTPOSTS__DISCOVER}"
       volumes:
         - "${APPSDIR}/authentik_worker/backups:/backups"
         - "${APPSDIR}/authentik_worker/data:/data"
         - "${APPSDIR}/authentik_worker/certs:/certs"
         - "${APPSDIR}/authentik_worker/templates:/templates"
-        - "/var/run/docker.sock:/var/run/docker.sock:ro"
       command: worker
       healthcheck:
         test: ["CMD", "ak", "healthcheck"]
