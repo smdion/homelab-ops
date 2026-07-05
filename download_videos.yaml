@@ -69,6 +69,18 @@
 
   pre_tasks:
 
+    # Idempotent — ansible.builtin.copy only actually writes when the content
+    # differs, so this is a cheap no-op on every run except when the script
+    # itself changes. Used by the detached-download launch task below to build
+    # the post-download sweep's Semaphore trigger message (title/uploader of
+    # what was just downloaded, when available).
+    - name: Deploy sweep-message helper script
+      become: true
+      ansible.builtin.copy:
+        src: files/build_sweep_message.py
+        dest: "{{ metube_config_host_dir }}/scripts/build_sweep_message.py"
+        mode: "0755"
+
     - name: Clean old successful Semaphore task runs
       include_tasks: tasks/clean_semaphore_tasks.yaml
 
@@ -424,6 +436,15 @@
     #
     # no_log is required: the rendered argv carries the API token, and without
     # it Semaphore would echo the token into this template's task log.
+    #
+    # The trigger's "message" (what shows in Semaphore's task list) is built by
+    # files/build_sweep_message.py rather than hardcoded, so it shows the title/
+    # uploader of what was just downloaded (from the manifest — already written
+    # by the time yt-dlp exits) instead of a generic "post-download sweep" for
+    # every single run. Falls back to the generic message if the manifest is
+    # empty/missing/malformed. JSON is built with json.dumps in that script, not
+    # hand-interpolated here, so a title containing quotes can't corrupt the
+    # payload.
     - name: Launch yt-dlp (detached) in the metube container
       become: true
       no_log: true
@@ -435,7 +456,7 @@
           - "{{ metube_container }}"
           - sh
           - -c
-          - "echo $$ > {{ ytdlp_state_file }}; yt-dlp --config-location {{ metube_config_path }}; echo $? > {{ ytdlp_status_file }}; rm -f {{ ytdlp_state_file }}; curl -sf --connect-timeout 8 --max-time 25 --retry 3 --retry-delay 5 -X POST -H 'Authorization: Bearer {{ vault_semaphore_download_trigger_token }}' -H 'Content-Type: application/json' -d '{\"template_id\": {{ semaphore_download_template_id }}, \"project_id\": {{ semaphore_project_id }}, \"message\": \"post-download sweep\"}' {{ vault_semaphore_host_url }}/api/project/{{ semaphore_project_id }}/tasks >/dev/null 2>&1 || true"
+          - "echo $$ > {{ ytdlp_state_file }}; yt-dlp --config-location {{ metube_config_path }}; echo $? > {{ ytdlp_status_file }}; rm -f {{ ytdlp_state_file }}; python3 /configs/scripts/build_sweep_message.py {{ metube_manifest }} {{ semaphore_download_template_id }} {{ semaphore_project_id }} | curl -sf --connect-timeout 8 --max-time 25 --retry 3 --retry-delay 5 -X POST -H 'Authorization: Bearer {{ vault_semaphore_download_trigger_token }}' -H 'Content-Type: application/json' -d @- {{ vault_semaphore_host_url }}/api/project/{{ semaphore_project_id }}/tasks >/dev/null 2>&1 || true"
       changed_when: true
       when: _should_launch | bool
 
