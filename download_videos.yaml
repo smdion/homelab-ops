@@ -1,11 +1,12 @@
 ---
 # Category: Utilities
 # Schedule-exempt: On Demand
+# Download videos via MeTube / yt-dlp — dispatcher pattern.
+#
 #   The "Download — Videos [On Demand]" template is event-driven (MeTube Exec →
 #   Semaphore → self re-trigger), so it intentionally has no schedule. This marker
 #   exempts only that template from the health-check schedule-coverage check; the
 #   scheduled "Download — Videos [Channels]" template (same playbook) stays covered.
-# Download videos via MeTube / yt-dlp — dispatcher pattern.
 #
 # Each run is a fast DISPATCHER, not a blocking download:
 #   1. Guard   — if a yt-dlp download is already running in the container, end the

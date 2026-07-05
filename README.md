@@ -87,6 +87,7 @@ for platforms you don't have are automatically skipped.
 | `dns_resolution` | All SSH hosts | DNS resolver working |
 | `docker_http` | Configured hosts | HTTP endpoint checks for Docker containers |
 | `opt_orphan_entries` | `[docker_stacks]` only | Unexpected files/directories in `/opt` |
+| Docker image updates | All SSH hosts | A version-pinned container has a newer release upstream (see below) |
 | `pve_cluster` | `[pve]` only | Proxmox cluster quorum |
 | `ceph_health` | `[pve]` only | Ceph cluster status |
 | `unraid_array` | `[unraid]` only | Array state + disabled/missing disks |
