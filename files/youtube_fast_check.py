@@ -9,30 +9,36 @@
 # What each pass does:
 #   1. Parse channel_list for YouTube entries (same file, same manual-add workflow
 #      as the scheduled channel scan — nothing about that file changes).
-#   2. Resolve + cache channel_id per URL (yt-dlp already extracts this; no API key
-#      / quota needed). Only unresolved entries do this work.
-#   3. Fetch each channel's public Atom feed (no auth). A video counts as "new" if
-#      it's in none of: the shared yt-dlp download archive (already downloaded,
-#      by any profile), the pending queue (already queued here), the dispatched
-#      set (already sent to MeTube, awaiting the archive to confirm completion),
-#      or that channel's frozen first-pass baseline (see 6). Reusing the existing
-#      archive instead of keeping a second, ever-growing per-video "seen" list
-#      avoids duplicating state that already exists.
-#   4. New videos enter a pending queue. Due items get a quality check (yt-dlp -F);
-#      if the target height is available, or the item has aged past MAX_AGE_SECONDS,
-#      dispatch it; otherwise reschedule per BACKOFF_SECONDS.
+#   2. Enumerate each channel via yt-dlp itself (--flat-playlist --print),
+#      using PROBE_CONFIG (rendered from the real download_default/on_demand
+#      vars — see templates/youtube_fast_probe.conf.j2). This means
+#      --playlist-end/--dateafter/cookies/extractor-args/reject-title/live-filter
+#      are all applied by yt-dlp natively — nothing here reimplements them, so
+#      this can never drift from what the actual download would consider.
+#   3. A video counts as "new" if it's in none of: the shared yt-dlp download
+#      archive (already downloaded, by any profile), the pending queue (already
+#      queued here), the dispatched set (already sent to MeTube, awaiting the
+#      archive to confirm completion), or that channel's frozen first-pass
+#      baseline (see 6). Reusing the existing archive instead of keeping a
+#      second, ever-growing per-video "seen" list avoids duplicating state
+#      that already exists.
+#   4. New videos enter a pending queue. Due items get a quality check (yt-dlp -F,
+#      same PROBE_CONFIG); if the target height is available, or the item has
+#      aged past MAX_AGE_SECONDS, dispatch it; otherwise reschedule per
+#      BACKOFF_SECONDS.
 #   5. Dispatch = POST to MeTube's own /add endpoint (same call the bookmarklet
 #      makes) — MeTube's existing capture config (skip_download + writedesktoplink
 #      + Exec-fires-Semaphore) does everything downstream unmodified. The video
 #      moves from pending to the dispatched set until it shows up in the archive.
-#   6. A channel's very first pass freezes its current feed's video IDs as a
-#      baseline and queues nothing, so opting a channel in doesn't trigger a
-#      backlog download (download_default's scan is the backstop for anything
-#      older). The archive only records what was actually downloaded, not a
-#      channel's pre-existing back-catalog — without this baseline, those old,
-#      never-downloaded videos would look "new" on the very next check. Written
-#      once per channel and never appended to again: bounded by (channel count
-#      x typical feed size), not by time or upload frequency like seen_ids was.
+#   6. A channel's very first pass freezes its current enumeration as a baseline
+#      and queues nothing, so opting a channel in doesn't trigger a backlog
+#      download (download_default's scan is the backstop for anything older —
+#      or was, for YouTube, before this replaced that role). The archive only
+#      records what was actually downloaded, not a channel's pre-existing
+#      back-catalog — without this baseline, those old, never-downloaded videos
+#      would look "new" on the very next check. Written once per channel and
+#      never appended to again: bounded by (channel count x playlist-end), not
+#      by time or upload frequency like a naive "seen" list would be.
 #
 # Usage (inside the metube container):
 #   python3 youtube_fast_check.py [--dry-run] [--channel-list PATH] [--state-dir PATH]
@@ -47,20 +53,18 @@ import subprocess
 import sys
 import time
 import urllib.request
-import xml.etree.ElementTree as ET
 
 CHANNEL_LIST_DEFAULT = "/configs/default/channel_list"
 ARCHIVE_DEFAULT = "/configs/default/downloaded"  # yt-dlp --download-archive, shared
                                                    # across every profile (channels,
                                                    # on_demand, and this fast path)
 STATE_DIR_DEFAULT = "/configs/youtube_fast"
-# Rendered by deploy_youtube_fast_check.yaml from the on_demand profile's own
-# cookies/extractor-args/reject-title/quality settings (templates/
-# youtube_fast_probe.conf.j2) — kept out of this script so it can never drift
-# from whatever those vars actually are; re-deploy to pick up changes.
+# Rendered by deploy_youtube_fast_check.yaml from the real download_default +
+# download_on_demand vars (templates/youtube_fast_probe.conf.j2) — kept out of
+# this script entirely so nothing here can drift from those rules; re-deploy
+# to pick up changes.
 PROBE_CONFIG_DEFAULT = "/configs/youtube_fast/probe.conf"
 METUBE_ADD_URL = "http://localhost:8081/add"
-FEED_URL = "https://www.youtube.com/feeds/videos.xml?channel_id={}"
 
 MIN_HEIGHT = 1080
 BACKOFF_SECONDS = [900, 1800, 3600, 7200, 14400, 28800]  # 15m,30m,1h,2h,4h,8h
@@ -74,8 +78,6 @@ LOG_MAX_BYTES = 1_000_000  # 1MB per file — at typical activity levels (~150-2
                             # lines/day idle-cadence), this alone covers 1-2 months
                             # before ever rotating, well past the visible tail window
 LOG_BACKUP_COUNT = 3       # ~4MB ceiling total
-
-ATOM_NS = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
 
 _logger = logging.getLogger("youtube_fast_check")
 
@@ -162,38 +164,23 @@ def _probe_args(probe_config):
     return ["--config-location", probe_config] if os.path.isfile(probe_config) else []
 
 
-def resolve_channel_id(url, probe_config, timeout=30):
+def list_channel_videos(url, probe_config, timeout=60):
+    """Enumerate a channel's videos via yt-dlp itself (--flat-playlist), so
+    --playlist-end/--dateafter/etc from probe_config apply exactly as they
+    would for the real download — nothing here re-decides scope on its own.
+    Returns list of (video_id, video_url)."""
     proc = subprocess.run(
-        ["yt-dlp", *_probe_args(probe_config), "--skip-download",
-         "--playlist-items", "1", "--print", "channel_id", url],
+        ["yt-dlp", *_probe_args(probe_config), "--flat-playlist", "--skip-download",
+         "--print", "%(id)s %(webpage_url)s", url],
         capture_output=True, text=True, timeout=timeout,
     )
     if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or "yt-dlp failed").strip().splitlines()[-1:] or "yt-dlp failed")
-    channel_id = proc.stdout.strip().splitlines()[0] if proc.stdout.strip() else ""
-    if not channel_id:
-        raise RuntimeError("no channel_id in yt-dlp output")
-    return channel_id
-
-
-def fetch_feed_video_ids(channel_id, timeout=20):
-    """Return list of (video_id, url) from the channel's public Atom feed."""
-    req = urllib.request.Request(
-        FEED_URL.format(channel_id),
-        headers={"User-Agent": "homelab-ops youtube_fast_check"},
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        body = resp.read()
-    root = ET.fromstring(body)
+        raise RuntimeError((proc.stderr or "yt-dlp enumeration failed").strip().splitlines()[-1:] or "yt-dlp enumeration failed")
     out = []
-    for entry in root.findall("a:entry", ATOM_NS):
-        vid_el = entry.find("yt:videoId", ATOM_NS)
-        link_el = entry.find("a:link", ATOM_NS)
-        if vid_el is None or vid_el.text is None:
-            continue
-        video_id = vid_el.text.strip()
-        url = link_el.get("href") if link_el is not None else f"https://www.youtube.com/watch?v={video_id}"
-        out.append((video_id, url))
+    for line in proc.stdout.strip().splitlines():
+        parts = line.split(maxsplit=1)
+        if len(parts) == 2:
+            out.append((parts[0], parts[1]))
     return out
 
 
@@ -234,26 +221,18 @@ def main():
 
     os.makedirs(args.state_dir, exist_ok=True)
     setup_logging(args.state_dir)
-    channel_ids_path = os.path.join(args.state_dir, "channel_ids.json")
     seeded_channels_path = os.path.join(args.state_dir, "seeded_channels.json")
     pending_path = os.path.join(args.state_dir, "pending.json")
     dispatched_path = os.path.join(args.state_dir, "dispatched.json")
 
-    channel_ids = load_json(channel_ids_path, {})       # url -> channel_id
-    # channel_id -> [video_id, ...]: the channel's feed snapshot at first-pass
-    # time, frozen forever after that one write — NOT appended to on later runs.
-    # Needed because the download archive only records videos that were
-    # actually downloaded; a channel's pre-existing back-catalog (never
-    # downloaded, just sitting in the feed) isn't there, so without this baseline
-    # every one of those old videos would look "new" on the very next check.
-    # Bounded by (channel count x typical feed size), one time only — unlike the
-    # old seen_ids.json, this never grows again once a channel has its baseline.
+    # channel_url -> [video_id, ...]: the channel's enumeration snapshot at
+    # first-pass time, frozen forever after that one write — NOT appended to on
+    # later runs. See module docstring point 6 for why this exists.
     seeded_channels = load_json(seeded_channels_path, {})
     pending = load_json(pending_path, {})               # video_id -> {url, next_check_at, attempts, first_seen_at}
     dispatched = load_json(dispatched_path, {})         # video_id -> {url, dispatched_at} — awaiting archive
 
     now = time.time()
-    channel_ids_dirty = False
     seeded_dirty = False
 
     archive_ids = read_download_archive(args.archive)
@@ -269,32 +248,21 @@ def main():
     urls = parse_youtube_channels(args.channel_list)
     log(f"{len(urls)} YouTube channel(s) in {args.channel_list}")
 
-    for url in urls:
-        if url in channel_ids:
-            continue
-        try:
-            channel_ids[url] = resolve_channel_id(url, args.probe_config)
-            channel_ids_dirty = True
-            log(f"resolved channel_id for {url} -> {channel_ids[url]}")
-        except Exception as e:  # noqa: BLE001 — one bad channel must not stop the run
-            log(f"failed to resolve channel_id for {url}: {e}")
-
     new_count = 0
-    for url, channel_id in channel_ids.items():
+    for url in urls:
         try:
-            entries = fetch_feed_video_ids(channel_id)
-        except Exception as e:  # noqa: BLE001
-            log(f"feed fetch failed for {url} ({channel_id}): {e}")
+            entries = list_channel_videos(url, args.probe_config)
+        except Exception as e:  # noqa: BLE001 — one bad channel must not stop the run
+            log(f"enumeration failed for {url}: {e}")
             continue
-        # First time we've ever checked this channel: freeze its current feed
-        # snapshot as the baseline and queue nothing, so opting a channel in
-        # doesn't trigger a backlog download (download_default's scan is the
-        # backstop for anything older).
-        if channel_id not in seeded_channels:
-            seeded_channels[channel_id] = [video_id for video_id, _ in entries]
+        # First time we've ever checked this channel: freeze its current
+        # enumeration as the baseline and queue nothing, so opting a channel in
+        # doesn't trigger a backlog download.
+        if url not in seeded_channels:
+            seeded_channels[url] = [video_id for video_id, _ in entries]
             seeded_dirty = True
             continue
-        baseline = seeded_channels.get(channel_id, [])
+        baseline = seeded_channels.get(url, [])
         for video_id, video_url in entries:
             if (video_id in archive_ids or video_id in pending
                     or video_id in dispatched or video_id in baseline):
@@ -338,8 +306,6 @@ def main():
     if dispatched_count or rescheduled:
         log(f"dispatched={dispatched_count} rescheduled={rescheduled} still-pending={len(pending)}")
 
-    if channel_ids_dirty:
-        atomic_write_json(channel_ids_path, channel_ids)
     if seeded_dirty:
         atomic_write_json(seeded_channels_path, seeded_channels)
     atomic_write_json(pending_path, pending)

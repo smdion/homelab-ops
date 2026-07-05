@@ -23,12 +23,15 @@
 - name: Deploy YouTube fast-discovery check
   hosts: "{{ hosts_variable }}"
   gather_facts: false
-  # Loaded so youtube_fast_probe.conf.j2 renders from the SAME cookies/
-  # extractor-args/reject-title/quality settings the real on_demand download
-  # uses — fast-path dispatches route through that profile, so probing with
-  # its filters is what keeps this from drifting out of sync with it.
+  # Loaded so youtube_fast_probe.conf.j2 renders from the real config, not a
+  # reimplementation of it. Order matters: download_default.yaml supplies
+  # ytdlp_dateafter (only it sets one — channel-scanning scope, which this
+  # script replaces for YouTube); download_on_demand.yaml loads LAST so its
+  # overrides (ytdlp_filter_live=false, etc.) win where the two profiles
+  # differ, matching the profile fast-path dispatches actually route through.
   vars_files:
     - vars/configs/download_base.yaml
+    - vars/configs/download_default.yaml
     - vars/configs/download_on_demand.yaml
 
   vars:
