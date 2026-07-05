@@ -694,7 +694,6 @@ container_definitions:
       volumes:
         - "${APPSDIR}/guacamole:/config"
         - "${APPSDIR}/guacamole/server.xml:/usr/local/tomcat/conf/server.xml"
-      privileged: true
       healthcheck:
         test: ["CMD-SHELL", "wget --no-verbose --tries=1 -O /dev/null http://localhost:8080/ || exit 1"]
         interval: "30s"
@@ -1065,7 +1064,6 @@ container_definitions:
       volumes:
         - "${APPSDIR}/npm:/data:rw"
         - "${APPSDIR}/npm-le:/etc/letsencrypt"
-      privileged: true
       healthcheck:
         test: ["CMD-SHELL", "curl -fs http://localhost:81 || exit 1"]
         interval: "30s"
@@ -1144,36 +1142,6 @@ container_definitions:
     compose:
       base: baseenv
       ports: ["7344:8080"]
-  socket_proxy:
-    image: "lscr.io/linuxserver/socket-proxy"
-    tag: "latest"
-    stack: infra
-    env:
-      DP_CONTAINERS: "1"
-      DP_POST: "1"
-      DP_INFO: "1"
-      DP_VOLUMES: "1"
-      DP_SECRETS: "1"
-      DP_IMAGES: "1"
-      DP_NETWORKS: "1"
-      DP_ALLOW_RESTARTS: "1"
-    compose:
-      service_name: dockerproxy
-      container_name: dockerproxy
-      base: base
-      ports: ["2375:2375"]
-      environment:
-        CONTAINERS: "${DP_CONTAINERS}"
-        POST: "${DP_POST}"
-        INFO: "${DP_INFO}"
-        VOLUMES: "${DP_VOLUMES}"
-        SECRETS: "${DP_SECRETS}"
-        IMAGES: "${DP_IMAGES}"
-        NETWORKS: "${DP_NETWORKS}"
-        ALLOW_RESTARTS: "${DP_ALLOW_RESTARTS}"
-      volumes:
-        - "/var/run/docker.sock:/var/run/docker.sock:ro"
-      privileged: true
   swag:
     image: "lscr.io/linuxserver/swag"
     tag: "latest"
@@ -1330,38 +1298,6 @@ container_definitions:
       volumes:
         - "${APPSDIR}/beszel_socket:/beszel_socket"
         - "/var/run/docker.sock:/var/run/docker.sock:ro"
-  vpn_dockerproxy:
-    image: "lscr.io/linuxserver/socket-proxy"
-    tag: "latest"
-    stack: vpn
-    env:
-      DP_CONTAINERS: "1"
-      DP_POST: "1"
-      DP_INFO: "1"
-      DP_VOLUMES: "1"
-      DP_SECRETS: "1"
-      DP_IMAGES: "1"
-      DP_NETWORKS: "1"
-      DP_ALLOW_RESTARTS: "1"
-    compose:
-      image_var: SOCKET_PROXY
-      service_name: dockerproxy
-      container_name: dockerproxy
-      base: base
-      network_mode: "service:wireguard"
-      depends_on: ["wireguard"]
-      environment:
-        CONTAINERS: "${DP_CONTAINERS}"
-        POST: "${DP_POST}"
-        INFO: "${DP_INFO}"
-        VOLUMES: "${DP_VOLUMES}"
-        SECRETS: "${DP_SECRETS}"
-        IMAGES: "${DP_IMAGES}"
-        NETWORKS: "${DP_NETWORKS}"
-        ALLOW_RESTARTS: "${DP_ALLOW_RESTARTS}"
-      volumes:
-        - "/var/run/docker.sock:/var/run/docker.sock:ro"
-      privileged: true
   vpn_dozzle_agent:
     image: "amir20/dozzle"
     tag: "latest"
