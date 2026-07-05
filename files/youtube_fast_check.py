@@ -82,7 +82,10 @@ def parse_youtube_channels(channel_list_path):
             section = stripped.lstrip("#").strip().lower()
             continue
         if section == "youtube" and stripped.startswith("http"):
-            urls.append(stripped)
+            # Strip inline trailing "#nickname" annotations (e.g. "<url> #foo") —
+            # only a leading "#" starts a section marker, per the check above.
+            url = stripped.split("#", 1)[0].strip()
+            urls.append(url)
     return urls
 
 
