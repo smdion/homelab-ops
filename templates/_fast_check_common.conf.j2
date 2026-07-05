@@ -1,0 +1,22 @@
+# Shared yt-dlp rules for fast_check.py probes, included by each platform's
+# own probe template (e.g. fast_check_probe_youtube.conf.j2). Anything that
+# isn't genuinely platform-agnostic (cookies, extractor-args — syntax and
+# meaning differ per site) belongs in the platform template instead, not here.
+
+# Quality sort — harmless for a format listing, kept for consistency
+-S {{ ytdlp_quality }}
+
+# Reject-title — a video excluded here will also be excluded from the real
+# download, so probing with the same filter avoids dispatching it pointlessly
+--reject-title "{{ ytdlp_reject_title }}"
+
+{% if ytdlp_filter_live | default(true) %}
+--match-filter !is_live
+{% endif %}
+
+# How far back / how many items channel enumeration considers — same scope
+# download_default used to apply when it did this job.
+--playlist-end {{ ytdlp_playlist_end }}
+{% if ytdlp_dateafter | default('') | length > 0 %}
+--dateafter {{ ytdlp_dateafter }}
+{% endif %}

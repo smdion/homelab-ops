@@ -1,17 +1,26 @@
 #!/usr/bin/env python3
-# youtube_fast_check — background discovery + quality-gated dispatch for YouTube
-# channels in channel_list, run inside the metube container via `docker exec` from
-# a User Scripts cron entry on the unRAID host (liberty). No persistent process,
-# no Ansible/Semaphore polling — each invocation is a single, stateless-between-runs
+# fast_check — background discovery + quality-gated dispatch for channels in
+# channel_list, run inside the metube container via `docker exec` from a User
+# Scripts cron entry on the unRAID host (liberty). No persistent process, no
+# Ansible/Semaphore polling — each invocation is a single, stateless-between-runs
 # pass; all state lives in JSON files under STATE_DIR so a crashed run just means
 # the next cron tick picks up where the files left off.
 #
+# Platform-pluggable: --platform selects which channel_list section to read and
+# which archive extractor label counts as "already downloaded" (see PLATFORMS
+# below). Enumeration and quality-checking themselves are NOT platform-specific
+# code paths — yt-dlp handles site detection from the URL itself; what varies
+# per platform is only the rendered --probe-config (different cookies/
+# extractor-args per site) and state paths, both supplied by the caller
+# (deploy_fast_check.yaml's per-platform wrapper script), not hardcoded here.
+#
 # What each pass does:
-#   1. Parse channel_list for YouTube entries (same file, same manual-add workflow
-#      as the scheduled channel scan — nothing about that file changes).
+#   1. Parse channel_list for the selected platform's section (same file, same
+#      manual-add workflow as the old scheduled channel scan — nothing about
+#      that file changes).
 #   2. Enumerate each channel via yt-dlp itself (--flat-playlist --print),
-#      using PROBE_CONFIG (rendered from the real download_default/on_demand
-#      vars — see templates/youtube_fast_probe.conf.j2). This means
+#      using PROBE_CONFIG (rendered per-platform from the real download config
+#      vars — see templates/fast_check_probe_<platform>.conf.j2). This means
 #      --playlist-end/--dateafter/cookies/extractor-args/reject-title/live-filter
 #      are all applied by yt-dlp natively — nothing here reimplements them, so
 #      this can never drift from what the actual download would consider.
@@ -32,16 +41,16 @@
 #      moves from pending to the dispatched set until it shows up in the archive.
 #   6. A channel's very first pass freezes its current enumeration as a baseline
 #      and queues nothing, so opting a channel in doesn't trigger a backlog
-#      download (download_default's scan is the backstop for anything older —
-#      or was, for YouTube, before this replaced that role). The archive only
-#      records what was actually downloaded, not a channel's pre-existing
-#      back-catalog — without this baseline, those old, never-downloaded videos
-#      would look "new" on the very next check. Written once per channel and
-#      never appended to again: bounded by (channel count x playlist-end), not
-#      by time or upload frequency like a naive "seen" list would be.
+#      download (the old scheduled scan is the backstop for anything older, for
+#      whichever platforms still rely on it). The archive only records what was
+#      actually downloaded, not a channel's pre-existing back-catalog — without
+#      this baseline, those old, never-downloaded videos would look "new" on
+#      the very next check. Written once per channel and never appended to
+#      again: bounded by (channel count x playlist-end), not by time or upload
+#      frequency like a naive "seen" list would be.
 #
 # Usage (inside the metube container):
-#   python3 youtube_fast_check.py [--dry-run] [--channel-list PATH] [--state-dir PATH]
+#   python3 fast_check.py --platform youtube [--dry-run] [--state-dir PATH] ...
 
 import argparse
 import json
@@ -54,23 +63,22 @@ import sys
 import time
 import urllib.request
 
+# platform -> (channel_list section marker, archive extractor label)
+PLATFORMS = {
+    "youtube": {"section": "youtube", "archive_label": "youtube"},
+    "twitch": {"section": "twitch", "archive_label": "twitchvod"},
+}
+
 CHANNEL_LIST_DEFAULT = "/configs/default/channel_list"
 ARCHIVE_DEFAULT = "/configs/default/downloaded"  # yt-dlp --download-archive, shared
-                                                   # across every profile (channels,
-                                                   # on_demand, and this fast path)
-STATE_DIR_DEFAULT = "/configs/youtube_fast"
-# Rendered by deploy_youtube_fast_check.yaml from the real download_default +
-# download_on_demand vars (templates/youtube_fast_probe.conf.j2) — kept out of
-# this script entirely so nothing here can drift from those rules; re-deploy
-# to pick up changes.
-PROBE_CONFIG_DEFAULT = "/configs/youtube_fast/probe.conf"
+                                                   # across every profile and platform
 METUBE_ADD_URL = "http://localhost:8081/add"
 
 MIN_HEIGHT = 1080
 BACKOFF_SECONDS = [900, 1800, 3600, 7200, 14400, 28800]  # 15m,30m,1h,2h,4h,8h
 MAX_AGE_SECONDS = 86400  # 24h — dispatch best-available rather than wait forever
 
-# Persistent history, capped so it never grows unbounded: youtube_fast_check.log
+# Persistent history, capped so it never grows unbounded: fast_check.log
 # (current) plus up to LOG_BACKUP_COUNT rotated-out copies (.1, .2, ...) once the
 # current file passes LOG_MAX_BYTES. Separate from User Scripts' own log.txt,
 # which only ever holds the most recent single run.
@@ -79,15 +87,15 @@ LOG_MAX_BYTES = 1_000_000  # 1MB per file — at typical activity levels (~150-2
                             # before ever rotating, well past the visible tail window
 LOG_BACKUP_COUNT = 3       # ~4MB ceiling total
 
-_logger = logging.getLogger("youtube_fast_check")
+_logger = logging.getLogger("fast_check")
 
 
-def setup_logging(state_dir):
+def setup_logging(state_dir, platform):
     _logger.setLevel(logging.INFO)
-    fmt = logging.Formatter("%(asctime)s [youtube_fast_check] %(message)s", "%Y-%m-%d %H:%M:%S")
+    fmt = logging.Formatter(f"%(asctime)s [fast_check:{platform}] %(message)s", "%Y-%m-%d %H:%M:%S")
 
     file_handler = logging.handlers.RotatingFileHandler(
-        os.path.join(state_dir, "youtube_fast_check.log"),
+        os.path.join(state_dir, "fast_check.log"),
         maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT,
     )
     file_handler.setFormatter(fmt)
@@ -96,7 +104,7 @@ def setup_logging(state_dir):
     # Keep stderr output too — this is what User Scripts' own per-run log.txt
     # captures, so the "last run" view in its GUI still works unchanged.
     stream_handler = logging.StreamHandler(sys.stderr)
-    stream_handler.setFormatter(logging.Formatter("[youtube_fast_check] %(message)s"))
+    stream_handler.setFormatter(logging.Formatter(f"[fast_check:{platform}] %(message)s"))
     _logger.addHandler(stream_handler)
 
 
@@ -119,10 +127,11 @@ def load_json(path, default):
         return default
 
 
-def parse_youtube_channels(channel_list_path):
-    """Return the list of channel URLs listed under the '#YouTube' section."""
+def parse_channel_urls(channel_list_path, section):
+    """Return the list of channel URLs listed under the given channel_list
+    section marker (e.g. '#YouTube', '#Twitch' -> section='youtube'/'twitch')."""
     urls = []
-    section = None
+    current_section = None
     try:
         with open(channel_list_path) as f:
             lines = f.read().splitlines()
@@ -134,9 +143,9 @@ def parse_youtube_channels(channel_list_path):
         if not stripped:
             continue
         if stripped.startswith("#"):
-            section = stripped.lstrip("#").strip().lower()
+            current_section = stripped.lstrip("#").strip().lower()
             continue
-        if section == "youtube" and stripped.startswith("http"):
+        if current_section == section and stripped.startswith("http"):
             # Strip inline trailing "#nickname" annotations (e.g. "<url> #foo") —
             # only a leading "#" starts a section marker, per the check above.
             url = stripped.split("#", 1)[0].strip()
@@ -144,14 +153,15 @@ def parse_youtube_channels(channel_list_path):
     return urls
 
 
-def read_download_archive(archive_path):
-    """Return the set of YouTube video IDs yt-dlp has already downloaded."""
+def read_download_archive(archive_path, extractor_label):
+    """Return the set of video IDs yt-dlp has already downloaded for this
+    platform's extractor (archive lines are "<extractor> <id>")."""
     ids = set()
     try:
         with open(archive_path) as f:
             for line in f:
                 parts = line.split()
-                if len(parts) == 2 and parts[0] == "youtube":
+                if len(parts) == 2 and parts[0] == extractor_label:
                     ids.add(parts[1])
     except FileNotFoundError:
         pass
@@ -168,7 +178,8 @@ def list_channel_videos(url, probe_config, timeout=60):
     """Enumerate a channel's videos via yt-dlp itself (--flat-playlist), so
     --playlist-end/--dateafter/etc from probe_config apply exactly as they
     would for the real download — nothing here re-decides scope on its own.
-    Returns list of (video_id, video_url)."""
+    Site detection is yt-dlp's own, from the URL — no platform-specific code
+    path needed here. Returns list of (video_id, video_url)."""
     proc = subprocess.run(
         ["yt-dlp", *_probe_args(probe_config), "--flat-playlist", "--skip-download",
          "--print", "%(id)s %(webpage_url)s", url],
@@ -212,15 +223,22 @@ def dispatch_to_metube(url, dry_run):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--platform", required=True, choices=sorted(PLATFORMS))
     ap.add_argument("--channel-list", default=CHANNEL_LIST_DEFAULT)
     ap.add_argument("--archive", default=ARCHIVE_DEFAULT)
-    ap.add_argument("--state-dir", default=STATE_DIR_DEFAULT)
-    ap.add_argument("--probe-config", default=PROBE_CONFIG_DEFAULT)
+    ap.add_argument("--state-dir", default=None, help="defaults to /configs/<platform>_fast")
+    ap.add_argument("--probe-config", default=None, help="defaults to <state-dir>/probe.conf")
     ap.add_argument("--dry-run", action="store_true", help="log actions, never call MeTube's /add")
     args = ap.parse_args()
 
+    platform_cfg = PLATFORMS[args.platform]
+    if args.state_dir is None:
+        args.state_dir = f"/configs/{args.platform}_fast"
+    if args.probe_config is None:
+        args.probe_config = os.path.join(args.state_dir, "probe.conf")
+
     os.makedirs(args.state_dir, exist_ok=True)
-    setup_logging(args.state_dir)
+    setup_logging(args.state_dir, args.platform)
     seeded_channels_path = os.path.join(args.state_dir, "seeded_channels.json")
     pending_path = os.path.join(args.state_dir, "pending.json")
     dispatched_path = os.path.join(args.state_dir, "dispatched.json")
@@ -235,7 +253,7 @@ def main():
     now = time.time()
     seeded_dirty = False
 
-    archive_ids = read_download_archive(args.archive)
+    archive_ids = read_download_archive(args.archive, platform_cfg["archive_label"])
 
     # Self-prune: once a dispatched video shows up in the archive, the real
     # download completed — stop tracking it. Anything still here after a long
@@ -245,8 +263,8 @@ def main():
         if video_id in archive_ids:
             del dispatched[video_id]
 
-    urls = parse_youtube_channels(args.channel_list)
-    log(f"{len(urls)} YouTube channel(s) in {args.channel_list}")
+    urls = parse_channel_urls(args.channel_list, platform_cfg["section"])
+    log(f"{len(urls)} {args.platform} channel(s) in {args.channel_list}")
 
     new_count = 0
     for url in urls:

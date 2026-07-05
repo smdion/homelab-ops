@@ -1,0 +1,25 @@
+# yt-dlp config for fast_check.py's YouTube channel enumeration + format probes.
+# Rendered by deploy_fast_check.yaml from the SAME vars the real download reads
+# (vars/configs/download_base.yaml + download_default.yaml +
+# download_on_demand.yaml) so this can never drift from those rules — no filter
+# here is reimplemented in Python; yt-dlp applies all of them natively.
+#
+# Shared (platform-agnostic) rules live in _fast_check_common.conf.j2. Only
+# YouTube-specific settings (cookies, extractor-args — syntax and meaning are
+# per-site) live here.
+#
+# Deliberately excludes anything download-time-specific (--batch-file, -P paths,
+# -o, --download-archive, --print-to-file, retries, post-processing) — those
+# either don't apply to enumeration/--skip-download probes or would actively
+# misbehave (e.g. --batch-file would pull in every channel_list URL alongside
+# the one being probed).
+
+# Extractor configuration — affects which formats/resolutions are exposed
+--extractor-args "{{ ytdlp_extractor_args }}"
+
+# Cookies — required for YouTube bot-check bypass
+{% if ytdlp_cookies | default('') | length > 0 %}
+--cookies "{{ ytdlp_cookies }}"
+{% endif %}
+
+{% include '_fast_check_common.conf.j2' %}
