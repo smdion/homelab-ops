@@ -77,10 +77,23 @@ ytdlp_archive: "/configs/default/downloaded"
 # should be scoped by it.
 ytdlp_dateafter: "now-1weeks"
 
-# Allow live streams — matches the one real download profile's (download.yaml)
-# actual desired behavior, so it no longer needs to override this itself;
-# fast_check.py's probe config reads it directly from here too.
-ytdlp_filter_live: false
+# Skip live streams. This is the correct default for fast_check.py's automated
+# discovery — it must never autonomously decide to start capturing something
+# still in progress; it should wait for the stream to end and become a real,
+# stable VOD. download.yaml explicitly overrides this to false, matching its
+# actual (bookmarklet-driven, human-decided) behavior. This mirrors
+# ytdlp_dateafter just above: a shared default correct for the automated
+# discovery consumer, with the one real download profile explicitly
+# overriding it for its own different, human-triggered need.
+#
+# CORRECTED 2026-07-06: this was wrongly collapsed to a single shared `false`
+# during the download_default/download_on_demand consolidation, on the wrong
+# assumption both consumers wanted the same value. Real impact: fast_check
+# dispatched a Twitch VOD that was still live, and yt-dlp spent 9+ hours
+# real-time-capturing an in-progress stream (throughput capped by the
+# stream's own live bitrate, not the network), blocking the download queue
+# behind it the whole time.
+ytdlp_filter_live: true
 
 # Fragment / retry handling.
 # yt-dlp records a video in the download archive once it considers the download
