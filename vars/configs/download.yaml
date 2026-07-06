@@ -23,12 +23,21 @@ config_name: "default"
 # yt-dlp.
 metube_capture_dir: "/configs/on_demand"
 
-# Verbose output (live streams are already allowed by download_base.yaml's
-# shared default — nothing to override here)
+# Verbose output
 ytdlp_quiet: false
 
 # Batch file (profile-specific path inside metube container)
 ytdlp_batch_file: "/configs/default/on_demand"
+
+# Explicitly allow live streams — download_base.yaml's shared default is
+# false/skip-live (correct for fast_check.py's automated discovery, which
+# must never autonomously start capturing something still in progress), but
+# a human adding a currently-live stream via the bookmarklet on purpose is a
+# completely normal, legitimate thing to want. fast_check's own discovery
+# already filters out live content before it ever reaches this profile
+# (see templates/_fast_check_common.conf.j2), so this override only ever
+# matters for deliberate, human-triggered bookmarklet adds.
+ytdlp_filter_live: false
 
 # Explicitly unrestricted — download_base.yaml sets a 1-week default (for
 # fast_check.py's discovery scope), but a video that already made it into the
