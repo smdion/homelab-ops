@@ -1236,11 +1236,25 @@ container_definitions:
     image: "lscr.io/linuxserver/tautulli"
     tag: "latest"
     stack: media
+    env:
+      # Config for files/tautulli_watched_cleanup.py — deletes YouTube/Twitch
+      # library files (+ Plex metadata) once Tautulli's "Watched" notification
+      # agent reports them watched for at least this many hours. Tautulli
+      # itself injects TAUTULLI_URL/APIKEY/PLEX_URL/PLEX_TOKEN into the
+      # script's environment automatically, so only the script-specific
+      # settings need to be defined here.
+      TAUTULLI_CLEANUP_SECTION_IDS: "6,3"
+      TAUTULLI_CLEANUP_MIN_HOURS: "3"
+      TAUTULLI_CLEANUP_LOG_FILE: "/config/scripts/tautulli_watched_cleanup.log"
     compose:
       base: baseuid
       ports: ["8181:8181"]
       labels:
         homelab.backup.paths: "/opt/tautulli"
+      environment:
+        TAUTULLI_CLEANUP_SECTION_IDS: "${TAUTULLI_CLEANUP_SECTION_IDS}"
+        TAUTULLI_CLEANUP_MIN_HOURS: "${TAUTULLI_CLEANUP_MIN_HOURS}"
+        TAUTULLI_CLEANUP_LOG_FILE: "${TAUTULLI_CLEANUP_LOG_FILE}"
       volumes:
         - "${APPSDIR}/tautulli:/config"
       healthcheck:
