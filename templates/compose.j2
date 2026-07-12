@@ -62,6 +62,9 @@ services:
     <<: *base
 {% endif %}
     container_name: {{ c.container_name | default(_svc_name) }}
+{% if c.init | default(false) %}
+    init: true
+{% endif %}
 {% set _img_prefix = c.image_var | default(name | upper | replace('-', '_')) %}
     image: {{ '${' ~ _img_prefix ~ '_IMAGE}:${' ~ _img_prefix ~ '_TAG}' }}
 {% if c.build is defined %}

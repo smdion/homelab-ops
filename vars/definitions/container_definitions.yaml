@@ -793,8 +793,8 @@ container_definitions:
         retries: 3
         start_period: "30s"
   jellyseerr:
-    image: "fallenbagel/jellyseerr"
-    tag: "preview-OIDC"
+    image: "ghcr.io/seerr-team/seerr"
+    tag: "preview-new-oidc"
     stack: media
     env:
       JELLYSEERR_DB_TYPE: "postgres"
@@ -805,6 +805,7 @@ container_definitions:
       POSTGRES_PASSWORD: "{{ vault_docker_postgres_password }}"
     compose:
       base: base
+      init: true
       ports: ["5055:5055"]
       labels:
         homelab.backup.paths: "/opt/jellyseerr"
