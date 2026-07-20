@@ -219,6 +219,22 @@
               _is_pve_node | bool or
               inventory_hostname in groups["pbs"]
 
+        # Old proxmox-kernel-* packages left as 'rc' after upgrades pile up in
+        # /usr/lib/modules (~1G each) and previously filled backup.seandion.local's
+        # root disk to 82%. Purge them every run; apt always protects the running
+        # and latest kernel.
+        - name: Remove unused packages and old kernels
+          become: true
+          ansible.builtin.apt:
+            autoremove: true
+            purge: true
+          when:
+            - _version_scope == 'os'
+            - >-
+              inventory_hostname in groups["ubuntu"] or
+              _is_pve_node | bool or
+              inventory_hostname in groups["pbs"]
+
         - name: Check if a reboot is required
           ansible.builtin.stat:
             path: /var/run/reboot-required
