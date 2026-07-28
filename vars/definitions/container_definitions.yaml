@@ -389,7 +389,7 @@ container_definitions:
     tag: "latest"
     stack: auth
     env:
-      CROWDSEC_COLLECTIONS: "crowdsecurity/nginx crowdsecurity/http-cve crowdsecurity/whitelist-good-actors firix/authentik crowdsecurity/wordpress"
+      CROWDSEC_COLLECTIONS: "crowdsecurity/nginx crowdsecurity/http-cve crowdsecurity/whitelist-good-actors firix/authentik crowdsecurity/wordpress crowdsecurity/sshd"
       CROWDSEC_CUSTOM_HOSTNAME: "crowdsec"
       CROWDSEC_LAPI_URL: "http://crowdsec:8080"
     guacamole:
