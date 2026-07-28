@@ -459,17 +459,36 @@
             ansible_connection: ssh
             ansible_user: "{{ vm_user }}"
 
+        # Catch-all vhost for unmatched Host headers (bare domain, scanners hitting IPs
+        # directly). See templates/swag_default.conf.j2 for why this is managed
+        # separately from the per-subdomain proxy loop above.
+        - name: Generate default (catch-all) site-conf
+          ansible.builtin.template:
+            src: templates/swag_default.conf.j2
+            dest: "{{ _swag_output_dir }}/default.conf"
+            owner: "911"
+            group: "911"
+            mode: "0664"
+          register: _generated_default
+          delegate_to: "{{ _swag_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+
         - name: Record deploy detail
           ansible.builtin.set_fact:
             _deploy_detail: >-
               {{ _all_proxies | length }} configs generated |
-              {{ _generated_configs.results | selectattr('changed') | list | length }} changed
+              {{ (_generated_configs.results | selectattr('changed') | list | length)
+                 + (1 if _generated_default is changed else 0) }} changed
 
         - name: Report changes
           ansible.builtin.debug:
             msg: >-
-              Generated {{ _all_proxies | length }} site-confs.
-              {{ _generated_configs.results | selectattr('changed') | list | length }} changed.
+              Generated {{ _all_proxies | length }} site-confs + default.conf.
+              {{ (_generated_configs.results | selectattr('changed') | list | length)
+                 + (1 if _generated_default is changed else 0) }} changed.
         - name: Validate nginx configuration
           ansible.builtin.command:
             cmd: docker exec swag nginx -t
@@ -484,7 +503,7 @@
           when:
             - not (dry_run | default(false) | bool)
             - not ansible_check_mode
-            - _generated_configs is changed
+            - (_generated_configs is changed) or (_generated_default is changed)
 
         - name: Reload nginx
           ansible.builtin.command:
@@ -498,7 +517,7 @@
           when:
             - not (dry_run | default(false) | bool)
             - not ansible_check_mode
-            - _generated_configs is changed
+            - (_generated_configs is changed) or (_generated_default is changed)
             - _nginx_test is succeeded
 
         # Canary: nginx returns rc 0 even when it silently ignores duplicate server_names
