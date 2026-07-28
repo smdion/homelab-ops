@@ -1,0 +1,100 @@
+---
+# Category: Maintain
+# Restart the SWAG container to force a clean CrowdSec bouncer decision resync.
+#
+# Why this exists: the CrowdSec nginx bouncer (stream mode) only ever does a full
+# decision sync once, at nginx startup (?startup=true) — after that it's incremental
+# diffs only, with no periodic self-healing built into the module. If a single LAPI
+# pull is ever lost or corrupted, the bouncer can silently desync from the true
+# decision set (a valid ban going unenforced) with nothing to catch it back up short
+# of a restart. Confirmed 2026-07-27: a banned scanning IP went unenforced for hours
+# until `docker restart swag` forced a fresh full resync. See project_crowdsec_iac.md.
+#
+# A plain `nginx -s reload` is NOT sufficient — the bouncer's decision cache lives in
+# a lua_shared_dict owned by the nginx master process, which survives a reload (that's
+# the point of a shared dict). Only a full container restart tears down the master and
+# resets the "startup" flag that triggers the one-time full sync. Hence a full
+# `docker restart`, not a reload, here.
+#
+# This bounds worst-case desync exposure to this playbook's schedule interval instead
+# of "however long until someone notices" — paired with the CrowdSec bouncer sync
+# check in maintain_health.yaml (leading-indicator alert on LAPI stream timeouts).
+#
+# Runs during a low-traffic window — a full restart briefly interrupts all externally
+# exposed sites behind SWAG (a few seconds), unlike a graceful reload.
+
+- name: Restart SWAG to resync CrowdSec bouncer decisions
+  hosts: "core"
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+  vars:
+    maintenance_name: "CrowdSec Bouncer"
+    maintenance_type: "Servers"
+    maintenance_subtype: "Restart"
+    maintenance_url: ""
+    maintenance_description: "Restart SWAG to force a full CrowdSec bouncer decision resync"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "maintain_crowdsec_bouncer.yaml"
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+
+    - block:
+        - name: Restart SWAG container
+          become: true
+          ansible.builtin.command:
+            cmd: docker restart swag
+          changed_when: true
+
+        - name: Wait for SWAG to report healthy
+          become: true
+          ansible.builtin.shell: |
+            for i in $(seq 1 30); do
+              status=$(docker inspect --format '{{ "{{" }}.State.Health.Status{{ "}}" }}' swag 2>/dev/null)
+              [ "$status" = "healthy" ] && exit 0
+              sleep 2
+            done
+            exit 1
+          register: _swag_health
+          changed_when: false
+          failed_when: _swag_health.rc != 0
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send alert on failure
+          include_tasks: tasks/notify.yaml
+          when: maintenance_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Maintenance"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+        - name: Fail play if maintenance failed
+          ansible.builtin.fail:
+            msg: "SWAG restart failed — see notification for details"
+          when: maintenance_failed
