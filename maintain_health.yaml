@@ -2041,6 +2041,51 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'known_hosts', 'status': 'critical', 'value': 'check_error', 'detail': 'known_hosts check task failed'}] }}
 
+    # ── CHECK 31: CrowdSec bouncer LAPI sync errors (core only) ──────────────
+    # Leading indicator for the bouncer-desync class of bug fixed 2026-07-27 (see
+    # project_crowdsec_iac.md): a failed/timed-out stream pull to CrowdSec's LAPI can
+    # leave the SWAG nginx bouncer's decision cache silently out of sync — a valid ban
+    # goes unenforced with no error on the request path itself, only this log line.
+    # This doesn't confirm bans are actually being enforced (see the reconciliation
+    # check below) but catches the precondition within one health-check cycle instead
+    # of by noticing a bandwidth graph days later.
+    - name: Check CrowdSec bouncer LAPI sync errors
+      when: "'core' in group_names"
+      block:
+        - name: Count LAPI stream errors since last check
+          ansible.builtin.shell: >
+            awk -v since="{{ hostvars['localhost']['last_check'] | replace('T', ' ') | replace('Z', '') }}"
+            '{ ts = $1" "$2; gsub(/\//, "-", ts);
+               if (ts >= since && /request to crowdsec lapi/) c++ }
+             END { print c+0 }'
+            /opt/swag/log/nginx/error.log
+          register: _cs_lapi_raw
+          changed_when: false
+          failed_when: false  # observational — LAPI sync-error probe; failure recorded in host_health_issues
+          check_mode: false
+
+        - name: Record CrowdSec bouncer LAPI sync result
+          ansible.builtin.set_fact:
+            host_health_issues: >-
+              {{
+                host_health_issues + [{
+                  'check_name': 'crowdsec_bouncer_sync',
+                  'status': 'warning' if _cs_lapi_raw.stdout | trim | int > 0 else 'ok',
+                  'value': _cs_lapi_raw.stdout | trim | string + ' LAPI sync error(s)',
+                  'detail': (
+                    'bouncer may be running on a stale decision cache — see maintain_crowdsec_bouncer.yaml'
+                    if _cs_lapi_raw.stdout | trim | int > 0 else ''
+                  )
+                }]
+              }}
+
+      rescue:
+        - name: Record CrowdSec bouncer check error
+          when: "'core' in group_names"
+          ansible.builtin.set_fact:
+            host_health_issues: >-
+              {{ host_health_issues + [{'check_name': 'crowdsec_bouncer_sync', 'status': 'critical', 'value': 'check_error', 'detail': 'crowdsec bouncer sync check task failed'}] }}
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # PLAY 3 — LOCALHOST: AGGREGATE, ALERT, LOG, SAVE STATE
 # ═══════════════════════════════════════════════════════════════════════════════
