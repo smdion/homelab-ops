@@ -1,0 +1,69 @@
+---
+# OS-level provisioning for non-VM (host_definitions) hosts — the equivalent of
+# bootstrap_vm.yaml's OS layer, but for hosted/external servers that aren't
+# Proxmox VMs (apply_role.yaml's OS layer only runs for _target_is_vm hosts).
+# Generic and reusable — inert (no-op) for any host_definitions entry that
+# doesn't define these optional fields.
+#
+# Expects:
+#   _host — the host_definitions entry for this host
+#
+# Optional fields on _host:
+#   apt_repos — list of {key_name, key_url, entry}: adds a dearmored keyring +
+#               a signed-by apt source before installing packages.
+#   packages  — list of apt package names to ensure present.
+#   routes    — list of {to, via[, dev]}: static routes, persisted via a
+#               per-route systemd oneshot unit (survives reboot).
+
+- name: Ensure apt keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+  when: _host.apt_repos | default([]) | length > 0
+
+- name: Add apt repository signing keys
+  ansible.builtin.shell:
+    cmd: "curl -fsSL {{ item.key_url }} | gpg --dearmor > /etc/apt/keyrings/{{ item.key_name }}"
+    creates: "/etc/apt/keyrings/{{ item.key_name }}"
+  loop: "{{ _host.apt_repos | default([]) }}"
+  loop_control:
+    label: "{{ item.key_name }}"
+
+- name: Add apt repository sources
+  ansible.builtin.apt_repository:
+    repo: "{{ item.entry }}"
+    filename: "{{ item.key_name | regex_replace('\\.gpg$', '') }}"
+    state: present
+  loop: "{{ _host.apt_repos | default([]) }}"
+  loop_control:
+    label: "{{ item.entry }}"
+  register: _apt_repos_added
+
+- name: Ensure packages are installed
+  ansible.builtin.apt:
+    name: "{{ _host.packages }}"
+    state: present
+    update_cache: "{{ _apt_repos_added is changed }}"
+  when: _host.packages | default([]) | length > 0
+
+- name: Render static-route systemd units
+  ansible.builtin.template:
+    src: templates/host-route.service.j2
+    dest: "/etc/systemd/system/host-route-{{ item.to | regex_replace('[/.]', '-') }}.service"
+    mode: "0644"
+  loop: "{{ _host.routes | default([]) }}"
+  loop_control:
+    label: "{{ item.to }}"
+  register: _host_route_units
+
+- name: Enable and start static-route units
+  ansible.builtin.systemd:
+    name: "host-route-{{ item.item.to | regex_replace('[/.]', '-') }}.service"
+    enabled: true
+    state: started
+    daemon_reload: "{{ item is changed }}"
+  loop: "{{ _host_route_units.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.to }}"
+  when: _host.routes | default([]) | length > 0

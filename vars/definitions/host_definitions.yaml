@@ -29,6 +29,24 @@ host_definitions:
     vm_hostname: "vps.{{ vault_domain_ext }}"
     stacks: [vpn]
     guacamole: { name: VPS, group: Docker }
+    # Native CrowdSec firewall-bouncer (IP-level enforcement only — detection stays
+    # centralized on core's CrowdSec engine; this just enforces decisions already
+    # made there). No official Docker image exists for this component (confirmed
+    # 2026-07-28) — CrowdSec's own docs only document the native apt package.
+    apt_repos:
+      - key_name: crowdsec.gpg
+        key_url: "https://packagecloud.io/crowdsec/crowdsec/gpgkey"
+        entry: "deb [signed-by=/etc/apt/keyrings/crowdsec.gpg] https://packagecloud.io/crowdsec/crowdsec/any any main"
+    packages:
+      - crowdsec-firewall-bouncer-iptables
+    # WireGuard runs as a container here, not a host interface — the tunnel to
+    # core's LAN only exists inside its netns. Route through its pinned static IP
+    # (container_definitions.yaml wireguard.compose.static_ip) so this native,
+    # host-netns bouncer can still reach core's LAPI. ip_forward is already enabled
+    # inside that container and its peer AllowedIPs already covers 10.0.0.0/8.
+    routes:
+      - to: "10.10.10.40/32"
+        via: "172.21.0.2"
 
   # unRAID servers (docker_run — no stacks, managed via docker_run inventory group)
   redemption:
