@@ -82,6 +82,10 @@ services:
 {% endif %}
 {% if c.network_mode is defined %}
     network_mode: {{ c.network_mode }}
+{% elif c.static_ip is defined %}
+    networks:
+      {{ _network }}:
+        ipv4_address: {{ c.static_ip }}
 {% elif c.network_aliases | default([]) | length > 0 %}
     networks:
       {{ _network }}:

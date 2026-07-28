@@ -1285,6 +1285,12 @@ container_definitions:
       image_var: WG
       base: base
       ports: ["51820:51820/udp", "443:443"]
+      # Pinned to its own current dynamically-assigned IP (confirmed live, 2026-07-28) —
+      # not a new value. Makes the gateway IP other hosts route through this tunnel
+      # (e.g. vps's own host-level route to core's LAPI) a declared fact instead of
+      # something only discoverable via `docker inspect`. Recreation is a no-op for
+      # networking since the IP doesn't actually change.
+      static_ip: "172.21.0.2"
       labels:
         homelab.backup.paths: "/opt/wireguard"
       environment:
