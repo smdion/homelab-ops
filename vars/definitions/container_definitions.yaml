@@ -1074,7 +1074,12 @@ container_definitions:
       network_mode: "service:wireguard"
       depends_on: ["wireguard"]
       cap_drop: ["ALL"]
-      cap_add: ["NET_BIND_SERVICE", "SETGID"]
+      # NET_BIND_SERVICE/SETGID per NPMPlus's base compose; SETUID/CHOWN/FOWNER/DAC_OVERRIDE
+      # are additionally required here because this repo's baseuid pattern runs containers
+      # under a non-root PUID/PGID (1000:1000) — confirmed needed live: without them NPMPlus
+      # crashloops on "touch: cannot touch '/data/.env': Permission denied" during its PUID
+      # chown step.
+      cap_add: ["NET_BIND_SERVICE", "SETGID", "SETUID", "CHOWN", "FOWNER", "DAC_OVERRIDE"]
       security_opt: ["no-new-privileges:true"]
       labels:
         homelab.backup.paths: "/opt/npm,/opt/npm-le"
