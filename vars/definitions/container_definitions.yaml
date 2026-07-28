@@ -1047,17 +1047,15 @@ container_definitions:
         - "${APPSDIR}:/nfsshare"
       privileged: true
   npm:
-    # NPMPlus fork of nginx-proxy-manager (migrated 2026-07-28) — bundles the same
-    # lua-cs-bouncer already proven on SWAG, giving HTTP-aware CrowdSec enforcement
-    # at the VPS before traffic is relayed over the WireGuard tunnel to core. Reuses
-    # the same /data (proxy hosts DB) and /etc/letsencrypt (certs) paths the old
-    # jc21/nginx-proxy-manager used — no manual reconfiguration on migration. The
-    # /etc/letsencrypt mount is migration-only per NPMPlus docs (safe to remove later).
-    # Bouncer config (ENABLED/API_URL/API_KEY) is templated separately by
-    # deploy_crowdsec_configs.yaml into /opt/npm/crowdsec/crowdsec.conf, pointed at
-    # the existing central LAPI on core — deliberately NOT NPMPlus's documented
-    # network_mode: host + local-CrowdSec-engine pattern (see npmplus-bouncer.conf.j2).
-    image: "docker.io/zoeyvid/npmplus"
+    # Attempted NPMPlus migration (2026-07-28) for CrowdSec HTTP-layer enforcement at the
+    # VPS — reverted same day. NPMPlus fatally can't renew the fresh-jams.com/*.fresh-jams.com
+    # certs (route53 DNS challenge is a documented unsupported provider, not a missing plugin —
+    # see github.com/ZoeyVid/NPMplus/discussions/2400), and after working around that,
+    # nginx config generation for multiple other proxy hosts also failed ("unknown lan-ip
+    # variable", fastcgi buffer size errors) — broader incompatibility than one cert. Restored
+    # from the pre-migration snapshot (/opt/npm.pre-npmplus-backup on vps). Do not re-attempt
+    # without solving the route53 cert handling AND the nginx-config-generation failures first.
+    image: "docker.io/jc21/nginx-proxy-manager"
     tag: "latest"
     stack: vpn
     proxy:
@@ -1073,18 +1071,11 @@ container_definitions:
       base: baseuid
       network_mode: "service:wireguard"
       depends_on: ["wireguard"]
-      cap_drop: ["ALL"]
-      # NET_BIND_SERVICE/SETGID per NPMPlus's base compose; SETUID/CHOWN/FOWNER/DAC_OVERRIDE
-      # are additionally required here because this repo's baseuid pattern runs containers
-      # under a non-root PUID/PGID (1000:1000) — confirmed needed live: without them NPMPlus
-      # crashloops on "touch: cannot touch '/data/.env': Permission denied" during its PUID
-      # chown step.
-      cap_add: ["NET_BIND_SERVICE", "SETGID", "SETUID", "CHOWN", "FOWNER", "DAC_OVERRIDE"]
-      security_opt: ["no-new-privileges:true"]
       labels:
         homelab.backup.paths: "/opt/npm,/opt/npm-le"
       volumes:
         - "${APPSDIR}/npm:/data:rw"
+        - "${APPSDIR}/npm-le:/etc/letsencrypt"
       healthcheck:
         test: ["CMD-SHELL", "curl -fs http://localhost:81 || exit 1"]
         interval: "30s"
