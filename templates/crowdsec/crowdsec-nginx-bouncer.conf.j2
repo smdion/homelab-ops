@@ -12,6 +12,11 @@ API_KEY={{ vault_docker_crowdsec_api_key }}
 CACHE_EXPIRATION={{ crowdsec.bouncer.cache_expiration }}
 # bounce for all type of remediation that the bouncer can receive from the local API
 BOUNCING_ON_TYPE={{ crowdsec.bouncer.bouncing_on_type }}
+# also check requests nginx marks "internal" (default: false skips them entirely) — a
+# request rewritten via any `rewrite` directive is marked internal regardless of
+# last/break, which silently exempted the SWAG default vhost's honeypot rewrite from
+# ban enforcement. See crowdsec_definitions.yaml comment + project_crowdsec_iac.md.
+ENABLE_INTERNAL={{ crowdsec.bouncer.enable_internal | string | lower }}
 # fail-open: if no decision can be reached (e.g. LAPI restarting) let the request through
 FALLBACK_REMEDIATION={{ crowdsec.bouncer.fallback_remediation }}
 REQUEST_TIMEOUT={{ crowdsec.bouncer.request_timeout }}
