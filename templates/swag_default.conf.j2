@@ -4,26 +4,31 @@
 
     Handles any request whose Host header doesn't match a known subdomain (the bare
     domain, typos, or internet-wide vulnerability scanners probing IPs directly).
+    Bounces unmatched requests to a ~214MB video (a bot tarpit, backed by the
+    `rickroll` container on port 7344) as a deterrent.
 
-    Root-caused 2026-07-27 (see project_crowdsec_iac.md): this used to rewrite
-    unmatched requests to a ~214MB video (a bot tarpit, backed by the now-unused
-    `rickroll` container on port 7344) as a deterrent. That worked too well — a
-    server-level `rewrite ... last;` here causes nginx to internally redirect to a
-    new location BEFORE the CrowdSec access-phase check (`access_by_lua_block`,
-    registered globally in the http{} block) has a chance to run for the request,
-    so the bounce silently bypassed CrowdSec bans entirely for every request hitting
-    this vhost. This isn't a CrowdSec bug — it's an nginx phase-ordering interaction
-    specific to a server-level (non-location) `rewrite ... last`. Confirmed via a
-    controlled test: the identical banned IP + request was blocked (403) on a normal
-    subdomain vhost and bypassed (200, full 214MB) on this one, with debug logging
-    showing the CrowdSec access-phase handler never fired in the bypass case.
+    Root-caused 2026-07-27 (see project_crowdsec_iac.md): this rewrite worked too
+    well — CrowdSec's nginx bouncer defaults `ENABLE_INTERNAL=false`, which makes it
+    skip the ban check entirely (`ngx.exit(ngx.DECLINED)`) for any request nginx
+    marks "internal". nginx marks a request internal after ANY `rewrite` fires
+    (confirmed true for both `last` and `break`, so it's not a redirect-flag
+    quirk) — so every request hitting this vhost's rewrite silently bypassed
+    CrowdSec bans entirely, regardless of ban status. This isn't a CrowdSec bug in
+    the sense of being broken; ENABLE_INTERNAL defaulting to false is a deliberate
+    (if surprising) choice to avoid re-checking nginx's own internal subrequests —
+    it just doesn't distinguish "internal" in that sense from "externally-originated
+    request that happened to hit a rewrite," which is what this vhost is built on.
+    Confirmed via a live A/B test (forged X-Forwarded-For as a known-banned IP
+    against this vhost): 200/full-214MB with ENABLE_INTERNAL unset, 403/ban-page
+    with it set true — identical request, only that flag changed.
 
-    Fix: `return 444;` instead of the rewrite. `return` finalizes the request
-    immediately wherever it's evaluated, so the outcome (drop the connection, ~0
-    bytes) doesn't depend on CrowdSec running at all here — it's unconditional and
-    therefore immune to this class of bug by construction, not just a narrower
-    version of the same trick. No other site-conf in this repo uses a server-level
-    `rewrite ... last`, so this bypass was isolated to this one vhost. -#}
+    Fix: set ENABLE_INTERNAL=true bouncer-wide (crowdsec_definitions.yaml /
+    templates/crowdsec/crowdsec-nginx-bouncer.conf.j2), not a config change here.
+    Checked for side effects: no other site-conf in this repo uses `rewrite`, and
+    the only other internal-redirect pattern in use (smdion_errorpages.conf's 502
+    error page) is harmless under this flag — the original client already passed
+    the ban check before nginx ever reaches the backend and gets a 502, so the
+    internal error-page redirect is a redundant, harmless re-check, not a new one. -#}
 ## Managed by homelab-ops (deploy_swag_configs.yaml) — see templates/swag_default.conf.j2
 
 server {
@@ -46,7 +51,19 @@ server {
     include /config/nginx/includes/maxmind.conf;
     include /config/nginx/includes/smdion_errorpages.conf;
 
-    return 444;
+    rewrite ^\/[^/]+(.*)+$ /video.mp4 last;
+
+    root /config/www;
+    index index.html index.htm index.php;
+
+    location / {
+        include /config/nginx/proxy.conf;
+        set $upstream_app 10.10.10.51;
+        set $upstream_port 7344;
+        set $upstream_proto http;
+        proxy_pass $upstream_proto://$upstream_app:$upstream_port;
+        proxy_set_header Connection "upgrade";
+    }
 
     # deny access to .htaccess/.htpasswd files
     location ~ /\.ht {

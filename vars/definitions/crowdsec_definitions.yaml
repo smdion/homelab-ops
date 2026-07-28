@@ -63,6 +63,16 @@ crowdsec:
   bouncer:
     enabled: true
     bouncing_on_type: all
+    # Bouncer default is "false", which makes it silently skip the ban check (ngx.exit
+    # DECLINED) for any request nginx marks internal — and nginx marks a request internal
+    # after ANY `rewrite` fires, regardless of last/break. That silently exempted the SWAG
+    # default (catch-all) vhost's honeypot rewrite from CrowdSec enforcement entirely: a
+    # banned IP got the full response same as anyone else, every time. Confirmed via a
+    # live A/B test (forged X-Forwarded-For as a banned IP): 200/full-response with this
+    # unset, 403/ban-page with it true — same request, only this flag changed. True makes
+    # the bouncer also check requests nginx considers internal, which is exactly what a
+    # rewritten-but-still-externally-originated request is. See project_crowdsec_iac.md.
+    enable_internal: true
     # "bypass" is NOT a valid value for this bouncer (only ban|captcha) — it was silently
     # coerced to "ban" on every start (logged: "unsupported value 'bypass' ... using 'ban'
     # instead"), so fail-open was never actually in effect. Set explicitly to what it's
