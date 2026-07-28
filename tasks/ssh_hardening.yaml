@@ -7,6 +7,11 @@
 # Optional:
 #   _ssh_service_name   — SSH service name (default: 'ssh' for Ubuntu Noble;
 #                         pass 'sshd' for PVE/PBS/Debian)
+#
+# Also forwards this host's SSH auth log to CrowdSec's existing syslog listener
+# (same UDP:514 listener Authentik already uses, see crowdsec_definitions.yaml)
+# so the crowdsecurity/sshd collection — already loaded, previously fed nothing —
+# has something to actually detect. Requires vault_vm_core_ip.
 
 - name: "Grant passwordless sudo to {{ _ssh_user }}"
   ansible.builtin.copy:
@@ -40,3 +45,28 @@
     name: "{{ _ssh_service_name | default('ssh') }}"
     state: restarted
   when: _ssh_config is changed
+
+- name: Ensure rsyslog is installed
+  ansible.builtin.package:
+    name: rsyslog
+    state: present
+
+- name: Forward SSH auth log to CrowdSec's syslog listener
+  ansible.builtin.copy:
+    content: |
+      # Forwards auth/authpriv (sshd) messages to CrowdSec's syslog acquisition
+      # listener, same UDP:514 listener Authentik already feeds — see
+      # crowdsec_definitions.yaml. UDP so a CrowdSec/network outage can never
+      # block or slow down local SSH authentication.
+      auth,authpriv.*    @{{ vault_vm_core_ip }}:514;RSYSLOG_SyslogProtocol23Format
+    dest: /etc/rsyslog.d/60-crowdsec-ssh-forward.conf
+    mode: "0644"
+    owner: root
+    group: root
+  register: _rsyslog_config
+
+- name: Restart rsyslog
+  ansible.builtin.systemd:
+    name: rsyslog
+    state: restarted
+  when: _rsyslog_config is changed
