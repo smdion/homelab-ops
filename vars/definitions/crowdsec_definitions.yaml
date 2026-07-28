@@ -63,11 +63,15 @@ crowdsec:
   bouncer:
     enabled: true
     bouncing_on_type: all
-    # Fail-open: if the bouncer cannot reach a decision (e.g. LAPI restarting) let the
-    # request through rather than ban. A CrowdSec hiccup must not take SWAG down.
-    fallback_remediation: bypass
-    # ms. In stream mode this only bounds background decision pulls, not per-request work.
-    request_timeout: 500
+    # "bypass" is NOT a valid value for this bouncer (only ban|captcha) — it was silently
+    # coerced to "ban" on every start (logged: "unsupported value 'bypass' ... using 'ban'
+    # instead"), so fail-open was never actually in effect. Set explicitly to what it's
+    # already doing, so config matches reality and the startup warning goes away.
+    fallback_remediation: ban
+    # ms. Bumped from 500 (below the documented 1000ms default) — too tight for a stream
+    # pull against a ~100k-row decision table (mostly CAPI/community blocklists), which
+    # contributed to a stream desync where valid bans went unenforced for hours (2026-07-27).
+    request_timeout: 1500
     cache_expiration: 1
     ban_template_path: /var/lib/crowdsec/lua/templates/ban.html
     captcha_template_path: /var/lib/crowdsec/lua/templates/captcha.html
