@@ -58,9 +58,10 @@
     # Output roots (live vs dry-run).
     _cs_dir: "{{ '/tmp/crowdsec-generated/crowdsec' if (dry_run | default(false) | bool) else '/opt/crowdsec/config' }}"
     _swag_bouncer_conf: "{{ '/tmp/crowdsec-generated/crowdsec-nginx-bouncer.conf' if (dry_run | default(false) | bool) else '/opt/swag/crowdsec/crowdsec-nginx-bouncer.conf' }}"
-    # NPMPlus's bundled bouncer (vps, vpn stack) — lives under its own /data mount.
-    _npm_host: "vps.{{ vault_domain_ext }}"
-    _npmplus_bouncer_conf: "{{ '/tmp/crowdsec-generated/npmplus-crowdsec.conf' if (dry_run | default(false) | bool) else docker_appsdir + '/npm/crowdsec/crowdsec.conf' }}"
+    # Native crowdsec-firewall-bouncer on vps (IP-level enforcement only — see
+    # tasks/bootstrap_host.yaml / host_definitions.yaml for the package install).
+    _vps_host: "vps.{{ vault_domain_ext }}"
+    _fw_bouncer_conf: "{{ '/tmp/crowdsec-generated/firewall-bouncer.yaml' if (dry_run | default(false) | bool) else '/etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml' }}"
     # SWAG's persisted nginx.conf — we manage two http-level access_log lines in it:
     # ensure the dedicated CrowdSec file log exists, and remove the /dev/stdout console log.
     _swag_nginx_conf: "/opt/swag/nginx/nginx.conf"
@@ -155,35 +156,50 @@
             ansible_connection: ssh
             ansible_user: "{{ vm_user }}"
 
-        - name: Ensure NPMPlus crowdsec config directory exists (vps)
+        - name: Ensure firewall-bouncer config directory exists (vps)
           ansible.builtin.file:
-            path: "{{ (_npmplus_bouncer_conf | dirname) }}"
+            path: "{{ (_fw_bouncer_conf | dirname) }}"
             state: directory
             owner: "root"
             group: "root"
             mode: "0755"
-          delegate_to: "{{ _npm_host }}"
+          delegate_to: "{{ _vps_host }}"
           become: true
           vars:
             ansible_connection: ssh
             ansible_user: "{{ vm_user }}"
 
-        # NPMPlus's bundled bouncer config — same lua-cs-bouncer schema as SWAG's, pointed
-        # at this same central LAPI. Rendered before the npm container is ever swapped to
-        # the NPMPlus image, so its first boot already has ENABLED=true and valid creds.
-        - name: Render NPMPlus bouncer conf
+        # Native crowdsec-firewall-bouncer-iptables package config (installed via
+        # tasks/bootstrap_host.yaml) — pure IP-level enforcement, pointed at this same
+        # central LAPI. Reaches it via the host route through wireguard's pinned IP
+        # (see host_definitions.yaml vps.routes).
+        - name: Render firewall-bouncer conf
           ansible.builtin.template:
-            src: templates/crowdsec/npmplus-bouncer.conf.j2
-            dest: "{{ _npmplus_bouncer_conf }}"
+            src: templates/crowdsec/firewall-bouncer.yaml.j2
+            dest: "{{ _fw_bouncer_conf }}"
             owner: "root"
             group: "root"
             mode: "0644"
-          register: _npmplus_bouncer
-          delegate_to: "{{ _npm_host }}"
+          register: _fw_bouncer
+          delegate_to: "{{ _vps_host }}"
           become: true
           vars:
             ansible_connection: ssh
             ansible_user: "{{ vm_user }}"
+
+        - name: Restart firewall-bouncer service (config changed)
+          ansible.builtin.systemd:
+            name: crowdsec-firewall-bouncer
+            state: restarted
+          delegate_to: "{{ _vps_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when:
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
+            - _fw_bouncer is changed
 
         # SWAG feeds CrowdSec via file acquisition of a dedicated combined-format log.
         # Anchored on the always-present default access.log line, so it self-heals even if
@@ -260,7 +276,7 @@
                  or (_cs_scenarios.results | selectattr('changed') | list | length > 0)
                  or (_cs_removed.results | default([]) | selectattr('changed') | list | length > 0) }}
             _bouncer_changed: "{{ _bouncer_conf is changed }}"
-            _npmplus_bouncer_changed: "{{ _npmplus_bouncer is changed }}"
+            _fw_bouncer_changed: "{{ _fw_bouncer is changed }}"
             _swag_nginx_changed: >-
               {{ (_swag_cslog is defined and _swag_cslog is changed)
                  or (_swag_stdout is defined and _swag_stdout is changed) }}
@@ -318,7 +334,7 @@
             _deploy_detail: >-
               crowdsec config {{ 'changed' if _cs_changed | bool else 'unchanged' }} |
               bouncer conf {{ 'changed' if _bouncer_changed | bool else 'unchanged' }} |
-              npmplus bouncer conf {{ 'changed' if _npmplus_bouncer_changed | bool else 'unchanged' }}
+              vps firewall-bouncer conf {{ 'changed' if _fw_bouncer_changed | bool else 'unchanged' }}
 
         - name: Report result
           ansible.builtin.debug:

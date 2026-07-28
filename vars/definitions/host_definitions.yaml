@@ -47,6 +47,31 @@ host_definitions:
     routes:
       - to: "10.10.10.40/32"
         via: "172.21.0.2"
+    # WireGuard's default NAT only masquerades traffic exiting via eth+ (the docker
+    # bridge side) — nothing masquerades bridge-sourced traffic exiting via wg0 (the
+    # tunnel side), so the host's route above reached core but replies had no path
+    # back (the UDMP only recognizes wg0's own tunnel identity as a valid source,
+    # not the host's raw bridge IP). Scoped narrowly (host's exact bridge IP, and
+    # only to core) rather than the whole bridge subnet, to avoid granting any
+    # future container on that bridge broader tunnel/LAN reach. Edited in both the
+    # live generated conf and the template (LinuxServer's documented mechanism for
+    # this image — see docs.linuxserver.io/images/docker-wireguard, "Custom
+    # Configuration Template") so it survives a future wg0.conf regeneration too.
+    # Keys are persisted separately (/opt/wireguard/server/privatekey-server,
+    # peer1/2/3/), so editing/regenerating this does not rotate them.
+    file_edits:
+      - path: "/opt/wireguard/wg_confs/wg0.conf"
+        regexp: '^PostUp = '
+        line: "PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth+ -j MASQUERADE; iptables -t nat -A POSTROUTING -o %i -s 172.21.0.1/32 -d 10.10.10.40/32 -j MASQUERADE"
+      - path: "/opt/wireguard/wg_confs/wg0.conf"
+        regexp: '^PostDown = '
+        line: "PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth+ -j MASQUERADE; iptables -t nat -D POSTROUTING -o %i -s 172.21.0.1/32 -d 10.10.10.40/32 -j MASQUERADE"
+      - path: "/opt/wireguard/templates/server.conf"
+        regexp: '^PostUp = '
+        line: "PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth+ -j MASQUERADE; iptables -t nat -A POSTROUTING -o %i -s 172.21.0.1/32 -d 10.10.10.40/32 -j MASQUERADE"
+      - path: "/opt/wireguard/templates/server.conf"
+        regexp: '^PostDown = '
+        line: "PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth+ -j MASQUERADE; iptables -t nat -D POSTROUTING -o %i -s 172.21.0.1/32 -d 10.10.10.40/32 -j MASQUERADE"
 
   # unRAID servers (docker_run — no stacks, managed via docker_run inventory group)
   redemption:
