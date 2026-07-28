@@ -58,6 +58,9 @@
     # Output roots (live vs dry-run).
     _cs_dir: "{{ '/tmp/crowdsec-generated/crowdsec' if (dry_run | default(false) | bool) else '/opt/crowdsec/config' }}"
     _swag_bouncer_conf: "{{ '/tmp/crowdsec-generated/crowdsec-nginx-bouncer.conf' if (dry_run | default(false) | bool) else '/opt/swag/crowdsec/crowdsec-nginx-bouncer.conf' }}"
+    # NPMPlus's bundled bouncer (vps, vpn stack) — lives under its own /data mount.
+    _npm_host: "vps.{{ vault_domain_ext }}"
+    _npmplus_bouncer_conf: "{{ '/tmp/crowdsec-generated/npmplus-crowdsec.conf' if (dry_run | default(false) | bool) else docker_appsdir + '/npm/crowdsec/crowdsec.conf' }}"
     # SWAG's persisted nginx.conf — we manage two http-level access_log lines in it:
     # ensure the dedicated CrowdSec file log exists, and remove the /dev/stdout console log.
     _swag_nginx_conf: "/opt/swag/nginx/nginx.conf"
@@ -152,6 +155,36 @@
             ansible_connection: ssh
             ansible_user: "{{ vm_user }}"
 
+        - name: Ensure NPMPlus crowdsec config directory exists (vps)
+          ansible.builtin.file:
+            path: "{{ (_npmplus_bouncer_conf | dirname) }}"
+            state: directory
+            owner: "root"
+            group: "root"
+            mode: "0755"
+          delegate_to: "{{ _npm_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+
+        # NPMPlus's bundled bouncer config — same lua-cs-bouncer schema as SWAG's, pointed
+        # at this same central LAPI. Rendered before the npm container is ever swapped to
+        # the NPMPlus image, so its first boot already has ENABLED=true and valid creds.
+        - name: Render NPMPlus bouncer conf
+          ansible.builtin.template:
+            src: templates/crowdsec/npmplus-bouncer.conf.j2
+            dest: "{{ _npmplus_bouncer_conf }}"
+            owner: "root"
+            group: "root"
+            mode: "0644"
+          register: _npmplus_bouncer
+          delegate_to: "{{ _npm_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+
         # SWAG feeds CrowdSec via file acquisition of a dedicated combined-format log.
         # Anchored on the always-present default access.log line, so it self-heals even if
         # SWAG resets nginx.conf to its sample. Idempotent.
@@ -227,6 +260,7 @@
                  or (_cs_scenarios.results | selectattr('changed') | list | length > 0)
                  or (_cs_removed.results | default([]) | selectattr('changed') | list | length > 0) }}
             _bouncer_changed: "{{ _bouncer_conf is changed }}"
+            _npmplus_bouncer_changed: "{{ _npmplus_bouncer is changed }}"
             _swag_nginx_changed: >-
               {{ (_swag_cslog is defined and _swag_cslog is changed)
                  or (_swag_stdout is defined and _swag_stdout is changed) }}
@@ -283,7 +317,8 @@
           ansible.builtin.set_fact:
             _deploy_detail: >-
               crowdsec config {{ 'changed' if _cs_changed | bool else 'unchanged' }} |
-              bouncer conf {{ 'changed' if _bouncer_changed | bool else 'unchanged' }}
+              bouncer conf {{ 'changed' if _bouncer_changed | bool else 'unchanged' }} |
+              npmplus bouncer conf {{ 'changed' if _npmplus_bouncer_changed | bool else 'unchanged' }}
 
         - name: Report result
           ansible.builtin.debug:
