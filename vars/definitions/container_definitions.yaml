@@ -433,6 +433,11 @@ container_definitions:
       CSUI_CROWDSEC_URL: "http://{{ vault_vm_core_ip }}:8080"
       CSUI_CROWDSEC_USER: "{{ vault_docker_crowdsec_web_ui_user }}"
       CSUI_CROWDSEC_PASSWORD: "{{ vault_docker_crowdsec_web_ui_password }}"
+      # CrowdSec's prometheus metrics endpoint (already enabled at level:full on 6060 —
+      # see crowdsec container's ports). Legacy CROWDSEC_* vars above only seed the app's
+      # config.yaml on first run; metrics must go through the CONFIG_INSTANCE_* override
+      # scheme (the only path that supports it) so it merges into the already-migrated config.
+      CSUI_METRICS_URL: "http://{{ vault_vm_core_ip }}:6060/metrics"
     compose:
       image_var: CSUI
       base: base
@@ -444,6 +449,7 @@ container_definitions:
         CROWDSEC_URL: "${CSUI_CROWDSEC_URL}"
         CROWDSEC_USER: "${CSUI_CROWDSEC_USER}"
         CROWDSEC_PASSWORD: "${CSUI_CROWDSEC_PASSWORD}"
+        CONFIG_INSTANCE_METRICS_URL: "${CSUI_METRICS_URL}"
       volumes:
         - "${APPSDIR}/crowdsec-web-ui:/app/data"
       healthcheck:
