@@ -1,0 +1,18 @@
+[Unit]
+Description=Static route to {{ item.to }} via {{ item.via }}
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The gateway is a container IP on a Docker-managed bridge network — that network
+# may not exist yet the instant docker.service starts (its compose stack recreates
+# it separately, unordered relative to this unit). Retry rather than fail once.
+Restart=on-failure
+RestartSec=5
+ExecStart=/sbin/ip route replace {{ item.to }} via {{ item.via }}{{ ' dev ' ~ item.dev if item.dev is defined else '' }}
+ExecStop=/sbin/ip route del {{ item.to }}
+
+[Install]
+WantedBy=multi-user.target

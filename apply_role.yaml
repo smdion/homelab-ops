@@ -5,7 +5,9 @@
 # Supports both Proxmox VMs (vm_definitions) and non-VM hosts (host_definitions).
 # Layers: OS -> Network -> Docker -> Application -> Verification.
 # Basic VMs (no stacks) get OS + Network only; Docker/Application/Verification auto-skipped.
-# Non-VM hosts skip OS + Network + VIP layers; Docker/Application layers apply normally.
+# Non-VM hosts skip the VM Network/VIP layers, but get their own generic OS layer
+# (tasks/bootstrap_host.yaml — apt repos/packages/routes, all opt-in per host);
+# Docker/Application layers apply normally for both.
 #
 # Play 1 (localhost): Validate inputs, look up definition(s), determine scope.
 # Play 2 (target hosts): Apply each layer idempotently, skip layers via flags.
@@ -152,6 +154,15 @@
             _install_docker: "{{ _target_is_docker_vm }}"
           when:
             - _target_is_vm | bool
+            - not (skip_bootstrap | default(false) | bool)
+
+        # ===== OS LAYER (non-VM hosts) =====
+        - name: Apply host-level OS provisioning (non-VM hosts)
+          include_tasks: tasks/bootstrap_host.yaml
+          vars:
+            _host: "{{ _target_vm }}"
+          when:
+            - not (_target_is_vm | bool)
             - not (skip_bootstrap | default(false) | bool)
 
         # ===== DOCKER LAYER =====
