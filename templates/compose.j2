@@ -42,6 +42,12 @@ x-baseuid: &baseuid
 networks:
   {{ _network }}:
     external: true
+{% elif _services.values() | map(attribute='compose') | selectattr('static_ip', 'defined') | list | length > 0 %}
+{#- Stack has no shared external network (network: false), but a service needs a
+    static IP on the project's own implicit default network — declare it (not
+    external, compose manages it) so the ipv4_address assignment below is valid. -#}
+networks:
+  default: {}
 {% endif %}
 {% if _stack_def.compose_volumes | default([]) | length > 0 %}
 volumes:
@@ -84,7 +90,7 @@ services:
     network_mode: {{ c.network_mode }}
 {% elif c.static_ip is defined %}
     networks:
-      {{ _network }}:
+      {{ _network if _network else 'default' }}:
         ipv4_address: {{ c.static_ip }}
 {% elif c.network_aliases | default([]) | length > 0 %}
     networks:
