@@ -1085,7 +1085,6 @@ container_definitions:
         homelab.backup.paths: "/opt/npm,/opt/npm-le"
       volumes:
         - "${APPSDIR}/npm:/data:rw"
-        - "${APPSDIR}/npm-le:/etc/letsencrypt"
       healthcheck:
         test: ["CMD-SHELL", "curl -fs http://localhost:81 || exit 1"]
         interval: "30s"
