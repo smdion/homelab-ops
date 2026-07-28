@@ -15,3 +15,14 @@ db_config:
   flush:
     max_items: 5000
     max_age: 7d
+# CrowdSec restricts admin-only LAPI operations (e.g. DELETE /v1/alerts/*) to
+# loopback or api.server.trusted_ips, independent of watcher/bouncer auth —
+# crowdsec-web-ui runs cross-host on the apps VM and its background alert
+# cleanup queue was 403ing indefinitely without this (see
+# github.com/TheDuffman85/crowdsec-web-ui#trusted-ips-for-delete-operations-optional).
+api:
+  server:
+    trusted_ips:
+      - "127.0.0.1"
+      - "::1"
+      - "{{ vault_vm_apps_ip }}"
