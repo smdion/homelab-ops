@@ -13,6 +13,14 @@
 # Env-driven CrowdSec/bouncer knobs (USE_WAL, MODE, UPDATE_FREQUENCY, keys) live in
 # container_definitions.yaml — apply those by redeploying the auth stack.
 #
+# IMPORTANT: redeploying the auth stack (deploy_stacks.yaml) does NOT run this playbook.
+# It only recreates containers from container_definitions.yaml (compose/env), which is
+# a disjoint set of knobs from the ones this playbook renders (FALLBACK_REMEDIATION,
+# REQUEST_TIMEOUT, CACHE_EXPIRATION, acquis/profiles/whitelists, etc. — see
+# crowdsec_definitions.yaml). File-templated changes here are only picked up by running
+# THIS playbook explicitly (confirmed 2026-07-27: an auth stack redeploy would restart
+# crowdsec/swag but silently leave a stale crowdsec-nginx-bouncer.conf in place).
+#
 # Optional extra vars:
 #   dry_run=true  — write to /tmp/crowdsec-generated/ instead of the live dirs (default: false)
 #
