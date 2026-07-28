@@ -430,13 +430,15 @@ container_definitions:
     tag: "latest"
     stack: monitoring
     env:
-      CSUI_CROWDSEC_URL: "http://{{ vault_vm_core_ip }}:8080"
-      CSUI_CROWDSEC_USER: "{{ vault_docker_crowdsec_web_ui_user }}"
-      CSUI_CROWDSEC_PASSWORD: "{{ vault_docker_crowdsec_web_ui_password }}"
+      # CONFIG_INSTANCE_* is the current (non-deprecated) scheme — the legacy
+      # CROWDSEC_URL/USER/PASSWORD vars this used to use only apply during the
+      # app's one-time first-boot config.yaml migration (long since done here)
+      # and were logged every start as "deprecated ... can be removed".
+      CSUI_LAPI_URL: "http://{{ vault_vm_core_ip }}:8080"
+      CSUI_LAPI_USER: "{{ vault_docker_crowdsec_web_ui_user }}"
+      CSUI_LAPI_PASSWORD: "{{ vault_docker_crowdsec_web_ui_password }}"
       # CrowdSec's prometheus metrics endpoint (already enabled at level:full on 6060 —
-      # see crowdsec container's ports). Legacy CROWDSEC_* vars above only seed the app's
-      # config.yaml on first run; metrics must go through the CONFIG_INSTANCE_* override
-      # scheme (the only path that supports it) so it merges into the already-migrated config.
+      # see crowdsec container's ports).
       CSUI_METRICS_URL: "http://{{ vault_vm_core_ip }}:6060/metrics"
     compose:
       image_var: CSUI
@@ -446,9 +448,9 @@ container_definitions:
         homelab.backup.paths: "/opt/crowdsec-web-ui"
         homelab.proxy.subdomain: "security"
       environment:
-        CROWDSEC_URL: "${CSUI_CROWDSEC_URL}"
-        CROWDSEC_USER: "${CSUI_CROWDSEC_USER}"
-        CROWDSEC_PASSWORD: "${CSUI_CROWDSEC_PASSWORD}"
+        CONFIG_INSTANCE_LAPI_URL: "${CSUI_LAPI_URL}"
+        CONFIG_INSTANCE_LAPI_AUTH_USERNAME: "${CSUI_LAPI_USER}"
+        CONFIG_INSTANCE_LAPI_AUTH_PASSWORD: "${CSUI_LAPI_PASSWORD}"
         CONFIG_INSTANCE_METRICS_URL: "${CSUI_METRICS_URL}"
       volumes:
         - "${APPSDIR}/crowdsec-web-ui:/app/data"
