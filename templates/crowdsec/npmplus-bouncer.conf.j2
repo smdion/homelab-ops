@@ -1,0 +1,48 @@
+{#- Auto-generated CrowdSec bouncer config for NPMPlus (delivered to the vps npm appdata,
+    <data>/crowdsec/crowdsec.conf — NPMPlus's bundled lua-cs-bouncer, same schema as SWAG's).
+    Source: crowdsec_definitions.yaml (crowdsec.bouncer) + deploy_crowdsec_configs.yaml.
+    Do not edit manually — changes are overwritten on next deploy.
+
+    Points at the existing central LAPI on core, not a local CrowdSec engine — NPMPlus's
+    docs default to network_mode: host + a local engine reading local logs, which this
+    homelab deliberately does not use (one central engine, see crowdsec_definitions.yaml). -#}
+ENABLED={{ crowdsec.bouncer.enabled | string | lower }}
+API_URL=http://{{ vault_vm_core_ip }}:8080
+API_KEY={{ vault_docker_crowdsec_npmplus_bouncer_key }}
+USE_TLS_AUTH=false
+TLS_CLIENT_CERT=/path/to/client.crt
+TLS_CLIENT_KEY=/path/to/client.key
+CACHE_EXPIRATION={{ crowdsec.bouncer.cache_expiration }}
+# bounce for all type of remediation that the bouncer can receive from the local API
+BOUNCING_ON_TYPE={{ crowdsec.bouncer.bouncing_on_type }}
+FALLBACK_REMEDIATION={{ crowdsec.bouncer.fallback_remediation }}
+REQUEST_TIMEOUT={{ crowdsec.bouncer.request_timeout }}
+UPDATE_FREQUENCY=10
+# live or stream — stream caches decisions locally, matching the SWAG bouncer's mode
+MODE=stream
+# also check requests nginx marks "internal" — see crowdsec-nginx-bouncer.conf.j2 for why
+ENABLE_INTERNAL={{ crowdsec.bouncer.enable_internal | string | lower }}
+SCENARIOS_CONTAINING=
+SCENARIOS_NOT_CONTAINING=
+# exclude the bouncing on those location
+EXCLUDE_LOCATION=
+#those apply for "ban" action
+# /!\ REDIRECT_LOCATION and RET_CODE can't be used together. REDIRECT_LOCATION take priority over RET_CODE
+BAN_TEMPLATE_PATH=/data/crowdsec/ban.html
+REDIRECT_LOCATION=
+RET_CODE=
+#those apply for "captcha" action
+#valid providers are recaptcha, hcaptcha, turnstile
+CAPTCHA_PROVIDER=
+SECRET_KEY=
+SITE_KEY=
+CAPTCHA_TEMPLATE_PATH=/data/crowdsec/captcha.html
+CAPTCHA_EXPIRATION={{ crowdsec.bouncer.captcha_expiration }}
+APPSEC_URL=
+APPSEC_FAILURE_ACTION=passthrough
+APPSEC_CONNECT_TIMEOUT=
+APPSEC_SEND_TIMEOUT=
+APPSEC_PROCESS_TIMEOUT=
+ALWAYS_SEND_TO_APPSEC=false
+APPSEC_DROP_UNREADABLE_BODY=false
+SSL_VERIFY=true
