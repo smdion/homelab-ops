@@ -1,0 +1,55 @@
+{#- Auto-generated SWAG default (catch-all) vhost config.
+    Source: deploy_swag_configs.yaml. Do not edit manually — changes are overwritten
+    on next deploy (edit templates/swag_default.conf.j2 instead).
+
+    Handles any request whose Host header doesn't match a known subdomain (the bare
+    domain, typos, or internet-wide vulnerability scanners probing IPs directly).
+
+    Root-caused 2026-07-27 (see project_crowdsec_iac.md): this used to rewrite
+    unmatched requests to a ~214MB video (a bot tarpit, backed by the now-unused
+    `rickroll` container on port 7344) as a deterrent. That worked too well — a
+    server-level `rewrite ... last;` here causes nginx to internally redirect to a
+    new location BEFORE the CrowdSec access-phase check (`access_by_lua_block`,
+    registered globally in the http{} block) has a chance to run for the request,
+    so the bounce silently bypassed CrowdSec bans entirely for every request hitting
+    this vhost. This isn't a CrowdSec bug — it's an nginx phase-ordering interaction
+    specific to a server-level (non-location) `rewrite ... last`. Confirmed via a
+    controlled test: the identical banned IP + request was blocked (403) on a normal
+    subdomain vhost and bypassed (200, full 214MB) on this one, with debug logging
+    showing the CrowdSec access-phase handler never fired in the bypass case.
+
+    Fix: `return 444;` instead of the rewrite. `return` finalizes the request
+    immediately wherever it's evaluated, so the outcome (drop the connection, ~0
+    bytes) doesn't depend on CrowdSec running at all here — it's unconditional and
+    therefore immune to this class of bug by construction, not just a narrower
+    version of the same trick. No other site-conf in this repo uses a server-level
+    `rewrite ... last`, so this bypass was isolated to this one vhost. -#}
+## Managed by homelab-ops (deploy_swag_configs.yaml) — see templates/swag_default.conf.j2
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 8081 ssl default_server;
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+
+    server_name _;
+
+    include /config/nginx/ssl.conf;
+    include /config/nginx/includes/maxmind.conf;
+    include /config/nginx/includes/smdion_errorpages.conf;
+
+    return 444;
+
+    # deny access to .htaccess/.htpasswd files
+    location ~ /\.ht {
+        deny all;
+    }
+}
