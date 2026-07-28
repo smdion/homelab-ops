@@ -1,0 +1,65 @@
+{#- Auto-generated CrowdSec firewall-bouncer config for vps (native
+    crowdsec-firewall-bouncer-iptables package, installed via
+    tasks/bootstrap_host.yaml — see host_definitions.yaml vps.packages).
+    Source: crowdsec_definitions.yaml (crowdsec.bouncer) + deploy_crowdsec_configs.yaml.
+    Do not edit manually — changes are overwritten on next deploy.
+
+    Pure IP-level enforcement — no HTTP/AppSec awareness. Detection stays centralized
+    on core's CrowdSec engine (SWAG/Authentik/SSH log acquisition); this only enforces
+    decisions already made there, at the packet level, before traffic consumes the
+    WireGuard tunnel. Reaches core's LAPI via the host route through wireguard's
+    pinned IP (see host_definitions.yaml vps.routes + container_definitions.yaml
+    wireguard.compose.static_ip). -#}
+mode: iptables
+update_frequency: 10s
+log_mode: file
+log_dir: /var/log/
+log_level: info
+log_compression: true
+log_max_size: 100
+log_max_backups: 3
+log_max_age: 30
+api_url: http://{{ vault_vm_core_ip }}:8080/
+api_key: {{ vault_docker_crowdsec_vps_firewall_bouncer_key }}
+insecure_skip_verify: false
+disable_ipv6: false
+deny_action: DROP
+deny_log: false
+supported_decisions_types:
+  - ban
+blacklists_ipv4: crowdsec-blacklists
+blacklists_ipv6: crowdsec6-blacklists
+ipset_type: nethash
+# INPUT protects the host's own listeners (e.g. SSH); DOCKER-USER is the
+# documented insertion point for Docker-published ports (443/51820 -> npm/wireguard),
+# since Docker's own DNAT/FORWARD chains bypass the plain INPUT chain otherwise.
+iptables_chains:
+  - INPUT
+  - DOCKER-USER
+iptables_add_rule_comments: true
+
+nftables:
+  ipv4:
+    enabled: true
+    set-only: false
+    table: crowdsec
+    chain: crowdsec-chain
+    priority: -10
+  ipv6:
+    enabled: true
+    set-only: false
+    table: crowdsec6
+    chain: crowdsec6-chain
+    priority: -10
+
+nftables_hooks:
+  - input
+  - forward
+
+pf:
+  anchor_name: ""
+
+prometheus:
+  enabled: false
+  listen_addr: 127.0.0.1
+  listen_port: 60601

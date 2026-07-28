@@ -9,11 +9,14 @@
 #   _host — the host_definitions entry for this host
 #
 # Optional fields on _host:
-#   apt_repos — list of {key_name, key_url, entry}: adds a dearmored keyring +
-#               a signed-by apt source before installing packages.
-#   packages  — list of apt package names to ensure present.
-#   routes    — list of {to, via[, dev]}: static routes, persisted via a
-#               per-route systemd oneshot unit (survives reboot).
+#   apt_repos  — list of {key_name, key_url, entry}: adds a dearmored keyring +
+#                a signed-by apt source before installing packages.
+#   packages   — list of apt package names to ensure present.
+#   routes     — list of {to, via[, dev]}: static routes, persisted via a
+#                per-route systemd oneshot unit (survives reboot).
+#   file_edits — list of {path, regexp, line}: idempotent lineinfile edits to
+#                existing files (e.g. patching a third-party app's config that
+#                this repo doesn't otherwise own/template in full).
 
 - name: Ensure apt keyrings directory exists
   ansible.builtin.file:
@@ -67,3 +70,13 @@
   loop_control:
     label: "{{ item.item.to }}"
   when: _host.routes | default([]) | length > 0
+
+- name: Apply file edits
+  ansible.builtin.lineinfile:
+    path: "{{ item.path }}"
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop: "{{ _host.file_edits | default([]) }}"
+  loop_control:
+    label: "{{ item.path }}"
