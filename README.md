@@ -17,7 +17,7 @@ maintenance, deployment, and provisioning — orchestrated via
 | **Verify** | Restores each database to a temp instance and validates config archives |
 | **Restore** | Safety-gated database and appdata restore with pre-restore snapshots |
 | **Rollback** | Revert Docker containers to previous image versions |
-| **Health** | 30 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific |
+| **Health** | 31 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific |
 | **Updates** | OS package and Docker container updates with version tracking |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore cleanup, service restarts |
 | **Deploy** | Docker stacks from Git — `.env` templating, compose validation, dependency-ordered start |

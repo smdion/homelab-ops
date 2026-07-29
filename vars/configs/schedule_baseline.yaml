@@ -45,6 +45,8 @@ schedule_baseline:
     cron_expression: "0 2 * * 0"
   - template_name: "Maintain — Ansible [Health]"
     cron_expression: "0 8 * * 0"
+  - template_name: "Maintain — CrowdSec Bouncer [Restart]"
+    cron_expression: "0 3 * * *"
   - template_name: "Maintain — Logging DB [Summary]"
     cron_expression: "0 8 * * 0"
   # "Download — Videos" is intentionally UNscheduled — it is event-driven (MeTube
