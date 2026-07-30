@@ -54,13 +54,20 @@
             cmd: docker restart swag
           changed_when: true
 
+        # SWAG's own healthcheck (container_definitions.yaml) is StartPeriod=60s,
+        # Interval=30s, Retries=3 — Docker itself may not report "healthy" until
+        # ~150s in the worst case (mods/cert checks on startup add real time on
+        # top of that). The previous 60s budget here was tighter than Docker's own
+        # configured grace period, so it could fail even on a normal, successful
+        # restart (confirmed 2026-07-30: SWAG came up healthy shortly after this
+        # task gave up). 210s gives comfortable headroom above the ~150s worst case.
         - name: Wait for SWAG to report healthy
           become: true
           ansible.builtin.shell: |
-            for i in $(seq 1 30); do
+            for i in $(seq 1 70); do
               status=$(docker inspect --format '{{ "{{" }}.State.Health.Status{{ "}}" }}' swag 2>/dev/null)
               [ "$status" = "healthy" ] && exit 0
-              sleep 2
+              sleep 3
             done
             exit 1
           register: _swag_health
