@@ -140,22 +140,27 @@ def _collect_port_bindings(container_defs: dict) -> dict[str, list[dict]]:
 # Conflict detection
 # ---------------------------------------------------------------------------
 
-def _profiles_overlap(a: list[str], b: list[str]) -> bool:
-    """Return True if two profile lists can be active simultaneously.
+def _is_active(profiles: list[str], active_profiles: list[str] | None) -> bool:
+    """Return True if a binding's profiles are active for a given role.
 
-    - No profiles ([]) means the service always runs -> conflicts with anything.
-    - Two services with disjoint profile sets never run together.
+    - No profiles ([]) means the service always runs -> always active.
+    - active_profiles is None when the stack has no role_profiles entry for
+      this role — conservatively assume active (preserves prior behaviour).
+    - Otherwise the binding is active only if it shares a profile with the
+      role's active set.
     """
-    if not a or not b:
-        # At least one service always runs
+    if not profiles:
         return True
-    return bool(set(a) & set(b))
+    if active_profiles is None:
+        return True
+    return bool(set(profiles) & set(active_profiles))
 
 
 def detect_conflicts(
     container_defs: dict,
     vm_defs: dict,
     host_defs: dict,
+    stack_defs: dict | None = None,
 ) -> list[dict]:
     """Return a list of conflict records.
 
@@ -166,16 +171,21 @@ def detect_conflicts(
         "containers": [{"name": str, "stack": str, "profiles": list}, ...]
     }
     """
+    stack_defs = stack_defs or {}
     role_stacks = _build_role_stacks(vm_defs, host_defs)
     stack_ports = _collect_port_bindings(container_defs)
 
     conflicts = []
     for role, stacks in sorted(role_stacks.items()):
-        # Collect all port bindings for this role
+        # Collect all port bindings for this role, dropping bindings whose
+        # profile isn't active for this role (per stack_definitions.role_profiles)
         # Key: (host_port, protocol) -> list of binding dicts
         port_map: dict[tuple[str, str], list[dict]] = {}
         for stack in stacks:
+            active_profiles = stack_defs.get(stack, {}).get("role_profiles", {}).get(role)
             for binding in stack_ports.get(stack, []):
+                if not _is_active(binding["profiles"], active_profiles):
+                    continue
                 key = (binding["host_port"], binding["protocol"])
                 entry = {
                     "name": binding["container"],
@@ -184,31 +194,17 @@ def detect_conflicts(
                 }
                 port_map.setdefault(key, []).append(entry)
 
-        # Check each port for conflicts
+        # Any port with 2+ bindings that are simultaneously active is a conflict.
         for (host_port, proto), bindings in sorted(port_map.items()):
             if len(bindings) < 2:
                 continue
 
-            # Check all pairs for profile overlap
-            conflicting = []
-            for i, a in enumerate(bindings):
-                dominated = False
-                for j, b in enumerate(bindings):
-                    if i == j:
-                        continue
-                    if _profiles_overlap(a["profiles"], b["profiles"]):
-                        dominated = True
-                        break
-                if dominated:
-                    conflicting.append(a)
-
-            if len(conflicting) >= 2:
-                conflicts.append({
-                    "role": role,
-                    "host_port": host_port,
-                    "protocol": proto,
-                    "containers": conflicting,
-                })
+            conflicts.append({
+                "role": role,
+                "host_port": host_port,
+                "protocol": proto,
+                "containers": bindings,
+            })
 
     return conflicts
 
@@ -287,6 +283,9 @@ def main() -> int:
         vm_defs = _load_yaml_with_jinja(required_files["vm"]).get(
             "vm_definitions", {}
         )
+        stack_defs = _load_yaml_with_jinja(required_files["stack"]).get(
+            "stack_definitions", {}
+        )
 
         host_path = optional_files["host"]
         host_defs = {}
@@ -298,7 +297,7 @@ def main() -> int:
         print(f"ERROR: Failed to load definitions: {exc}", file=sys.stderr)
         return 2
 
-    conflicts = detect_conflicts(container_defs, vm_defs, host_defs)
+    conflicts = detect_conflicts(container_defs, vm_defs, host_defs, stack_defs)
 
     if args.format == "table":
         print(_format_table(conflicts))
