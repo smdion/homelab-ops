@@ -21,7 +21,15 @@ config_name: "default"
 # of whether the /add call came from the bookmarklet or fast_check.py. The
 # playbook extracts URLs from these files into the batch file before running
 # yt-dlp.
-metube_capture_dir: "/configs/on_demand"
+#
+# Must live inside DOWNLOAD_DIR (/downloads) — MeTube enforces that its own
+# /add-triggered writes stay within DOWNLOAD_DIR, so a paths.home outside it
+# (the old /configs/on_demand) gets rejected as "Refusing to write outside
+# the download directory". Dot-prefixed so it stays out of media-scanner
+# sight in the real video library mount; harmless either way since
+# skip_download means only the tiny .desktop link ever lands here, and the
+# playbook removes each file the moment it processes it.
+metube_capture_dir: "/downloads/.on_demand"
 
 # Verbose output
 ytdlp_quiet: false
