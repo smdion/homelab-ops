@@ -50,6 +50,13 @@ stack_definitions:
     generate_compose: true
     generate_env: true
     globals: [mem_limit, restart, tz, appsdir]
+    # Static mirror of the COMPOSE_PROFILES branch below, keyed by host_roles value.
+    # Consumed by scripts/validate_port_conflicts.py to know which profile is active
+    # per role — keep in sync if the env_extra Jinja logic changes.
+    role_profiles:
+      apps: [hub]
+      core: [agent]
+      dev: [agent]
     env_extra: |-
       ## Dozzle — profiles select agent vs hub per host role
       ## Hub runs on apps (central log viewer); agents run on core + dev.

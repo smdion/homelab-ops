@@ -528,6 +528,31 @@ container_definitions:
       profiles: ["agent"]
       healthcheck:
         test: ["NONE"]
+  dumbassets:
+    image: "dumbwareio/dumbassets"
+    tag: "latest"
+    stack: apps
+    env:
+      BASE_URL: "https://tracking.{{ vault_domain_ext }}"
+    compose:
+      base: baseenv
+      ports: ["3101:3000"]
+      labels:
+        homelab.backup.paths: "/opt/dumbassets"
+        homelab.proxy.subdomain: "tracking"
+        homelab.proxy.error_pages: "true"
+      environment:
+        NODE_ENV: production
+        BASE_URL: "${BASE_URL}"
+        SITE_TITLE: "Tracking"
+      volumes:
+        - "${APPSDIR}/dumbassets:/app/data"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   firefox:
     image: "jlesage/firefox"
     tag: "latest"
