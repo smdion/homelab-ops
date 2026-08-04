@@ -1429,8 +1429,6 @@ container_definitions:
       labels:
         homelab.backup.paths: "/opt/zigbee2mqtt"
         homelab.backup.exclude: "log,*.db.backup"
-        homelab.proxy.subdomain: "zigbee"
-        homelab.proxy.external: "false"
       volumes:
         - "${APPSDIR}/zigbee2mqtt:/app/data"
         - "/run/dbus:/run/dbus:ro"
