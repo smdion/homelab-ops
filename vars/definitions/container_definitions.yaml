@@ -1126,6 +1126,7 @@ container_definitions:
     compose:
       base: baseuid
       ports: ["5432:5432"]
+      command: "postgres -c max_connections=200"
       labels:
         homelab.wait_port: "5432"
         homelab.health_timeout: "180"
