@@ -104,12 +104,12 @@ container_definitions:
     tag: "latest"
     stack: apps
     env:
-      ACTUAL_HTTP_API_SERVER_URL: "http://actual_budget:5006/"
+      ACTUAL_HTTP_API_SERVER_URL: "http://actual-budget:5006/"
       ACTUAL_HTTP_API_SERVER_PASSWORD: "{{ vault_docker_actual_http_api_password }}"
       ACTUAL_HTTP_API_KEY: "{{ vault_docker_actual_http_api_key }}"
     compose:
       base: base
-      depends_on: ["actual_budget"]
+      depends_on: ["actual-budget"]
       ports: ["5007:5007"]
       labels:
         homelab.backup.paths: "/opt/actual_http_api"
