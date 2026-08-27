@@ -92,6 +92,39 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "20s"
+  actual_http_api:
+    # REST wrapper sidecar for actual_budget — Actual has no hosted REST API
+    # of its own; Ledgr's Actual integration talks to this instead. Same
+    # compose stack (apps) as actual_budget so it reaches it by service name
+    # over the internal docker network; published on the host (not proxied
+    # through SWAG/Authentik) so Ledgr — a different stack/host — reaches it
+    # via host-IP:5007 with the API key, same machine-to-machine pattern as
+    # other internal-only APIs here.
+    image: "jhonderson/actual-http-api"
+    tag: "latest"
+    stack: apps
+    env:
+      ACTUAL_HTTP_API_SERVER_URL: "http://actual_budget:5006/"
+      ACTUAL_HTTP_API_SERVER_PASSWORD: "{{ vault_docker_actual_http_api_password }}"
+      ACTUAL_HTTP_API_KEY: "{{ vault_docker_actual_http_api_key }}"
+    compose:
+      base: base
+      depends_on: ["actual_budget"]
+      ports: ["5007:5007"]
+      labels:
+        homelab.backup.paths: "/opt/actual_http_api"
+      volumes:
+        - "${APPSDIR}/actual_http_api/data:/data"
+      environment:
+        ACTUAL_SERVER_URL: "${ACTUAL_HTTP_API_SERVER_URL}"
+        ACTUAL_SERVER_PASSWORD: "${ACTUAL_HTTP_API_SERVER_PASSWORD}"
+        API_KEY: "${ACTUAL_HTTP_API_KEY}"
+      healthcheck:
+        test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:5007/api-docs/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "20s"
   adminer:
     image: "adminer"
     tag: "latest"
