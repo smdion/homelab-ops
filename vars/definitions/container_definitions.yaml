@@ -82,6 +82,7 @@ container_definitions:
         homelab.proxy.subdomain: "budget"
         homelab.proxy.auth: "true"
         homelab.proxy.external: "true"
+        homelab.proxy.websocket: "true"
         homelab.proxy.error_pages: "true"
       volumes:
         - "${APPSDIR}/actual_budget/data:/data"
