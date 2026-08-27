@@ -79,7 +79,7 @@ container_definitions:
       ports: ["5006:5006"]
       labels:
         homelab.backup.paths: "/opt/actual_budget"
-        homelab.proxy.subdomain: "actual"
+        homelab.proxy.subdomain: "budget"
         homelab.proxy.auth: "true"
         homelab.proxy.external: "true"
         homelab.proxy.error_pages: "true"
