@@ -69,6 +69,28 @@
 #     homelab.proxy.complex    — signals "use proxy: key for full config" (default: false)
 
 container_definitions:
+  actual_budget:
+    image: "actualbudget/actual-server"
+    tag: "latest"
+    stack: apps
+    compose:
+      image_var: ACTUAL
+      base: base
+      ports: ["5006:5006"]
+      labels:
+        homelab.backup.paths: "/opt/actual_budget"
+        homelab.proxy.subdomain: "actual"
+        homelab.proxy.auth: "true"
+        homelab.proxy.external: "true"
+        homelab.proxy.error_pages: "true"
+      volumes:
+        - "${APPSDIR}/actual_budget/data:/data"
+      healthcheck:
+        test: ["CMD-SHELL", "node scripts/health-check.js"]
+        interval: "60s"
+        timeout: "10s"
+        retries: 3
+        start_period: "20s"
   adminer:
     image: "adminer"
     tag: "latest"
