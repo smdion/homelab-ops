@@ -1,0 +1,186 @@
+---
+# Category: Deploy
+# Schedule: none
+# Render MariaDB's custom.cnf from definitions-as-code and deploy it to core
+# (databases stack). Previously this file was only ever auto-generated on
+# first container boot by the linuxserver image and lived untracked on the
+# host — this playbook brings it under IaC.
+#
+# Optional extra vars:
+#   dry_run=true  — write to /tmp/mariadb-generated/ instead of the live dir (default: false)
+#
+# Usage:
+#   ansible-playbook deploy_mariadb_config.yaml
+#   ansible-playbook deploy_mariadb_config.yaml -e dry_run=true
+#   ansible-playbook deploy_mariadb_config.yaml --diff --check
+
+- name: Generate MariaDB config
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+
+  vars_files:
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/stack_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/semaphore_check.yaml
+    - vars/configs/docker_stacks.yaml
+    - vars/secrets.yaml
+
+  vars:
+    # mariadb lives in the databases stack — resolve that VM's IP/role.
+    _db_host: >-
+      {%- set ns = namespace(host='') -%}
+      {%- for r, rdef in vm_definitions.items() -%}
+        {%- if rdef.stacks is defined and 'databases' in rdef.stacks and not ns.host -%}
+          {%- set ns.host = rdef.vm_ip -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ ns.host }}
+    _mariadb_cnf: "{{ '/tmp/mariadb-generated/custom.cnf' if (dry_run | default(false) | bool) else docker_appsdir + '/mariadb/custom.cnf' }}"
+    _mariadb_bin_log_dir: "{{ docker_appsdir }}/mariadb/log/mysql"
+    maintenance_name: "MariaDB Config"
+    maintenance_type: "Local"
+    maintenance_subtype: "Deploy"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "deploy_mariadb_config.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
+  tasks:
+    - name: Initialize deploy state
+      ansible.builtin.set_fact:
+        deploy_failed: false
+        _deploy_detail: ""
+
+    - block:
+        - name: Render MariaDB custom.cnf
+          ansible.builtin.template:
+            src: templates/mariadb/custom.cnf.j2
+            dest: "{{ _mariadb_cnf }}"
+            owner: "1000"
+            group: "1000"
+            mode: "0644"
+          register: _mariadb_conf
+          delegate_to: "{{ _db_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+
+        - name: Restart MariaDB to apply config changes (binary logging disabled)
+          ansible.builtin.command:
+            cmd: docker restart mariadb
+          changed_when: true
+          delegate_to: "{{ _db_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when:
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
+            - _mariadb_conf is changed
+
+        - name: Wait for MariaDB to accept connections
+          ansible.builtin.command:
+            cmd: docker exec mariadb mysqladmin ping -h localhost
+          register: _mariadb_ping
+          changed_when: false
+          until: _mariadb_ping.rc == 0
+          retries: 12
+          delay: 5
+          delegate_to: "{{ _db_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when:
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
+            - _mariadb_conf is changed
+
+        # Binary logging is now off (see custom.cnf.j2) — the old binlog files are
+        # inert and only wasting disk (30GB+ accumulated, drove the disk_space
+        # health check into warning on core). Safe to remove once confirmed off.
+        - name: Confirm binary logging is disabled before removing old binlogs
+          ansible.builtin.command:
+            cmd: docker exec mariadb mysql -uroot -p{{ vault_docker_mariadb_password }} -N -e "SHOW VARIABLES LIKE 'log_bin';"
+          register: _mariadb_logbin
+          changed_when: false
+          delegate_to: "{{ _db_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when:
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
+            - _mariadb_conf is changed
+
+        - name: Remove stale binary log files
+          ansible.builtin.shell: |
+            rm -f {{ _mariadb_bin_log_dir }}/mariadb-bin.* {{ _mariadb_bin_log_dir }}/#binlog_cache_files/*
+          register: _binlog_cleanup
+          changed_when: true
+          delegate_to: "{{ _db_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when:
+            - not (dry_run | default(false) | bool)
+            - not ansible_check_mode
+            - _mariadb_conf is changed
+            - "'OFF' in _mariadb_logbin.stdout"
+
+        - name: Record deploy detail
+          ansible.builtin.set_fact:
+            _deploy_detail: >-
+              custom.cnf {{ 'changed' if _mariadb_conf is changed else 'unchanged' }} |
+              binlogs {{ 'purged' if (_binlog_cleanup is defined and _binlog_cleanup is changed) else 'untouched' }}
+
+        - name: Report result
+          ansible.builtin.debug:
+            msg: "{{ _deploy_detail }}"
+
+      rescue:
+        - name: Set failure flag
+          ansible.builtin.set_fact:
+            deploy_failed: true
+            _deploy_detail: "{{ _deploy_detail }} | Error: {{ ansible_failed_result.msg | default('unknown') }}"
+
+      always:
+        - name: Send notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Deploy"
+            discord_status: "{{ 'failed' if deploy_failed else 'successful' }}"
+            discord_color: "{{ discord_color_failure if deploy_failed else discord_color_success }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "{{ '❌ ' if deploy_failed else '✅ ' }}Deploy"
+                value: "{{ _deploy_detail }}"
+                inline: true
+
+        - name: Log to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_hostname: "{{ controller_fqdn }}"
+            log_application: "{{ maintenance_name }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if deploy_failed else 'success' }}"
+
+        - name: Fail play if deploy errored
+          ansible.builtin.fail:
+            msg: "MariaDB config deploy failed — see notification for details"
+          when: deploy_failed
