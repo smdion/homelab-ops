@@ -84,6 +84,15 @@ container_definitions:
         homelab.proxy.external: "true"
         homelab.proxy.websocket: "true"
         homelab.proxy.error_pages: "true"
+      environment:
+        # Auto-provision an Actual user on first OpenID login instead of
+        # requiring the owner to pre-add each one. Authentik is the gate:
+        # anyone its Actual app authorises gets a BASIC user created on
+        # first login. Default "manual" rejects unknown users, which Actual
+        # surfaces as {"status":"error","reason":"openid-grant-failed"}.
+        # (actual-server >= 25.5.0; the OpenID provider itself is configured
+        # in Actual's UI, stored in the data volume.)
+        ACTUAL_USER_CREATION_MODE: "login"
       volumes:
         - "${APPSDIR}/actual_budget/data:/data"
       healthcheck:
