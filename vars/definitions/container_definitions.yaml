@@ -70,19 +70,33 @@
 
 container_definitions:
   actual_budget:
-    # Pinned (2026-09-01), same as authentik — was floating on "latest",
+    # Pinned (2026-09-01), same as authentik — see actual_http_api's
+    # comment below for the full incident. Was floating on "latest",
     # which silently auto-updated to 26.9.0 overnight and broke Ledgr's
-    # Actual sync integration (see actual_http_api's comment below for the
-    # full incident). 26.9.0 added a DB column (account_group_id) that
-    # actual_http_api's bundled client doesn't know about yet. Confirmed
-    # actual-budget's own web UI/server works fine on 26.9.0 (it authored
-    # the migration) — do NOT roll this back to "fix" the sync issue, that
-    # risks actual-budget refusing to open its own already-migrated
-    # database, breaking the core app for a sync-integration problem.
+    # Actual sync integration (26.9.0 added a DB column, account_group_id,
+    # that actual_http_api's bundled client doesn't know about).
+    #
+    # RESOLUTION (2026-09-01): confirmed live that a downgrade alone does
+    # NOT fix this — even with actual_budget rolled back to 26.8.1 (this
+    # pin) matching actual_http_api's 26.8.1 exactly, and the correct
+    # groupId identifier, the download still failed replaying a
+    # `UPDATE accounts SET account_group_id = ?` sync-log entry that the
+    # 26.9.0 server had already written overnight. The DATA (the sync log
+    # itself, not just the live schema) was migrated forward and can't be
+    # un-migrated by swapping the server binary back. Fixed by RESTORING
+    # /opt/actual_budget/data from the last pre-incident backup
+    # (backup_apps_appdata_2026-08-30.tar.gz, itself from an ~8/29
+    # snapshot) rather than trying to reconcile the migrated data with an
+    # older client — the migrated (post-incident) data was moved aside,
+    # not deleted: /opt/actual_budget/data.migrated-pre-restore-* on
+    # apps.seandion.local. User accepted losing entries made between the
+    # backup and the restore and is manually re-adding them.
+    #
     # Bump this only after confirming actual_http_api has (or doesn't
-    # need) a matching update.
+    # need) a matching update — don't let this drift ahead of the wrapper
+    # again.
     image: "actualbudget/actual-server"
-    tag: "26.9.0"
+    tag: "26.8.1"
     stack: apps
     compose:
       image_var: ACTUAL
@@ -125,36 +139,51 @@ container_definitions:
     # INCIDENT: actual_budget auto-updated to 26.9.0 overnight (both
     # containers were on "latest"), which added a DB column
     # (account_group_id) this wrapper's bundled @actual-app/api@26.8.1
-    # client doesn't know about. Every Ledgr sync since has failed with
+    # client doesn't know about. Every Ledgr sync since failed with
     # "invalid-schema" / "no such column: account_group_id" (actual-http-api
-    # container logs). 26.8.1 is jhonderson/actual-http-api's newest
-    # NUMBERED release as of this pin — no compatible version exists yet.
-    # Tried the "main" branch tag (2026-08-31 build) as a workaround: it
-    # resolves the schema error but has its OWN bug (downloadBudget()
-    # throws "budget-not-found" for a real, listable budget) — NOT safe for
-    # production, don't use it.
+    # container logs).
     #
-    # SECOND finding, back on the pinned 26.8.1: even with a fully clean
-    # local cache (/opt/actual_http_api/data/<budget>/ removed), a direct
-    # /v1/budgets/<syncId>/accounts call still 404s "budget-not-found" from
-    # download-budget — tried both the syncId AND the raw cloudFileId, same
-    # result either way. actual-budget's own server log for that window
-    # shows POST /account/login and GET /sync/list-user-files both
-    # returning 200 — no download/sync-file request even reaches the
-    # server, so this is failing inside the wrapper's own client-side
-    # matching logic against list-user-files' response, not a server-side
-    # rejection. Reads as a REAL protocol-level gap between
-    # @actual-app/api@26.8.1's download path and actual-server 26.9.0, not
-    # just the one missing DB column — a compatible actual-http-api release
-    # may need more than a dependency bump. Don't assume the schema-error
-    # symptom alone tells the whole story when re-testing a future release.
+    # DIAGNOSIS NOTE — a real methodology trap, worth reading if this ever
+    # needs re-diagnosing: /v1/budgets' `id` field and this wrapper's
+    # error messages ("Budget <x> not found") are NOT a stable syncId —
+    # `id` is generated from local directory NAMES under
+    # /opt/actual_http_api/data/, which is cosmetic and gets stale/wrong
+    # the moment that directory is renamed or removed by hand (as
+    # happened repeatedly while debugging this). The ACTUAL identifier
+    # `download-budget` matches against is each file's `groupId` (per
+    # @actual-app/api's dist/index.js: `files.find(f => f.groupId ===
+    # syncId)`), confirmed against actual-budget's own authoritative
+    # `/sync/list-user-files` response, NOT the `fileId`/`cloudFileId`.
+    # Testing with the wrong identifier produces a misleading
+    # "budget-not-found" that looks like a deeper protocol gap but isn't
+    # one — always get the real syncId from Actual's own Settings >
+    # Advanced page (or `/sync/list-user-files`'s `groupId`), never from
+    # this wrapper's own /v1/budgets listing.
     #
-    # Ledgr's Actual sync will stay broken until jhonderson/actual-http-api
-    # ships a numbered release verified against actual-server 26.9.0+.
-    # Pinning (rather than leaving on "latest") means maintain_health's
-    # image-update check will actually ALERT when that ships — it does not
-    # track rolling tags — so watch for that alert
-    # instead of periodically re-checking by hand.
+    # ROOT CAUSE, confirmed with the CORRECT groupId and a clean local
+    # cache: even with actual_budget matched exactly to this wrapper's
+    # 26.8.1, download still failed replaying a real sync-log entry
+    # (`UPDATE accounts SET account_group_id = ?`) that the 26.9.0 server
+    # had already written overnight — the underlying sync log/data was
+    # migrated forward, not just the live server version, so downgrading
+    # the server alone can't fix it. See actual_budget's comment above for
+    # the resolution (restored /opt/actual_budget/data from the
+    # 2026-08-30 pre-incident backup instead).
+    #
+    # 26.8.1 is jhonderson/actual-http-api's newest NUMBERED release as of
+    # this pin. Tried the "main" branch tag (2026-08-31 build) as a
+    # workaround for the ORIGINAL (pre-restore) mismatch: it resolves the
+    # schema error but has its OWN bug (downloadBudget() throws
+    # "budget-not-found" for a real, listable budget, independent of the
+    # identifier-confusion above) — NOT safe for production, don't use it.
+    #
+    # Both containers are now matched at 26.8.1 against restored
+    # pre-incident data, so Ledgr's Actual sync should work again — but
+    # keep this pinned (not "latest") so they can't silently drift apart
+    # a second time. maintain_health's image-update check will alert when
+    # a genuinely newer, verified-compatible pair is available (it does
+    # not track rolling tags) — bump both together only after live-testing
+    # with the CORRECT groupId identifier, per the diagnosis note above.
     image: "jhonderson/actual-http-api"
     tag: "26.8.1"
     stack: apps
