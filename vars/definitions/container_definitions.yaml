@@ -132,11 +132,28 @@ container_definitions:
     # Tried the "main" branch tag (2026-08-31 build) as a workaround: it
     # resolves the schema error but has its OWN bug (downloadBudget()
     # throws "budget-not-found" for a real, listable budget) — NOT safe for
-    # production, don't use it. Ledgr's Actual sync will stay broken until
-    # jhonderson/actual-http-api ships a numbered release built against a
-    # newer @actual-app/api. Pinning (rather than leaving on "latest") means
-    # maintain_health's image-update check will actually ALERT when that
-    # ships — it does not track rolling tags — so watch for that alert
+    # production, don't use it.
+    #
+    # SECOND finding, back on the pinned 26.8.1: even with a fully clean
+    # local cache (/opt/actual_http_api/data/<budget>/ removed), a direct
+    # /v1/budgets/<syncId>/accounts call still 404s "budget-not-found" from
+    # download-budget — tried both the syncId AND the raw cloudFileId, same
+    # result either way. actual-budget's own server log for that window
+    # shows POST /account/login and GET /sync/list-user-files both
+    # returning 200 — no download/sync-file request even reaches the
+    # server, so this is failing inside the wrapper's own client-side
+    # matching logic against list-user-files' response, not a server-side
+    # rejection. Reads as a REAL protocol-level gap between
+    # @actual-app/api@26.8.1's download path and actual-server 26.9.0, not
+    # just the one missing DB column — a compatible actual-http-api release
+    # may need more than a dependency bump. Don't assume the schema-error
+    # symptom alone tells the whole story when re-testing a future release.
+    #
+    # Ledgr's Actual sync will stay broken until jhonderson/actual-http-api
+    # ships a numbered release verified against actual-server 26.9.0+.
+    # Pinning (rather than leaving on "latest") means maintain_health's
+    # image-update check will actually ALERT when that ships — it does not
+    # track rolling tags — so watch for that alert
     # instead of periodically re-checking by hand.
     image: "jhonderson/actual-http-api"
     tag: "26.8.1"
