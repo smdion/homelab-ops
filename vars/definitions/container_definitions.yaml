@@ -70,8 +70,19 @@
 
 container_definitions:
   actual_budget:
+    # Pinned (2026-09-01), same as authentik — was floating on "latest",
+    # which silently auto-updated to 26.9.0 overnight and broke Ledgr's
+    # Actual sync integration (see actual_http_api's comment below for the
+    # full incident). 26.9.0 added a DB column (account_group_id) that
+    # actual_http_api's bundled client doesn't know about yet. Confirmed
+    # actual-budget's own web UI/server works fine on 26.9.0 (it authored
+    # the migration) — do NOT roll this back to "fix" the sync issue, that
+    # risks actual-budget refusing to open its own already-migrated
+    # database, breaking the core app for a sync-integration problem.
+    # Bump this only after confirming actual_http_api has (or doesn't
+    # need) a matching update.
     image: "actualbudget/actual-server"
-    tag: "latest"
+    tag: "26.9.0"
     stack: apps
     compose:
       image_var: ACTUAL
@@ -109,8 +120,26 @@ container_definitions:
     # through SWAG/Authentik) so Ledgr — a different stack/host — reaches it
     # via host-IP:5007 with the API key, same machine-to-machine pattern as
     # other internal-only APIs here.
+    #
+    # Pinned (2026-09-01), same as authentik — was floating on "latest".
+    # INCIDENT: actual_budget auto-updated to 26.9.0 overnight (both
+    # containers were on "latest"), which added a DB column
+    # (account_group_id) this wrapper's bundled @actual-app/api@26.8.1
+    # client doesn't know about. Every Ledgr sync since has failed with
+    # "invalid-schema" / "no such column: account_group_id" (actual-http-api
+    # container logs). 26.8.1 is jhonderson/actual-http-api's newest
+    # NUMBERED release as of this pin — no compatible version exists yet.
+    # Tried the "main" branch tag (2026-08-31 build) as a workaround: it
+    # resolves the schema error but has its OWN bug (downloadBudget()
+    # throws "budget-not-found" for a real, listable budget) — NOT safe for
+    # production, don't use it. Ledgr's Actual sync will stay broken until
+    # jhonderson/actual-http-api ships a numbered release built against a
+    # newer @actual-app/api. Pinning (rather than leaving on "latest") means
+    # maintain_health's image-update check will actually ALERT when that
+    # ships — it does not track rolling tags — so watch for that alert
+    # instead of periodically re-checking by hand.
     image: "jhonderson/actual-http-api"
-    tag: "latest"
+    tag: "26.8.1"
     stack: apps
     env:
       ACTUAL_HTTP_API_SERVER_URL: "http://actual-budget:5006/"
