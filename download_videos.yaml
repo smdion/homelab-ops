@@ -93,6 +93,16 @@
         dest: "{{ metube_config_host_dir }}/scripts/build_capture_message.py"
         mode: "0755"
 
+    # Prunes the yt-dlp --batch-file during the completion sweep so it can't
+    # accrete every URL ever queued (see the script header). Same deploy pattern
+    # as the helpers above.
+    - name: Deploy batch-file prune helper script
+      become: true
+      ansible.builtin.copy:
+        src: files/prune_batch_file.py
+        dest: "{{ metube_config_host_dir }}/scripts/prune_batch_file.py"
+        mode: "0755"
+
     - name: Clean old successful Semaphore task runs
       include_tasks: tasks/clean_semaphore_tasks.yaml
 
@@ -379,6 +389,26 @@
       when: >-
         (_manifest_raw.stdout | default('') | length > 0)
         or (_ytdlp_status.stdout | default('0') | trim | int != 0)
+
+    # Prune the batch file now that yt-dlp is idle and the archive is current:
+    # drop URLs already downloaded, then cap the rest to the last 300 lines.
+    # Safe here because nothing is reading the file (guard already bailed if a
+    # download were in flight). Best-effort — a prune failure must not break the
+    # sweep.
+    - name: Prune yt-dlp batch file
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ metube_container }}"
+          - python3
+          - /configs/scripts/prune_batch_file.py
+          - "{{ ytdlp_batch_file }}"
+          - "{{ ytdlp_archive }}"
+      register: _batch_prune
+      changed_when: "'->' in (_batch_prune.stdout | default(''))"
+      failed_when: false
 
     # == Dispatch: process new captures and launch a detached download ========
     - name: Process bookmarklet captures into batch file
