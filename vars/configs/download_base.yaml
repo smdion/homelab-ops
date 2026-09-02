@@ -113,14 +113,13 @@ ytdlp_abort_on_missing_fragments: true
 ytdlp_fragment_retries: 25
 ytdlp_retries: 10
 
-# HLS segment downloader. Twitch switched VOD segments from MPEG-TS to
-# fragmented-MP4 around 2026-08-31; the fMP4 init segment (#EXT-X-MAP) is listed
-# after the media segments, which yt-dlp's native HLS downloader can't handle
-# ("Initialization fragment found after media fragments", yt-dlp #10878 — open,
-# no upstream fix). ffmpeg's HLS demuxer doesn't care about init-segment order,
-# so all m3u8 downloads route through it. First-class yt-dlp option, not a patch.
-# YouTube is mostly DASH and unaffected; set this to "" to fall back to native
-# if ffmpeg ever causes a YouTube-side regression (then scope it to Twitch).
+# Twitch switched VOD segments from MPEG-TS to fragmented-MP4 around 2026-08-31;
+# the fMP4 init segment (#EXT-X-MAP) is listed after the media segments, which
+# yt-dlp's native HLS downloader can't handle ("Initialization fragment found
+# after media fragments", yt-dlp #10878 — open, no upstream fix). YouTube is
+# mostly DASH and unaffected. Set to "" to fall back to native (then scope the
+# ffmpeg override to Twitch only) if it ever regresses a YouTube download.
+# HLS segment downloader — ffmpeg's demuxer ignores init-segment order; stream copy, no transcode.
 ytdlp_hls_downloader: "ffmpeg"
 
 # Discord notification URLs — used by download_videos.yaml
