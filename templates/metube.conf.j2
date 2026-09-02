@@ -50,6 +50,19 @@
 --skip-unavailable-fragments
 {% endif %}
 
+# HLS downloader. Twitch migrated VOD segments from self-contained MPEG-TS to
+# fragmented-MP4 (fMP4) around 2026-08-31; fMP4 needs an #EXT-X-MAP init segment,
+# and Twitch's packager lists it AFTER the media segments, which yt-dlp's native
+# HLS downloader cannot assemble ("Initialization fragment found after media
+# fragments", yt-dlp #10878 — open, no upstream fix). ffmpeg's HLS demuxer reads
+# the playlist as a stream, so init-segment position is irrelevant. This is a
+# documented, first-class yt-dlp option, not a patch. -nostats/-loglevel warning
+# keep ffmpeg's per-fragment chatter out of the Semaphore task log.
+{% if ytdlp_hls_downloader | default('ffmpeg') | length > 0 %}
+--downloader "m3u8:{{ ytdlp_hls_downloader | default('ffmpeg') }}"
+--downloader-args "ffmpeg:-nostats -loglevel warning"
+{% endif %}
+
 # Filters
 {% if ytdlp_filter_live | default(true) %}
 --match-filter !is_live

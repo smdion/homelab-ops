@@ -49,10 +49,16 @@
   # was set up for.
   vars_files:
     - vars/configs/download_base.yaml
+    # Only for vault_discord_download_webhook_{id,token} — rendered into each
+    # platform state dir as alert_webhook so fast_check.py can fire a one-shot
+    # Discord alert when it gives up re-dispatching a stuck download. Same
+    # webhook (MeTube channel) download_videos.yaml uses for per-video notices.
+    - vars/secrets.yaml
 
   vars:
     metube_appdata_dir: "/mnt/user/appdata/youtube-dl"
     user_scripts_name: fast-check
+    ytdlp_update_scripts_name: metube-ytdlp-update
     fast_check_platforms:
       youtube:
         probe_template: templates/fast_check_probe_youtube.conf.j2
@@ -106,6 +112,23 @@
       loop_control:
         label: "{{ item.key }}"
 
+    # fast_check.py reads this (mode 0600, container user 99:100 like the rest of
+    # its state) and POSTs a single Discord alert to it when it gives up
+    # re-dispatching a download that never reached the archive. Absent file =
+    # alerting silently disabled, so a run without the secret still works.
+    - name: Render Discord alert webhook for each platform
+      become: true
+      ansible.builtin.copy:
+        content: "https://discord.com/api/webhooks/{{ vault_discord_download_webhook_id }}/{{ vault_discord_download_webhook_token }}"
+        dest: "{{ metube_appdata_dir }}/{{ item.value.state_dir_name }}/alert_webhook"
+        mode: "0600"
+        owner: "99"
+        group: "100"
+      loop: "{{ fast_check_platforms | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      no_log: true
+
     - name: Ensure User Scripts entry directory exists
       become: true
       ansible.builtin.file:
@@ -146,4 +169,46 @@
           docker exec metube tail -n 2000 /configs/{{ cfg.state_dir_name }}/fast_check.log
           {% endfor %}
         dest: "/boot/config/plugins/user.scripts/scripts/{{ user_scripts_name }}/script"
+        mode: "0600"
+
+    # --- Second User Scripts entry: keep yt-dlp current -----------------------
+    # The metube container runs non-root (PUID/PGID 99:100), and metube's
+    # entrypoint explicitly disables its own scheduled nightly yt-dlp self-update
+    # for non-root (disable_nightly_for_non_root). So yt-dlp is otherwise frozen
+    # at whatever the image bundled until someone clicks "update" in the MeTube
+    # UI — and a container recreate resets it. This entry runs the same upgrade
+    # metube's entrypoint do_upgrade() would (pip install -U --pre yt-dlp), from
+    # the boot flash so it survives recreates. yt-dlp breaks against YouTube
+    # roughly monthly, so set this one to a daily schedule in the GUI (e.g.
+    # 30 4 * * *) after the first run. Twitch's init-fragment issue
+    # (yt-dlp #10878) is handled separately by --downloader "m3u8:ffmpeg" in
+    # templates/metube.conf.j2, not by this.
+    - name: Ensure yt-dlp updater User Scripts entry directory exists
+      become: true
+      ansible.builtin.file:
+        path: "/boot/config/plugins/user.scripts/scripts/{{ ytdlp_update_scripts_name }}"
+        state: directory
+        mode: "0700"
+
+    - name: Set yt-dlp updater display name
+      become: true
+      ansible.builtin.copy:
+        content: "{{ ytdlp_update_scripts_name }}"
+        dest: "/boot/config/plugins/user.scripts/scripts/{{ ytdlp_update_scripts_name }}/name"
+        mode: "0600"
+
+    - name: Deploy yt-dlp updater script
+      become: true
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          # Refresh yt-dlp inside the metube container. metube's built-in nightly
+          # self-update is disabled for non-root containers, and yt-dlp lives in
+          # root-owned /usr/local/lib/.../site-packages, so the upgrade has to run
+          # as root (-u 0) — a non-root pip falls back to ~/.local (HOME=/) and
+          # fails with EACCES. Otherwise mirrors metube entrypoint's do_upgrade().
+          docker exec -u 0 metube python3 -m pip install --root-user-action=ignore \
+            -U --pre "yt-dlp[default,curl-cffi,deno]"
+          echo "yt-dlp now: $(docker exec metube yt-dlp --version)"
+        dest: "/boot/config/plugins/user.scripts/scripts/{{ ytdlp_update_scripts_name }}/script"
         mode: "0600"
