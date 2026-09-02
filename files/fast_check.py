@@ -39,7 +39,13 @@
 #      makes) — MeTube's existing capture config (skip_download + writedesktoplink
 #      + Exec-fires-Semaphore) does everything downstream unmodified. The video
 #      moves from pending to the dispatched set until it shows up in the archive.
-#   6. A channel's very first pass freezes its current enumeration as a baseline
+#   6. Reconcile the dispatched set each pass: an entry that shows up in the
+#      archive is cleared (download done); one that has sat there past
+#      DISPATCH_TIMEOUT_SECONDS without reaching the archive is treated as a
+#      failed/interrupted download and re-queued (bounded by MAX_REDISPATCH,
+#      then a one-shot Discord alert). This is the only retry path — "Download
+#      — Videos" itself carries no schedule/backstop.
+#   7. A channel's very first pass freezes its current enumeration as a baseline
 #      and queues nothing, so opting a channel in doesn't trigger a backlog
 #      download (the old scheduled scan is the backstop for anything older, for
 #      whichever platforms still rely on it). The archive only records what was
@@ -77,6 +83,23 @@ METUBE_ADD_URL = "http://localhost:8081/add"
 MIN_HEIGHT = 1080
 BACKOFF_SECONDS = [900, 1800, 3600, 7200, 14400, 28800]  # 15m,30m,1h,2h,4h,8h
 MAX_AGE_SECONDS = 86400  # 24h — dispatch best-available rather than wait forever
+
+# Reconciliation for a dispatch that never completed downstream. A dispatched
+# video is normally cleared from the dispatched set only by showing up in the
+# shared download archive. If the real download (Semaphore "Download — Videos"
+# -> detached yt-dlp) fails or is killed mid-run — a fragment abort on an
+# expired Twitch CDN token, the metube container being recreated, the Semaphore
+# API being unreachable when the wrapper tries to re-trigger the sweep — nothing
+# else ever retries it or surfaces it, because "Download — Videos" carries no
+# schedule/backstop by design. So: if an entry has sat in the dispatched set
+# this long without reaching the archive, treat the download as failed and
+# re-queue it (fresh quality check -> fresh /add -> fresh CDN token). Bounded:
+# after MAX_REDISPATCH attempts, give up, fire one Discord alert, and leave it
+# in the dispatched set (visible, not retried forever).
+DISPATCH_TIMEOUT_SECONDS = 8 * 3600  # a real ~35GB 1080p60 VOD download finishes
+                                     # well inside this (archive-file mtimes: ~1h),
+                                     # with headroom for a few serially-queued runs
+MAX_REDISPATCH = 3
 
 # Persistent history, capped so it never grows unbounded: fast_check.log
 # (current) plus up to LOG_BACKUP_COUNT rotated-out copies (.1, .2, ...) once the
@@ -209,6 +232,27 @@ def max_available_height(url, probe_config, timeout=30):
     return max(heights) if heights else 0
 
 
+def alert_discord(message, webhook_url):
+    """Best-effort Discord alert for a give-up condition. No-op when no webhook
+    is configured (local runs, dry runs). Never raises — a failed alert must not
+    break the reconciliation pass."""
+    if not webhook_url:
+        return
+    try:
+        payload = json.dumps({
+            "username": "fast_check",
+            "embeds": [{"description": message, "color": 0xE67E22}],
+        }).encode()
+        req = urllib.request.Request(
+            webhook_url, data=payload,
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp.read()
+    except Exception as e:  # noqa: BLE001
+        log(f"discord alert failed: {e}")
+
+
 def dispatch_to_metube(url, dry_run):
     if dry_run:
         log(f"[dry-run] would POST /add for {url}")
@@ -229,6 +273,9 @@ def main():
     ap.add_argument("--state-dir", default=None, help="defaults to /configs/<platform>_fast")
     ap.add_argument("--probe-config", default=None, help="defaults to <state-dir>/probe.conf")
     ap.add_argument("--dry-run", action="store_true", help="log actions, never call MeTube's /add")
+    ap.add_argument("--alert-webhook-file", default=None,
+                    help="file containing a Discord webhook URL for give-up alerts; "
+                         "defaults to <state-dir>/alert_webhook if present")
     args = ap.parse_args()
 
     platform_cfg = PLATFORMS[args.platform]
@@ -236,6 +283,12 @@ def main():
         args.state_dir = f"/configs/{args.platform}_fast"
     if args.probe_config is None:
         args.probe_config = os.path.join(args.state_dir, "probe.conf")
+    if args.alert_webhook_file is None:
+        args.alert_webhook_file = os.path.join(args.state_dir, "alert_webhook")
+    alert_webhook = ""
+    if os.path.isfile(args.alert_webhook_file):
+        with open(args.alert_webhook_file) as f:
+            alert_webhook = f.read().strip()
 
     os.makedirs(args.state_dir, exist_ok=True)
     setup_logging(args.state_dir, args.platform)
@@ -255,13 +308,40 @@ def main():
 
     archive_ids = read_download_archive(args.archive, platform_cfg["archive_label"])
 
-    # Self-prune: once a dispatched video shows up in the archive, the real
-    # download completed — stop tracking it. Anything still here after a long
-    # time is a stuck/failed download, which the archive will eventually absorb
-    # or which stays visible in this (small, in-flight-only) set for inspection.
+    # Self-prune + reconcile. Once a dispatched video shows up in the archive the
+    # real download completed — stop tracking it. Otherwise, if it has sat here
+    # past DISPATCH_TIMEOUT_SECONDS the real download failed or was killed
+    # mid-run (see the constant's comment): re-queue it so it goes through a
+    # fresh quality check -> /add -> download with a fresh CDN token. After
+    # MAX_REDISPATCH attempts, give up — fire one Discord alert and leave the
+    # entry here (visible, no longer retried).
     for video_id in list(dispatched.keys()):
+        entry = dispatched[video_id]
         if video_id in archive_ids:
             del dispatched[video_id]
+            continue
+        if now - entry["dispatched_at"] < DISPATCH_TIMEOUT_SECONDS:
+            continue
+        redispatch_count = entry.get("redispatch_count", 0)
+        stale_h = int((now - entry["dispatched_at"]) / 3600)
+        if redispatch_count < MAX_REDISPATCH:
+            log(f"WARNING: {entry['url']} dispatched {stale_h}h ago but never reached "
+                f"the archive — re-queueing (re-dispatch {redispatch_count + 1}/{MAX_REDISPATCH})")
+            pending[video_id] = {
+                "url": entry["url"], "next_check_at": now,
+                "attempts": 0, "first_seen_at": now,
+                "redispatch_count": redispatch_count + 1,
+            }
+            del dispatched[video_id]
+        elif not entry.get("alerted"):
+            log(f"ERROR: {entry['url']} still not downloaded after {MAX_REDISPATCH} "
+                f"re-dispatches ({stale_h}h) — giving up; re-add it manually if still wanted")
+            alert_discord(
+                f"fast_check [{args.platform}]: **{entry['url']}** failed to download "
+                f"after {MAX_REDISPATCH} re-dispatches ({stale_h}h stale). Manual re-add needed.",
+                alert_webhook,
+            )
+            entry["alerted"] = True
 
     urls = parse_channel_urls(args.channel_list, platform_cfg["section"])
     log(f"{len(urls)} {args.platform} channel(s) in {args.channel_list}")
@@ -313,7 +393,10 @@ def main():
             except Exception as e:  # noqa: BLE001
                 log(f"dispatch failed for {item['url']}: {e} (will retry next pass)")
                 continue
-            dispatched[video_id] = {"url": item["url"], "dispatched_at": now}
+            dispatched[video_id] = {
+                "url": item["url"], "dispatched_at": now,
+                "redispatch_count": item.get("redispatch_count", 0),
+            }
             del pending[video_id]
         else:
             attempts = item["attempts"]
