@@ -1283,20 +1283,28 @@ container_definitions:
         retries: 3
         start_period: "30s"
   profilarr:
-    image: "profilarr"
+    image: "ghcr.io/dictionarry-hub/profilarr"
     tag: "latest"
     stack: media
     compose:
       base: baseenv
-      pull_policy: never
       ports: ["6868:6868"]
       environment:
         AUTH: "off"
+        ORIGIN: "https://profilarr.{{ vault_domain_ext }}"
       labels:
         homelab.backup.paths: "/opt/profilarr"
         homelab.proxy.subdomain: "profilarr"
         homelab.proxy.port: "6868"
         homelab.proxy.complex: "true"
+      volumes:
+        - "${APPSDIR}/profilarr:/config"
+      healthcheck:
+        test: ["CMD-SHELL", "curl -fs http://localhost:6868/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
     proxy:
       subdomain: profilarr
       external: false
@@ -1310,14 +1318,6 @@ container_definitions:
           auth: true
           websocket: true
           includes: [proxy]
-      volumes:
-        - "${APPSDIR}/profilarr:/app/data"
-      healthcheck:
-        test: ["CMD-SHELL", "curl -fs http://localhost:6868/ || exit 1"]
-        interval: "30s"
-        timeout: "10s"
-        retries: 3
-        start_period: "30s"
   restic:
     image: "restic/restic"
     tag: "latest"
