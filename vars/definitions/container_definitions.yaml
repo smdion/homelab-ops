@@ -458,6 +458,28 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "30s"
+  cleanuparr:
+    image: "ghcr.io/cleanuparr/cleanuparr"
+    tag: "latest"
+    stack: media
+    compose:
+      base: baseenv
+      ports: ["11011:11011"]
+      environment:
+        PORT: "11011"
+      labels:
+        homelab.backup.paths: "/opt/cleanuparr"
+        homelab.proxy.subdomain: "cleanuparr"
+      volumes:
+        - "${APPSDIR}/cleanuparr:/config"
+      healthcheck:
+        test: ["CMD-SHELL", "curl -fs http://localhost:11011/ || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "30s"
+    proxy:
+      subdomain: cleanuparr
   cloudflareddns:
     image: "ghcr.io/hotio/cloudflareddns"
     tag: "latest"
