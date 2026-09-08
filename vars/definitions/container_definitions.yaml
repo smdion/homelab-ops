@@ -1032,6 +1032,7 @@ container_definitions:
     env:
       KOMETA_TMDBKEY: "{{ vault_tmdb_api_key }}"
       KOMETA_PLEXTOKEN: "{{ vault_plex_token }}"
+      KOMETA_MDBLISTKEY: "{{ vault_mdblist_api_key }}"
     compose:
       base: baseenv
       environment:
@@ -1039,6 +1040,7 @@ container_definitions:
         KOMETA_TIMES: "05:00"
         KOMETA_TMDBKEY: "${KOMETA_TMDBKEY}"
         KOMETA_PLEXTOKEN: "${KOMETA_PLEXTOKEN}"
+        KOMETA_MDBLISTKEY: "${KOMETA_MDBLISTKEY}"
       labels:
         homelab.backup.paths: "/opt/kometa"
       volumes:

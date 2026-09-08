@@ -1,7 +1,8 @@
 # Kometa config -- safe to commit. Contains no secrets: Plex token and TMDb
-# API key are injected at container start via KOMETA_PLEXTOKEN/KOMETA_TMDBKEY
-# env vars (rendered from vault in container_definitions.yaml), which Kometa
-# substitutes into the <<plextoken>>/<<tmdbkey>> placeholders below itself --
+# API key/MDBList key are injected at container start via KOMETA_PLEXTOKEN/
+# KOMETA_TMDBKEY/KOMETA_MDBLISTKEY env vars (rendered from vault in
+# container_definitions.yaml), which Kometa substitutes into the
+# <<plextoken>>/<<tmdbkey>>/<<mdblistkey>> placeholders below itself --
 # see https://kometa.wiki/en/latest/kometa/environmental/
 #
 # Scope: Movies + TV Shows only. YouTube/Twitch libraries are personal
@@ -16,6 +17,10 @@ plex:
 tmdb:
   apikey: <<tmdbkey>>
   language: en
+
+mdblist:
+  apikey: <<mdblistkey>>
+  cache_expiration: 60
 
 settings:
   cache: true
