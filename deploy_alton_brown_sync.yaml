@@ -1,0 +1,70 @@
+---
+# Category: Utilities
+# Schedule: none
+# Deploys files/alton_brown_sync.py to the metube host (liberty) and
+# registers a User Scripts entry for it. Re-run whenever the script changes.
+#
+# Mirrors an existing Sonarr episode that no Usenet/torrent indexer will ever
+# have -- YouTube-exclusive content -- into Sonarr's library directly.
+# Scoped to a single playlist (not the general ~50-channel fast_check.py
+# archive pipeline), incremental via Sonarr's own `hasFile` field (no
+# separate state file). See the script's own header for the full design.
+#
+# This intentionally does NOT set the cron schedule -- see deploy_fast_check.yaml's
+# header for why (User Scripts' schedule.json is owned by its own PHP backend).
+# After the first run, open unRAID's User Scripts plugin, find
+# "alton-brown-sync", and set its schedule once by hand (Custom, e.g. daily
+# at 30 6 * * * -- this is a weekly-ish show, no need for fast_check's 10-min
+# cadence).
+#
+# Required extra vars:
+#   hosts_variable — inventory group/host to target (use "liberty")
+#
+# Usage:
+#   ansible-playbook deploy_alton_brown_sync.yaml -e hosts_variable=liberty
+
+- name: Deploy Alton Brown Cooks Food sync
+  hosts: "{{ hosts_variable }}"
+  gather_facts: false
+
+  vars:
+    scripts_dir: "/mnt/user/appdata/scripts"
+    user_scripts_name: alton-brown-sync
+
+  tasks:
+    - name: Ensure scripts directory exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ scripts_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy alton_brown_sync.py
+      become: true
+      ansible.builtin.copy:
+        src: files/alton_brown_sync.py
+        dest: "{{ scripts_dir }}/alton_brown_sync.py"
+        mode: "0755"
+
+    - name: Ensure User Scripts entry directory exists
+      become: true
+      ansible.builtin.file:
+        path: "/boot/config/plugins/user.scripts/scripts/{{ user_scripts_name }}"
+        state: directory
+        mode: "0700"
+
+    - name: Set User Scripts display name
+      become: true
+      ansible.builtin.copy:
+        content: "{{ user_scripts_name }}"
+        dest: "/boot/config/plugins/user.scripts/scripts/{{ user_scripts_name }}/name"
+        mode: "0600"
+
+    - name: Deploy User Scripts wrapper
+      become: true
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          python3 {{ scripts_dir }}/alton_brown_sync.py
+        dest: "/boot/config/plugins/user.scripts/scripts/{{ user_scripts_name }}/script"
+        mode: "0600"
