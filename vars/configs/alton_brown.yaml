@@ -1,0 +1,21 @@
+# Profile for download_series.yaml -- Alton Brown "Cooks Food" YouTube series
+# mirrored into Sonarr. A second series-to-Sonarr sync would be a new
+# vars/configs/<name>.yaml profile here, not a new copy of the playbook or
+# script -- matching download_videos.yaml's own multi-profile design (only
+# one profile, "download", exists there today for the same reason).
+
+series_sonarr_url: "http://localhost:8989/sonarr"
+series_id: 238
+series_folder: "Alton Brown Cooks Food (2025)"
+series_playlist_url: "https://www.youtube.com/playlist?list=PL4YsaqNcqtzul9knWTmp58OU5YdU-UbGT"
+series_tv_root: "/mnt/remotes/REDEMPTION.SEANDION_TV"
+
+# Specials with no episode number to auto-match against the playlist -- add
+# an entry here by hand the rare time one shows up.
+series_manual_overrides:
+  - url: "https://www.youtube.com/watch?v=CRglbaevJkQ"
+    season: 0
+    episode: 1
+  - url: "https://www.youtube.com/watch?v=H3XN-jHzUp0"
+    season: 0
+    episode: 2

@@ -1,0 +1,82 @@
+---
+# Category: Utilities
+# Schedule-exempt: Download — Series
+# Mirrors a YouTube-exclusive series (no Usenet/torrent indexer will ever
+# have this content) into Sonarr's library directly, via files/alton_brown_sync.py.
+#
+# Self-contained like download_videos.yaml's own pre_tasks pattern -- no
+# separate deploy playbook. Deploys the script + a 0600 config file rendered
+# from vault (never committed -- see files/alton_brown_sync.py's header for
+# why), then runs it and surfaces its output as this task's log, which is
+# what gives per-run Semaphore visibility matching the general download
+# pipeline's per-video "Download — Videos" job entries.
+#
+# Parameterized on config_file for future extensibility (a second
+# YouTube-series-to-Sonarr sync would be a new vars/configs/<name>.yaml
+# profile, not a new copy of this playbook or the Python script), matching
+# download_videos.yaml's own multi-profile design. Currently only one
+# profile: "alton_brown" (vars/configs/alton_brown.yaml).
+#
+# Required extra vars:
+#   hosts_variable  — inventory group/host to target (use "liberty")
+#   config_file     — profile name, loads vars/configs/<config_file>.yaml
+#
+# Usage:
+#   ansible-playbook download_series.yaml -e hosts_variable=liberty -e config_file=alton_brown
+
+- name: Download YouTube series into Sonarr
+  hosts: "{{ hosts_variable }}"
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - "vars/configs/{{ config_file }}.yaml"
+
+  vars:
+    scripts_dir: "/mnt/user/appdata/scripts"
+
+  tasks:
+    - name: Ensure scripts directory exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ scripts_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy series sync script
+      become: true
+      ansible.builtin.copy:
+        src: files/alton_brown_sync.py
+        dest: "{{ scripts_dir }}/alton_brown_sync.py"
+        mode: "0755"
+
+    # Rendered, not committed -- see files/alton_brown_sync.py's header.
+    # Same rendered-from-vault-to-0600-file pattern deploy_fast_check.yaml
+    # uses for its Discord alert webhook.
+    - name: Render series sync config
+      become: true
+      ansible.builtin.copy:
+        content: |
+          [config]
+          sonarr_url = {{ series_sonarr_url }}
+          sonarr_key = {{ vault_sonarr_api_key }}
+          series_id = {{ series_id }}
+          series_folder = {{ series_folder }}
+          playlist_url = {{ series_playlist_url }}
+          tv_root = {{ series_tv_root }}
+          discord_webhook = https://discord.com/api/webhooks/{{ vault_discord_download_webhook_id }}/{{ vault_discord_download_webhook_token }}
+          manual_overrides = {{ series_manual_overrides | to_json }}
+        dest: "{{ scripts_dir }}/alton_brown_sync.conf"
+        mode: "0600"
+      no_log: true
+
+    - name: Run series sync
+      become: true
+      ansible.builtin.command:
+        cmd: "python3 {{ scripts_dir }}/alton_brown_sync.py"
+      register: sync_result
+      changed_when: "'episode(s) added' in sync_result.stdout"
+      failed_when: sync_result.rc != 0
+
+    - name: Show sync output
+      ansible.builtin.debug:
+        var: sync_result.stdout_lines
