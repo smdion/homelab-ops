@@ -30,14 +30,28 @@ settings:
   missing_only_released: true
   show_missing_season_assets: false
 
+# collection_mode: hide_items keeps every collection generated and browsable
+# from Plex's Collections tab, but stops its member items from also showing
+# as separate tiles in the main library grid -- avoids doubling up every
+# movie/show across dozens of collections when just browsing the library.
 libraries:
   Movies:
     collection_files:
       - default: imdb
+        template_variables:
+          collection_mode: hide_items
       - default: genre
+        template_variables:
+          collection_mode: hide_items
       - default: studio
+        template_variables:
+          collection_mode: hide_items
       - default: year
+        template_variables:
+          collection_mode: hide_items
       - default: decade
+        template_variables:
+          collection_mode: hide_items
     overlay_files:
       - default: resolution
       - default: ribbon
@@ -45,10 +59,20 @@ libraries:
   TV Shows:
     collection_files:
       - default: imdb
+        template_variables:
+          collection_mode: hide_items
       - default: genre
+        template_variables:
+          collection_mode: hide_items
       - default: network
+        template_variables:
+          collection_mode: hide_items
       - default: year
+        template_variables:
+          collection_mode: hide_items
       - default: decade
+        template_variables:
+          collection_mode: hide_items
     overlay_files:
       - default: resolution
       - default: ribbon
