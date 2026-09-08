@@ -1045,7 +1045,7 @@ container_definitions:
         - "${APPSDIR}/kometa:/config"
   kometa_quickstart:
     image: "kometateam/quickstart"
-    tag: "master"
+    tag: "latest"
     stack: media
     compose:
       base: baseenv
