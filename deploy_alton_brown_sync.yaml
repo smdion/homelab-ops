@@ -1,14 +1,26 @@
 ---
 # Category: Utilities
 # Schedule: none
-# Deploys files/alton_brown_sync.py to the metube host (liberty) and
-# registers a User Scripts entry for it. Re-run whenever the script changes.
+# Deploys files/alton_brown_sync.py to the metube host (liberty), renders its
+# config from vault (no secrets committed to the repo -- see the incident
+# note below), and registers a User Scripts entry for it. Re-run whenever the
+# script or config values change.
 #
 # Mirrors an existing Sonarr episode that no Usenet/torrent indexer will ever
 # have -- YouTube-exclusive content -- into Sonarr's library directly.
 # Scoped to a single playlist (not the general ~50-channel fast_check.py
 # archive pipeline), incremental via Sonarr's own `hasFile` field (no
 # separate state file). See the script's own header for the full design.
+#
+# SECURITY NOTE (2026-09-08): an earlier version of this script hardcoded
+# the Sonarr API key, the Discord webhook, and the TV share path directly
+# in files/alton_brown_sync.py, which was committed to this public repo.
+# That history was purged (git filter-repo + force-push) and the file
+# rewritten to read everything from a 0600 config file rendered here from
+# vault -- same pattern deploy_fast_check.yaml already uses for its Discord
+# webhook. The exposed Sonarr API key and Discord webhook must still be
+# rotated (see homelab-docs tasks) -- purging git history does not
+# invalidate a credential that was live while exposed.
 #
 # This intentionally does NOT set the cron schedule -- see deploy_fast_check.yaml's
 # header for why (User Scripts' schedule.json is owned by its own PHP backend).
@@ -27,9 +39,25 @@
   hosts: "{{ hosts_variable }}"
   gather_facts: false
 
+  vars_files:
+    - vars/secrets.yaml
+
   vars:
     scripts_dir: "/mnt/user/appdata/scripts"
     user_scripts_name: alton-brown-sync
+    alton_brown_series_id: 238
+    alton_brown_series_folder: "Alton Brown Cooks Food (2025)"
+    alton_brown_playlist_url: "https://www.youtube.com/playlist?list=PL4YsaqNcqtzul9knWTmp58OU5YdU-UbGT"
+    alton_brown_tv_root: "/mnt/remotes/REDEMPTION.SEANDION_TV"
+    # Specials with no episode number to auto-match against the playlist --
+    # add an entry here by hand the rare time one shows up.
+    alton_brown_manual_overrides:
+      - url: "https://www.youtube.com/watch?v=CRglbaevJkQ"
+        season: 0
+        episode: 1
+      - url: "https://www.youtube.com/watch?v=H3XN-jHzUp0"
+        season: 0
+        episode: 2
 
   tasks:
     - name: Ensure scripts directory exists
@@ -45,6 +73,26 @@
         src: files/alton_brown_sync.py
         dest: "{{ scripts_dir }}/alton_brown_sync.py"
         mode: "0755"
+
+    # Rendered, not committed -- see the SECURITY NOTE above. Same
+    # rendered-from-vault-to-0600-file pattern deploy_fast_check.yaml uses
+    # for its Discord alert webhook.
+    - name: Render alton_brown_sync config
+      become: true
+      ansible.builtin.copy:
+        content: |
+          [config]
+          sonarr_url = http://localhost:8989/sonarr
+          sonarr_key = {{ vault_sonarr_api_key }}
+          series_id = {{ alton_brown_series_id }}
+          series_folder = {{ alton_brown_series_folder }}
+          playlist_url = {{ alton_brown_playlist_url }}
+          tv_root = {{ alton_brown_tv_root }}
+          discord_webhook = https://discord.com/api/webhooks/{{ vault_discord_download_webhook_id }}/{{ vault_discord_download_webhook_token }}
+          manual_overrides = {{ alton_brown_manual_overrides | to_json }}
+        dest: "{{ scripts_dir }}/alton_brown_sync.conf"
+        mode: "0600"
+      no_log: true
 
     - name: Ensure User Scripts entry directory exists
       become: true
