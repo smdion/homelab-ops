@@ -1,0 +1,37 @@
+---
+# Category: Utilities
+# Schedule-exempt: Deploy — Posterizarr Config
+# Renders Posterizarr's config.json from vault -- unlike Kometa, Posterizarr
+# has no env-var-substitution mechanism for secrets (confirmed: only reads
+# API keys from config.json, no documented env var overrides), so this file
+# contains real secrets and is rendered directly to the host at deploy time,
+# never committed. Mirrors the pattern download_series.yaml/alton_brown_sync
+# already use for exactly this reason.
+#
+# Usage:
+#   ansible-playbook deploy_posterizarr_config.yaml
+
+- name: Deploy Posterizarr config
+  hosts: core
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+
+  vars:
+    posterizarr_dir: "/opt/posterizarr"
+
+  tasks:
+    - name: Ensure Posterizarr config directory exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ posterizarr_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render Posterizarr config.json
+      become: true
+      ansible.builtin.template:
+        src: templates/posterizarr_config.json.j2
+        dest: "{{ posterizarr_dir }}/config.json"
+        mode: "0600"
+      no_log: true

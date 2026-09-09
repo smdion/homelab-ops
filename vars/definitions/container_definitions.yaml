@@ -1025,41 +1025,27 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "60s"
-  kometa:
-    image: "kometateam/kometa"
+  posterizarr:
+    image: "ghcr.io/fscorrupt/posterizarr"
     tag: "latest"
     stack: media
-    env:
-      KOMETA_TMDBKEY: "{{ vault_tmdb_api_key }}"
-      KOMETA_PLEXTOKEN: "{{ vault_plex_token }}"
-      KOMETA_MDBLISTKEY: "{{ vault_mdblist_api_key }}"
     compose:
       base: baseenv
+      ports: ["8000:8000"]
       environment:
-        KOMETA_CONFIG: "/config/config.yml"
-        KOMETA_TIMES: "05:00"
-        KOMETA_TMDBKEY: "${KOMETA_TMDBKEY}"
-        KOMETA_PLEXTOKEN: "${KOMETA_PLEXTOKEN}"
-        KOMETA_MDBLISTKEY: "${KOMETA_MDBLISTKEY}"
+        TZ: "{{ tz | default('America/Chicago') }}"
+        TERM: "xterm"
+        RUN_TIME: "06:00"
       labels:
-        homelab.backup.paths: "/opt/kometa"
+        homelab.backup.paths: "/opt/posterizarr"
+        homelab.proxy.subdomain: "posterizarr"
       volumes:
-        - "${APPSDIR}/kometa:/config"
-  kometa_quickstart:
-    image: "kometateam/quickstart"
-    tag: "latest"
-    stack: media
-    compose:
-      base: baseenv
-      service_name: kometa-quickstart
-      ports: ["7171:7171"]
-      labels:
-        homelab.backup.paths: "/opt/kometa-quickstart"
-        homelab.proxy.subdomain: "kometa"
-      volumes:
-        - "${APPSDIR}/kometa-quickstart:/config"
+        - "${APPSDIR}/posterizarr:/config"
+        - "${APPSDIR}/posterizarr/assets:/assets"
+        - "${APPSDIR}/posterizarr/assetsbackup:/assetsbackup"
+        - "${APPSDIR}/posterizarr/manualassets:/manualassets"
       healthcheck:
-        test: ["CMD-SHELL", "curl -fs http://localhost:7171/ || exit 1"]
+        test: ["CMD-SHELL", "curl -fs http://localhost:8000/ || exit 1"]
         interval: "30s"
         timeout: "10s"
         retries: 3
