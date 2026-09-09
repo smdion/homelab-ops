@@ -1025,31 +1025,6 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "60s"
-  posterizarr:
-    image: "ghcr.io/fscorrupt/posterizarr"
-    tag: "latest"
-    stack: apps
-    compose:
-      base: baseenv
-      ports: ["8000:8000"]
-      environment:
-        TZ: "{{ tz | default('America/Chicago') }}"
-        TERM: "xterm"
-        RUN_TIME: "disabled"
-      labels:
-        homelab.backup.paths: "/opt/posterizarr"
-        homelab.proxy.subdomain: "posterizarr"
-      volumes:
-        - "${APPSDIR}/posterizarr:/config"
-        - "${APPSDIR}/posterizarr/assets:/assets"
-        - "${APPSDIR}/posterizarr/assetsbackup:/assetsbackup"
-        - "${APPSDIR}/posterizarr/manualassets:/manualassets"
-      healthcheck:
-        test: ["CMD-SHELL", "curl -fs http://localhost:8000/ || exit 1"]
-        interval: "30s"
-        timeout: "10s"
-        retries: 3
-        start_period: "30s"
   kometa:
     image: "kometateam/kometa"
     tag: "latest"
