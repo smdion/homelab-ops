@@ -409,7 +409,7 @@ container_definitions:
         - "${APPSDIR}/beszel:/beszel_data"
         - "${APPSDIR}/beszel_socket:/beszel_socket"
       healthcheck:
-        test: ["CMD", "/beszel", "health"]
+        test: ["CMD", "/beszel", "health", "--url", "http://localhost:8090"]
         interval: "30s"
         timeout: "10s"
         retries: 3
