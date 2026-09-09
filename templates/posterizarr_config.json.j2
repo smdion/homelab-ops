@@ -5,7 +5,7 @@
     "basicAuthPassword": "posterizarr"
   },
   "ApiPart": {
-    "tvdbapi": "{{ vault_tvdb_api_key }}",
+    "tvdbapi": "",
     "tmdbtoken": "{{ vault_tmdb_api_key }}",
     "FanartTvAPIKey": "{{ vault_fanart_api_key }}",
     "PlexToken": "{{ vault_plex_token }}",
@@ -13,9 +13,9 @@
     "EmbyAPIKey": "",
     "FavProvider": "tmdb",
     "ProviderPriorityMode": "Simple",
-    "ProviderOrder": ["TMDB", "TVDB", "Fanart", "Plex"],
-    "MovieProviderOrder": ["TMDB", "TVDB", "Fanart", "Plex"],
-    "ShowProviderOrder": ["TVDB", "TMDB", "Fanart", "Plex"],
+    "ProviderOrder": ["TMDB", "Fanart", "Plex"],
+    "MovieProviderOrder": ["TMDB", "Fanart", "Plex"],
+    "ShowProviderOrder": ["TMDB", "Fanart", "Plex"],
     "WidthHeightFilter": "false",
     "PosterMinWidth": "2000",
     "PosterMinHeight": "3000",
