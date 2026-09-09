@@ -40,6 +40,14 @@ settings:
 # which is what was actually happening.
 libraries:
   Movies:
+    template_variables:
+      # Separators are empty "index card" collections (Genre Collections,
+      # Decade Collections, etc.) used purely to group related collections
+      # inside the Collections tab. Kometa's own docs warn Plex doesn't
+      # natively support truly-empty collections and they behave
+      # inconsistently with collection_mode -- disabling them entirely
+      # avoids that instead of fighting it.
+      use_separator: false
     collection_files:
       - default: imdb
         template_variables:
@@ -58,6 +66,8 @@ libraries:
           collection_mode: hide
 
   TV Shows:
+    template_variables:
+      use_separator: false
     collection_files:
       - default: imdb
         template_variables:
