@@ -1,0 +1,93 @@
+# Kometa config -- safe to commit. Contains no secrets: Plex token and TMDb
+# API key/MDBList key are injected at container start via KOMETA_PLEXTOKEN/
+# KOMETA_TMDBKEY/KOMETA_MDBLISTKEY env vars (rendered from vault in
+# container_definitions.yaml), which Kometa substitutes into the
+# <<plextoken>>/<<tmdbkey>>/<<mdblistkey>> placeholders below itself --
+# see https://kometa.wiki/en/latest/kometa/environmental/
+#
+# Scope: Movies + TV Shows only. YouTube/Twitch libraries are personal
+# content with no TMDb/IMDb/Trakt match -- Kometa's default collection/
+# overlay files would find nothing there. Those get a separate local-assets
+# setup later, not the default collection files used here.
+#
+# No overlay_files -- resolution/ribbon/status badges were rejected as visual
+# clutter after the first run.
+
+plex:
+  url: http://10.10.10.19:32400
+  token: <<plextoken>>
+
+tmdb:
+  apikey: <<tmdbkey>>
+  language: en
+
+mdblist:
+  apikey: <<mdblistkey>>
+  cache_expiration: 60
+
+settings:
+  cache: true
+  asset_directory: /config/assets
+  sync_mode: append
+  run_again_delay: 2
+  missing_only_released: true
+  show_missing_season_assets: false
+
+# collection_mode: hide -- collections stay fully generated/usable but only
+# surface under Plex's dedicated Collections tab. hide_items (tried first)
+# only stops member items from ALSO appearing separately -- it does not stop
+# the collection tiles themselves from cluttering the main Library grid,
+# which is what was actually happening.
+libraries:
+  Movies:
+    template_variables:
+      # Separators are empty "index card" collections (Genre Collections,
+      # Decade Collections, etc.) used purely to group related collections
+      # inside the Collections tab. Kometa's own docs warn Plex doesn't
+      # natively support truly-empty collections and they behave
+      # inconsistently with collection_mode -- disabling them entirely
+      # avoids that instead of fighting it.
+      use_separator: false
+    collection_files:
+      - default: imdb
+        template_variables:
+          collection_mode: hide
+      - default: genre
+        template_variables:
+          collection_mode: hide
+      - default: studio
+        template_variables:
+          collection_mode: hide
+      - default: year
+        template_variables:
+          collection_mode: hide
+      - default: decade
+        template_variables:
+          collection_mode: hide
+
+  TV Shows:
+    template_variables:
+      use_separator: false
+    # Per-show consistent poster sets, hand-picked from MediUX/theposterdb.com.
+    # Not automated -- "best" set is a visual judgment call, no reliable
+    # popularity/rating signal exists to rank by (confirmed by checking both
+    # sites directly).
+    metadata_files:
+      - file: /config/metadata/scrubs.yml
+      - file: /config/metadata/top_gear.yml
+    collection_files:
+      - default: imdb
+        template_variables:
+          collection_mode: hide
+      - default: genre
+        template_variables:
+          collection_mode: hide
+      - default: network
+        template_variables:
+          collection_mode: hide
+      - default: year
+        template_variables:
+          collection_mode: hide
+      - default: decade
+        template_variables:
+          collection_mode: hide

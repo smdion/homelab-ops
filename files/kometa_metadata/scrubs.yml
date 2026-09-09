@@ -1,0 +1,24 @@
+metadata:
+  76156: # TVDB id for Scrubs. Set by RuviLev on MediUX. https://mediux.pro/sets/8008
+    url_poster: https://api.mediux.pro/assets/e7962d0a-4395-4b72-93c6-8a96c0d58866
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/66c84169-b83b-4e5b-ab4e-dd84bcfd74f2
+      1:
+        url_poster: https://api.mediux.pro/assets/a5b20f25-4dd2-4e25-8323-870f12436356
+      2:
+        url_poster: https://api.mediux.pro/assets/2471d0d0-999e-4a82-ad37-916b9ee856fb
+      3:
+        url_poster: https://api.mediux.pro/assets/7c8ce78b-7816-48eb-a215-6eb850367a49
+      4:
+        url_poster: https://api.mediux.pro/assets/128fe766-874f-4825-9764-40ddbd5c08d3
+      5:
+        url_poster: https://api.mediux.pro/assets/5eecabaa-f5ab-46c2-911f-c67c40cdd390
+      6:
+        url_poster: https://api.mediux.pro/assets/41440ad9-8bf0-4f52-9038-e2443476a902
+      7:
+        url_poster: https://api.mediux.pro/assets/d3c0dd67-2ca6-4bf1-b0a7-b8e8518f2212
+      8:
+        url_poster: https://api.mediux.pro/assets/4a72188a-7894-4216-918f-6f7762d12f4e
+      9:
+        url_poster: https://api.mediux.pro/assets/eda66cbe-fed5-44ae-aada-88d9d21b8927
