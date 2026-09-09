@@ -12,7 +12,7 @@
 #   ansible-playbook deploy_posterizarr_config.yaml
 
 - name: Deploy Posterizarr config
-  hosts: core
+  hosts: apps
   gather_facts: false
   vars_files:
     - vars/secrets.yaml
