@@ -73,8 +73,7 @@ libraries:
     # popularity/rating signal exists to rank by (confirmed by checking both
     # sites directly).
     metadata_files:
-      - file: /config/metadata/scrubs.yml
-      - file: /config/metadata/top_gear.yml
+      - file: /config/metadata/curated_shows.yml
     collection_files:
       - default: imdb
         template_variables:
