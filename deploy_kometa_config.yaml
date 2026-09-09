@@ -34,3 +34,10 @@
         src: files/kometa_config.yml
         dest: "{{ kometa_dir }}/config.yml"
         mode: "0644"
+
+    - name: Deploy Kometa per-show metadata files
+      become: true
+      ansible.builtin.copy:
+        src: files/kometa_metadata/
+        dest: "{{ kometa_dir }}/metadata/"
+        mode: "0644"

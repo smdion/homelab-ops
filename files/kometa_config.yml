@@ -68,6 +68,13 @@ libraries:
   TV Shows:
     template_variables:
       use_separator: false
+    # Per-show consistent poster sets, hand-picked from theposterdb.com --
+    # pilot for fixing inconsistent season artwork (different layout/logo
+    # position per season from Plex's default agent match). One file per
+    # show reviewed and added here, not automated -- "best" set is a visual
+    # judgment call, no reliable popularity/rating signal exists to rank by.
+    metadata_files:
+      - file: /config/metadata/top_gear.yml
     collection_files:
       - default: imdb
         template_variables:
