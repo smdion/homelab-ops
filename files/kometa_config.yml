@@ -38,7 +38,6 @@ settings:
   # (MediUX etc.) into this same folder, so later runs re-use the local copy
   # instead of re-fetching, and set/link rot on MediUX's side stops mattering.
   asset_folders: true
-  create_asset_folders: true
   prioritize_assets: true
   download_url_assets: true
   sync_mode: append
