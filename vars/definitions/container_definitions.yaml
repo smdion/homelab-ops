@@ -1035,7 +1035,7 @@ container_definitions:
       environment:
         TZ: "{{ tz | default('America/Chicago') }}"
         TERM: "xterm"
-        RUN_TIME: "06:00"
+        RUN_TIME: "disabled"
       labels:
         homelab.backup.paths: "/opt/posterizarr"
         homelab.proxy.subdomain: "posterizarr"
