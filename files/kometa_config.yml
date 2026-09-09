@@ -59,6 +59,7 @@ libraries:
           use_edition: false
           use_audio: false
           use_combined: false
+          horizontal_align: right
       - file: /config/overlays/audience_rating.yml
     collection_files:
       - default: imdb
@@ -86,6 +87,7 @@ libraries:
           use_edition: false
           use_audio: false
           use_combined: false
+          horizontal_align: right
       - file: /config/overlays/audience_rating.yml
     # Per-show consistent poster sets, hand-picked from MediUX/theposterdb.com.
     # Not automated -- "best" set is a visual judgment call, no reliable
