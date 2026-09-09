@@ -441,3 +441,45 @@ metadata:
         url_poster: https://api.mediux.pro/assets/875c6191-4408-4858-9d13-7bddf2598fff
       8:
         url_poster: https://api.mediux.pro/assets/b4cc8af0-835b-4baa-ba33-c5c91c34fc02
+
+  264108: # TVDB id for Anthony Bourdain: Parts Unknown. Set by Pejamas on MediUX. https://mediux.pro/sets/2378
+    url_poster: https://api.mediux.pro/assets/3ce3ed6d-74f7-4a85-9eba-1d68389250d4
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/d6bc41ed-1796-4433-8728-e68032356827
+      1:
+        url_poster: https://api.mediux.pro/assets/21c74f47-0d0f-4985-8142-8624fa81aa47
+      2:
+        url_poster: https://api.mediux.pro/assets/9e50ab99-1b2b-4b7d-a596-0a1208d73309
+      3:
+        url_poster: https://api.mediux.pro/assets/e981578a-e869-454d-ab3b-9a2f6b217bc7
+      4:
+        url_poster: https://api.mediux.pro/assets/f8014bd2-192c-4ab9-8254-d52dd3bc614c
+      5:
+        url_poster: https://api.mediux.pro/assets/bbff7e1b-4684-43e6-b783-5d495e0f64d2
+      6:
+        url_poster: https://api.mediux.pro/assets/b2165784-b1c8-41e8-88d9-621b6f1adb6a
+      7:
+        url_poster: https://api.mediux.pro/assets/8903366f-4d2c-4a93-9258-6d020f59bccb
+      8:
+        url_poster: https://api.mediux.pro/assets/38912c13-e18b-4363-83e3-31c6eaf1f011
+      9:
+        url_poster: https://api.mediux.pro/assets/1b1a850e-6591-4810-93b4-9ca5c5ab72f5
+      10:
+        url_poster: https://api.mediux.pro/assets/cb7606d3-96a2-4c65-ab46-c4a60314416b
+      11:
+        url_poster: https://api.mediux.pro/assets/ace30ca4-8e92-4cb9-9192-da3054ad988d
+      12:
+        url_poster: https://api.mediux.pro/assets/cae32fab-d1af-40e4-b2b0-857a9625bafe
+
+  74852: # TVDB id for Avatar: The Last Airbender. Set by MiniZaki on MediUX. https://mediux.pro/sets/14262
+    url_poster: https://api.mediux.pro/assets/95bad6b6-e7d6-473d-a5bd-77f94338e6cd
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/bd0f6cab-208d-41d8-908c-43e54637dd9f
+      1:
+        url_poster: https://api.mediux.pro/assets/a6cd18eb-d2fc-4a5f-99b3-823ae058cf39
+      2:
+        url_poster: https://api.mediux.pro/assets/eba52931-7907-4f53-bf98-798d11b39f84
+      3:
+        url_poster: https://api.mediux.pro/assets/8bdf8e6a-757a-47b6-9ccb-05f539940655
