@@ -59,7 +59,13 @@ ytdlp_extractor_args: "youtube:player-client=default,-tv,web_safari,web_embedded
 ytdlp_cookies: "/configs/default/www.youtube.com_cookies.txt"
 
 # Download defaults — profiles override per-user preferences
-ytdlp_quality: "res"
+# vcodec:h264 is a no-op for Twitch (h264 is its only offered codec) but fixes
+# YouTube, which otherwise lets AV1 win ties at the same resolution -- AV1
+# decode support is generation-dependent on some clients (e.g. older Shield TV
+# models), unlike h264 which is universal. YouTube calibrates each codec's
+# bitrate to the same target visual quality, so this is a size cost (h264 runs
+# ~2.5x larger than AV1 for the same resolution/quality), not a quality one.
+ytdlp_quality: "res,vcodec:h264"
 ytdlp_format: "mp4"
 # Per-download rate cap for yt-dlp (--limit-rate). Empty = uncapped, preferred on
 # the 1 Gbps line — shape/prioritize traffic at the firewall rather than throttling

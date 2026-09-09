@@ -77,7 +77,12 @@
 --merge-output-format '{{ ytdlp_format }}'
 
 # Post-processing
---embed-thumbnail
+# NOTE: --embed-thumbnail deliberately omitted. yt-dlp embeds thumbnails as a
+# second "video" stream (mjpeg/png) inside the mp4/mkv container rather than a
+# proper attached-pic tag. Plex clients that mediate playback through Plex's
+# own transcoder don't notice, but a client using Direct Play (bypassing that
+# mediation) can get confused by two video streams and fail to play the file
+# entirely -- confirmed on an NVIDIA Shield with a real downloaded Twitch VOD.
 --embed-metadata
 --add-metadata
 
