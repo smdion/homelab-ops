@@ -10,8 +10,13 @@
 # overlay files would find nothing there. Those get a separate local-assets
 # setup later, not the default collection files used here.
 #
-# No overlay_files -- resolution/ribbon/status badges were rejected as visual
-# clutter after the first run.
+# overlay_files: Kometa's own built-in defaults were rejected as visual
+# clutter after the first run. Using jmxd's community overlay set instead
+# (files/kometa_overlays/, vendored from github.com/jmxd/Kometa) --
+# resolution + video format (HDR/DV) only, edition/audio explicitly
+# disabled, plus a separate audience-rating badge. Requires TRaSH-style
+# file naming to detect formats correctly; verify against real items
+# after the first run rather than assume it matches our naming.
 
 plex:
   url: http://10.10.10.19:32400
@@ -48,6 +53,13 @@ libraries:
       # inconsistently with collection_mode -- disabling them entirely
       # avoids that instead of fighting it.
       use_separator: false
+    overlay_files:
+      - file: /config/overlays/media_info.yml
+        template_variables:
+          use_edition: false
+          use_audio: false
+          use_combined: false
+      - file: /config/overlays/audience_rating.yml
     collection_files:
       - default: imdb
         template_variables:
@@ -68,6 +80,13 @@ libraries:
   TV Shows:
     template_variables:
       use_separator: false
+    overlay_files:
+      - file: /config/overlays/media_info.yml
+        template_variables:
+          use_edition: false
+          use_audio: false
+          use_combined: false
+      - file: /config/overlays/audience_rating.yml
     # Per-show consistent poster sets, hand-picked from MediUX/theposterdb.com.
     # Not automated -- "best" set is a visual judgment call, no reliable
     # popularity/rating signal exists to rank by (confirmed by checking both

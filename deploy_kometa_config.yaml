@@ -41,3 +41,10 @@
         src: files/kometa_metadata/
         dest: "{{ kometa_dir }}/metadata/"
         mode: "0644"
+
+    - name: Deploy Kometa overlay files (jmxd media_info/audience_rating)
+      become: true
+      ansible.builtin.copy:
+        src: files/kometa_overlays/
+        dest: "{{ kometa_dir }}/overlays/"
+        mode: "0644"
