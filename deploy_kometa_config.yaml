@@ -28,13 +28,6 @@
         state: directory
         mode: "0755"
 
-    - name: Ensure Kometa local-assets directory exists
-      become: true
-      ansible.builtin.file:
-        path: "{{ kometa_dir }}/assets"
-        state: directory
-        mode: "0755"
-
     - name: Deploy Kometa config.yml
       become: true
       ansible.builtin.copy:
