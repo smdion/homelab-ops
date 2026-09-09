@@ -28,6 +28,18 @@ mdblist:
 settings:
   cache: true
   asset_directory: /config/assets
+  # Local Assets: drop poster/season/background image files directly into
+  # /opt/kometa/assets/<Show Title>/ on core (poster.jpg, Season00.jpg,
+  # Season01.jpg, background.jpg -- see https://kometa.wiki/en/latest/kometa/guides/assets/).
+  # Kometa matches by exact Plex title, no per-show YAML entry needed.
+  # prioritize_assets: a local file always wins over metadata_files/Plex's
+  # existing art, so a season dropped here overrides curated_shows.yml.
+  # download_url_assets: caches every url_poster we pull via metadata_files
+  # (MediUX etc.) into this same folder, so later runs re-use the local copy
+  # instead of re-fetching, and set/link rot on MediUX's side stops mattering.
+  asset_folders: true
+  prioritize_assets: true
+  download_url_assets: true
   sync_mode: append
   run_again_delay: 2
   missing_only_released: true
