@@ -92,7 +92,7 @@ external_templates:
       vertical_align:
         conditions:
           - type: [resolution, edition]
-            value: top
+            value: bottom
           - type: [combined, video, audio]
             value: bottom
       horizontal_offset:
