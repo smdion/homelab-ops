@@ -9,6 +9,9 @@
 # content with no TMDb/IMDb/Trakt match -- Kometa's default collection/
 # overlay files would find nothing there. Those get a separate local-assets
 # setup later, not the default collection files used here.
+#
+# No overlay_files -- resolution/ribbon/status badges were rejected as visual
+# clutter after the first run.
 
 plex:
   url: http://10.10.10.19:32400
@@ -30,50 +33,44 @@ settings:
   missing_only_released: true
   show_missing_season_assets: false
 
-# collection_mode: hide_items keeps every collection generated and browsable
-# from Plex's Collections tab, but stops its member items from also showing
-# as separate tiles in the main library grid -- avoids doubling up every
-# movie/show across dozens of collections when just browsing the library.
+# collection_mode: hide -- collections stay fully generated/usable but only
+# surface under Plex's dedicated Collections tab. hide_items (tried first)
+# only stops member items from ALSO appearing separately -- it does not stop
+# the collection tiles themselves from cluttering the main Library grid,
+# which is what was actually happening.
 libraries:
   Movies:
     collection_files:
       - default: imdb
         template_variables:
-          collection_mode: hide_items
+          collection_mode: hide
       - default: genre
         template_variables:
-          collection_mode: hide_items
+          collection_mode: hide
       - default: studio
         template_variables:
-          collection_mode: hide_items
+          collection_mode: hide
       - default: year
         template_variables:
-          collection_mode: hide_items
+          collection_mode: hide
       - default: decade
         template_variables:
-          collection_mode: hide_items
-    overlay_files:
-      - default: resolution
-      - default: ribbon
+          collection_mode: hide
 
   TV Shows:
     collection_files:
       - default: imdb
         template_variables:
-          collection_mode: hide_items
+          collection_mode: hide
       - default: genre
         template_variables:
-          collection_mode: hide_items
+          collection_mode: hide
       - default: network
         template_variables:
-          collection_mode: hide_items
+          collection_mode: hide
       - default: year
         template_variables:
-          collection_mode: hide_items
+          collection_mode: hide
       - default: decade
         template_variables:
-          collection_mode: hide_items
-    overlay_files:
-      - default: resolution
-      - default: ribbon
-      - default: status
+          collection_mode: hide
