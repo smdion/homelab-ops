@@ -39,9 +39,9 @@ external_templates:
       vertical_offset:
         conditions:
           - type: [resolution, edition]
-            value: 150
-          - type: [combined, video, audio]
             value: 50
+          - type: [combined, video, audio]
+            value: 150
       file:
         conditions:
           - type: [combined, video, audio]
