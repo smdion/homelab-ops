@@ -220,14 +220,6 @@ host_definitions:
             auth: false
             includes: [proxy]
             ip_allow: ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.0/8"]
-      - subdomain: piawg
-        upstream_ip: "10.10.10.18"
-        external: false
-        locations:
-          - path: /
-            port: 8292
-            auth: true
-            includes: [proxy]
       - subdomain: media
         upstream_ip: "10.10.10.18"
         auth: true
