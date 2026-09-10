@@ -755,3 +755,277 @@ metadata:
     seasons:
       1:
         url_poster: https://api.mediux.pro/assets/10996a6f-2707-497e-920b-eb8a65a82be9
+
+  71292: # TVDB id for The Golden Girls. Set by sexten on MediUX. https://mediux.pro/sets/57109
+    url_poster: https://api.mediux.pro/assets/0bdf24b9-ebb2-4139-bfa6-112f42fa305e
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/c5b65d12-c4f7-4f21-a0f2-c3078a3fe6bf
+      2:
+        url_poster: https://api.mediux.pro/assets/6aab944c-9e56-4774-9b8d-98e4460267d8
+      3:
+        url_poster: https://api.mediux.pro/assets/fa33df7b-3e41-4773-a5bf-7df7db0d54c7
+      4:
+        url_poster: https://api.mediux.pro/assets/59de7473-8230-423e-be3a-4c37e5e5e0f3
+      5:
+        url_poster: https://api.mediux.pro/assets/4e528c0e-f0ab-4d09-81ef-b67019a680b1
+      6:
+        url_poster: https://api.mediux.pro/assets/76fb87bb-b3d2-4fa5-a5d8-23e4f689b705
+      7:
+        url_poster: https://api.mediux.pro/assets/1000872d-4087-43a4-8a29-4def74cd9560
+
+  315321: # TVDB id for Goliath. Set by r3draid3r04 on MediUX. https://mediux.pro/sets/35984
+    url_poster: https://api.mediux.pro/assets/c1aa8a66-7cb5-4637-8961-27c08cadbeaa
+    url_background: https://api.mediux.pro/assets/83b82c13-457f-44ec-acfd-55ff0e618fd3
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/b3f7acca-739d-4216-9a43-27df1566e618
+      2:
+        url_poster: https://api.mediux.pro/assets/2230c17e-51d4-43b6-8fbf-999ccb73e322
+      3:
+        url_poster: https://api.mediux.pro/assets/06450902-434e-4bc8-b929-c4131c3c1398
+      4:
+        url_poster: https://api.mediux.pro/assets/5eb2bfa1-ef75-4034-a5ab-8e0f43ca5d22
+
+  73067: # TVDB id for Good Eats. Set by cundallini on MediUX. https://mediux.pro/sets/49686
+    url_poster: https://api.mediux.pro/assets/7c4a3e34-3d27-4a90-bf0b-9dc4b3ff6a8b
+    url_background: https://api.mediux.pro/assets/70a2e9bb-4f2d-498c-8a9c-ca59a4bd0f79
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/2e14bbdd-292e-47ef-86a2-722776e5458a
+      1:
+        url_poster: https://api.mediux.pro/assets/bcffa35b-9d74-4cff-8f37-5ccac6ed1c8e
+      2:
+        url_poster: https://api.mediux.pro/assets/57eda294-bb47-4fdb-89a3-c8d5adce9c07
+      3:
+        url_poster: https://api.mediux.pro/assets/3fcc5f14-e03d-4bca-891c-2fa33555488c
+      4:
+        url_poster: https://api.mediux.pro/assets/f310250a-ad58-4a53-9066-1e6474c6b546
+      5:
+        url_poster: https://api.mediux.pro/assets/632e4027-e72c-4168-bcab-04ec2863cbef
+      6:
+        url_poster: https://api.mediux.pro/assets/f489d2a6-ebe1-4083-83f8-95afa82e7f70
+      7:
+        url_poster: https://api.mediux.pro/assets/1c41f836-6bc5-47c1-bfbc-15211751c2ab
+      8:
+        url_poster: https://api.mediux.pro/assets/b8ad3d21-be8f-4dd3-88ce-7146cc1ce71d
+      9:
+        url_poster: https://api.mediux.pro/assets/2a4ad3f9-cecf-4736-a0ed-a138f650e66e
+      10:
+        url_poster: https://api.mediux.pro/assets/396ada79-d824-452b-80b8-f28f63acc1f1
+      11:
+        url_poster: https://api.mediux.pro/assets/bf76c121-35bd-4800-b4ab-8c6156ce95d0
+      12:
+        url_poster: https://api.mediux.pro/assets/f97eb193-5a1b-4add-aed5-247a77021f38
+      13:
+        url_poster: https://api.mediux.pro/assets/a7210de2-a69d-49d7-b98e-ae983c09092f
+      14:
+        url_poster: https://api.mediux.pro/assets/f372c157-b7a9-4a63-aed0-497ef646fe86
+      15:
+        url_poster: https://api.mediux.pro/assets/c6b4ca0e-c66f-4ebe-b7df-341ff8cbf2ac
+      16:
+        url_poster: https://api.mediux.pro/assets/db124fed-ecac-45b7-8b47-990c4c323547
+
+  353025: # TVDB id for Good Eats: Reloaded. Set by cundallini on MediUX. https://mediux.pro/sets/49691
+    url_poster: https://api.mediux.pro/assets/4b0aa91a-c679-498c-8eb3-27c176fc6467
+    url_background: https://api.mediux.pro/assets/f59b0feb-b719-4433-b884-b3c1a2094776
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/4044075f-5281-4ac3-bf9e-6b8b40074885
+      1:
+        url_poster: https://api.mediux.pro/assets/00fed4df-17dd-4d48-bec3-1b9e20f193e9
+      2:
+        url_poster: https://api.mediux.pro/assets/d05e94e2-6be4-4284-9ba9-6780d89c9e55
+
+  359569: # TVDB id for Good Omens. Set by willtong93 on MediUX. https://mediux.pro/sets/46038
+    url_poster: https://api.mediux.pro/assets/9e537981-d659-4391-bbbc-8311ad4048db
+    url_background: https://api.mediux.pro/assets/4035d158-c7fc-40de-bcab-22fa4a7d7194
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/b9ddf668-a1b2-4044-a5d0-2267c80e2fa3
+      2:
+        url_poster: https://api.mediux.pro/assets/39d76db0-ab67-465a-9d0b-2518076de53a
+      3:
+        url_poster: https://api.mediux.pro/assets/4e07e0b2-b829-44b8-833a-9ef0f677d476
+
+  311711: # TVDB id for The Good Place. Set by r3draid3r04 on MediUX. https://mediux.pro/sets/24084
+    url_poster: https://api.mediux.pro/assets/60ea5226-9604-4736-9fff-41abd5b42fbd
+    url_background: https://api.mediux.pro/assets/44a4653a-03ad-472a-b329-77578d1da313
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/1c076838-68e8-4623-95da-3d7dfefa214a
+      2:
+        url_poster: https://api.mediux.pro/assets/3802508d-f1ce-4f07-961a-c0aee6a476a2
+      3:
+        url_poster: https://api.mediux.pro/assets/434794ab-eef9-452c-8fc6-dfed7af9d72d
+      4:
+        url_poster: https://api.mediux.pro/assets/58b4be39-541c-4cb7-9590-62f87d3a8b69
+
+  282562: # TVDB id for Grace and Frankie. Set by fwlolx on MediUX. https://mediux.pro/sets/26546
+    url_poster: https://api.mediux.pro/assets/39ce9849-05b1-4c69-9295-9a47e30e335a
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/e9cd0a9d-bdc9-498f-8068-6ac3b6aea722
+      2:
+        url_poster: https://api.mediux.pro/assets/eea156aa-02bd-470e-a313-d4cdc08ece2c
+      3:
+        url_poster: https://api.mediux.pro/assets/670466f6-1c21-496c-8be2-47019d73ed02
+      4:
+        url_poster: https://api.mediux.pro/assets/d6929b3d-f974-42f3-97dd-ca3cf8a85525
+      5:
+        url_poster: https://api.mediux.pro/assets/eb06a28f-4817-4d8a-891a-9e19458085d9
+      6:
+        url_poster: https://api.mediux.pro/assets/9081544b-8341-4360-af4f-c547702c0431
+      7:
+        url_poster: https://api.mediux.pro/assets/0c5bebea-7bac-46e3-82cb-ad01c7782230
+
+  79264: # TVDB id for Grand Designs. Set by RuviLev on MediUX. https://mediux.pro/sets/14935
+    url_poster: https://api.mediux.pro/assets/47ea1ff4-c629-4a82-81c6-3bdbe6d028f0
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/0fdd147c-7c27-4af2-9d01-631524e57beb
+      1:
+        url_poster: https://api.mediux.pro/assets/d7714b30-5cb7-4ace-81ad-5a49c1d12e2f
+      2:
+        url_poster: https://api.mediux.pro/assets/906388f7-b60e-48ba-994d-ea442f1fe829
+      3:
+        url_poster: https://api.mediux.pro/assets/336c29c0-4df9-4447-9c53-f6bf217c4e41
+      4:
+        url_poster: https://api.mediux.pro/assets/d2e79eee-4883-4ac6-80d7-7ade70b3e848
+      5:
+        url_poster: https://api.mediux.pro/assets/7c9e96a7-7c70-40f2-a9d1-e4c217f34abb
+      6:
+        url_poster: https://api.mediux.pro/assets/6d47fbe5-1e9e-4bff-9ba8-77e121672cac
+      7:
+        url_poster: https://api.mediux.pro/assets/35a4f92f-6cea-4043-be5d-302612847ec6
+      8:
+        url_poster: https://api.mediux.pro/assets/5370c8c4-2258-45bb-a455-c278aafd79f4
+      9:
+        url_poster: https://api.mediux.pro/assets/955ecd0a-54be-4cb7-8fdd-feca92de1711
+      10:
+        url_poster: https://api.mediux.pro/assets/c69d57e7-0e31-4d57-8cd2-e2856d5bf260
+      11:
+        url_poster: https://api.mediux.pro/assets/3d233e56-be0f-4e19-9cb4-ec1a0ddf5ffc
+      12:
+        url_poster: https://api.mediux.pro/assets/8aa29f97-e78e-483b-ba5e-8948bc9b988c
+      13:
+        url_poster: https://api.mediux.pro/assets/6d1db52d-6f06-4e44-a8ea-a7bb4b829172
+      14:
+        url_poster: https://api.mediux.pro/assets/ca4d2750-121b-4e38-85ef-091f3c3e4937
+      15:
+        url_poster: https://api.mediux.pro/assets/6463909e-780f-4149-9986-632fd078021b
+      16:
+        url_poster: https://api.mediux.pro/assets/a90aac65-8b3b-4fe2-a8d9-968a6a1862da
+      17:
+        url_poster: https://api.mediux.pro/assets/c6f9174d-7764-40c2-9ca2-bc92a6d1f527
+      18:
+        url_poster: https://api.mediux.pro/assets/48e0d7ab-5d35-445f-ab7d-633cf342f4cd
+      19:
+        url_poster: https://api.mediux.pro/assets/352cf12e-c4b4-4a72-ba75-740cb57c6bb1
+      20:
+        url_poster: https://api.mediux.pro/assets/cb21259b-90c0-4c82-8354-26f5db83c4aa
+      21:
+        url_poster: https://api.mediux.pro/assets/e3405c10-eb1a-446c-be11-acec3a9a2824
+      22:
+        url_poster: https://api.mediux.pro/assets/04c3448d-972d-44a8-82c6-e2ef5afbb54b
+      23:
+        url_poster: https://api.mediux.pro/assets/0705a3eb-3646-4330-9680-16bae4c102c8
+      24:
+        url_poster: https://api.mediux.pro/assets/c6e7d9b7-b3f2-4646-a4fc-68afa398d510
+
+  314087: # TVDB id for The Grand Tour. Set by fwlolx on MediUX. https://mediux.pro/sets/15838
+    url_poster: https://api.mediux.pro/assets/6abf7539-963d-4fd6-9e6d-f412481291cf
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/2259fd57-6043-4368-8015-b5e8029245ba
+      2:
+        url_poster: https://api.mediux.pro/assets/8b483ee0-297e-4378-bc32-aba5e67fb823
+      3:
+        url_poster: https://api.mediux.pro/assets/bc3916fe-c821-4d14-a2cc-df87c6069d6f
+      4:
+        url_poster: https://api.mediux.pro/assets/811572eb-e694-47fd-9778-1d55d326b5ad
+      5:
+        url_poster: https://api.mediux.pro/assets/db48540c-f91c-4b7f-9aa5-2e7f8754da09
+      6:
+        url_poster: https://api.mediux.pro/assets/61b88606-4e7b-4149-8062-631f28761d46
+
+  369301: # TVDB id for The Great. Set by r3draid3r04 on MediUX. https://mediux.pro/sets/23981
+    url_poster: https://api.mediux.pro/assets/1d39cffd-5118-442e-a715-6dc41eb239d0
+    url_background: https://api.mediux.pro/assets/f77676f4-2725-47a2-be71-ed24cbb964a5
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/b0238c57-2410-411e-b5b6-046b4b8d3f97
+      2:
+        url_poster: https://api.mediux.pro/assets/15a01723-3f00-485e-b37a-6de2c05a8992
+      3:
+        url_poster: https://api.mediux.pro/assets/d65eda5f-2e22-4f25-9bf9-9224718301bd
+
+  184871: # TVDB id for The Great British Bake Off. Set by sharivari on MediUX. https://mediux.pro/sets/40723
+    url_poster: https://api.mediux.pro/assets/a373305a-e8bd-4dd4-bf56-3c42c05c6e5b
+    url_background: https://api.mediux.pro/assets/4833aaf8-884c-4e6f-a5c6-2b60b669e5af
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/53f49dfc-7924-43d2-8ebd-98c0e2790d6b
+      1:
+        url_poster: https://api.mediux.pro/assets/e2f84286-9c6a-42ca-a8ea-face1b81d33a
+      2:
+        url_poster: https://api.mediux.pro/assets/a0cf3a1e-3105-4453-864f-38b803024c53
+      3:
+        url_poster: https://api.mediux.pro/assets/78c3915b-2ab5-4913-9a57-9be993264984
+      4:
+        url_poster: https://api.mediux.pro/assets/c4ccf628-7f84-4273-a731-bef1f9f49854
+      5:
+        url_poster: https://api.mediux.pro/assets/f3588476-2c16-4e45-b1a3-54beebffd928
+      6:
+        url_poster: https://api.mediux.pro/assets/261952fc-1445-4e6b-8f53-395b0b747501
+      7:
+        url_poster: https://api.mediux.pro/assets/3209ab58-f5fd-4c87-a77c-acb39b191148
+      8:
+        url_poster: https://api.mediux.pro/assets/b6f41e90-0c84-49db-8a8e-8429ab8b7ddd
+      9:
+        url_poster: https://api.mediux.pro/assets/f8835aa3-9005-47d7-9866-60cea5e814cf
+
+  343710: # TVDB id for The Great Celebrity Bake Off for Stand Up To Cancer. Set by sharivari on MediUX. https://mediux.pro/sets/40678
+    url_poster: https://api.mediux.pro/assets/12da4ebc-a83c-4442-a3d4-70dc76c3c3d8
+    url_background: https://api.mediux.pro/assets/751f3ee5-982c-4646-a4eb-2951648a313a
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/0d74e6ef-b334-4176-9e5b-c9eca0ee7387
+      2:
+        url_poster: https://api.mediux.pro/assets/1e96b653-1b7a-4543-b78c-eea52c6d3b3f
+      3:
+        url_poster: https://api.mediux.pro/assets/8d503d69-d38f-44cb-9fc8-fcb9fa3a2c51
+      4:
+        url_poster: https://api.mediux.pro/assets/8b3b13ba-4a9d-4b0e-aa10-23c2b2ea4915
+      5:
+        url_poster: https://api.mediux.pro/assets/88744223-effb-4bfe-818a-3a126a5e7728
+      6:
+        url_poster: https://api.mediux.pro/assets/e5fadb3a-ded2-461c-b2c8-d22273c19c42
+      7:
+        url_poster: https://api.mediux.pro/assets/7a2dec1f-046f-4f60-bf56-4b9de56a438f
+      8:
+        url_poster: https://api.mediux.pro/assets/81f3e938-e720-46e2-8e41-170ef94046b7
+      9:
+        url_poster: https://api.mediux.pro/assets/702ef125-5000-420c-b5ab-a68974086396
+
+  247897: # TVDB id for Homeland. Set by TheMedeusa on MediUX. https://mediux.pro/sets/727
+    url_poster: https://api.mediux.pro/assets/a6e68c83-fde2-424e-a210-f7a426432a0d
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/0a8a2b08-7585-4a7a-b800-83c07304684d
+      1:
+        url_poster: https://api.mediux.pro/assets/34a705fc-ecec-4855-8870-10f3f500eed4
+      2:
+        url_poster: https://api.mediux.pro/assets/1d95c7f5-1147-4591-8654-1c6a112ef6d2
+      3:
+        url_poster: https://api.mediux.pro/assets/e03fd514-1039-4d8a-b673-df3c251d8981
+      4:
+        url_poster: https://api.mediux.pro/assets/627fb6fd-6d47-4b03-a4ba-6008b492b28f
+      5:
+        url_poster: https://api.mediux.pro/assets/1b433e75-dc10-40e5-9894-8bbc6a9e3ee5
+      6:
+        url_poster: https://api.mediux.pro/assets/60b227a1-1e29-4b0a-addf-09a343c2441d
+      7:
+        url_poster: https://api.mediux.pro/assets/95bdfa11-1133-4831-89bf-16ecd3160fc6
+      8:
+        url_poster: https://api.mediux.pro/assets/e7ac1845-f3e4-4279-a52e-561184f334ef
