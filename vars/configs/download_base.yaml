@@ -137,3 +137,11 @@ platform_icons:
 platform_names:
   Youtube: "YouTube"
   TwitchVod: "Twitch"
+
+# Plex library section ids for the "analyze new downloads immediately" step in
+# download_videos.yaml — keyed by yt-dlp extractor_key, same key space as
+# platform_names/platform_icons above. Confirmed via Plex API
+# (GET /library/sections) 2026-09-09: 6=YouTube, 3=Twitch.
+plex_section_ids:
+  Youtube: "6"
+  TwitchVod: "3"

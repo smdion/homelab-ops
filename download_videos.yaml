@@ -103,6 +103,20 @@
         dest: "{{ metube_config_host_dir }}/scripts/prune_batch_file.py"
         mode: "0755"
 
+    # Forces Plex to fully analyze each new download immediately after import
+    # instead of leaving it to Plex's own nightly maintenance task (or, worse,
+    # doing it on-the-fly the first time someone presses play — confirmed via a
+    # real incident where a video watched within hours of download transcoded
+    # on first playback and direct-played cleanly on the second, minutes later,
+    # with its Plex `updatedAt` matching the first playback to the minute).
+    # Same deploy pattern as the helpers above.
+    - name: Deploy Plex analyze-new-downloads helper script
+      become: true
+      ansible.builtin.copy:
+        src: files/plex_analyze_new_downloads.py
+        dest: "{{ metube_config_host_dir }}/scripts/plex_analyze_new_downloads.py"
+        mode: "0755"
+
     - name: Clean old successful Semaphore task runs
       include_tasks: tasks/clean_semaphore_tasks.yaml
 
@@ -349,6 +363,30 @@
         discord_footer:
           text: "metube.{{ vault_domain_ext }}"
           icon_url: "{{ metube_avatar }}"
+
+    # Force Plex to fully analyze each just-downloaded video right away — see
+    # the deploy task above and the script's own header for why. Best-effort:
+    # the script logs its own failures and never raises, but wrap the whole
+    # call in failed_when: false too so a Plex outage can never fail the
+    # download pipeline's own sweep. no_log because the argv carries the Plex
+    # token.
+    - name: Trigger Plex scan + analyze for newly downloaded videos
+      become: true
+      no_log: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ metube_container }}"
+          - python3
+          - /configs/scripts/plex_analyze_new_downloads.py
+          - "{{ downloaded_videos | to_json }}"
+          - "{{ vault_plex_url }}"
+          - "{{ vault_plex_token }}"
+          - "{{ plex_section_ids | to_json }}"
+      changed_when: true
+      failed_when: false
+      when: downloaded_videos | length > 0
 
     # -- Failure alert: read the exit code the detached wrapper recorded ------
     - name: Read yt-dlp exit status from last detached run
