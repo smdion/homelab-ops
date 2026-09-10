@@ -103,20 +103,6 @@
         dest: "{{ metube_config_host_dir }}/scripts/prune_batch_file.py"
         mode: "0755"
 
-    # Forces Plex to fully analyze each new download immediately after import
-    # instead of leaving it to Plex's own nightly maintenance task (or, worse,
-    # doing it on-the-fly the first time someone presses play — confirmed via a
-    # real incident where a video watched within hours of download transcoded
-    # on first playback and direct-played cleanly on the second, minutes later,
-    # with its Plex `updatedAt` matching the first playback to the minute).
-    # Same deploy pattern as the helpers above.
-    - name: Deploy Plex analyze-new-downloads helper script
-      become: true
-      ansible.builtin.copy:
-        src: files/plex_analyze_new_downloads.py
-        dest: "{{ metube_config_host_dir }}/scripts/plex_analyze_new_downloads.py"
-        mode: "0755"
-
     - name: Clean old successful Semaphore task runs
       include_tasks: tasks/clean_semaphore_tasks.yaml
 
@@ -364,29 +350,84 @@
           text: "metube.{{ vault_domain_ext }}"
           icon_url: "{{ metube_avatar }}"
 
-    # Force Plex to fully analyze each just-downloaded video right away — see
-    # the deploy task above and the script's own header for why. Best-effort:
-    # the script logs its own failures and never raises, but wrap the whole
-    # call in failed_when: false too so a Plex outage can never fail the
-    # download pipeline's own sweep. no_log because the argv carries the Plex
-    # token.
-    - name: Trigger Plex scan + analyze for newly downloaded videos
-      become: true
+    # == Force Plex to fully analyze each just-downloaded video right away ====
+    # Plex was leaving deep media analysis (the check that determines real
+    # direct-play eligibility) to its own nightly maintenance task, or doing
+    # it on-the-fly the first time someone pressed play. Confirmed via a real
+    # incident (2026-09-09): a video watched within hours of download
+    # transcoded on its first playback and direct-played cleanly on the
+    # second, minutes later — its Plex `updatedAt` matched the first playback
+    # to the minute. All three tasks below are best-effort (failed_when:
+    # false) so a Plex outage can never fail the download pipeline's own
+    # sweep; no_log on all three since every call carries the Plex token.
+    - name: Determine Plex sections needing a refresh for this batch
+      ansible.builtin.set_fact:
+        _plex_sections_to_refresh: >-
+          {{ downloaded_videos | map(attribute='extractor') | map('extract', plex_section_ids) | select() | unique | list }}
+      when: downloaded_videos | length > 0
+
+    - name: Trigger Plex section refresh for newly downloaded videos
+      ansible.builtin.uri:
+        url: "{{ vault_plex_url }}/library/sections/{{ item }}/refresh"
+        method: GET
+        headers:
+          X-Plex-Token: "{{ vault_plex_token }}"
+      loop: "{{ _plex_sections_to_refresh | default([]) }}"
       no_log: true
-      ansible.builtin.command:
-        argv:
-          - docker
-          - exec
-          - "{{ metube_container }}"
-          - python3
-          - /configs/scripts/plex_analyze_new_downloads.py
-          - "{{ downloaded_videos | to_json }}"
-          - "{{ vault_plex_url }}"
-          - "{{ vault_plex_token }}"
-          - "{{ plex_section_ids | to_json }}"
-      changed_when: true
       failed_when: false
       when: downloaded_videos | length > 0
+
+    # Plex's scan is async, so poll (rather than assume a fixed delay is
+    # enough) until the new file actually shows up — matched by the yt-dlp
+    # video id yt-dlp always embeds in the filename (ytdlp_output above),
+    # which is a reliable, unambiguous way to find the just-imported item
+    # without needing to already know its Plex ratingKey.
+    - name: Wait for newly downloaded videos to appear in Plex
+      ansible.builtin.uri:
+        url: "{{ vault_plex_url }}/library/sections/{{ plex_section_ids[_video.extractor] }}/all"
+        method: GET
+        headers:
+          Accept: "application/json"
+          X-Plex-Token: "{{ vault_plex_token }}"
+        return_content: true
+      register: _section_listing
+      loop: "{{ downloaded_videos }}"
+      loop_control:
+        loop_var: _video
+        label: "{{ _video.title | default('unknown') }}"
+      until: >-
+        (_section_listing.json.MediaContainer.Metadata | default([])
+         | selectattr('Media.0.Part.0.file', 'search', _video.id) | list | length) > 0
+      retries: 10
+      delay: 3
+      no_log: true
+      failed_when: false
+      when:
+        - downloaded_videos | length > 0
+        - plex_section_ids[_video.extractor] is defined
+
+    - name: Analyze newly imported items in Plex
+      ansible.builtin.uri:
+        url: "{{ vault_plex_url }}/library/metadata/{{ _rating_key }}/analyze"
+        method: PUT
+        headers:
+          X-Plex-Token: "{{ vault_plex_token }}"
+      loop: "{{ downloaded_videos }}"
+      loop_control:
+        loop_var: _video
+        index_var: _idx
+        label: "{{ _video.title | default('unknown') }}"
+      vars:
+        _rating_key: >-
+          {{ (_section_listing.results[_idx].json.MediaContainer.Metadata | default([])
+              | selectattr('Media.0.Part.0.file', 'search', _video.id)
+              | map(attribute='ratingKey') | list | first) | default('', true) }}
+      no_log: true
+      failed_when: false
+      when:
+        - downloaded_videos | length > 0
+        - plex_section_ids[_video.extractor] is defined
+        - _rating_key | length > 0
 
     # -- Failure alert: read the exit code the detached wrapper recorded ------
     - name: Read yt-dlp exit status from last detached run
