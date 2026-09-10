@@ -1316,6 +1316,28 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "60s"
+  pia_wg_config_generator:
+    # Generates PIA WireGuard configs for Transmission's VPN tunnel, replacing
+    # PrivateVPN — PrivateVPN's port-forward API (connect.pvdatanet.com) returned
+    # unsupported across every server/protocol combo tested (WireGuard and OpenVPN,
+    # NL/SE/NO). PIA has a documented, working port-forward mechanism. No credentials
+    # stored in the container — entered per-session via the web UI, configs
+    # downloaded on demand and applied manually to the router's WireGuard client.
+    image: "spaceinvaderone/pia-wg-config-generator"
+    tag: "latest"
+    stack: apps
+    compose:
+      base: base
+      ports: ["8292:80"]
+      labels:
+        homelab.proxy.subdomain: "piawg"
+        homelab.proxy.external: "false"
+      healthcheck:
+        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80 || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   postgres:
     image: "postgres"
     tag: "16-alpine"
