@@ -482,3 +482,276 @@ metadata:
         url_poster: https://api.mediux.pro/assets/878880b0-d803-4d83-be8a-340ba80e8262
       8:
         url_poster: https://api.mediux.pro/assets/95f2e52e-23c2-4e28-916b-9e3b82cd3729
+
+  268972: # TVDB id for Chef's Table. Set by fwlolx on MediUX. https://mediux.pro/sets/11936
+    url_poster: https://api.mediux.pro/assets/553c4545-5969-4d5a-9a27-84153a6a828f
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/438f5f45-352c-4011-9bdf-32e9ea421de4
+      2:
+        url_poster: https://api.mediux.pro/assets/6973075d-0c3c-4954-a5cb-3eaf8725c5c3
+      3:
+        url_poster: https://api.mediux.pro/assets/b747f6d6-b1a2-476b-a5b3-2657bd22e14f
+      4:
+        url_poster: https://api.mediux.pro/assets/7391bd1b-2b16-4564-878d-c1405c8d6a41
+      5:
+        url_poster: https://api.mediux.pro/assets/f754f5d9-3aa7-4eeb-8258-80cf0f13059e
+      6:
+        url_poster: https://api.mediux.pro/assets/f3c7f9d5-d9a9-4efe-a873-e475d434b0c4
+      7:
+        url_poster: https://api.mediux.pro/assets/43be3c7a-2265-4658-a881-a1ae4abee781
+
+  360893: # TVDB id for Chernobyl. Set by willtong93 on MediUX. https://mediux.pro/sets/7028
+    url_poster: https://api.mediux.pro/assets/1f263304-7a7f-4ee4-b52c-1151c81c0607
+    url_background: https://api.mediux.pro/assets/865ac3cc-3438-4593-af43-9095fe3bc452
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/6dcafa56-549a-4eba-bea1-75a5051e6ede
+
+  378165: # TVDB id for Clarkson's Farm. Set by willtong93 on MediUX. https://mediux.pro/sets/23239
+    url_poster: https://api.mediux.pro/assets/0bd28c31-3273-4f9c-8c51-0757981ce4bc
+    url_background: https://api.mediux.pro/assets/0a182844-744b-4b2c-9478-ae6f003d9a35
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/c12f7b0d-9d53-487f-b8ca-bad8da977273
+      2:
+        url_poster: https://api.mediux.pro/assets/7e58c6e9-1add-47f4-b609-bafd9d3f8fbf
+      3:
+        url_poster: https://api.mediux.pro/assets/0067bcd1-188f-4472-90aa-3aa7e0b2874e
+      4:
+        url_poster: https://api.mediux.pro/assets/bee3975f-5e05-45e9-ac0d-b10a0ffcf28f
+      5:
+        url_poster: https://api.mediux.pro/assets/8628218b-f5c3-467a-93c2-102ef442eef5
+
+  405445: # TVDB id for Class of '09. Set by fwlolx on MediUX. https://mediux.pro/sets/13939
+    url_poster: https://api.mediux.pro/assets/b846fc56-cea6-4a9d-b7da-ef3d38d12652
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/af51b94c-0418-4483-9eb6-1929ff7370cc
+
+  435035: # TVDB id for Conan O'Brien Must Go. Set by Pejamas on MediUX. https://mediux.pro/sets/17554
+    url_poster: https://api.mediux.pro/assets/04d0bd89-fdc6-413f-bf2d-c2773a740e2b
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/f55c4545-a8f0-4637-8def-083a25dcf0c8
+      2:
+        url_poster: https://api.mediux.pro/assets/525295ac-6ae8-41c7-8905-4cb0f0ffacd9
+      3:
+        url_poster: https://api.mediux.pro/assets/d7afa9f9-1b38-4b0c-ac55-5eaa01a979a1
+
+  402716: # TVDB id for David Mitchell's Outsiders. Set by cundallini on MediUX. https://mediux.pro/sets/58363
+    url_poster: https://api.mediux.pro/assets/89c5942f-e447-4513-b524-1bdc3bd67000
+    url_background: https://api.mediux.pro/assets/70bc2cd7-60e8-481b-a18e-e329209ed7ca
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/9d8b30fb-3410-44eb-ac2c-dd51b233398c
+      1:
+        url_poster: https://api.mediux.pro/assets/cde27a62-6e37-4c0f-a339-4f22c5f3284c
+      2:
+        url_poster: https://api.mediux.pro/assets/2a51e7e0-18d2-4585-8eea-6c27e29670ea
+      3:
+        url_poster: https://api.mediux.pro/assets/098379fb-2c8f-46e8-8f39-4ec0421268b0
+
+  415239: # TVDB id for The Diplomat. Set by willtong93 on MediUX. https://mediux.pro/sets/13156
+    url_poster: https://api.mediux.pro/assets/84dca53b-0ea7-44ce-91c6-11ca4a4c6f72
+    url_background: https://api.mediux.pro/assets/fb681144-e2e1-4e23-b33b-ab4e50918077
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/5fe00513-e25a-4e47-891a-988cd7c1c54f
+      2:
+        url_poster: https://api.mediux.pro/assets/04b6423f-bdf9-468b-b6bb-2b2400d0feeb
+      3:
+        url_poster: https://api.mediux.pro/assets/a472e942-7064-4969-bdc9-f34360164aa0
+
+  193131: # TVDB id for Downton Abbey. Set by JackTaylor803 on MediUX. https://mediux.pro/sets/28831
+    url_poster: https://api.mediux.pro/assets/c843539b-7782-4dc5-9ae7-6abee46004a9
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/d1df14f0-65f9-48ea-99b6-108b0a200a43
+      1:
+        url_poster: https://api.mediux.pro/assets/8fde4851-51c3-4eac-a4ec-5ead2c55b524
+      2:
+        url_poster: https://api.mediux.pro/assets/2fe94341-ff8a-4e2c-bc0d-f87a42ee2675
+      3:
+        url_poster: https://api.mediux.pro/assets/f74d05a8-67f3-4704-95ea-2f13e5e2629c
+      4:
+        url_poster: https://api.mediux.pro/assets/4fa7f0a0-fb3d-4886-86fd-9218b99d68c7
+      5:
+        url_poster: https://api.mediux.pro/assets/c9c8286e-6f39-4914-8919-70490f2bbf51
+      6:
+        url_poster: https://api.mediux.pro/assets/0cb29b54-ec72-4209-935c-1a705d4ac60e
+
+  434268: # TVDB id for Étoile. Set by fwlolx on MediUX. https://mediux.pro/sets/32042
+    url_poster: https://api.mediux.pro/assets/e1e754c8-6b11-4c8e-a87b-28da9ddb8f15
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/202b8bbd-477f-4fed-99c0-ab5d21544e8d
+
+  269613: # TVDB id for Fargo. Set by Pejamas on MediUX. https://mediux.pro/sets/2433
+    url_poster: https://api.mediux.pro/assets/d9d2fc03-b311-405a-9340-7fa4d052da83
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/0fec3404-8d40-46d0-a208-0d82b30e0293
+      1:
+        url_poster: https://api.mediux.pro/assets/a5530ab3-e96c-45b7-a681-885108894f8a
+      2:
+        url_poster: https://api.mediux.pro/assets/7f007168-ff0f-46bb-8b63-7c65d7fd27ad
+      3:
+        url_poster: https://api.mediux.pro/assets/82d96db6-d060-47a4-b29d-8d452d226c15
+      4:
+        url_poster: https://api.mediux.pro/assets/af4abf1d-acf4-4be4-8aad-6ccef0164a8a
+      5:
+        url_poster: https://api.mediux.pro/assets/3c7e585d-7de0-4d62-94a5-f075afced399
+
+  459474: # TVDB id for The Five Star Weekend. Set by fwlolx on MediUX. https://mediux.pro/sets/55482
+    url_poster: https://api.mediux.pro/assets/fe86a0b5-e82c-44e5-ae3b-ede1f4f5187a
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/43326370-d7e5-438e-bd65-4300a376fef7
+
+  476286: # TVDB id for Francis Bourgeois & Chris Harris: We Saved A Train. Set by wiwer on MediUX. https://mediux.pro/sets/50532
+    url_poster: https://api.mediux.pro/assets/0300e911-d36c-43eb-be83-12f829a24907
+
+  77811: # TVDB id for Frasier. Set by gemris on MediUX. https://mediux.pro/sets/24580
+    url_poster: https://api.mediux.pro/assets/ebf931c4-e171-4dc5-aaf7-5f02982ac0b5
+    url_background: https://api.mediux.pro/assets/49338736-5235-48e7-98de-7a8f9823bf73
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/25ee4b5f-d4b3-42e3-adba-0299e660c2ca
+      1:
+        url_poster: https://api.mediux.pro/assets/672dcccb-dc5a-4fed-a660-8920e353b8e8
+      2:
+        url_poster: https://api.mediux.pro/assets/002b6132-eae6-4072-83bd-c61f675a4851
+      3:
+        url_poster: https://api.mediux.pro/assets/6eae6fee-6c39-443c-91f9-87f52620fb9a
+      4:
+        url_poster: https://api.mediux.pro/assets/5c8da8f3-b9ec-42b2-badc-ca1298e28323
+      5:
+        url_poster: https://api.mediux.pro/assets/27492bcd-d3fa-45d6-a440-8256869a54f5
+      6:
+        url_poster: https://api.mediux.pro/assets/a201d2a1-60e4-4ea3-8364-94c0bd835255
+      7:
+        url_poster: https://api.mediux.pro/assets/034762ab-2ad7-4ff3-bae8-d1a13dd73e17
+      8:
+        url_poster: https://api.mediux.pro/assets/ba6b69a8-7fc3-4eed-839f-5568b7ad5520
+      9:
+        url_poster: https://api.mediux.pro/assets/f5b243bb-e41e-421f-929c-cf0d16c104f9
+      10:
+        url_poster: https://api.mediux.pro/assets/710c26cc-f5cf-496b-958f-0b03ea5a4aa0
+      11:
+        url_poster: https://api.mediux.pro/assets/2726363f-4774-4fee-b7cf-69644dd1322b
+
+  79337: # TVDB id for Friday Night Lights. Set by r3draid3r04 on MediUX. https://mediux.pro/sets/20257
+    url_poster: https://api.mediux.pro/assets/ad539015-0b8d-4ff6-9c94-3073337c0ea9
+    url_background: https://api.mediux.pro/assets/4c7629c4-123a-4069-a37d-00574784517b
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/bfbeb435-a37c-43bb-9c59-56439e4700af
+      2:
+        url_poster: https://api.mediux.pro/assets/40f6d1f2-839a-4182-bcdf-041f1d241b53
+      3:
+        url_poster: https://api.mediux.pro/assets/c1aa5d91-bfa8-452f-90cc-c9577a21b6c3
+      4:
+        url_poster: https://api.mediux.pro/assets/3132dea7-eca1-42cd-a691-812b1b4f2653
+      5:
+        url_poster: https://api.mediux.pro/assets/f30684fa-9323-401b-9bfb-fca7a79da8b5
+
+  79168: # TVDB id for Friends. Set by willtong93 on MediUX. https://mediux.pro/sets/22462
+    url_poster: https://api.mediux.pro/assets/6723fee1-d49e-48e8-88d2-5b3c4635f94a
+    url_background: https://api.mediux.pro/assets/041c641f-d472-4aca-bf0c-c8690e6b20b5
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/44dbfe49-95f2-49ce-830a-fadb14cf09c0
+      1:
+        url_poster: https://api.mediux.pro/assets/43380ac9-6b0b-46bb-9a7d-480053eac8f4
+      2:
+        url_poster: https://api.mediux.pro/assets/3648fa84-ebad-4bb9-9aba-b85a0c11057a
+      3:
+        url_poster: https://api.mediux.pro/assets/ac06c34f-c000-4b8f-a5cf-3ba0eecfef68
+      4:
+        url_poster: https://api.mediux.pro/assets/a3802539-172d-498a-ad82-b4b431bfbb61
+      5:
+        url_poster: https://api.mediux.pro/assets/29874a59-5a89-425c-906e-19ec890c3542
+      6:
+        url_poster: https://api.mediux.pro/assets/714c3b67-414d-4fd1-957c-3f9b19dae7ef
+      7:
+        url_poster: https://api.mediux.pro/assets/f15e1aa6-7de5-4aaa-a694-3861b40db522
+      8:
+        url_poster: https://api.mediux.pro/assets/c61d6922-1ab0-4ba5-a0f6-037c5005b796
+      9:
+        url_poster: https://api.mediux.pro/assets/f775c081-9488-4eaa-a772-075aedadc9e0
+      10:
+        url_poster: https://api.mediux.pro/assets/eb537ea9-a56e-4375-bf0d-d0f6509c900e
+
+  73871: # TVDB id for Futurama. Set by r3draid3r04 on MediUX. https://mediux.pro/sets/21200
+    url_poster: https://api.mediux.pro/assets/937fd3d8-6c7b-4f43-9a85-f9c8ab9816db
+    url_background: https://api.mediux.pro/assets/51daae4a-4b3d-4763-928b-a8255e01238d
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/0def7555-3e2e-458e-9d37-e184c88113af
+      2:
+        url_poster: https://api.mediux.pro/assets/d31f72f6-f780-4574-87c4-38356daf82d7
+      3:
+        url_poster: https://api.mediux.pro/assets/86521621-2f89-468e-9895-36aaac82a2b9
+      4:
+        url_poster: https://api.mediux.pro/assets/1760325e-020e-409d-9185-e5c5a89b2688
+      5:
+        url_poster: https://api.mediux.pro/assets/978804d2-a614-41d0-a183-8ebee7b4715f
+      6:
+        url_poster: https://api.mediux.pro/assets/343bd3ad-1e06-4bbc-80f9-0090377455f8
+      7:
+        url_poster: https://api.mediux.pro/assets/c22cca23-d179-4ad2-8118-8796be7392d3
+      8:
+        url_poster: https://api.mediux.pro/assets/2d7e09a2-9095-4578-9b94-ba116f95f979
+      9:
+        url_poster: https://api.mediux.pro/assets/7bba3a61-0b37-4b4b-945a-15ed3257cd00
+      10:
+        url_poster: https://api.mediux.pro/assets/ab26a13e-d6a0-4422-9ea4-a372828cdc03
+
+  369988: # TVDB id for Game Changer. Set by tallinex on MediUX. https://mediux.pro/sets/50761
+    url_poster: https://api.mediux.pro/assets/62fb3d3c-1be4-451d-8988-ef73ebcbf852
+    url_background: https://api.mediux.pro/assets/8f43154a-3a34-41c3-83db-a4fa3a3534ac
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/c86dfa43-d2e0-480d-8c80-e8b32e15bd64
+      2:
+        url_poster: https://api.mediux.pro/assets/d103e19f-d7f8-4206-8009-46dbefced635
+      3:
+        url_poster: https://api.mediux.pro/assets/d960970f-3453-41d8-9d40-39e459e30b04
+      4:
+        url_poster: https://api.mediux.pro/assets/8bfd2327-76a1-49fd-9443-78b70eea0b3f
+      5:
+        url_poster: https://api.mediux.pro/assets/94c23fb4-27bb-483d-b23e-3393a0b4d194
+      6:
+        url_poster: https://api.mediux.pro/assets/4edd79dd-7789-4635-b4b8-d1c2586ecb91
+      7:
+        url_poster: https://api.mediux.pro/assets/822e5830-7863-4066-a3ab-cb9e5514aaf3
+      8:
+        url_poster: https://api.mediux.pro/assets/00cb4beb-6714-485a-843b-28bed31b5c3d
+
+  76568: # TVDB id for Gilmore Girls. Set by fwlolx on MediUX. https://mediux.pro/sets/12121
+    url_poster: https://api.mediux.pro/assets/9e6bf694-71e9-40e8-8bb7-d396bcf5016a
+    seasons:
+      0:
+        url_poster: https://api.mediux.pro/assets/7571f1c2-7f0d-4e68-97fb-6a77dc7ed510
+      1:
+        url_poster: https://api.mediux.pro/assets/f9f64050-0ece-4fd3-b483-a12bb0dda54e
+      2:
+        url_poster: https://api.mediux.pro/assets/85d50a93-0d08-4757-9946-10413a0f9357
+      3:
+        url_poster: https://api.mediux.pro/assets/1ea2058d-c194-4979-aaa5-69d822b418b4
+      4:
+        url_poster: https://api.mediux.pro/assets/c47a731d-7534-4293-bf91-accfabcaf10a
+      5:
+        url_poster: https://api.mediux.pro/assets/dfb13992-646c-4108-837c-b8114f2c40b6
+      6:
+        url_poster: https://api.mediux.pro/assets/14555eaf-b0a2-484d-a260-ee588e81c4dc
+      7:
+        url_poster: https://api.mediux.pro/assets/79c9658e-6963-4c4d-aebb-8db04cf9dcc3
+
+  311987: # TVDB id for Gilmore Girls: A Year in the Life. Set by r3draid3r04 on MediUX. https://mediux.pro/sets/13715
+    url_poster: https://api.mediux.pro/assets/04f8f9c9-5dfe-435a-8cea-7f25f47f18be
+    url_background: https://api.mediux.pro/assets/542bdcba-e7a2-4a3b-ad56-4dc6560c5ffa
+    seasons:
+      1:
+        url_poster: https://api.mediux.pro/assets/10996a6f-2707-497e-920b-eb8a65a82be9
