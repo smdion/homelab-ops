@@ -1,0 +1,271 @@
+---
+# Category: Maintain
+# Strips the Jellyseerr request tag ("seerr") from Sonarr series / Radarr movies once
+# everything currently owed to the request has landed, so Force-priority downloading
+# (set on the "SABnzbd - Seerr" / "Transmission - Seerr" download clients) only applies
+# while a request is genuinely outstanding — not forever. Tags in Sonarr/Radarr are
+# series/movie-wide and permanent, so without this, one request permanently elevates
+# every future grab for that series/movie (a new season two years later, a backfilled
+# old episode, a quality upgrade) to Force priority.
+#
+# A series/movie is considered "delivered" when:
+#   Sonarr: no monitored, already-aired episode is missing a file
+#   Radarr: the movie has a file
+# Future unaired episodes never block completion — an ongoing show stays tagged only
+# until everything currently known and aired is in. If someone re-requests the same
+# series/movie later, Jellyseerr re-applies the tag itself; no special handling needed
+# here.
+#
+# Usage:
+#   ansible-playbook maintain_seerr_tags.yaml
+#
+# Semaphore: Maintenance view → "Maintain — Seerr [Tags]"
+
+- name: Strip fulfilled Jellyseerr request tags
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/semaphore_check.yaml
+  vars:
+    maintenance_name: "Seerr Tags"
+    maintenance_type: "Local"
+    maintenance_subtype: "Cleanup"
+    maintenance_url: ""
+    maintenance_description: "Strip the Seerr request tag once everything owed to it has downloaded"
+    _sonarr_base: "http://10.10.10.18:8989/sonarr/api/v3"
+    _radarr_base: "http://10.10.10.18:7878/radarr/api/v3"
+    _seerr_tag_label: "seerr"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "maintain_seerr_tags.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+        _stripped: []
+
+    - block:
+        # ═══════════════════════════════════════════════════════════════
+        # Sonarr — strip tag from series with nothing outstanding
+        # ═══════════════════════════════════════════════════════════════
+        - name: Get Sonarr tags
+          ansible.builtin.uri:
+            url: "{{ _sonarr_base }}/tag"
+            headers:
+              X-Api-Key: "{{ vault_sonarr_api_key }}"
+            return_content: true
+          register: _sonarr_tags_result
+          check_mode: false
+          no_log: "{{ _no_log }}"
+
+        - name: Resolve Sonarr seerr tag id
+          ansible.builtin.set_fact:
+            _sonarr_seerr_tag_id: >-
+              {{ (_sonarr_tags_result.json | selectattr('label', 'equalto', _seerr_tag_label)
+                  | map(attribute='id') | list | first) | default('', true) }}
+
+        - name: Get Sonarr series
+          ansible.builtin.uri:
+            url: "{{ _sonarr_base }}/series"
+            headers:
+              X-Api-Key: "{{ vault_sonarr_api_key }}"
+            return_content: true
+          register: _sonarr_series_result
+          check_mode: false
+          no_log: "{{ _no_log }}"
+          when: _sonarr_seerr_tag_id != ''
+
+        - name: Identify Seerr-tagged Sonarr series
+          ansible.builtin.set_fact:
+            _sonarr_tagged_series: >-
+              {% set result = [] %}
+              {% for s in _sonarr_series_result.json | default([]) %}
+              {% if _sonarr_seerr_tag_id | int in s.tags %}
+              {% set _ = result.append(s) %}
+              {% endif %}
+              {% endfor %}
+              {{ result | to_json }}
+          when: _sonarr_seerr_tag_id != ''
+
+        - name: Get episodes for each Seerr-tagged Sonarr series
+          ansible.builtin.uri:
+            url: "{{ _sonarr_base }}/episode?seriesId={{ item.id }}"
+            headers:
+              X-Api-Key: "{{ vault_sonarr_api_key }}"
+            return_content: true
+          register: _sonarr_episode_results
+          loop: "{{ (_sonarr_tagged_series | default('[]') | from_json) }}"
+          loop_control:
+            label: "{{ item.title }}"
+          check_mode: false
+          no_log: "{{ _no_log }}"
+          when: _sonarr_seerr_tag_id != ''
+
+        - name: Identify fully-delivered Sonarr series (no aired+monitored episode missing a file)
+          ansible.builtin.set_fact:
+            _sonarr_delivered: >-
+              {% set result = [] %}
+              {% for r in _sonarr_episode_results.results | default([]) %}
+              {% set outstanding = r.json | selectattr('monitored') | selectattr('airDateUtc', 'defined')
+                                    | selectattr('airDateUtc', 'lt', ansible_date_time.iso8601)
+                                    | rejectattr('hasFile') | list %}
+              {% if outstanding | length == 0 %}
+              {% set _ = result.append(r.item) %}
+              {% endif %}
+              {% endfor %}
+              {{ result | to_json }}
+          when: _sonarr_seerr_tag_id != ''
+
+        - name: Show Sonarr series that would be stripped (dry-run preview)
+          ansible.builtin.debug:
+            msg: "{{ (_sonarr_delivered | default('[]') | from_json) | map(attribute='title') | list }}"
+          when: ansible_check_mode
+
+        - name: Strip Seerr tag from fully-delivered Sonarr series
+          ansible.builtin.uri:
+            url: "{{ _sonarr_base }}/series/{{ item.id }}"
+            method: PUT
+            headers:
+              X-Api-Key: "{{ vault_sonarr_api_key }}"
+            body_format: json
+            body: "{{ item | combine({'tags': item.tags | difference([_sonarr_seerr_tag_id | int])}) }}"
+            status_code: [200, 202]
+          loop: "{{ (_sonarr_delivered | default('[]') | from_json) }}"
+          loop_control:
+            label: "{{ item.title }}"
+          when:
+            - _sonarr_seerr_tag_id != ''
+            - not ansible_check_mode
+          register: _sonarr_strip_results
+
+        - name: Record stripped Sonarr series
+          ansible.builtin.set_fact:
+            _stripped: "{{ _stripped + [{'name': item.item.title, 'value': 'Sonarr — fully delivered', 'inline': true}] }}"
+          loop: "{{ _sonarr_strip_results.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item.title | default('n/a') }}"
+          when: item.status is defined and item.status in [200, 202]
+
+        # ═══════════════════════════════════════════════════════════════
+        # Radarr — strip tag from movies that have a file
+        # ═══════════════════════════════════════════════════════════════
+        - name: Get Radarr tags
+          ansible.builtin.uri:
+            url: "{{ _radarr_base }}/tag"
+            headers:
+              X-Api-Key: "{{ vault_radarr_api_key }}"
+            return_content: true
+          register: _radarr_tags_result
+          check_mode: false
+          no_log: "{{ _no_log }}"
+
+        - name: Resolve Radarr seerr tag id
+          ansible.builtin.set_fact:
+            _radarr_seerr_tag_id: >-
+              {{ (_radarr_tags_result.json | selectattr('label', 'equalto', _seerr_tag_label)
+                  | map(attribute='id') | list | first) | default('', true) }}
+
+        - name: Get Radarr movies
+          ansible.builtin.uri:
+            url: "{{ _radarr_base }}/movie"
+            headers:
+              X-Api-Key: "{{ vault_radarr_api_key }}"
+            return_content: true
+          register: _radarr_movies_result
+          check_mode: false
+          no_log: "{{ _no_log }}"
+          when: _radarr_seerr_tag_id != ''
+
+        - name: Identify delivered Seerr-tagged Radarr movies
+          ansible.builtin.set_fact:
+            _radarr_delivered: >-
+              {% set result = [] %}
+              {% for m in _radarr_movies_result.json | default([]) %}
+              {% if _radarr_seerr_tag_id | int in m.tags and m.hasFile %}
+              {% set _ = result.append(m) %}
+              {% endif %}
+              {% endfor %}
+              {{ result | to_json }}
+          when: _radarr_seerr_tag_id != ''
+
+        - name: Show Radarr movies that would be stripped (dry-run preview)
+          ansible.builtin.debug:
+            msg: "{{ (_radarr_delivered | default('[]') | from_json) | map(attribute='title') | list }}"
+          when: ansible_check_mode
+
+        - name: Strip Seerr tag from delivered Radarr movies
+          ansible.builtin.uri:
+            url: "{{ _radarr_base }}/movie/{{ item.id }}"
+            method: PUT
+            headers:
+              X-Api-Key: "{{ vault_radarr_api_key }}"
+            body_format: json
+            body: "{{ item | combine({'tags': item.tags | difference([_radarr_seerr_tag_id | int])}) }}"
+            status_code: [200, 202]
+          loop: "{{ (_radarr_delivered | default('[]') | from_json) }}"
+          loop_control:
+            label: "{{ item.title }}"
+          when:
+            - _radarr_seerr_tag_id != ''
+            - not ansible_check_mode
+          register: _radarr_strip_results
+
+        - name: Record stripped Radarr movies
+          ansible.builtin.set_fact:
+            _stripped: "{{ _stripped + [{'name': item.item.title, 'value': 'Radarr — fully delivered', 'inline': true}] }}"
+          loop: "{{ _radarr_strip_results.results | default([]) }}"
+          loop_control:
+            label: "{{ item.item.title | default('n/a') }}"
+          when: item.status is defined and item.status in [200, 202]
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send alert on failure
+          include_tasks: tasks/notify.yaml
+          when: maintenance_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Maintenance"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+            discord_author: "{{ controller_fqdn }}"
+
+        - name: Send notification when tags were stripped
+          include_tasks: tasks/notify.yaml
+          when: not maintenance_failed and (_stripped | length > 0)
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Cleanup"
+            discord_status: "successful"
+            discord_detail: "{{ _stripped | length }} request(s) fulfilled, tag removed"
+            discord_color: "{{ discord_color_success }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields: "{{ _stripped }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ controller_fqdn }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+        - name: Fail play if maintenance failed
+          ansible.builtin.fail:
+            msg: "Seerr tag cleanup failed — see notification for details"
+          when: maintenance_failed
