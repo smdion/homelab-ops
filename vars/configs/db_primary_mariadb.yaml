@@ -19,5 +19,6 @@ is_mariadb: true
 # Cross-host deps (app on a different host) are [] — use restore_hosts.yaml -e with_databases=yes.
 db_container_deps:
   nextcloud: []
+  filerun: []
   semaphore: []
   ansible_logging: []

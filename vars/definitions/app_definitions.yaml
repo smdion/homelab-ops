@@ -80,6 +80,13 @@ app_definitions:
     db_host: "{{ vault_db_host_primary }}"
     db_names: [nextcloud]
     containers: [nextcloud]
+  filerun:
+    # Container is hand-managed on unRAID redemption (licensed image); DB lives on core mariadb
+    db_stack: databases
+    db_config: db_primary_mariadb
+    db_host: "{{ vault_db_host_primary }}"
+    db_names: [filerun]
+    containers: [filerun]
   immich:
     db_stack: databases
     db_config: db_secondary_postgres
