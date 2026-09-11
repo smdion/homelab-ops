@@ -160,9 +160,7 @@ host_definitions:
             auth: false
             includes: [proxy]
       - subdomain: share
-        # PingVin Share X (manual unRAID container, smp46/pingvin-share-x).
-        # drop = old subdomain, kept so previously sent share links still work.
-        aliases: [drop]
+        # PingVin Share X (manual unRAID container, smp46/pingvin-share-x)
         upstream_ip: "10.10.10.17"
         error_pages: true
         locations:
