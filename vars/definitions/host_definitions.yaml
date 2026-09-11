@@ -150,6 +150,15 @@ host_definitions:
               Strict-Transport-Security: '"max-age=15552000; includeSubDomains" always'
             directives:
               - "proxy_max_temp_file_size 5096m"
+      - subdomain: files
+        # FileRun (manual unRAID container) — own login, no Authelia (WebDAV/mobile apps)
+        upstream_ip: "10.10.10.17"
+        auth: false
+        locations:
+          - path: /
+            port: 7940
+            auth: false
+            includes: [proxy]
       - subdomain: ansible
         upstream_ip: "10.10.10.17"
         server_directives:
