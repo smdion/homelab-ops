@@ -160,17 +160,18 @@ host_definitions:
             auth: false
             includes: [proxy]
       - subdomain: office
-        # Collabora CODE (manual unRAID container) — document editor for FileRun
+        # ONLYOFFICE Document Server (manual unRAID container, host 9980 -> container 80)
+        # — document editor for FileRun. External + no Authentik: the browser loads the
+        # editor directly and FileRun/ONLYOFFICE call each other; JWT secret protects it.
         upstream_ip: "10.10.10.17"
         auth: false
-        external: false
         error_pages: true
         locations:
           - path: /
             port: 9980
-            proto: https
             auth: false
             includes: [proxy]
+            websocket: true
       - subdomain: ansible
         upstream_ip: "10.10.10.17"
         server_directives:
