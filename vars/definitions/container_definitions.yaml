@@ -1045,25 +1045,6 @@ container_definitions:
         homelab.backup.paths: "/opt/kometa"
       volumes:
         - "${APPSDIR}/kometa:/config"
-  kometa_quickstart:
-    image: "kometateam/quickstart"
-    tag: "latest"
-    stack: media
-    compose:
-      base: baseenv
-      service_name: kometa-quickstart
-      ports: ["7171:7171"]
-      labels:
-        homelab.backup.paths: "/opt/kometa-quickstart"
-        homelab.proxy.subdomain: "kometa"
-      volumes:
-        - "${APPSDIR}/kometa-quickstart:/config"
-      healthcheck:
-        test: ["CMD-SHELL", "curl -fs http://localhost:7171/ || exit 1"]
-        interval: "30s"
-        timeout: "10s"
-        retries: 3
-        start_period: "30s"
   ledgr:
     image: "ledgr"
     tag: "latest"

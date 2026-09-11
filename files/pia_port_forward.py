@@ -222,6 +222,19 @@ def update_transmission_port(cfg, port):
         return False
     http_json(url, method="POST", headers=hdrs,
               data={"method": "session-set", "arguments": {"peer-port": port}})
+
+    # Transmission does not re-announce when the listening port changes, so
+    # trackers keep handing peers the OLD port until the next scheduled
+    # announce (up to ~30 min). Private torrents have no DHT/PEX to route
+    # around that, so inbound peers stop entirely for the gap. Trackers may
+    # rate-limit this and defer it to their minimum interval, which is fine —
+    # it still closes the window wherever the tracker allows it.
+    try:
+        http_json(url, method="POST", headers=hdrs,
+                  data={"method": "torrent-reannounce", "arguments": {}})
+    except Exception:
+        pass  # best-effort; the port itself is already updated
+
     return True
 
 
