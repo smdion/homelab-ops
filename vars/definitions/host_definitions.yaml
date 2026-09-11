@@ -180,6 +180,15 @@ host_definitions:
             port: 9980
             auth: false
             includes: [proxy]
+      - subdomain: urbackup
+        # UrBackup (binhex-urbackup, manual unRAID container)
+        upstream_ip: "10.10.10.17"
+        external: false
+        locations:
+          - path: /
+            port: 55414
+            auth: true
+            includes: [proxy]
       - subdomain: ansible
         upstream_ip: "10.10.10.17"
         server_directives:
@@ -372,15 +381,6 @@ host_definitions:
   independence:
     vm_hostname: "independence.{{ vault_vm_search_domain }}"
     guacamole: { name: Independence, group: Proxmox }
-    proxy:
-      - subdomain: urbackup
-        upstream_ip: "10.10.10.17"
-        external: false
-        locations:
-          - path: /
-            port: 55414
-            auth: true
-            includes: [proxy]
 
   sentinel:
     vm_hostname: "sentinel.{{ vault_vm_search_domain }}"
