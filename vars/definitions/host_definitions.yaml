@@ -373,32 +373,12 @@ host_definitions:
     vm_hostname: "independence.{{ vault_vm_search_domain }}"
     guacamole: { name: Independence, group: Proxmox }
     proxy:
-      - subdomain: independence
-        upstream_ip: "10.10.10.12"
-        external: false
-        server_directives:
-          - "proxy_redirect off"
-        locations:
-          - path: /
-            port: 8006
-            proto: https
-            auth: true
-            includes: [proxmox]
       - subdomain: urbackup
         upstream_ip: "10.10.10.17"
         external: false
         locations:
           - path: /
             port: 55414
-            auth: true
-            includes: [proxy]
-      - subdomain: disks1
-        upstream_ip: "10.10.10.12"
-        external: false
-        error_pages: true
-        locations:
-          - path: /
-            port: 8089
             auth: true
             includes: [proxy]
 
