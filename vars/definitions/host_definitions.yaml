@@ -159,6 +159,18 @@ host_definitions:
             port: 7940
             auth: false
             includes: [proxy]
+      - subdomain: office
+        # Collabora CODE (manual unRAID container) — document editor for FileRun
+        upstream_ip: "10.10.10.17"
+        auth: false
+        external: false
+        error_pages: true
+        locations:
+          - path: /
+            port: 9980
+            proto: https
+            auth: false
+            includes: [proxy]
       - subdomain: ansible
         upstream_ip: "10.10.10.17"
         server_directives:
@@ -378,17 +390,6 @@ host_definitions:
           - path: /
             port: 55414
             auth: true
-            includes: [proxy]
-      - subdomain: office
-        upstream_ip: "10.10.10.12"
-        auth: false
-        external: false
-        error_pages: true
-        locations:
-          - path: /
-            port: 9980
-            proto: https
-            auth: false
             includes: [proxy]
       - subdomain: disks1
         upstream_ip: "10.10.10.12"
