@@ -171,7 +171,6 @@ host_definitions:
             port: 9980
             auth: false
             includes: [proxy]
-            websocket: true
       - subdomain: ansible
         upstream_ip: "10.10.10.17"
         server_directives:
