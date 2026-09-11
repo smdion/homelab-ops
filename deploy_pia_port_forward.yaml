@@ -1,0 +1,159 @@
+---
+# Category: Utilities
+# Schedule: 12h
+# Deploys files/pia_port_forward.py to liberty and registers a User Scripts
+# entry that keeps PIA's forwarded port alive and in sync.
+#
+# WHY THIS EXISTS:
+# PIA hands out a forwarded port that must be re-bound at least every ~15
+# minutes or their side releases it. Nothing in the *arr/Transmission stack
+# does that on its own, and every off-the-shelf PIA tool assumes the VPN
+# terminates on the same host as the torrent client. Here the tunnel
+# terminates on the UDM (VPN Client "PIAVPN - SWE") and Transmission is a
+# separate macvlan container, so the refresh, the firewall object and the
+# client's listening port all have to be reconciled by something external.
+#
+# EXECUTION MODEL (see the script header for the full reasoning):
+# The script runs on the liberty HOST. The three PIA API calls are proxied
+# through `docker exec transmission curl` because PIA only answers requests
+# that arrive over the tunnel, and Transmission's VLAN is what the router
+# policy-routes through PIA. The UniFi and Transmission RPC calls are made
+# from the host, because anything on that VLAN egresses through the tunnel
+# and therefore cannot reach the LAN-side controller at all. Transmission's
+# own process/entrypoint is never touched.
+#
+# THE 15-MINUTE SCHEDULE IS NOT OPTIONAL. This playbook intentionally does
+# NOT set the cron schedule — User Scripts regenerates schedule.json from its
+# own GUI backend, and writing it from Ansible risks state the plugin ignores.
+# After the first run, open unRAID's User Scripts plugin, find
+# "pia-port-forward", and set it to Custom `*/15 * * * *` by hand, once.
+#
+# Re-running this playbook is also the reconcile pass: it re-deploys the
+# script and CA, re-renders config from vault, and runs one refresh cycle,
+# repairing drift between PIA's port, the UniFi port-group object and
+# Transmission's peer-port.
+#
+# Required extra vars:
+#   hosts_variable — inventory group/host to target (use "liberty")
+#
+# Usage:
+#   ansible-playbook deploy_pia_port_forward.yaml -e hosts_variable=liberty
+
+- name: Deploy PIA port-forward keepalive
+  hosts: "{{ hosts_variable }}"
+  gather_facts: false
+
+  vars_files:
+    - vars/secrets.yaml
+
+  vars:
+    transmission_appdata_dir: "/mnt/user/appdata/transmission"
+    pia_pf_dir: "{{ transmission_appdata_dir }}/pia_pf"
+    user_scripts_name: pia-port-forward
+    # Identifiers for the objects this reconciles. The UniFi port-group is
+    # referenced by BOTH the "Allow PIA to VPN" firewall policy and the "PIA
+    # Port Forwarding" DNAT rule, so updating this one object is what makes a
+    # rotated port take effect on both.
+    pia_network_id: "6aa3200a8c980caea5209483"      # VPN Client "PIAVPN - SWE"
+    unifi_port_group_id: "6aa324de8c980caea520966e"  # "Port - PIA Forwarded"
+
+  tasks:
+    # Owned by 99:100 (the container user on liberty) so the state/log files
+    # remain manageable from inside the container if they ever need to be,
+    # matching the rest of Transmission's appdata tree.
+    - name: Ensure pia_pf state directory exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ pia_pf_dir }}"
+        state: directory
+        mode: "0755"
+        owner: "99"
+        group: "100"
+
+    - name: Ensure transmission scripts directory exists
+      become: true
+      ansible.builtin.file:
+        path: "{{ transmission_appdata_dir }}/scripts"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy pia_port_forward.py
+      become: true
+      ansible.builtin.copy:
+        src: files/pia_port_forward.py
+        dest: "{{ transmission_appdata_dir }}/scripts/pia_port_forward.py"
+        mode: "0755"
+
+    # PIA's port-forward endpoint presents a self-signed cert that only
+    # validates against their own CA. Shipping it here (inside the appdata
+    # bind mount, so the container sees it at /config/pia_pf/) lets the
+    # in-container curl verify properly instead of running with -k.
+    - name: Deploy PIA CA certificate
+      become: true
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/pia-foss/manual-connections/master/ca.rsa.4096.crt
+        dest: "{{ pia_pf_dir }}/ca.rsa.4096.crt"
+        mode: "0644"
+        owner: "99"
+        group: "100"
+
+    # 0600: holds the PIA account password and the UniFi API key.
+    - name: Render pia_port_forward config
+      become: true
+      ansible.builtin.copy:
+        content: "{{ pia_pf_config | to_nice_json }}"
+        dest: "{{ pia_pf_dir }}/config.json"
+        mode: "0600"
+        owner: "99"
+        group: "100"
+      vars:
+        pia_pf_config:
+          pia_user: "{{ vault_docker_pia_username }}"
+          pia_pass: "{{ vault_docker_pia_password }}"
+          unifi_url: "https://udmp.{{ vault_domain_local }}"
+          unifi_api_key: "{{ vault_unifi_network_api_key }}"
+          unifi_port_group_id: "{{ unifi_port_group_id }}"
+          pia_network_id: "{{ pia_network_id }}"
+          transmission_rpc_url: "http://192.168.11.18:9091/transmission/rpc"
+      no_log: true
+
+    - name: Ensure User Scripts entry directory exists
+      become: true
+      ansible.builtin.file:
+        path: "/boot/config/plugins/user.scripts/scripts/{{ user_scripts_name }}"
+        state: directory
+        mode: "0700"
+
+    - name: Set User Scripts display name
+      become: true
+      ansible.builtin.copy:
+        content: "{{ user_scripts_name }}"
+        dest: "/boot/config/plugins/user.scripts/scripts/{{ user_scripts_name }}/name"
+        mode: "0600"
+
+    # 0600 and not executable, matching the other entries — User Scripts
+    # bash-execs the file content rather than relying on the execute bit.
+    # The tail afterwards surfaces recent history in the plugin's "View Log",
+    # which otherwise only ever shows the single latest invocation.
+    - name: Deploy User Scripts wrapper
+      become: true
+      ansible.builtin.copy:
+        content: |
+          #!/bin/bash
+          python3 {{ transmission_appdata_dir }}/scripts/pia_port_forward.py
+          echo "--- recent history (last 200 lines) ---"
+          tail -n 200 {{ pia_pf_dir }}/pia_pf.log 2>/dev/null
+        dest: "/boot/config/plugins/user.scripts/scripts/{{ user_scripts_name }}/script"
+        mode: "0600"
+
+    # Reconcile pass: proves the deploy is functional and repairs any drift
+    # between PIA's bind, the UniFi port-group and Transmission's peer-port.
+    - name: Run one refresh cycle now
+      become: true
+      ansible.builtin.command: "python3 {{ transmission_appdata_dir }}/scripts/pia_port_forward.py"
+      register: pia_pf_run
+      changed_when: "'propagated to' in pia_pf_run.stdout"
+
+    - name: Show refresh result
+      ansible.builtin.debug:
+        var: pia_pf_run.stdout_lines
