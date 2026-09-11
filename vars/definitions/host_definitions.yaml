@@ -159,8 +159,10 @@ host_definitions:
             port: 7940
             auth: false
             includes: [proxy]
-      - subdomain: drop
-        # PingVin Share X (manual unRAID container, smp46/pingvin-share-x)
+      - subdomain: share
+        # PingVin Share X (manual unRAID container, smp46/pingvin-share-x).
+        # drop = old subdomain, kept so previously sent share links still work.
+        aliases: [drop]
         upstream_ip: "10.10.10.17"
         error_pages: true
         locations:
