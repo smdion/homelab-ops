@@ -1289,23 +1289,9 @@ container_definitions:
         content: |
           #!ipxe
           # Managed by homelab-ops (container_definitions.yaml: netboot_proxy) - do not edit.
-          # Stage 2: stock iPXE lands here and hands off to the self-hosted netboot.xyz
-          # menus on this TFTP server. Glue only: menus, version and all boot logic come
-          # from netbootxyz's live menus/ (updated by netbootxyz), nothing is copied here.
+          # Stage 2: stock iPXE lands here and loads the self-hosted netboot.xyz menus
+          # from this TFTP server. ${next-server} is not used: the UDMP names itself.
           set tftp-server {{ vault_dev_vip }}
-          set next-server ${tftp-server}
-          # netboot.xyz's palette (compiled into its own iPXE builds, colour.h) - cosmetic.
-          # Stock EFI iPXE has cpair; the stock BIOS builds do not, so EFI only.
-          iseq ${platform} efi && cpair --foreground 6 --background 0 0 ||
-          iseq ${platform} efi && cpair --foreground 7 --background 4 1 ||
-          iseq ${platform} efi && cpair --foreground 7 --background 0 2 ||
-          iseq ${platform} efi && cpair --foreground 0 --background 6 3 ||
-          iseq ${platform} efi && cpair --foreground 7 --background 1 4 ||
-          iseq ${platform} efi && cpair --foreground 6 --background 4 5 ||
-          iseq ${platform} efi && cpair --foreground 0 --background 7 6 ||
-          # Menu title shows netbootxyz's current menu release, not the iPXE version
-          set ipxe_version ${version}
-          chain --autofree tftp://${tftp-server}/menus/version.ipxe && set version ${upstream_version} ||
           chain --autofree tftp://${tftp-server}/menus/local-vars.ipxe ||
           chain --autofree tftp://${tftp-server}/menus/MAC-${mac:hexhyp}.ipxe ||
           chain tftp://${tftp-server}/menus/menu.ipxe
