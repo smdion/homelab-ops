@@ -1281,6 +1281,15 @@ container_definitions:
         # legacy — none yet: "--dhcp-mac=set:legacy,<mac>"
         - "--tag-if=set:special,tag:snp"
         - "--tag-if=set:special,tag:legacy"
+        # BIOS iPXE (user class iPXE) re-DHCP: dnsmasq fills siaddr/filename in proxy
+        # replies only for UEFI (pxe_uefi_workaround); for x86PC it sends just a PXE menu,
+        # which iPXE registers with an empty next-server -> falls back to the UDMP.
+        # dhcp-boot gives those replies the VIP + the same netboot.xyz file. Firmware PXE
+        # (no iPXE user class) and UEFI (workaround path) are unaffected.
+        - "--dhcp-userclass=set:ipxe,iPXE"
+        - "--dhcp-boot=tag:ipxe,tag:!special,netboot.xyz.kpxe,,{{ vault_dev_vip }}"
+        - "--dhcp-boot=tag:ipxe,tag:snp,netboot.xyz-undionly.kpxe,,{{ vault_dev_vip }}"
+        - "--dhcp-boot=tag:ipxe,tag:legacy,netboot.xyz-legacy.kpxe,,{{ vault_dev_vip }}"
         - "--pxe-service=tag:!special,x86PC,netboot.xyz BIOS,netboot.xyz.kpxe,{{ vault_dev_vip }}"
         - "--pxe-service=tag:snp,x86PC,netboot.xyz BIOS undionly,netboot.xyz-undionly.kpxe,{{ vault_dev_vip }}"
         - "--pxe-service=tag:legacy,x86PC,netboot.xyz BIOS legacy,netboot.xyz-legacy.kpxe,{{ vault_dev_vip }}"
