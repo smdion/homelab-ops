@@ -58,10 +58,6 @@
 #     url            — download URL (pin a release, not "latest")
 #     dest           — host path (${APPSDIR} is substituted)
 #     checksum       — "sha256:<hex>" — a changed upstream asset fails the deploy
-#     extract        — optional: unpack members of the archive (re-done when checksum changes)
-#       dest, strip_components, members
-#   write_files    — list of {dest, content, mode} written with templated content
-#   dirs           — extra host directories to create (e.g. bind-mount mountpoints)
 #
 # Proxy generation fields (optional — used by deploy_swag_configs.yaml):
 #   proxy          — dict of complex proxy config (subdomain, locations, upstream_ip, etc.)
@@ -1235,75 +1231,34 @@ container_definitions:
         retries: 3
         start_period: "20s"
   netboot_proxy:
-    # PXE for the prod LAN: proxyDHCP + TFTP (dnsmasq). The UDMP keeps handing out
-    # addresses; this only adds boot info. UniFi "Network Boot" must stay OFF.
+    # ProxyDHCP + TFTP for PXE: the UDMP keeps handing out addresses; this only
+    # answers PXE clients with a boot file and serves it over TFTP from netbootxyz's
+    # menus dir (read-only). UniFi "Network Boot" must stay OFF or its option 67 conflicts.
     # Host network so it hears DHCP broadcasts — only VLAN 10 (dev VM has one NIC).
-    #
-    # Two-stage chainload (BIOS and UEFI alike):
-    #   1. PXE firmware → stock iPXE (pinned upstream release; file = arch x MAC tag)
-    #   2. iPXE (DHCP user class "iPXE") → tftp://<dev VIP>/homelab-boot.ipxe, which
-    #      loads the self-hosted netboot.xyz menus from menus/ on the same server.
-    # Not the netboot.xyz binaries directly: their embedded script looks for menus at
-    # the DHCP next-server first, and the UDMP names itself (and drops TFTP), so every
-    # lookup timed out before it fell back to the public menus.
-    #
-    # TFTP is served here, not by netbootxyz: behind Docker's port publish the data
+    # TFTP lives here, not in netbootxyz: behind Docker's port publish the data
     # packets leave from the host's primary IP instead of the VIP the client asked,
     # and strict clients (OVMF/UEFI) drop them (PXE-E18). Host-network dnsmasq
     # replies from the address the request was sent to.
     #
-    # TFTP root = our own dir (iPXE binaries + stage-2 script) with netbootxyz's menus
-    # mounted read-only at menus/. netbootxyz image and menu updates (the web UI
-    # upgrade wipes and re-downloads menu files) never touch our files, and the chain
-    # always loads whatever menu version netbootxyz currently serves.
-    #
-    # Stage-1 file = client arch x MAC tag (tags apply to firmware, not to iPXE):
-    #   (untagged)  BIOS ipxe.pxe         UEFI ipxe.efi         all iPXE NIC drivers
-    #   snp         BIOS undionly.kpxe    UEFI snponly.efi      firmware NIC driver
-    #   legacy      BIOS ipxe-legacy.pxe  UEFI ipxe-legacy.efi  legacy iPXE drivers
-    # snp = iPXE's NIC/USB drivers break e.g. Beelink keyboards. One tag per MAC: a
-    # client must match exactly one entry per arch, which also makes dnsmasq skip the
-    # PXE menu many UEFI firmwares mishandle. BC_EFI = client-arch 7, x86-64_EFI = 9.
+    # Boot file = client arch (announced by the client) x MAC tag:
+    #   (untagged)  BIOS netboot.xyz.kpxe          UEFI netboot.xyz.efi
+    #   snp         BIOS netboot.xyz-undionly.kpxe UEFI netboot.xyz-snponly.efi
+    #   legacy      BIOS netboot.xyz-legacy.kpxe   UEFI netboot.xyz-legacy.efi
+    # snp = firmware NIC driver (iPXE NIC/USB drivers break e.g. Beelink keyboards);
+    # legacy = iPXE without USB NIC drivers. One tag per MAC: a client must match
+    # exactly one entry per arch, which also makes dnsmasq skip the PXE menu that
+    # many UEFI firmwares mishandle. BC_EFI = client-arch 7, x86-64_EFI = 9.
     # Filenames contain a dot, so dnsmasq does not append the ".0" layer suffix.
     # The image entrypoint ignores args, hence the entrypoint override.
     image: "dockurr/dnsmasq"
     tag: "2.93"
     stack: dev
-    # Stock iPXE (x86_64). To upgrade: bump url, checksum and the dest's version together.
-    fetch_files:
-      - url: "https://github.com/ipxe/ipxe/releases/download/v2.0.0/ipxeboot.tar.gz"
-        dest: "${APPSDIR}/netboot_proxy/cache/ipxeboot-v2.0.0.tar.gz"
-        checksum: "sha256:01a526d4cc791fc30362259c609d6c506cc64a7bdff51b9a5eb788354e17eee1"
-        extract:
-          dest: "${APPSDIR}/netboot_proxy/tftp"
-          strip_components: 2
-          members:
-            - ipxeboot/x86_64/ipxe.pxe
-            - ipxeboot/x86_64/undionly.kpxe
-            - ipxeboot/x86_64/ipxe-legacy.pxe
-            - ipxeboot/x86_64/ipxe.efi
-            - ipxeboot/x86_64/snponly.efi
-            - ipxeboot/x86_64/ipxe-legacy.efi
-    write_files:
-      - dest: "${APPSDIR}/netboot_proxy/tftp/homelab-boot.ipxe"
-        content: |
-          #!ipxe
-          # Managed by homelab-ops (container_definitions.yaml: netboot_proxy) - do not edit.
-          # Stage 2: stock iPXE lands here and loads the self-hosted netboot.xyz menus
-          # from this TFTP server. ${next-server} is not used: the UDMP names itself.
-          set tftp-server {{ vault_dev_vip }}
-          chain --autofree tftp://${tftp-server}/menus/local-vars.ipxe ||
-          chain --autofree tftp://${tftp-server}/menus/MAC-${mac:hexhyp}.ipxe ||
-          chain tftp://${tftp-server}/menus/menu.ipxe
-    dirs:
-      - "${APPSDIR}/netboot_proxy/tftp/menus"   # mountpoint for netbootxyz's menus (ro)
     compose:
       base: base
       network_mode: host
       cap_add: [NET_ADMIN, NET_RAW]
       volumes:
-        - "${APPSDIR}/netboot_proxy/tftp:/tftp:ro"
-        - "${APPSDIR}/netboot/config/menus:/tftp/menus:ro"   # world-readable; dnsmasq serves as nobody
+        - "${APPSDIR}/netboot/config/menus:/tftp:ro"   # netbootxyz's boot files (world-readable; dnsmasq serves as nobody)
       entrypoint: ["dnsmasq"]
       command:
         - "--keep-in-foreground"
@@ -1320,26 +1275,17 @@ container_definitions:
         - "--dhcp-mac=set:snp,b0:41:6f:0a:97:f9"
         - "--dhcp-mac=set:snp,70:70:fc:01:7e:ae"
         # legacy — none yet: "--dhcp-mac=set:legacy,<mac>"
-        - "--dhcp-userclass=set:ipxe,iPXE"   # stage 2: iPXE's own DHCP
         - "--tag-if=set:special,tag:snp"
         - "--tag-if=set:special,tag:legacy"
-        - "--tag-if=set:fw,tag:!special,tag:!ipxe"
-        - "--tag-if=set:fw-snp,tag:snp,tag:!ipxe"
-        - "--tag-if=set:fw-legacy,tag:legacy,tag:!ipxe"
-        # stage 1 — PXE firmware → stock iPXE
-        - "--pxe-service=tag:fw,x86PC,iPXE,ipxe.pxe,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:fw-snp,x86PC,iPXE undionly,undionly.kpxe,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:fw-legacy,x86PC,iPXE legacy,ipxe-legacy.pxe,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:fw,BC_EFI,iPXE,ipxe.efi,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:fw-snp,BC_EFI,iPXE snponly,snponly.efi,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:fw-legacy,BC_EFI,iPXE legacy,ipxe-legacy.efi,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:fw,x86-64_EFI,iPXE,ipxe.efi,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:fw-snp,x86-64_EFI,iPXE snponly,snponly.efi,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:fw-legacy,x86-64_EFI,iPXE legacy,ipxe-legacy.efi,{{ vault_dev_vip }}"
-        # stage 2 — iPXE → stage-2 script, as an absolute URL (iPXE's next-server is the UDMP)
-        - "--pxe-service=tag:ipxe,x86PC,homelab netboot,tftp://{{ vault_dev_vip }}/homelab-boot.ipxe,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:ipxe,BC_EFI,homelab netboot,tftp://{{ vault_dev_vip }}/homelab-boot.ipxe,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:ipxe,x86-64_EFI,homelab netboot,tftp://{{ vault_dev_vip }}/homelab-boot.ipxe,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:!special,x86PC,netboot.xyz BIOS,netboot.xyz.kpxe,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:snp,x86PC,netboot.xyz BIOS undionly,netboot.xyz-undionly.kpxe,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:legacy,x86PC,netboot.xyz BIOS legacy,netboot.xyz-legacy.kpxe,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:!special,BC_EFI,netboot.xyz UEFI,netboot.xyz.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:snp,BC_EFI,netboot.xyz UEFI snponly,netboot.xyz-snponly.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:legacy,BC_EFI,netboot.xyz UEFI legacy,netboot.xyz-legacy.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:!special,x86-64_EFI,netboot.xyz UEFI,netboot.xyz.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:snp,x86-64_EFI,netboot.xyz UEFI snponly,netboot.xyz-snponly.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:legacy,x86-64_EFI,netboot.xyz UEFI legacy,netboot.xyz-legacy.efi,{{ vault_dev_vip }}"
       healthcheck:
         test: ["CMD-SHELL", "pgrep -x dnsmasq >/dev/null || exit 1"]
         interval: "30s"
@@ -1350,6 +1296,17 @@ container_definitions:
     image: "netbootxyz/netbootxyz"
     tag: "latest"
     stack: dev
+    # The image fetches the -legacy boot files only on first init; the web UI's
+    # menu upgrade (webapp upgrademenu) wipes menus/remote and re-downloads a
+    # hardcoded list without them. Pin them into the TFTP root, which the UI
+    # upgrade does not wipe. Bump url + checksum together (release sha256 file).
+    fetch_files:
+      - url: "https://github.com/netbootxyz/netboot.xyz/releases/download/3.0.3/netboot.xyz-legacy.kpxe"
+        dest: "${APPSDIR}/netboot/config/menus/netboot.xyz-legacy.kpxe"
+        checksum: "sha256:797486833a06f33d49e9bc730993b45770f8a2592e1de6d28a2b6c27eb7dd08e"
+      - url: "https://github.com/netbootxyz/netboot.xyz/releases/download/3.0.3/netboot.xyz-legacy.efi"
+        dest: "${APPSDIR}/netboot/config/menus/netboot.xyz-legacy.efi"
+        checksum: "sha256:c67b3e4674dfe5927bd6e8cb4a203e5422e50a2c8f590e9919294a5f938d58c4"
     compose:
       image_var: NETBOOT
       base: baseuid
