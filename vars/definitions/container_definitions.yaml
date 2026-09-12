@@ -1290,6 +1290,11 @@ container_definitions:
         - "--dhcp-boot=tag:ipxe,tag:!special,netboot.xyz.kpxe,,{{ vault_dev_vip }}"
         - "--dhcp-boot=tag:ipxe,tag:snp,netboot.xyz-undionly.kpxe,,{{ vault_dev_vip }}"
         - "--dhcp-boot=tag:ipxe,tag:legacy,netboot.xyz-legacy.kpxe,,{{ vault_dev_vip }}"
+        # TEST (iVentoy trial, 2026-09-12): iVentoy's BIOS loader re-DHCPs with user class
+        # "iVentoy"; hand it iVentoy's documented External-mode answer (next-server =
+        # iVentoy, bootfile = its loader) instead of netboot.xyz. Remove if iVentoy is dropped.
+        - "--dhcp-userclass=set:iventoy,iVentoy"
+        - "--dhcp-boot=tag:iventoy,iventoy_loader_16000_bios,,10.10.10.62"
         - "--pxe-service=tag:!special,x86PC,netboot.xyz BIOS,netboot.xyz.kpxe,{{ vault_dev_vip }}"
         - "--pxe-service=tag:snp,x86PC,netboot.xyz BIOS undionly,netboot.xyz-undionly.kpxe,{{ vault_dev_vip }}"
         - "--pxe-service=tag:legacy,x86PC,netboot.xyz BIOS legacy,netboot.xyz-legacy.kpxe,{{ vault_dev_vip }}"
