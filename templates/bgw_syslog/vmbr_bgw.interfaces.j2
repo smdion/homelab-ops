@@ -1,0 +1,12 @@
+# Managed by build_bgw_syslog.yaml — do not edit by hand.
+# Host bridge onto the AT&T BGW LAN side over the USB NIC. No gateway: sentinel
+# keeps its default route on vmbr0; this segment only carries BGW syslog.
+auto {{ bgw_bridge_port }}
+iface {{ bgw_bridge_port }} inet manual
+
+auto {{ bgw_bridge }}
+iface {{ bgw_bridge }} inet static
+	address {{ bgw_bridge_host_ip }}
+	bridge-ports {{ bgw_bridge_port }}
+	bridge-stp off
+	bridge-fd 0

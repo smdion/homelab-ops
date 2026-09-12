@@ -1,0 +1,36 @@
+---
+# BGW syslog collector — LXC CT on standalone PVE node sentinel.
+# Consumed by build_bgw_syslog.yaml; file templates live in templates/bgw_syslog/.
+#
+# The CT is dual-homed: eth0 on vmbr0 (management) and eth1 on a host bridge over a
+# USB NIC cabled to the AT&T BGW's LAN side. It captures the BGW's firewall syslog and
+# runs udmp-monitor (UDMP WAN/WireGuard stats poller + wgclt2 endpoint watchdog).
+
+# ── CT ──
+bgw_ct_vmid: 601                                   # 600 range = manually-scoped VMs (VMID scheme)
+bgw_ct_hostname: "bgw-syslog"
+bgw_ct_template: "debian-12-standard_12.12-1_amd64.tar.zst"
+bgw_ct_cores: 1
+bgw_ct_memory_mb: 512
+bgw_ct_swap_mb: 256
+bgw_ct_rootfs: "local-lvm:8"                       # sentinel local storage (no CEPH)
+bgw_ct_mgmt_ip: "10.10.10.61/24"                   # VMID 601 → .61
+bgw_ct_mgmt_gw: "10.10.10.1"
+bgw_ct_nameserver: "10.10.10.1"
+bgw_ct_bgw_ip: "192.168.1.50/24"                   # the BGW sends syslog here (set on the BGW)
+bgw_ct_packages: [rsyslog, logrotate, cron, tcpdump, sshpass, wireguard-tools, iputils-ping]
+
+# ── Host bridge onto the BGW LAN side ──
+bgw_bridge: "vmbr_bgw"
+bgw_bridge_port: "enx6c1ff7c6f657"                 # USB NIC (r8152) — MAC-based name, not pinned as nicN
+bgw_bridge_host_ip: "192.168.1.48/24"              # no gateway: sentinel keeps routing via vmbr0
+
+# ── BGW syslog ──
+bgw_source_ip: "192.168.1.254"                     # only file syslog from the BGW itself
+bgw_log_rotate_weeks: 8
+
+# ── udmp-monitor ──
+udmp_ip: "10.10.0.1"
+udmp_poll_interval_secs: 10
+udmp_wg_stale_secs: 200                            # wgclt2 handshake older than this → re-resolve endpoint
+udmp_csv_retention_days: 60

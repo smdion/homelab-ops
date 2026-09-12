@@ -1,0 +1,48 @@
+#!/bin/bash
+# Managed by build_bgw_syslog.yaml — do not edit by hand.
+# udmp-monitor: every {{ udmp_poll_interval_secs }}s, SSH to the UDMP and log WAN interface
+# counters, conntrack count, WireGuard handshake ages and an internet ping to a per-day CSV
+# in /var/log/udmp/. If the wgclt2 handshake goes stale, re-resolve its endpoint hostname
+# and re-point the peer (logged to wg-watchdog.log). The WAN interface is detected at start.
+UDMP={{ udmp_ip }}; LOGDIR=/var/log/udmp; WG_STALE={{ udmp_wg_stale_secs }}
+export SSHPASS=$(cat /opt/udmp-monitor/.udmp_pass)
+SSHOPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=8 -o PubkeyAuthentication=no -o NumberOfPasswordPrompts=1 -o ControlMaster=auto -o ControlPath=/tmp/udmp-cm -o ControlPersist=120s"
+mkdir -p "$LOGDIR"
+udmp(){ sshpass -e ssh $SSHOPTS {{ vault_udmp_ssh_user }}@$UDMP "$@"; }
+WANIF=$(udmp "ip route get 8.8.8.8 2>/dev/null | grep -oE 'dev [a-z0-9]+' | head -1 | awk '{print \$2}'")
+[ -z "$WANIF" ] && WANIF=eth8
+echo "$(date -Is) udmp-monitor started, WAN=$WANIF" >> "$LOGDIR/monitor.log"
+snapshot(){
+udmp 'bash -s' "$WANIF" <<'SNAP'
+IF=$1; S=/sys/class/net/$IF/statistics; now=$(date +%s)
+h1=$(wg show wgclt1 latest-handshakes 2>/dev/null|awk '{print $2}')
+h2=$(wg show wgclt2 latest-handshakes 2>/dev/null|awk '{print $2}')
+ping -c2 -W2 -I $IF 8.8.8.8 >/dev/null 2>&1 && i=UP || i=DOWN
+echo "$(cat $S/rx_bytes) $(cat $S/tx_bytes) $(cat $S/rx_packets) $(cat $S/tx_packets) $(cat /sys/class/net/$IF/carrier) $(cat /sys/class/net/$IF/carrier_changes) $(cat $S/rx_errors) $(cat $S/tx_errors) $(cat /proc/sys/net/netfilter/nf_conntrack_count) $([ -n "$h1" ]&&[ "$h1" != 0 ]&&echo $((now-h1))||echo -1) $([ -n "$h2" ]&&[ "$h2" != 0 ]&&echo $((now-h2))||echo -1) $i"
+SNAP
+}
+refresh_wg2(){
+udmp 'bash -s' <<'FIX'
+PUB=$(wg show wgclt2 peers|head -1)
+CUR=$(wg show wgclt2 endpoints|head -1|awk '{print $2}'); PORT=${CUR##*:}
+NEWIP=$(getent hosts {{ vault_udmp_wg2_endpoint_host }}|awk '{print $1; exit}')
+if [ -n "$PUB" ]&&[ -n "$PORT" ]&&[ -n "$NEWIP" ]; then wg set wgclt2 peer "$PUB" endpoint "$NEWIP:$PORT" && echo "REFRESHED -> $NEWIP:$PORT"; else echo "FAILED"; fi
+FIX
+}
+prxb=;ptxb=;prxp=;ptxp=;last_fix=0
+while true; do
+  line=$(snapshot 2>/dev/null)
+  read -r rxb txb rxp txp car cc rxe txe ct w1 w2 inet <<< "$line"
+  ts=$(date -Is); CSV="$LOGDIR/udmp-$(date +%Y%m%d).csv"
+  [ -f "$CSV" ] || echo "ts,rx_mbps,tx_mbps,rx_pps,tx_pps,carrier,carrier_changes,conntrack,wg1_age,wg2_age,inet" > "$CSV"
+  if [ -n "$prxb" ]&&[ -n "$rxb" ]; then
+    echo "$ts,$(( (rxb-prxb)*8/({{ udmp_poll_interval_secs }}*1000000) )),$(( (txb-ptxb)*8/({{ udmp_poll_interval_secs }}*1000000) )),$(( (rxp-prxp)/{{ udmp_poll_interval_secs }} )),$(( (txp-ptxp)/{{ udmp_poll_interval_secs }} )),$car,$cc,$ct,$w1,$w2,$inet" >> "$CSV"
+  fi
+  nowep=$(date +%s)
+  if { [ "$w2" = "-1" ]||[ "$w2" -gt "$WG_STALE" ]; } 2>/dev/null && [ $((nowep-last_fix)) -gt 60 ]; then
+    echo "$ts WG-STALE wgclt2 age=${w2}s -> re-resolving" >> "$LOGDIR/wg-watchdog.log"
+    refresh_wg2 >> "$LOGDIR/wg-watchdog.log" 2>&1; last_fix=$nowep
+  fi
+  prxb=$rxb;ptxb=$txb;prxp=$rxp;ptxp=$txp
+  sleep {{ udmp_poll_interval_secs }}
+done

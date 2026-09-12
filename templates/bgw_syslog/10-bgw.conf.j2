@@ -1,0 +1,11 @@
+# Managed by build_bgw_syslog.yaml — do not edit by hand.
+# BGW firewall syslog → /var/log/bgw/bgw.log. The BGW's messages are not well-formed
+# RFC syslog, so filter on the sender address (not content/tag) and write the raw
+# message behind rsyslog's receive time (the BGW's own timestamps are unreliable).
+module(load="imudp")
+input(type="imudp" port="514")
+template(name="bgwline" type="string" string="%timegenerated% %rawmsg%\n")
+if $fromhost-ip == "{{ bgw_source_ip }}" then {
+    action(type="omfile" file="/var/log/bgw/bgw.log" template="bgwline")
+    stop
+}

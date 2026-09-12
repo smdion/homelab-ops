@@ -1,0 +1,250 @@
+---
+# Category: Build & Provision
+# Schedule: none
+# Build the BGW syslog collector — LXC CT bgw_ct_vmid (bgw-syslog) on standalone PVE node sentinel.
+# The CT is dual-homed: eth0 on vmbr0 (management) and eth1 on vmbr_bgw, a host bridge over a
+# USB NIC cabled to the AT&T BGW's LAN side. It captures the BGW's firewall syslog (/var/log/bgw/)
+# and runs udmp-monitor, a poller that logs UDMP WAN/WireGuard stats (/var/log/udmp/) and
+# re-resolves the wgclt2 endpoint when its handshake goes stale.
+#
+# Idempotent — creates what is missing, pushes only files that differ from the CT copy, and
+# restarts only the services whose files changed. Run after a sentinel reinstall (after
+# build_pve.yaml) or to roll out config changes.
+#
+# Usage:
+#   ansible-playbook build_bgw_syslog.yaml
+#
+# Prerequisites (manual, outside IaC):
+#   - USB NIC (bgw_bridge_port) plugged into sentinel and cabled to the BGW
+#   - BGW syslog target set to the CT's BGW-side IP (configured on the BGW; survives rebuilds)
+#
+# Required vault vars: vault_udmp_ssh_user, vault_udmp_ssh_password, vault_udmp_wg2_endpoint_host
+# Config: vars/configs/bgw_syslog.yaml · Templates: templates/bgw_syslog/
+
+- name: Build BGW syslog collector
+  hosts: sentinel
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/bgw_syslog.yaml
+  vars:
+    _stage: /root/bgw-syslog-staging
+    # name = staged filename; src = template (entries without src are staged separately)
+    _ct_files:
+      - { name: 10-bgw.conf, src: 10-bgw.conf.j2, dest: /etc/rsyslog.d/10-bgw.conf, mode: "0644", service: rsyslog }
+      - { name: bgw.logrotate, src: bgw.logrotate.j2, dest: /etc/logrotate.d/bgw, mode: "0644", service: "" }
+      - { name: udmp-cleanup.cron, src: udmp-cleanup.cron.j2, dest: /etc/cron.d/udmp-cleanup, mode: "0644", service: "" }
+      - { name: poll.sh, src: poll.sh.j2, dest: /opt/udmp-monitor/poll.sh, mode: "0755", service: udmp-monitor }
+      - { name: udmp-monitor.service, src: udmp-monitor.service.j2, dest: /etc/systemd/system/udmp-monitor.service, mode: "0644", service: udmp-monitor }
+      - { name: udmp_pass, dest: /opt/udmp-monitor/.udmp_pass, mode: "0600", service: udmp-monitor }
+
+  tasks:
+    # === Host bridge onto the BGW LAN side ===
+    - name: Check the BGW USB NIC is present
+      ansible.builtin.stat:
+        path: "/sys/class/net/{{ bgw_bridge_port }}"
+      register: _nic
+
+    - name: Assert the BGW USB NIC is present
+      ansible.builtin.assert:
+        that: _nic.stat.exists
+        fail_msg: >-
+          {{ bgw_bridge_port }} not found on {{ inventory_hostname }} — plug in the USB NIC
+          cabled to the BGW (or update bgw_bridge_port in vars/configs/bgw_syslog.yaml).
+        quiet: true
+
+    - name: Ensure /etc/network/interfaces sources interfaces.d
+      ansible.builtin.lineinfile:
+        path: /etc/network/interfaces
+        line: "source /etc/network/interfaces.d/*"
+
+    - name: Template BGW bridge config
+      ansible.builtin.template:
+        src: templates/bgw_syslog/vmbr_bgw.interfaces.j2
+        dest: "/etc/network/interfaces.d/{{ bgw_bridge }}"
+        mode: "0644"
+      register: _bridge_cfg
+
+    # ifupdown2 applies only the diff — vmbr0 is left alone (same as the PVE GUI "Apply")
+    - name: Apply network config
+      ansible.builtin.command: ifreload -a
+      when: _bridge_cfg.changed
+
+    - name: Verify the USB NIC is a member of the BGW bridge
+      ansible.builtin.stat:
+        path: "/sys/class/net/{{ bgw_bridge }}/brif/{{ bgw_bridge_port }}"
+      register: _brif
+      failed_when: not _brif.stat.exists
+
+    # === CT ===
+    - name: Check whether the CT exists
+      ansible.builtin.command: pct status {{ bgw_ct_vmid }}
+      register: _ct
+      changed_when: false
+      failed_when: false  # pre-flight probe — CT may not exist yet
+
+    - name: Ensure the CT template is downloaded
+      ansible.builtin.shell: |
+        set -o pipefail
+        pveam list local | grep -q '{{ bgw_ct_template }}' && echo present && exit 0
+        pveam update >/dev/null
+        pveam download local {{ bgw_ct_template }} >/dev/null && echo downloaded
+      args:
+        executable: /bin/bash
+      register: _tmpl
+      changed_when: "'downloaded' in _tmpl.stdout"
+      when: _ct.rc != 0
+
+    - name: Create the CT
+      ansible.builtin.command: >-
+        pct create {{ bgw_ct_vmid }} local:vztmpl/{{ bgw_ct_template }}
+        --hostname {{ bgw_ct_hostname }}
+        --unprivileged 1 --onboot 1
+        --cores {{ bgw_ct_cores }} --memory {{ bgw_ct_memory_mb }} --swap {{ bgw_ct_swap_mb }}
+        --rootfs {{ bgw_ct_rootfs }}
+        --net0 name=eth0,bridge=vmbr0,ip={{ bgw_ct_mgmt_ip }},gw={{ bgw_ct_mgmt_gw }}
+        --net1 name=eth1,bridge={{ bgw_bridge }},ip={{ bgw_ct_bgw_ip }}
+        --nameserver {{ bgw_ct_nameserver }}
+        --description "BGW syslog collector - managed by build_bgw_syslog.yaml"
+      when: _ct.rc != 0
+
+    - name: Start the CT if it is not running
+      ansible.builtin.shell: |
+        pct status {{ bgw_ct_vmid }} | grep -q running && echo running && exit 0
+        pct start {{ bgw_ct_vmid }} && echo started
+      register: _start
+      changed_when: "'started' in _start.stdout"
+
+    - name: Wait for CT network (DNS resolves)
+      ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- getent hosts deb.debian.org
+      register: _ct_net
+      until: _ct_net.rc == 0
+      retries: 12
+      delay: 5
+      changed_when: false
+
+    - name: Install packages in the CT
+      ansible.builtin.shell: |
+        pct exec {{ bgw_ct_vmid }} -- bash -c '
+          missing=""
+          for p in {{ bgw_ct_packages | join(" ") }}; do dpkg -s $p >/dev/null 2>&1 || missing="$missing $p"; done
+          [ -z "$missing" ] && echo none && exit 0
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq && apt-get install -y -qq $missing >/dev/null && echo "installed:$missing"'
+      register: _apt
+      changed_when: "'installed:' in _apt.stdout"
+
+    - name: Ensure CT directories exist
+      ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- mkdir -p /opt/udmp-monitor /var/log/bgw /var/log/udmp
+      changed_when: false
+
+    # === Config files: stage on the host, push to the CT only when the CT copy differs ===
+    - name: Ensure host staging directory exists
+      ansible.builtin.file:
+        path: "{{ _stage }}"
+        state: directory
+        mode: "0700"
+
+    - name: Stage CT config files
+      ansible.builtin.template:
+        src: "templates/bgw_syslog/{{ item.src }}"
+        dest: "{{ _stage }}/{{ item.name }}"
+        mode: "0600"
+      loop: "{{ _ct_files | selectattr('src', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.dest }}"
+
+    - name: Stage UDMP SSH password
+      ansible.builtin.copy:
+        content: "{{ vault_udmp_ssh_password }}"
+        dest: "{{ _stage }}/udmp_pass"
+        mode: "0600"
+      no_log: true
+
+    - name: Compare staged files with the CT copies
+      ansible.builtin.shell: |
+        set -o pipefail
+        a=$(sha256sum {{ _stage }}/{{ item.name }} | cut -d' ' -f1)
+        b=$(pct exec {{ bgw_ct_vmid }} -- sha256sum {{ item.dest }} 2>/dev/null | cut -d' ' -f1)
+        [ "$a" = "$b" ] && echo same || echo differ
+      args:
+        executable: /bin/bash
+      loop: "{{ _ct_files }}"
+      loop_control:
+        label: "{{ item.dest }}"
+      register: _cmp
+      changed_when: false
+
+    - name: Push changed files into the CT
+      ansible.builtin.command: >-
+        pct push {{ bgw_ct_vmid }} {{ _stage }}/{{ item.item.name }} {{ item.item.dest }}
+        --perms {{ item.item.mode }}
+      loop: "{{ _cmp.results }}"
+      loop_control:
+        label: "{{ item.item.dest }}"
+      when: item.stdout == 'differ'
+      register: _pushed
+
+    - name: Derive services to restart
+      ansible.builtin.set_fact:
+        _restart: >-
+          {{ _pushed.results | selectattr('changed', 'defined') | selectattr('changed')
+             | map(attribute='item.item.service') | select | unique | list }}
+        _units_changed: >-
+          {{ _pushed.results | selectattr('changed', 'defined') | selectattr('changed')
+             | map(attribute='item.item.dest') | select('match', '/etc/systemd/') | list | length > 0 }}
+
+    # === Services ===
+    - name: Reload systemd in the CT
+      ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- systemctl daemon-reload
+      when: _units_changed | bool
+
+    - name: Enable services in the CT
+      ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- systemctl enable rsyslog udmp-monitor
+      register: _enable
+      changed_when: "'Created symlink' in _enable.stderr"
+
+    - name: Restart services whose files changed
+      ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- systemctl restart {{ item }}
+      loop: "{{ _restart }}"
+
+    - name: Ensure services are running
+      ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- systemctl start rsyslog udmp-monitor
+      changed_when: false
+
+    # === Verify ===
+    - name: Check collector health
+      ansible.builtin.shell: |
+        pct exec {{ bgw_ct_vmid }} -- bash -c '
+          echo "rsyslog=$(systemctl is-active rsyslog)"
+          echo "udmp_monitor=$(systemctl is-active udmp-monitor)"
+          echo "udp514=$(ss -uln | grep -c ":514 ")"
+          ping -c2 -W2 -I eth1 {{ bgw_source_ip }} >/dev/null 2>&1 && echo "bgw_reachable=yes" || echo "bgw_reachable=no"
+          echo "bgw_pkts_15s=$(timeout 15 tcpdump -ni eth1 "udp port 514 and src {{ bgw_source_ip }}" 2>/dev/null | wc -l)"'
+      register: _health
+      changed_when: false
+
+    - name: Parse collector health
+      ansible.builtin.set_fact:
+        _h: "{{ dict(_health.stdout_lines | select('search', '=') | map('split', '=', 1)) }}"
+
+    - name: Assert collector is healthy
+      ansible.builtin.assert:
+        that:
+          - _h.rsyslog == 'active'
+          - _h.udmp_monitor == 'active'
+          - _h.udp514 | int > 0
+          - _h.bgw_reachable == 'yes'
+        fail_msg: "Collector unhealthy: {{ _h }}"
+        quiet: true
+
+    - name: Display summary
+      ansible.builtin.debug:
+        msg:
+          - "═══ BGW syslog collector — CT {{ bgw_ct_vmid }} on {{ inventory_hostname }} ═══"
+          - "Bridge:        {{ bgw_bridge }} ← {{ bgw_bridge_port }}{{ ' (applied)' if _bridge_cfg.changed else '' }}"
+          - "CT:            {{ 'created' if _ct.rc != 0 else 'existing' }}, {{ _start.stdout }}"
+          - "Files pushed:  {{ _pushed.results | selectattr('changed', 'defined') | selectattr('changed') | map(attribute='item.item.dest') | list | join(', ') or 'none' }}"
+          - "rsyslog={{ _h.rsyslog }} udmp-monitor={{ _h.udmp_monitor }} BGW reachable={{ _h.bgw_reachable }}"
+          - "BGW syslog packets in 15s: {{ _h.bgw_pkts_15s }}{{ '  ← none: check the BGW syslog target is ' + bgw_ct_bgw_ip.split('/')[0] if _h.bgw_pkts_15s | int == 0 else '' }}"

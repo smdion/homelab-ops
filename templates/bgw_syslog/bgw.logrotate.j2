@@ -1,0 +1,24 @@
+# Managed by build_bgw_syslog.yaml — do not edit by hand.
+# rsyslog holds bgw.log open — rsyslog-rotate (HUP) makes it reopen after rotation.
+/var/log/bgw/bgw.log {
+    weekly
+    rotate {{ bgw_log_rotate_weeks }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    sharedscripts
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate
+    endscript
+}
+
+# udmp-monitor's own logs (poller CSVs are dated per day — pruned by /etc/cron.d/udmp-cleanup)
+/var/log/udmp/*.log {
+    weekly
+    rotate 8
+    compress
+    missingok
+    notifempty
+    copytruncate
+}

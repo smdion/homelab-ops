@@ -1,0 +1,13 @@
+# Managed by build_bgw_syslog.yaml — do not edit by hand.
+[Unit]
+Description=UDMP monitor + WG watchdog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/opt/udmp-monitor/poll.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

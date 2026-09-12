@@ -1,0 +1,3 @@
+# Managed by build_bgw_syslog.yaml — do not edit by hand.
+# Prune udmp-monitor per-day CSVs older than {{ udmp_csv_retention_days }} days.
+17 3 * * * root find /var/log/udmp -name 'udmp-*.csv' -mtime +{{ udmp_csv_retention_days }} -delete
