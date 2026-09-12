@@ -70,15 +70,32 @@ import time
 import urllib.request
 
 # platform -> (channel_list section marker, archive extractor label)
+# verify_duration: run the post-archive duration-sanity check below (see
+# DURATION_MISMATCH_THRESHOLD) — scoped to platforms where a live-capture can
+# exit cleanly without actually finishing (Twitch: a dropped CDN token or
+# network blip can make yt-dlp's HLS poller conclude "the stream ended" and
+# write a normal archive entry for a fraction of the real VOD). YouTube VODs
+# aren't live-captured the same way here, so left off for now.
 PLATFORMS = {
-    "youtube": {"section": "youtube", "archive_label": "youtube"},
-    "twitch": {"section": "twitch", "archive_label": "twitchvod"},
+    "youtube": {"section": "youtube", "archive_label": "youtube", "verify_duration": False},
+    "twitch": {"section": "twitch", "archive_label": "twitchvod", "verify_duration": True},
 }
 
 CHANNEL_LIST_DEFAULT = "/configs/default/channel_list"
 ARCHIVE_DEFAULT = "/configs/default/downloaded"  # yt-dlp --download-archive, shared
                                                    # across every profile and platform
 METUBE_ADD_URL = "http://localhost:8081/add"
+DOWNLOADS_ROOT = "/downloads"  # matches the metube container's own /downloads mount
+
+# An archive entry only proves yt-dlp's process exited cleanly, not that it
+# captured the whole thing (see PLATFORMS.verify_duration comment above). Once
+# the source is no longer live, compare the real on-disk file's duration
+# against the source's own now-final duration; anything below this fraction is
+# treated the same as a failed dispatch (re-queued, bounded by MAX_REDISPATCH).
+# 0.85 leaves headroom for normal minor discrepancies (yt-dlp/platform duration
+# rounding, a few seconds of stream start-up lag) without masking a real
+# multi-hour truncation like the one that motivated this check.
+DURATION_MISMATCH_THRESHOLD = 0.85
 
 MIN_HEIGHT = 1080
 BACKOFF_SECONDS = [900, 1800, 3600, 7200, 14400, 28800]  # 15m,30m,1h,2h,4h,8h
@@ -232,6 +249,83 @@ def max_available_height(url, probe_config, timeout=30):
     return max(heights) if heights else 0
 
 
+def get_source_duration(url, probe_config, timeout=30):
+    """Return (duration_seconds, is_live) for the source video right now. Used
+    only after an archive entry already exists, to find out whether the
+    source has actually finished (is_live False/None) and, if so, how long it
+    really is — the only point at which "duration" is a meaningful number for
+    something that was live when we dispatched it."""
+    proc = subprocess.run(
+        ["yt-dlp", *_probe_args(probe_config), "--skip-download", "-j", url],
+        capture_output=True, text=True, timeout=timeout,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError((proc.stderr or "yt-dlp -j failed").strip().splitlines()[-1:] or "yt-dlp -j failed")
+    info = json.loads(proc.stdout.strip().splitlines()[-1])
+    return info.get("duration"), bool(info.get("is_live"))
+
+
+def find_downloaded_file(video_id):
+    """Locate the actual file MeTube wrote for this video_id. MeTube's own
+    /history 'filename' field can lag the real on-disk name (folder/minute-
+    suffix can shift slightly for a live capture between dispatch and finish —
+    seen in practice), so search by the " - v<id>.<ext>" suffix MeTube always
+    appends instead of trusting that field verbatim."""
+    suffix = f" - v{video_id}."
+    for root, _dirs, files in os.walk(DOWNLOADS_ROOT):
+        for name in files:
+            if suffix in name:
+                return os.path.join(root, name)
+    return None
+
+
+def get_file_duration(path, timeout=30):
+    proc = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", path],
+        capture_output=True, text=True, timeout=timeout,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise RuntimeError((proc.stderr or "ffprobe failed").strip().splitlines()[-1:] or "ffprobe failed")
+    return float(proc.stdout.strip())
+
+
+def duration_check(video_id, url, probe_config):
+    """Compare the real on-disk file against the source's final duration, once
+    the source has one to compare against. Returns one of:
+      "ok"          — captured length is within DURATION_MISMATCH_THRESHOLD
+      "truncated"   — source has finished and the file falls well short of it
+      "unresolved"  — source is still live, or a lookup failed; can't judge
+                      yet, so the caller should leave this entry in place for
+                      a later pass rather than either clearing or failing it
+                      (an entry stuck "unresolved" still eventually hits the
+                      existing DISPATCH_TIMEOUT_SECONDS bound below, so this
+                      can't hang forever)
+    """
+    try:
+        source_duration, is_live = get_source_duration(url, probe_config)
+    except Exception as e:  # noqa: BLE001
+        log(f"duration-check: source lookup failed for {url}: {e}")
+        return "unresolved"
+    if is_live or not source_duration:
+        return "unresolved"  # source hasn't concluded yet — nothing final to compare
+    path = find_downloaded_file(video_id)
+    if not path:
+        log(f"duration-check: no on-disk file found for {video_id} ({url})")
+        return "unresolved"
+    try:
+        file_duration = get_file_duration(path)
+    except Exception as e:  # noqa: BLE001
+        log(f"duration-check: ffprobe failed for {path}: {e}")
+        return "unresolved"
+    ratio = file_duration / source_duration
+    if ratio < DURATION_MISMATCH_THRESHOLD:
+        log(f"WARNING: {url} captured {int(file_duration)}s of {int(source_duration)}s "
+            f"source ({ratio:.0%}) — treating as truncated")
+        return "truncated"
+    return "ok"
+
+
 def alert_discord(message, webhook_url):
     """Best-effort Discord alert for a give-up condition. No-op when no webhook
     is configured (local runs, dry runs). Never raises — a failed alert must not
@@ -309,24 +403,43 @@ def main():
     archive_ids = read_download_archive(args.archive, platform_cfg["archive_label"])
 
     # Self-prune + reconcile. Once a dispatched video shows up in the archive the
-    # real download completed — stop tracking it. Otherwise, if it has sat here
-    # past DISPATCH_TIMEOUT_SECONDS the real download failed or was killed
-    # mid-run (see the constant's comment): re-queue it so it goes through a
-    # fresh quality check -> /add -> download with a fresh CDN token. After
-    # MAX_REDISPATCH attempts, give up — fire one Discord alert and leave the
-    # entry here (visible, no longer retried).
+    # real download completed — stop tracking it, UNLESS this platform verifies
+    # duration (see PLATFORMS.verify_duration) and the on-disk file falls well
+    # short of the source's real (now-final) duration, meaning yt-dlp's process
+    # exited cleanly without actually capturing the whole thing. Either that, or
+    # sitting here past DISPATCH_TIMEOUT_SECONDS without ever reaching the
+    # archive, means the real download failed or was killed mid-run: re-queue it
+    # so it goes through a fresh quality check -> /add -> download with a fresh
+    # CDN token. After MAX_REDISPATCH attempts, give up — fire one Discord alert
+    # and leave the entry here (visible, no longer retried).
     for video_id in list(dispatched.keys()):
         entry = dispatched[video_id]
+        failure_reason = None
+        past_timeout = now - entry["dispatched_at"] >= DISPATCH_TIMEOUT_SECONDS
         if video_id in archive_ids:
-            del dispatched[video_id]
+            if not platform_cfg["verify_duration"]:
+                del dispatched[video_id]
+                continue
+            result = duration_check(video_id, entry["url"], args.probe_config)
+            if result == "ok":
+                del dispatched[video_id]
+                continue
+            if result == "unresolved":
+                if not past_timeout:
+                    continue  # can't judge yet — leave in place for a later pass
+                failure_reason = "in archive but never resolved (still live, or repeated lookup failures)"
+            else:
+                failure_reason = "captured file is far shorter than the source — suspected truncated capture"
+        elif past_timeout:
+            failure_reason = "dispatched but never reached the archive"
+        else:
             continue
-        if now - entry["dispatched_at"] < DISPATCH_TIMEOUT_SECONDS:
-            continue
+
         redispatch_count = entry.get("redispatch_count", 0)
         stale_h = int((now - entry["dispatched_at"]) / 3600)
         if redispatch_count < MAX_REDISPATCH:
-            log(f"WARNING: {entry['url']} dispatched {stale_h}h ago but never reached "
-                f"the archive — re-queueing (re-dispatch {redispatch_count + 1}/{MAX_REDISPATCH})")
+            log(f"WARNING: {entry['url']} {failure_reason} ({stale_h}h) — "
+                f"re-queueing (re-dispatch {redispatch_count + 1}/{MAX_REDISPATCH})")
             pending[video_id] = {
                 "url": entry["url"], "next_check_at": now,
                 "attempts": 0, "first_seen_at": now,
@@ -338,7 +451,8 @@ def main():
                 f"re-dispatches ({stale_h}h) — giving up; re-add it manually if still wanted")
             alert_discord(
                 f"fast_check [{args.platform}]: **{entry['url']}** failed to download "
-                f"after {MAX_REDISPATCH} re-dispatches ({stale_h}h stale). Manual re-add needed.",
+                f"after {MAX_REDISPATCH} re-dispatches ({stale_h}h stale, {failure_reason}). "
+                f"Manual re-add needed.",
                 alert_webhook,
             )
             entry["alerted"] = True
