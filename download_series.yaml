@@ -61,7 +61,7 @@
           sonarr_key = {{ vault_sonarr_api_key }}
           series_id = {{ series_id }}
           series_folder = {{ series_folder }}
-          playlist_url = {{ series_playlist_url }}
+          source_url = {{ series_source_url }}
           tv_root = {{ series_tv_root }}
           discord_webhook = https://discord.com/api/webhooks/{{ vault_discord_download_webhook_id }}/{{ vault_discord_download_webhook_token }}
           manual_overrides = {{ series_manual_overrides | to_json }}

@@ -2,8 +2,8 @@
 """Sync Alton Brown's "Cooks Food" YouTube series into Sonarr.
 
 No Usenet/torrent indexer will ever have this content -- it's YouTube-exclusive.
-This mirrors it into Sonarr's library directly, scoped to a single playlist
-(not the general ~50-channel fast_check.py archive pipeline), with Sonarr's
+This mirrors it into Sonarr's library directly, scoped to a single channel's
+uploads (not the general ~50-channel fast_check.py archive pipeline), with Sonarr's
 own `hasFile` field as the sole incremental checkpoint (no separate archive/
 state file to drift out of sync -- an episode is "needed" only if Sonarr
 itself doesn't already have a file for it, checked fresh every run).
@@ -39,18 +39,22 @@ SONARR_URL = _c.get("sonarr_url", "http://localhost:8989/sonarr")
 SONARR_KEY = _c["sonarr_key"]
 SERIES_ID = _c.getint("series_id")
 SERIES_FOLDER = _c.get("series_folder")
-PLAYLIST_URL = _c.get("playlist_url")
+SOURCE_URL = _c.get("source_url")
 COOKIES_PATH = _c.get("cookies_path", "/configs/default/www.youtube.com_cookies.txt")
 STAGING_HOST_DIR = Path(_c.get("staging_host_dir", "/mnt/user/temp/alton_brown_sync"))
 STAGING_CONTAINER_DIR = _c.get("staging_container_dir", "/tempvideo/alton_brown_sync")
 TV_ROOT = Path(_c.get("tv_root")) / SERIES_FOLDER
 DISCORD_WEBHOOK = _c.get("discord_webhook", "")
 
-# Specials that don't live in the numbered playlist and have no episode
-# number to auto-match -- add by hand the rare time one shows up.
+# Specials that don't follow the numbered-episode title format and have no
+# episode number to auto-match -- add by hand the rare time one shows up.
 MANUAL_OVERRIDES = json.loads(_c.get("manual_overrides", "[]"))
 
-EPISODE_TITLE_RE = re.compile(r"Episode\s+(\d+)", re.IGNORECASE)
+# Requires the series title prefix, not just "Episode N" -- the channel also
+# posts an unrelated "QQ" series that reuses "Episode N" titles (e.g. "QQ
+# Episode 16: ..."), which would otherwise collide on the same season/episode
+# number and silently overwrite the real episode's file.
+EPISODE_TITLE_RE = re.compile(r"Alton Brown Cooks Food\s*\|\s*Episode\s+(\d+)", re.IGNORECASE)
 
 
 def sonarr_get(path):
@@ -80,9 +84,9 @@ def discord_notify(msg):
         print(f"WARNING: discord notify failed: {e}")
 
 
-def list_playlist_videos():
+def list_channel_videos():
     out = subprocess.run(
-        ["sudo", "docker", "exec", "metube", "yt-dlp", "--flat-playlist", "-J", PLAYLIST_URL],
+        ["sudo", "docker", "exec", "metube", "yt-dlp", "--flat-playlist", "-J", SOURCE_URL],
         capture_output=True, text=True, timeout=120,
     )
     data = json.loads(out.stdout)
@@ -96,11 +100,11 @@ def list_playlist_videos():
     return videos
 
 
-def build_needed(sonarr_episodes, playlist_videos):
+def build_needed(sonarr_episodes, channel_videos):
     by_season_ep = {(e["seasonNumber"], e["episodeNumber"]): e for e in sonarr_episodes}
     needed = []
 
-    for v in playlist_videos:
+    for v in channel_videos:
         key = (1, v["episode"])
         ep = by_season_ep.get(key)
         if ep and not ep.get("hasFile"):
@@ -150,11 +154,11 @@ def sanitize(name):
 def main():
     ensure_staging_dir()
 
-    playlist_videos = list_playlist_videos()
-    print(f"{len(playlist_videos)} numbered episodes found in playlist")
+    channel_videos = list_channel_videos()
+    print(f"{len(channel_videos)} numbered episodes found in channel uploads")
 
     sonarr_episodes = sonarr_get(f"episode?seriesId={SERIES_ID}")
-    needed = build_needed(sonarr_episodes, playlist_videos)
+    needed = build_needed(sonarr_episodes, channel_videos)
     print(f"{len(needed)} episode(s) needed (missing in Sonarr)")
 
     if not needed:

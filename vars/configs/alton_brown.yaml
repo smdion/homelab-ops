@@ -7,11 +7,16 @@
 series_sonarr_url: "http://localhost:8989/sonarr"
 series_id: 238
 series_folder: "Alton Brown Cooks Food (2025)"
-series_playlist_url: "https://www.youtube.com/playlist?list=PL4YsaqNcqtzul9knWTmp58OU5YdU-UbGT"
+# Full channel uploads, not the curated "Cooks Food" playlist -- the playlist
+# lags new uploads by up to a day or two, which delayed picking up episode 41
+# (2026-09-12). The channel also carries an unrelated "QQ" series that reuses
+# "Episode N" titles, so alton_brown_sync.py's title regex requires the
+# "Alton Brown Cooks Food |" prefix to avoid colliding with it.
+series_source_url: "https://www.youtube.com/@AltonBrown/videos"
 series_tv_root: "/mnt/remotes/REDEMPTION.SEANDION_TV"
 
-# Specials with no episode number to auto-match against the playlist -- add
-# an entry here by hand the rare time one shows up.
+# Specials with no episode number to auto-match against the channel listing --
+# add an entry here by hand the rare time one shows up.
 series_manual_overrides:
   - url: "https://www.youtube.com/watch?v=CRglbaevJkQ"
     season: 0
