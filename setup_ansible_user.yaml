@@ -4,9 +4,11 @@
 # Set up the ansible user on all managed hosts.
 # Creates user, configures SSH, hardens sshd, validates setup.
 # Run once per new host; re-run is safe (idempotent).
+# Plays target every supported group; scope a run with the template Limit
+# (e.g. a single host after a reinstall, or a group like unraid).
 
-- name: Set up ansible user on PVE, PBS, and Ubuntu
-  hosts: "pve:pbs:ubuntu"
+- name: Set up ansible user on Proxmox (PVE, standalone PVE, PBS) and Ubuntu
+  hosts: "proxmox:ubuntu"
   become: true
   become_user: root
   vars_files:
