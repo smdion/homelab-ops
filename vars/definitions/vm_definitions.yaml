@@ -78,6 +78,10 @@ vm_definitions:
         proto: "udp"
         src: "{{ vault_prod_lan_subnet }}"
         comment: "netboot_proxy PXE boot server"
+      - port: "69"                     # TFTP is served by netboot_proxy (host network) so replies come from the IP asked
+        proto: "udp"
+        src: "{{ vault_prod_lan_subnet }}"
+        comment: "netboot_proxy TFTP"
     stacks: [infra, dev]
     guacamole: { name: Dev, group: Docker }
     proxy:

@@ -18,6 +18,9 @@ bgw_ct_mgmt_ip: "10.10.10.61/24"                   # VMID 601 → .61
 bgw_ct_mgmt_gw: "10.10.10.1"
 bgw_ct_nameserver: "10.10.10.1"
 bgw_ct_bgw_ip: "192.168.1.50/24"                   # the BGW sends syslog here (set on the BGW)
+# Pinned MACs — the BGW and UniFi know the CT by MAC; keep it stable across rebuilds
+bgw_ct_mgmt_mac: "BC:24:11:3D:84:1B"
+bgw_ct_bgw_mac: "BC:24:11:C0:F0:17"
 bgw_ct_packages: [rsyslog, logrotate, cron, tcpdump, sshpass, wireguard-tools, iputils-ping]
 
 # ── Host bridge onto the BGW LAN side ──

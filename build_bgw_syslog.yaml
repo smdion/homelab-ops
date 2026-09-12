@@ -30,6 +30,8 @@
     - vars/configs/bgw_syslog.yaml
   vars:
     _stage: /root/bgw-syslog-staging
+    _net0: "name=eth0,bridge=vmbr0,hwaddr={{ bgw_ct_mgmt_mac }},ip={{ bgw_ct_mgmt_ip }},gw={{ bgw_ct_mgmt_gw }}"
+    _net1: "name=eth1,bridge={{ bgw_bridge }},hwaddr={{ bgw_ct_bgw_mac }},ip={{ bgw_ct_bgw_ip }}"
     # name = staged filename; src = template (entries without src are staged separately)
     _ct_files:
       - { name: 10-bgw.conf, src: 10-bgw.conf.j2, dest: /etc/rsyslog.d/10-bgw.conf, mode: "0644", service: rsyslog }
@@ -103,11 +105,22 @@
         --unprivileged 1 --onboot 1 --features nesting=1
         --cores {{ bgw_ct_cores }} --memory {{ bgw_ct_memory_mb }} --swap {{ bgw_ct_swap_mb }}
         --rootfs {{ bgw_ct_rootfs }}
-        --net0 name=eth0,bridge=vmbr0,ip={{ bgw_ct_mgmt_ip }},gw={{ bgw_ct_mgmt_gw }}
-        --net1 name=eth1,bridge={{ bgw_bridge }},ip={{ bgw_ct_bgw_ip }}
+        --net0 {{ _net0 }}
+        --net1 {{ _net1 }}
         --nameserver {{ bgw_ct_nameserver }}
         --description "BGW syslog collector - managed by build_bgw_syslog.yaml"
       when: _ct.rc != 0
+
+    # The BGW and UniFi know the CT by MAC — converge an existing CT onto the pinned MACs
+    - name: Ensure CT NICs carry the pinned MACs
+      ansible.builtin.shell: |
+        cfg=$(pct config {{ bgw_ct_vmid }})
+        out=ok
+        echo "$cfg" | grep -qi '^net0:.*hwaddr={{ bgw_ct_mgmt_mac }}' || { pct set {{ bgw_ct_vmid }} --net0 {{ _net0 }} && out=set; }
+        echo "$cfg" | grep -qi '^net1:.*hwaddr={{ bgw_ct_bgw_mac }}' || { pct set {{ bgw_ct_vmid }} --net1 {{ _net1 }} && out=set; }
+        echo $out
+      register: _macs
+      changed_when: "'set' in _macs.stdout"
 
     # systemd 252+ (Debian 12) in an unprivileged CT needs nesting (PVE default for new CTs)
     - name: Ensure CT nesting is enabled

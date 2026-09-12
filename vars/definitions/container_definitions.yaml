@@ -1231,10 +1231,14 @@ container_definitions:
         retries: 3
         start_period: "20s"
   netboot_proxy:
-    # ProxyDHCP for PXE: the UDMP keeps handing out addresses; this only answers
-    # PXE clients with a boot file, served over TFTP by netbootxyz (dev VIP).
-    # UniFi "Network Boot" must stay OFF on the network or its option 67 conflicts.
+    # ProxyDHCP + TFTP for PXE: the UDMP keeps handing out addresses; this only
+    # answers PXE clients with a boot file and serves it over TFTP from netbootxyz's
+    # menus dir (read-only). UniFi "Network Boot" must stay OFF or its option 67 conflicts.
     # Host network so it hears DHCP broadcasts — only VLAN 10 (dev VM has one NIC).
+    # TFTP lives here, not in netbootxyz: behind Docker's port publish the data
+    # packets leave from the host's primary IP instead of the VIP the client asked,
+    # and strict clients (OVMF/UEFI) drop them (PXE-E18). Host-network dnsmasq
+    # replies from the address the request was sent to.
     #
     # Boot file = client arch (announced by the client) x MAC tag:
     #   (untagged)  BIOS netboot.xyz.kpxe          UEFI netboot.xyz.efi
@@ -1253,12 +1257,16 @@ container_definitions:
       base: base
       network_mode: host
       cap_add: [NET_ADMIN, NET_RAW]
+      volumes:
+        - "${APPSDIR}/netboot/config/menus:/tftp:ro"   # netbootxyz's boot files (world-readable; dnsmasq serves as nobody)
       entrypoint: ["dnsmasq"]
       command:
         - "--keep-in-foreground"
         - "--log-facility=-"
         - "--port=0"
         - "--log-dhcp"
+        - "--enable-tftp"
+        - "--tftp-root=/tftp"
         - "--dhcp-range={{ vault_prod_lan_subnet | regex_replace('/.*$', '') }},proxy"
         # snp — mini PCs, tagged by the onboard 1GbE MAC (the NIC that PXE boots;
         # a USB 2.5G adapter MAC never matches)
@@ -1306,7 +1314,7 @@ container_definitions:
         homelab.backup.paths: "/opt/netboot"
         homelab.proxy.subdomain: "netboot"
         homelab.proxy.external: "false"
-      ports: ["3002:3000", "69:69/udp", "8082:80"]
+      ports: ["3002:3000", "8082:80"]   # TFTP (69/udp) is served by netboot_proxy — see its comment
       volumes:
         - "${APPSDIR}/netboot/config:/config"
         - "${APPSDIR}/netboot/assets:/assets"
