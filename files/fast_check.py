@@ -71,13 +71,18 @@ import urllib.request
 
 # platform -> (channel_list section marker, archive extractor label)
 # verify_duration: run the post-archive duration-sanity check below (see
-# DURATION_MISMATCH_THRESHOLD) — scoped to platforms where a live-capture can
-# exit cleanly without actually finishing (Twitch: a dropped CDN token or
-# network blip can make yt-dlp's HLS poller conclude "the stream ended" and
-# write a normal archive entry for a fraction of the real VOD). YouTube VODs
-# aren't live-captured the same way here, so left off for now.
+# DURATION_MISMATCH_THRESHOLD). NOTE: fast_check never dispatches a genuinely
+# in-progress stream — ytdlp_filter_live (shared, _fast_check_common.conf.j2)
+# applies --match-filter !is_live to both platforms' enumeration, so this
+# isn't about catching a live capture that got cut off mid-stream. The actual
+# risk is a race with the platform's own VOD finalization: a stream can
+# report is_live:false and appear enumerable within moments of ending, while
+# the platform is still processing/writing the full recording server-side —
+# dispatching right then can grab only however much was finalized so far. Not
+# platform-specific in principle (seen on Twitch; YouTube's livestream->VOD
+# transition has an analogous processing window), so this applies to both.
 PLATFORMS = {
-    "youtube": {"section": "youtube", "archive_label": "youtube", "verify_duration": False},
+    "youtube": {"section": "youtube", "archive_label": "youtube", "verify_duration": True},
     "twitch": {"section": "twitch", "archive_label": "twitchvod", "verify_duration": True},
 }
 
