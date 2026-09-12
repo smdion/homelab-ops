@@ -897,6 +897,25 @@
                                  if _unifi_upgradable | length > 0 else ''))
               }] }}
 
+        # device_mac is NOT NULL and part of unifi_devices' own unique key
+        # (device_name, device_mac, log_date). A multi-VALUES INSERT fails in
+        # full if any single row violates that — so one device UniFi's API
+        # returns without a real MAC (a VPN client entry, a WAN pseudo-device,
+        # etc.) silently takes metrics logging down for every device that
+        # round, not just itself. Filter those out immediately before the
+        # batch insert rather than let the whole batch fail on one bad row.
+        - name: Drop UniFi devices missing a MAC before batch-logging
+          ansible.builtin.set_fact:
+            _unifi_loggable_devices: "{{ _unifi_all_devices | selectattr('mac', 'defined') | selectattr('mac') | list }}"
+
+        - name: Note any UniFi devices skipped for missing MAC
+          ansible.builtin.debug:
+            msg: >-
+              Skipped from unifi_devices logging (missing MAC):
+              {{ (_unifi_all_devices | map(attribute='name') | list)
+                 | difference(_unifi_loggable_devices | map(attribute='name') | list) }}
+          when: (_unifi_all_devices | length) != (_unifi_loggable_devices | length)
+
         # Log device metrics to unifi_devices table for Grafana dashboards
         - name: Batch log UniFi device metrics to DB
           vars:
@@ -912,16 +931,16 @@
             query: >-
               INSERT INTO unifi_devices
               (device_name, device_model, device_mac, device_ip, device_type, firmware, upgradable, state, uptime_seconds, timestamp)
-              VALUES {% for d in _unifi_all_devices %}(%s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP()){% if not loop.last %}, {% endif %}{% endfor %}
+              VALUES {% for d in _unifi_loggable_devices %}(%s, %s, %s, %s, %s, %s, %s, %s, %s, UTC_TIMESTAMP()){% if not loop.last %}, {% endif %}{% endfor %}
               ON DUPLICATE KEY UPDATE
                 device_model = VALUES(device_model), device_ip = VALUES(device_ip),
                 device_type = VALUES(device_type), firmware = VALUES(firmware),
                 upgradable = VALUES(upgradable), state = VALUES(state),
                 uptime_seconds = VALUES(uptime_seconds), timestamp = UTC_TIMESTAMP()
             positional_args: >-
-              {{ _unifi_all_devices | json_query('[].[ name, model, mac, ip, type, version, upgradable, state, uptime ]') | flatten }}
+              {{ _unifi_loggable_devices | json_query('[].[ name, model, mac, ip, type, version, upgradable, state, uptime ]') | flatten }}
           when:
-            - _unifi_all_devices | length > 0
+            - _unifi_loggable_devices | length > 0
             - not (skip_db | default(false) | bool)
             - not ansible_check_mode
           no_log: "{{ _no_log }}"
