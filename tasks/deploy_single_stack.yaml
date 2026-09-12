@@ -200,14 +200,44 @@
     - not ansible_check_mode
     - not (dry_run | default(false) | bool)
 
-- name: "Collect pinned fetch_files — {{ _current_stack }}"
+# Managed host files (see container_definitions.yaml header): fetch_files (checksum-
+# pinned downloads, optionally extracted), write_files (templated content) and dirs.
+# Select per key so only those subtrees are templated — not every container field.
+- name: "Collect managed files — {{ _current_stack }}"
   ansible.builtin.set_fact:
     _fetch_files: >-
       {{ container_definitions | dict2items
-         | selectattr('value.stack', 'defined')
-         | selectattr('value.stack', 'equalto', _current_stack)
+         | selectattr('value.stack', 'defined') | selectattr('value.stack', 'equalto', _current_stack)
          | selectattr('value.fetch_files', 'defined')
          | map(attribute='value.fetch_files') | flatten | list }}
+    _write_files: >-
+      {{ container_definitions | dict2items
+         | selectattr('value.stack', 'defined') | selectattr('value.stack', 'equalto', _current_stack)
+         | selectattr('value.write_files', 'defined')
+         | map(attribute='value.write_files') | flatten | list }}
+    _extra_dirs: >-
+      {{ container_definitions | dict2items
+         | selectattr('value.stack', 'defined') | selectattr('value.stack', 'equalto', _current_stack)
+         | selectattr('value.dirs', 'defined')
+         | map(attribute='value.dirs') | flatten | list }}
+
+- name: "Ensure managed file directories exist — {{ _current_stack }}"
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ docker_puid | default('1000') }}"
+    group: "{{ docker_pgid | default('1000') }}"
+    mode: "0755"
+  loop: >-
+    {{ (_extra_dirs
+        + (_fetch_files | map(attribute='dest') | map('dirname') | list)
+        + (_fetch_files | selectattr('extract', 'defined') | map(attribute='extract') | map(attribute='dest') | list)
+        + (_write_files | map(attribute='dest') | map('dirname') | list))
+       | map('replace', '${APPSDIR}', docker_appsdir) | unique | list }}
+  when:
+    - not ansible_check_mode
+    - not (dry_run | default(false) | bool)
 
 # Files an image does not ship (or drops on self-update) — checksum-pinned so a
 # changed upstream asset fails the deploy instead of silently swapping binaries.
@@ -225,6 +255,51 @@
     label: "{{ item.dest }}"
   when:
     - _fetch_files | length > 0
+    - not ansible_check_mode
+    - not (dry_run | default(false) | bool)
+
+# Re-extracts only when the archive checksum changes (marker file per checksum).
+- name: "Extract pinned archives — {{ _current_stack }}"
+  become: true
+  ansible.builtin.unarchive:
+    src: "{{ item.dest | replace('${APPSDIR}', docker_appsdir) }}"
+    dest: "{{ item.extract.dest | replace('${APPSDIR}', docker_appsdir) }}"
+    remote_src: true
+    include: "{{ item.extract.members }}"
+    extra_opts: ["--strip-components={{ item.extract.strip_components | default(0) }}"]
+    owner: "{{ docker_puid | default('1000') }}"
+    group: "{{ docker_pgid | default('1000') }}"
+    creates: "{{ item.extract.dest | replace('${APPSDIR}', docker_appsdir) }}/.extracted-{{ (item.checksum | regex_replace('^sha256:', ''))[:12] }}"
+  loop: "{{ _fetch_files | selectattr('extract', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.extract.dest }}"
+  register: _extracted
+  when:
+    - not ansible_check_mode
+    - not (dry_run | default(false) | bool)
+
+- name: "Record extracted archive versions — {{ _current_stack }}"
+  become: true
+  ansible.builtin.copy:
+    content: "{{ item.item.url }}\n"
+    dest: "{{ item.item.extract.dest | replace('${APPSDIR}', docker_appsdir) }}/.extracted-{{ (item.item.checksum | regex_replace('^sha256:', ''))[:12] }}"
+    mode: "0644"
+  loop: "{{ _extracted.results | default([]) | selectattr('changed', 'defined') | selectattr('changed') | list }}"
+  loop_control:
+    label: "{{ item.item.extract.dest }}"
+
+- name: "Write managed files — {{ _current_stack }}"
+  become: true
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ item.dest | replace('${APPSDIR}', docker_appsdir) }}"
+    owner: "{{ docker_puid | default('1000') }}"
+    group: "{{ docker_pgid | default('1000') }}"
+    mode: "{{ item.mode | default('0644') }}"
+  loop: "{{ _write_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+  when:
     - not ansible_check_mode
     - not (dry_run | default(false) | bool)
 
