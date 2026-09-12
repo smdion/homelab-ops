@@ -1267,6 +1267,10 @@ container_definitions:
         - "--log-dhcp"
         - "--enable-tftp"
         - "--tftp-root=/tftp"
+        # iPXE "priority" (option 175.1) = 1: netboot.xyz's iPXE then prefers this proxy's
+        # settings over the UDMP's DHCP reply, so ${next-server} is the VIP (not the UDMP,
+        # which names itself and drops TFTP -> slow timeouts). Firmware PXE ignores it.
+        - "--dhcp-option-pxe=encap:175,1,1"
         - "--dhcp-range={{ vault_prod_lan_subnet | regex_replace('/.*$', '') }},proxy"
         # snp — mini PCs, tagged by the onboard 1GbE MAC (the NIC that PXE boots;
         # a USB 2.5G adapter MAC never matches)
