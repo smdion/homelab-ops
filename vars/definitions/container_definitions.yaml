@@ -1295,6 +1295,9 @@ container_definitions:
         # iVentoy, bootfile = its loader) instead of netboot.xyz. Remove if iVentoy is dropped.
         - "--dhcp-userclass=set:iventoy,iVentoy"
         - "--dhcp-boot=tag:iventoy,iventoy_loader_16000_bios,,10.10.10.62"
+        # ...and keep the netboot.xyz pxe-service menu away from it (its boot-server step
+        # otherwise answers netboot.xyz.kpxe and the loader loops back into netboot.xyz)
+        - "--tag-if=set:special,tag:iventoy"
         - "--pxe-service=tag:!special,x86PC,netboot.xyz BIOS,netboot.xyz.kpxe,{{ vault_dev_vip }}"
         - "--pxe-service=tag:snp,x86PC,netboot.xyz BIOS undionly,netboot.xyz-undionly.kpxe,{{ vault_dev_vip }}"
         - "--pxe-service=tag:legacy,x86PC,netboot.xyz BIOS legacy,netboot.xyz-legacy.kpxe,{{ vault_dev_vip }}"
