@@ -916,6 +916,32 @@
                  | difference(_unifi_loggable_devices | map(attribute='name') | list) }}
           when: (_unifi_all_devices | length) != (_unifi_loggable_devices | length)
 
+        # json_query('[].[ ... ]') | flatten assumes every device contributes
+        # exactly 9 values — but a device missing an optional field outright
+        # (rather than reporting it null) drops that field from jmespath's
+        # result instead of padding with null, shrinking that device's row
+        # below 9 and misaligning every subsequent device's fields against
+        # the query's %s placeholders. Confirmed as today's actual failure via
+        # a debug_no_log=yes rerun: Power-MediaStrip (a UP6 smart power strip,
+        # which doesn't report standard state/uptime) contributed only 7
+        # values, not 9. Build each device's row explicitly instead, with a
+        # default for every field, so every row is always exactly 9 values
+        # regardless of which optional fields that device type reports.
+        - name: Build UniFi device rows for batch-logging
+          ansible.builtin.set_fact:
+            _unifi_device_args: >-
+              {% set result = [] %}
+              {% for d in _unifi_loggable_devices %}
+              {% set _ = result.extend([
+                   d.name | default(None, true), d.model | default(None, true),
+                   d.mac | default(None, true), d.ip | default(None, true),
+                   d.type | default(None, true), d.version | default(None, true),
+                   d.upgradable | default(false, true), d.state | default(None, true),
+                   d.uptime | default(None, true)
+                 ]) %}
+              {% endfor %}
+              {{ result | to_json }}
+
         # Log device metrics to unifi_devices table for Grafana dashboards
         - name: Batch log UniFi device metrics to DB
           vars:
@@ -937,8 +963,7 @@
                 device_type = VALUES(device_type), firmware = VALUES(firmware),
                 upgradable = VALUES(upgradable), state = VALUES(state),
                 uptime_seconds = VALUES(uptime_seconds), timestamp = UTC_TIMESTAMP()
-            positional_args: >-
-              {{ _unifi_loggable_devices | json_query('[].[ name, model, mac, ip, type, version, upgradable, state, uptime ]') | flatten }}
+            positional_args: "{{ _unifi_device_args | trim | from_json }}"
           when:
             - _unifi_loggable_devices | length > 0
             - not (skip_db | default(false) | bool)
