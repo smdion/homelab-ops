@@ -8,7 +8,8 @@
 #                         May be 'auto', empty, or a concrete name.
 #
 # Sets:
-#   _pve               — dict with api_host, api_user, api_token_id, api_token_secret, template_node
+#   _pve               — dict with api_host, api_user, api_token_id, api_token_secret, template_node,
+#                        storage (node's pve_definitions storage, else pve_storage)
 #
 # Requires vars_files: vars/secrets.yaml, vars/configs/proxmox.yaml, vars/definitions/pve_definitions.yaml
 
@@ -25,6 +26,7 @@
       api_token_id: "{{ pve_definitions[_pve_target_node].api_token_id }}"
       api_token_secret: "{{ pve_definitions[_pve_target_node].api_token_secret }}"
       template_node: "{{ _pve_target_node }}"
+      storage: "{{ pve_definitions[_pve_target_node].storage | default(pve_storage) }}"
   when: _pve_is_standalone | bool
 
 - name: Set API credentials for cluster node (default)
@@ -35,4 +37,5 @@
       api_token_id: "{{ vault_pve_api_token_id }}"
       api_token_secret: "{{ vault_pve_api_token_secret }}"
       template_node: "{{ pve_template_node }}"
+      storage: "{{ pve_storage }}"
   when: not (_pve_is_standalone | bool)

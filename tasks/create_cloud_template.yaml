@@ -1,14 +1,16 @@
 ---
 # Create cloud-init template on a PVE node if it doesn't exist.
 # Downloads the Ubuntu cloud image, imports it, and converts to template.
-# Idempotent — skips if template VMID already exists.
+# Idempotent — skips if the template VMID already exists as a template.
+# A non-template VM with the template VMID and name is a leftover from a failed
+# build (e.g. qm create succeeded, importdisk failed) — it is purged and rebuilt.
 #
 # Expects:
-#   _pve              — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
+#   _pve              — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node, storage)
 #   pve_template_vmid — VMID for the template (default: 9000)
 #   pve_template_name — display name for the template
 #   pve_cloud_image_url — URL to download the cloud image
-#   pve_storage, pve_bridge — infrastructure defaults
+#   pve_storage, pve_bridge — infrastructure defaults (pve_storage only if _pve.storage unset)
 #   vm_template_memory, vm_template_cores — template VM specs
 #   pve_api_port      — PVE API port (default: 8006)
 
@@ -28,12 +30,23 @@
   register: _template_check
   no_log: "{{ _no_log }}"
 
-- name: Set template existence fact
+- name: Set template existence facts
   ansible.builtin.set_fact:
     _template_exists: >-
       {{ _template_check.json.data
          | selectattr('vmid', 'equalto', pve_template_vmid | int)
+         | selectattr('template', 'defined')
+         | selectattr('template', 'equalto', 1)
          | list | length > 0 }}
+    # Same VMID + name but not a template (PVE may omit the template key on plain VMs)
+    _template_partial: >-
+      {% set _named = _template_check.json.data
+           | selectattr('vmid', 'equalto', pve_template_vmid | int)
+           | selectattr('name', 'defined')
+           | selectattr('name', 'equalto', pve_template_name) | list %}
+      {{ (_named | length) > (_named | selectattr('template', 'defined')
+                                     | selectattr('template', 'equalto', 1) | list | length) }}
+    _template_storage: "{{ _pve.storage | default(pve_storage) }}"
 
 - name: Create cloud-init template on {{ _pve.template_node }}
   delegate_to: pve_template_builder
@@ -41,17 +54,20 @@
   ansible.builtin.shell: |
     set -e
     cd /tmp
+    {% if _template_partial | bool %}
+    qm destroy {{ pve_template_vmid }} --purge
+    {% endif %}
     wget -q "{{ pve_cloud_image_url }}" -O ubuntu-cloud.img
     qm create {{ pve_template_vmid }} \
       --name {{ pve_template_name }} \
       --memory {{ vm_template_memory }} --cores {{ vm_template_cores }} \
       --net0 virtio,bridge={{ pve_bridge }}
-    qm importdisk {{ pve_template_vmid }} ubuntu-cloud.img {{ pve_storage }}
+    qm importdisk {{ pve_template_vmid }} ubuntu-cloud.img {{ _template_storage }}
     qm set {{ pve_template_vmid }} \
-      --scsi0 {{ pve_storage }}:vm-{{ pve_template_vmid }}-disk-0 \
+      --scsi0 {{ _template_storage }}:vm-{{ pve_template_vmid }}-disk-0 \
       --scsihw virtio-scsi-single
     qm set {{ pve_template_vmid }} \
-      --ide2 {{ pve_storage }}:cloudinit \
+      --ide2 {{ _template_storage }}:cloudinit \
       --boot order=scsi0
     qm template {{ pve_template_vmid }}
     rm -f ubuntu-cloud.img

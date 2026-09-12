@@ -15,6 +15,9 @@
 #                    Standalone nodes use their own API endpoint instead of the
 #                    cluster VIP. Requires api_host, api_user, api_token_id,
 #                    api_token_secret fields.
+#   storage        — PVE storage ID for disks created on this node (cloud-init
+#                    template). Defaults to pve_storage (cluster CEPH "replicated"),
+#                    which does not exist on standalone nodes — set it there.
 
 pve_definitions:
   # ── Cluster nodes (API via VIP: vault_pve_api_host) ──
@@ -40,4 +43,5 @@ pve_definitions:
     api_user: "{{ vault_pve_standalone_api_user }}"
     api_token_id: "{{ vault_pve_standalone_api_token_id }}"
     api_token_secret: "{{ vault_pve_standalone_api_token_secret }}"
+    storage: "local-lvm"               # no CEPH on standalone nodes
     guacamole: { name: Sentinel, group: Proxmox }
