@@ -200,6 +200,34 @@
     - not ansible_check_mode
     - not (dry_run | default(false) | bool)
 
+- name: "Collect pinned fetch_files — {{ _current_stack }}"
+  ansible.builtin.set_fact:
+    _fetch_files: >-
+      {{ container_definitions | dict2items
+         | selectattr('value.stack', 'defined')
+         | selectattr('value.stack', 'equalto', _current_stack)
+         | selectattr('value.fetch_files', 'defined')
+         | map(attribute='value.fetch_files') | flatten | list }}
+
+# Files an image does not ship (or drops on self-update) — checksum-pinned so a
+# changed upstream asset fails the deploy instead of silently swapping binaries.
+- name: "Fetch pinned files — {{ _current_stack }}"
+  become: true
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "{{ item.dest | replace('${APPSDIR}', docker_appsdir) }}"
+    checksum: "{{ item.checksum }}"
+    owner: "{{ docker_puid | default('1000') }}"
+    group: "{{ docker_pgid | default('1000') }}"
+    mode: "0644"
+  loop: "{{ _fetch_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+  when:
+    - _fetch_files | length > 0
+    - not ansible_check_mode
+    - not (dry_run | default(false) | bool)
+
 - name: "Start stack — {{ _current_stack }}"
   become: true
   community.docker.docker_compose_v2:

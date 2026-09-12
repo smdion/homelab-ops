@@ -42,7 +42,8 @@
 #     labels         — dict of container labels
 #     healthcheck    — dict with test, interval, timeout, retries, start_period
 #     depends_on     — list of service dependencies
-#     command        — override command
+#     entrypoint     — override entrypoint (list)
+#     command        — override command (string, or list rendered as JSON)
 #     profiles       — list of compose profiles
 #     privileged     — bool
 #     cap_add        — list of capabilities
@@ -51,6 +52,12 @@
 #     security_opt   — list of security options
 #     shm_size       — shared memory size (e.g., "2g")
 #     network_aliases — list of network aliases on the default network
+#
+# Pinned file fetch (optional — used by tasks/deploy_single_stack.yaml before compose up):
+#   fetch_files    — list of files the image does not ship; each fetched with get_url
+#     url            — download URL (pin a release, not "latest")
+#     dest           — host path (${APPSDIR} is substituted)
+#     checksum       — "sha256:<hex>" — a changed upstream asset fails the deploy
 #
 # Proxy generation fields (optional — used by deploy_swag_configs.yaml):
 #   proxy          — dict of complex proxy config (subdomain, locations, upstream_ip, etc.)
@@ -1223,10 +1230,75 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "20s"
+  netboot_proxy:
+    # ProxyDHCP for PXE: the UDMP keeps handing out addresses; this only answers
+    # PXE clients with a boot file, served over TFTP by netbootxyz (dev VIP).
+    # UniFi "Network Boot" must stay OFF on the network or its option 67 conflicts.
+    # Host network so it hears DHCP broadcasts — only VLAN 10 (dev VM has one NIC).
+    #
+    # Boot file = client arch (announced by the client) x MAC tag:
+    #   (untagged)  BIOS netboot.xyz.kpxe          UEFI netboot.xyz.efi
+    #   snp         BIOS netboot.xyz-undionly.kpxe UEFI netboot.xyz-snponly.efi
+    #   legacy      BIOS netboot.xyz-legacy.kpxe   UEFI netboot.xyz-legacy.efi
+    # snp = firmware NIC driver (iPXE NIC/USB drivers break e.g. Beelink keyboards);
+    # legacy = iPXE without USB NIC drivers. One tag per MAC: a client must match
+    # exactly one entry per arch, which also makes dnsmasq skip the PXE menu that
+    # many UEFI firmwares mishandle. BC_EFI = client-arch 7, x86-64_EFI = 9.
+    # Filenames contain a dot, so dnsmasq does not append the ".0" layer suffix.
+    # The image entrypoint ignores args, hence the entrypoint override.
+    image: "dockurr/dnsmasq"
+    tag: "2.93"
+    stack: dev
+    compose:
+      base: base
+      network_mode: host
+      cap_add: [NET_ADMIN, NET_RAW]
+      entrypoint: ["dnsmasq"]
+      command:
+        - "--keep-in-foreground"
+        - "--log-facility=-"
+        - "--port=0"
+        - "--log-dhcp"
+        - "--dhcp-range={{ vault_prod_lan_subnet | regex_replace('/.*$', '') }},proxy"
+        # snp — mini PCs, tagged by the onboard 1GbE MAC (the NIC that PXE boots;
+        # a USB 2.5G adapter MAC never matches)
+        - "--dhcp-mac=set:snp,78:55:36:04:f7:af"
+        - "--dhcp-mac=set:snp,b0:41:6f:0b:3b:3b"
+        - "--dhcp-mac=set:snp,b0:41:6f:0a:97:f9"
+        - "--dhcp-mac=set:snp,70:70:fc:01:7e:ae"
+        # legacy — none yet: "--dhcp-mac=set:legacy,<mac>"
+        - "--tag-if=set:special,tag:snp"
+        - "--tag-if=set:special,tag:legacy"
+        - "--pxe-service=tag:!special,x86PC,netboot.xyz BIOS,netboot.xyz.kpxe,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:snp,x86PC,netboot.xyz BIOS undionly,netboot.xyz-undionly.kpxe,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:legacy,x86PC,netboot.xyz BIOS legacy,netboot.xyz-legacy.kpxe,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:!special,BC_EFI,netboot.xyz UEFI,netboot.xyz.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:snp,BC_EFI,netboot.xyz UEFI snponly,netboot.xyz-snponly.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:legacy,BC_EFI,netboot.xyz UEFI legacy,netboot.xyz-legacy.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:!special,x86-64_EFI,netboot.xyz UEFI,netboot.xyz.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:snp,x86-64_EFI,netboot.xyz UEFI snponly,netboot.xyz-snponly.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:legacy,x86-64_EFI,netboot.xyz UEFI legacy,netboot.xyz-legacy.efi,{{ vault_dev_vip }}"
+      healthcheck:
+        test: ["CMD-SHELL", "pgrep -x dnsmasq >/dev/null || exit 1"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "10s"
   netbootxyz:
     image: "netbootxyz/netbootxyz"
     tag: "latest"
     stack: dev
+    # The image fetches the -legacy boot files only on first init; the web UI's
+    # menu upgrade (webapp upgrademenu) wipes menus/remote and re-downloads a
+    # hardcoded list without them. Pin them into the TFTP root, which the UI
+    # upgrade does not wipe. Bump url + checksum together (release sha256 file).
+    fetch_files:
+      - url: "https://github.com/netbootxyz/netboot.xyz/releases/download/3.0.3/netboot.xyz-legacy.kpxe"
+        dest: "${APPSDIR}/netboot/config/menus/netboot.xyz-legacy.kpxe"
+        checksum: "sha256:797486833a06f33d49e9bc730993b45770f8a2592e1de6d28a2b6c27eb7dd08e"
+      - url: "https://github.com/netbootxyz/netboot.xyz/releases/download/3.0.3/netboot.xyz-legacy.efi"
+        dest: "${APPSDIR}/netboot/config/menus/netboot.xyz-legacy.efi"
+        checksum: "sha256:c67b3e4674dfe5927bd6e8cb4a203e5422e50a2c8f590e9919294a5f938d58c4"
     compose:
       image_var: NETBOOT
       base: baseuid

@@ -162,8 +162,15 @@ services:
       - {{ dep }}
 {% endfor %}
 {% endif %}
+{% if c.entrypoint is defined %}
+    entrypoint: {{ c.entrypoint | to_json }}
+{% endif %}
 {% if c.command is defined %}
+{% if c.command is string %}
     command: {{ c.command }}
+{% else %}
+    command: {{ c.command | to_json }}
+{% endif %}
 {% endif %}
 {% if c.profiles | default([]) | length > 0 %}
     profiles: {{ c.profiles | to_json }}

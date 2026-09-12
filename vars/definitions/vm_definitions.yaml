@@ -70,6 +70,14 @@ vm_definitions:
         path: "/mnt/nfs/core"
       - src: "{{ vault_apps_vip }}:/opt"
         path: "/mnt/nfs/apps"
+    ufw_rules:                         # netboot_proxy runs network_mode: host, so UFW filters it (published ports bypass UFW)
+      - port: "67"                     # no src: PXE DHCPDISCOVER arrives from 0.0.0.0
+        proto: "udp"
+        comment: "netboot_proxy proxyDHCP"
+      - port: "4011"
+        proto: "udp"
+        src: "{{ vault_prod_lan_subnet }}"
+        comment: "netboot_proxy PXE boot server"
     stacks: [infra, dev]
     guacamole: { name: Dev, group: Docker }
     proxy:
