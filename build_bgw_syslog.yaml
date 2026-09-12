@@ -100,7 +100,7 @@
       ansible.builtin.command: >-
         pct create {{ bgw_ct_vmid }} local:vztmpl/{{ bgw_ct_template }}
         --hostname {{ bgw_ct_hostname }}
-        --unprivileged 1 --onboot 1
+        --unprivileged 1 --onboot 1 --features nesting=1
         --cores {{ bgw_ct_cores }} --memory {{ bgw_ct_memory_mb }} --swap {{ bgw_ct_swap_mb }}
         --rootfs {{ bgw_ct_rootfs }}
         --net0 name=eth0,bridge=vmbr0,ip={{ bgw_ct_mgmt_ip }},gw={{ bgw_ct_mgmt_gw }}
@@ -109,12 +109,26 @@
         --description "BGW syslog collector - managed by build_bgw_syslog.yaml"
       when: _ct.rc != 0
 
+    # systemd 252+ (Debian 12) in an unprivileged CT needs nesting (PVE default for new CTs)
+    - name: Ensure CT nesting is enabled
+      ansible.builtin.shell: |
+        pct config {{ bgw_ct_vmid }} | grep -q '^features:.*nesting=1' && echo ok && exit 0
+        pct set {{ bgw_ct_vmid }} --features nesting=1 && echo set
+      register: _nesting
+      changed_when: "'set' in _nesting.stdout"
+
     - name: Start the CT if it is not running
       ansible.builtin.shell: |
         pct status {{ bgw_ct_vmid }} | grep -q running && echo running && exit 0
         pct start {{ bgw_ct_vmid }} && echo started
       register: _start
       changed_when: "'started' in _start.stdout"
+
+    - name: Reboot the CT to apply nesting
+      ansible.builtin.command: pct reboot {{ bgw_ct_vmid }}
+      when:
+        - _nesting.changed
+        - "'started' not in _start.stdout"
 
     - name: Wait for CT network (DNS resolves)
       ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- getent hosts deb.debian.org
@@ -244,7 +258,7 @@
         msg:
           - "═══ BGW syslog collector — CT {{ bgw_ct_vmid }} on {{ inventory_hostname }} ═══"
           - "Bridge:        {{ bgw_bridge }} ← {{ bgw_bridge_port }}{{ ' (applied)' if _bridge_cfg.changed else '' }}"
-          - "CT:            {{ 'created' if _ct.rc != 0 else 'existing' }}, {{ _start.stdout }}"
+          - "CT:            {{ 'created' if _ct.rc != 0 else 'existing' }}, {{ _start.stdout_lines | last }}{{ ', nesting enabled' if _nesting.changed else '' }}"
           - "Files pushed:  {{ _pushed.results | selectattr('changed', 'defined') | selectattr('changed') | map(attribute='item.item.dest') | list | join(', ') or 'none' }}"
           - "rsyslog={{ _h.rsyslog }} udmp-monitor={{ _h.udmp_monitor }} BGW reachable={{ _h.bgw_reachable }}"
           - "BGW syslog packets in 15s: {{ _h.bgw_pkts_15s }}{{ '  ← none: check the BGW syslog target is ' + bgw_ct_bgw_ip.split('/')[0] if _h.bgw_pkts_15s | int == 0 else '' }}"
