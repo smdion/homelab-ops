@@ -1751,6 +1751,54 @@
             host_health_issues: >-
               {{ host_health_issues + [{'check_name': 'unraid_array', 'status': 'critical', 'value': 'check_error', 'detail': 'unraid array check task failed'}] }}
 
+    # ── CHECK 22b: PIA VPN tunnel health (liberty only, via pia_port_forward.py's own log) ──
+    # pia_port_forward.py already fails loudly every ~15min when the tunnel is down
+    # (docker exec curl through it times out) but only ever logged that locally —
+    # nothing surfaced it until it was noticed by hand hours into an outage
+    # (2026-09-12). This reads its existing log rather than re-probing the tunnel
+    # itself, so it stays a passive read of state the script already produces.
+    - name: Check PIA VPN tunnel health
+      block:
+        - name: Count trailing consecutive ERROR lines in pia_port_forward's log
+          ansible.builtin.shell: |
+            LOG=/mnt/user/appdata/transmission/pia_pf/pia_pf.log
+            if [ ! -f "$LOG" ]; then echo "no_log"; exit 0; fi
+            tail -20 "$LOG" | awk '{if ($0 ~ /ERROR/) run++; else run=0} END{print run+0}'
+          register: _pia_vpn_raw
+          changed_when: false
+          failed_when: false  # observational — VPN tunnel health probe; failure recorded in host_health_issues
+          check_mode: false
+
+        - name: Record PIA VPN tunnel result
+          ansible.builtin.set_fact:
+            host_health_issues: >-
+              {{
+                host_health_issues + [{
+                  'check_name': 'pia_vpn_tunnel',
+                  'status': (
+                    'ok' if _pia_vpn_raw.stdout == 'no_log'
+                    else ('critical' if _pia_vpn_raw.stdout | trim | int(0) >= 2
+                    else ('warning' if _pia_vpn_raw.stdout | trim | int(0) == 1
+                    else 'ok'))
+                  ),
+                  'value': (
+                    'not applicable' if _pia_vpn_raw.stdout == 'no_log'
+                    else (_pia_vpn_raw.stdout | trim + ' consecutive failed refresh(es)' if _pia_vpn_raw.stdout | trim | int(0) > 0
+                    else 'tunnel healthy')
+                  ),
+                  'detail': (
+                    '' if _pia_vpn_raw.stdout == 'no_log' or _pia_vpn_raw.stdout | trim | int(0) == 0
+                    else 'pia_port_forward.py has been failing to rebind through the tunnel — VPN is likely down'
+                  )
+                }]
+              }}
+
+      rescue:
+        - name: Record PIA VPN tunnel check error
+          ansible.builtin.set_fact:
+            host_health_issues: >-
+              {{ host_health_issues + [{'check_name': 'pia_vpn_tunnel', 'status': 'critical', 'value': 'check_error', 'detail': 'pia vpn tunnel check task failed'}] }}
+
     # ── CHECK 23: PBS datastore health (PBS only) ───────────────────────────────
     - name: Check PBS datastore health
       when: "'pbs' in group_names"
