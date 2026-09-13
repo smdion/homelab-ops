@@ -398,6 +398,23 @@ host_definitions:
             auth: true
             includes: [proxmox]
 
+  # Proxmox Datacenter Manager — VM 602, central view over the PVE cluster, sentinel and PBS.
+  # Installed from the Proxmox ISO (interactive), so it is not built by a playbook.
+  pdm:
+    vm_hostname: "pdm.{{ vault_vm_search_domain }}"
+    proxy:
+      - subdomain: pdm
+        upstream_ip: "10.10.10.62"
+        external: false
+        server_directives:
+          - "proxy_redirect off"
+        locations:
+          - path: /
+            port: 8443              # PDM web UI (HTTPS)
+            proto: https
+            auth: true
+            includes: [proxmox]     # same upgrade/websocket handling as the PVE UIs
+
   # --- Services on misc hosts (not in container_definitions) ---
   octoprint_host:
     vm_hostname: "octoprint.{{ vault_vm_search_domain }}"
