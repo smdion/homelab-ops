@@ -16,6 +16,15 @@ if ! call '{"method":"get_dhcp_mode"}' | grep -q '"dhcp_mode": *1\b'; then
   exit 1
 fi
 
+# iVentoy refuses to start the PXE service with an empty ISO library ("No image file
+# detected"), which is the normal state on a fresh build. Leave the web UI running so
+# ISOs can be added, and say so - do not fail the unit.
+if call '{"method":"get_img_summary"}' | grep -q '"count": *0\b'; then
+  echo "iVentoy: External DHCP mode set. PXE service idle - the ISO library is empty."
+  echo "Add an ISO (web UI on port {{ iventoy_ui_port }} or {{ iventoy_dir }}/iso), then: systemctl restart iventoy"
+  exit 0
+fi
+
 if ! call '{"method":"query_status"}' | grep -q '"running"'; then
   call '{"method":"start_server","ip":"{{ vm_definitions.iventoy.vm_ip }}","mask":"255.255.255.0","gw":"{{ vm_gateway }}","pool_begin":"{{ iventoy_pool_begin }}","pool_end":"{{ iventoy_pool_end }}","dns_server":""}' >/dev/null
 fi

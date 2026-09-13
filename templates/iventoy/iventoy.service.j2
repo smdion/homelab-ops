@@ -6,7 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=forking
-PIDFile=/var/run/iventoy.pid
+PIDFile=/run/iventoy.pid
 WorkingDirectory={{ iventoy_dir }}
 ExecStart={{ iventoy_dir }}/iventoy.sh start
 # Forces External DHCP mode and starts the PXE service; fails the unit otherwise

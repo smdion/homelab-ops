@@ -94,6 +94,12 @@
         mode: "0644"
       notify: Restart iVentoy
 
+    # Repeated failed starts can leave systemd rate-limiting the unit
+    - name: Clear any failed state on the iVentoy unit
+      ansible.builtin.command: systemctl reset-failed iventoy
+      changed_when: false
+      failed_when: false
+
     - name: Enable and start iVentoy
       ansible.builtin.systemd:
         name: iventoy
@@ -120,13 +126,32 @@
         body: { method: query_status }
       register: _iventoy_status
 
-    - name: Assert iVentoy is External + running
+    - name: Read iVentoy ISO library summary
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ iventoy_ui_port }}/iventoy/json"
+        method: POST
+        body_format: json
+        body: { method: get_img_summary }
+      register: _iventoy_images
+
+    # iVentoy will not start the PXE service while the ISO library is empty ("No image
+    # file detected") — expected on a fresh build, so only require it once ISOs exist.
+    - name: Assert iVentoy is in External DHCP mode, and serving if it has ISOs
       ansible.builtin.assert:
         that:
           - _iventoy_mode.json.dhcp_mode | int == 1
-          - _iventoy_status.json.status == 'running'
-        fail_msg: "iVentoy is not External + running: mode={{ _iventoy_mode.json }} status={{ _iventoy_status.json }}"
-        success_msg: "iVentoy {{ iventoy_version }}: External DHCP mode, PXE service running"
+          - _iventoy_status.json.status == 'running' or _iventoy_images.json.count | int == 0
+        fail_msg: "iVentoy unhealthy: mode={{ _iventoy_mode.json }} status={{ _iventoy_status.json }} images={{ _iventoy_images.json }}"
+        quiet: true
+
+    - name: Display iVentoy state
+      ansible.builtin.debug:
+        msg: >-
+          iVentoy {{ iventoy_version }} on {{ vm_definitions.iventoy.vm_ip }}:
+          External DHCP mode, {{ _iventoy_images.json.count }} ISO(s),
+          PXE service {{ _iventoy_status.json.status }}.
+          {{ 'Add an ISO (web UI port ' ~ iventoy_ui_port ~ ') then rerun this playbook to start serving.'
+             if _iventoy_images.json.count | int == 0 else '' }}
 
   handlers:
     - name: Restart iVentoy
