@@ -1,0 +1,19 @@
+# Managed by homelab-ops (build_iventoy.yaml) - do not edit.
+[Unit]
+Description=iVentoy PXE ISO boot server (External DHCP mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+PIDFile=/var/run/iventoy.pid
+WorkingDirectory={{ iventoy_dir }}
+ExecStart={{ iventoy_dir }}/iventoy.sh start
+# Forces External DHCP mode and starts the PXE service; fails the unit otherwise
+ExecStartPost=/usr/local/sbin/iventoy-configure
+ExecStop={{ iventoy_dir }}/iventoy.sh stop
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

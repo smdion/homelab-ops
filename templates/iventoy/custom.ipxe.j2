@@ -1,0 +1,25 @@
+#!ipxe
+# Managed by homelab-ops (build_iventoy.yaml) - do not edit here; changes are overwritten.
+# netboot.xyz "Custom URL Menu" -> boot an ISO via iVentoy ({{ _iv_ip }}).
+menu Boot an ISO (iVentoy)
+item --gap ISO library: add or remove ISOs at http://{{ _iv_ip }}:{{ iventoy_ui_port }}
+item iventoy Boot an ISO from the iVentoy library
+item back    Back to the netboot.xyz menu
+choose --default iventoy target || goto back
+goto ${target}
+
+:iventoy
+# iVentoy loaders fetch their next stage from the DHCP next-server, and the UDMP DHCP
+# names itself - point it at iVentoy before chaining.
+set net0.dhcp/next-server {{ _iv_ip }} ||
+set next-server {{ _iv_ip }}
+iseq ${platform} efi && goto iventoy_efi ||
+chain tftp://{{ _iv_ip }}/iventoy_loader_{{ iventoy_http_port }}_bios || goto failed
+:iventoy_efi
+chain tftp://{{ _iv_ip }}/iventoy_loader_{{ iventoy_http_port }}_uefi || goto failed
+
+:failed
+echo Could not reach iVentoy at {{ _iv_ip }} - press any key to go back
+prompt
+:back
+exit

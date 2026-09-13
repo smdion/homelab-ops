@@ -1,0 +1,24 @@
+---
+# iVentoy — PXE ISO boot server on VM `iventoy` (vars/definitions/vm_definitions.yaml).
+# Consumed by build_iventoy.yaml; file templates live in templates/iventoy/.
+# Users reach it from netboot.xyz's "Custom URL Menu" -> "Boot an ISO (iVentoy)".
+# DHCP mode is forced to External on every start: iVentoy never answers DHCP here
+# (the UDMP is the DHCP server; netboot_proxy is the only proxyDHCP).
+
+# ── Release — bump version and sha256 together (sha256 from the release's sha256.txt) ──
+iventoy_version: "1.0.42"
+iventoy_sha256: "73955d3b52925e76f9b2045ea11809563813e03e7ff4a912c0331b20f71b2dbc"
+iventoy_url: "https://github.com/ventoy/PXE/releases/download/v{{ iventoy_version }}/iventoy-{{ iventoy_version }}-linux-x86_64-free.tar.gz"
+iventoy_dir: "/opt/iventoy"                  # ISO library: /opt/iventoy/iso
+
+# ── Ports (iVentoy defaults) ──
+iventoy_ui_port: 26000                       # web UI + JSON API
+iventoy_http_port: 16000                     # also part of the loader names (iventoy_loader_16000_*)
+
+# start_server requires a DHCP pool even though External mode never leases. Point it at
+# the UDMP's documented DHCP range (homelab-docs ip-scheme: 10.10.10.200+).
+iventoy_pool_begin: "10.10.10.200"
+iventoy_pool_end: "10.10.10.219"
+
+# ── netboot.xyz hook — files in netbootxyz's menus dir on the dev host ──
+iventoy_netboot_menus_dir: "{{ docker_appsdir }}/netboot/config/menus"

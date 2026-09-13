@@ -1,0 +1,5 @@
+#!ipxe
+# Managed by homelab-ops (build_iventoy.yaml) - do not edit here; changes are overwritten.
+# netboot.xyz local overrides - netboot.xyz loads this file from its menus dir at boot.
+# custom_url turns on netboot.xyz's "Custom URL Menu", which loads custom.ipxe.
+set custom_url tftp://{{ vault_dev_vip }}

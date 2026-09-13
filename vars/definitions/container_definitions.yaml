@@ -1279,32 +1279,35 @@ container_definitions:
         - "--dhcp-mac=set:snp,b0:41:6f:0a:97:f9"
         - "--dhcp-mac=set:snp,70:70:fc:01:7e:ae"
         # legacy — none yet: "--dhcp-mac=set:legacy,<mac>"
-        - "--tag-if=set:special,tag:snp"
-        - "--tag-if=set:special,tag:legacy"
+        # skip-default = must not get the default netboot.xyz file: the MAC-tagged
+        # variants above, and iVentoy's BIOS loader (see the iVentoy block below)
+        - "--tag-if=set:skip-default,tag:snp"
+        - "--tag-if=set:skip-default,tag:legacy"
+        - "--tag-if=set:skip-default,tag:iventoy"
         # BIOS iPXE (user class iPXE) re-DHCP: dnsmasq fills siaddr/filename in proxy
         # replies only for UEFI (pxe_uefi_workaround); for x86PC it sends just a PXE menu,
         # which iPXE registers with an empty next-server -> falls back to the UDMP.
         # dhcp-boot gives those replies the VIP + the same netboot.xyz file. Firmware PXE
         # (no iPXE user class) and UEFI (workaround path) are unaffected.
         - "--dhcp-userclass=set:ipxe,iPXE"
-        - "--dhcp-boot=tag:ipxe,tag:!special,netboot.xyz.kpxe,,{{ vault_dev_vip }}"
+        - "--dhcp-boot=tag:ipxe,tag:!skip-default,netboot.xyz.kpxe,,{{ vault_dev_vip }}"
         - "--dhcp-boot=tag:ipxe,tag:snp,netboot.xyz-undionly.kpxe,,{{ vault_dev_vip }}"
         - "--dhcp-boot=tag:ipxe,tag:legacy,netboot.xyz-legacy.kpxe,,{{ vault_dev_vip }}"
-        # TEST (iVentoy trial, 2026-09-12): iVentoy's BIOS loader re-DHCPs with user class
-        # "iVentoy"; hand it iVentoy's documented External-mode answer (next-server =
-        # iVentoy, bootfile = its loader) instead of netboot.xyz. Remove if iVentoy is dropped.
+        # iVentoy (VM iventoy, ISO boot from netboot.xyz's Custom URL Menu, build_iventoy.yaml):
+        # its BIOS loader re-DHCPs with user class "iVentoy"; answer it the way iVentoy's
+        # External mode expects (next-server = iVentoy, bootfile = its loader; 16000 is
+        # iVentoy's HTTP port, part of the loader name). skip-default keeps the netboot.xyz
+        # entries from answering it - it would loop back into netboot.xyz. The UEFI loader
+        # does not re-DHCP and needs none of this.
         - "--dhcp-userclass=set:iventoy,iVentoy"
-        - "--dhcp-boot=tag:iventoy,iventoy_loader_16000_bios,,10.10.10.62"
-        # ...and keep the netboot.xyz pxe-service menu away from it (its boot-server step
-        # otherwise answers netboot.xyz.kpxe and the loader loops back into netboot.xyz)
-        - "--tag-if=set:special,tag:iventoy"
-        - "--pxe-service=tag:!special,x86PC,netboot.xyz BIOS,netboot.xyz.kpxe,{{ vault_dev_vip }}"
+        - "--dhcp-boot=tag:iventoy,iventoy_loader_16000_bios,,{{ vm_definitions.iventoy.vm_ip }}"
+        - "--pxe-service=tag:!skip-default,x86PC,netboot.xyz BIOS,netboot.xyz.kpxe,{{ vault_dev_vip }}"
         - "--pxe-service=tag:snp,x86PC,netboot.xyz BIOS undionly,netboot.xyz-undionly.kpxe,{{ vault_dev_vip }}"
         - "--pxe-service=tag:legacy,x86PC,netboot.xyz BIOS legacy,netboot.xyz-legacy.kpxe,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:!special,BC_EFI,netboot.xyz UEFI,netboot.xyz.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:!skip-default,BC_EFI,netboot.xyz UEFI,netboot.xyz.efi,{{ vault_dev_vip }}"
         - "--pxe-service=tag:snp,BC_EFI,netboot.xyz UEFI snponly,netboot.xyz-snponly.efi,{{ vault_dev_vip }}"
         - "--pxe-service=tag:legacy,BC_EFI,netboot.xyz UEFI legacy,netboot.xyz-legacy.efi,{{ vault_dev_vip }}"
-        - "--pxe-service=tag:!special,x86-64_EFI,netboot.xyz UEFI,netboot.xyz.efi,{{ vault_dev_vip }}"
+        - "--pxe-service=tag:!skip-default,x86-64_EFI,netboot.xyz UEFI,netboot.xyz.efi,{{ vault_dev_vip }}"
         - "--pxe-service=tag:snp,x86-64_EFI,netboot.xyz UEFI snponly,netboot.xyz-snponly.efi,{{ vault_dev_vip }}"
         - "--pxe-service=tag:legacy,x86-64_EFI,netboot.xyz UEFI legacy,netboot.xyz-legacy.efi,{{ vault_dev_vip }}"
       healthcheck:

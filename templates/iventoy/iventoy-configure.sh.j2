@@ -1,0 +1,28 @@
+#!/bin/bash
+# Managed by homelab-ops (build_iventoy.yaml) - do not edit.
+# Runs after iVentoy starts (systemd ExecStartPost). Forces External DHCP mode on every
+# start - iVentoy must never answer DHCP here: the UDMP is the DHCP server and
+# netboot_proxy the only proxyDHCP - then starts the PXE service. Exits non-zero
+# (failing the unit) unless iVentoy ends up External + running.
+API="http://127.0.0.1:{{ iventoy_ui_port }}/iventoy/json"
+call() { curl -fsS -m 5 -X POST -H "Content-Type: application/json" -d "$1" "$API"; }
+
+for i in $(seq 1 30); do call '{"method":"query_status"}' >/dev/null 2>&1 && break; sleep 1; done
+
+call '{"method":"set_dhcp_mode","dhcp_mode":1}' >/dev/null
+call '{"method":"set_ipxe_embed_script","ipxe_embed_script":true}' >/dev/null
+if ! call '{"method":"get_dhcp_mode"}' | grep -q '"dhcp_mode": *1\b'; then
+  echo "iVentoy DHCP mode is not External - not starting the PXE service" >&2
+  exit 1
+fi
+
+if ! call '{"method":"query_status"}' | grep -q '"running"'; then
+  call '{"method":"start_server","ip":"{{ vm_definitions.iventoy.vm_ip }}","mask":"255.255.255.0","gw":"{{ vm_gateway }}","pool_begin":"{{ iventoy_pool_begin }}","pool_end":"{{ iventoy_pool_end }}","dns_server":""}' >/dev/null
+fi
+
+for i in $(seq 1 10); do
+  call '{"method":"query_status"}' | grep -q '"running"' && { echo "iVentoy: External DHCP mode, PXE service running"; exit 0; }
+  sleep 1
+done
+echo "iVentoy PXE service did not start" >&2
+exit 1

@@ -181,6 +181,31 @@ vm_definitions:
     vnc_display: 80                    # display :80 = port 5980
     guacamole: { name: Sandbox, group: Hosted Desktops, protocol: vnc, user_groups: [Guac-Sandbox] }
 
+  # iVentoy — PXE ISO boot server (build_iventoy.yaml), reached from netboot.xyz's
+  # "Custom URL Menu". External DHCP mode only: it never answers DHCP on this LAN.
+  iventoy:
+    vm_id: 901
+    vm_name: iventoy
+    vm_mac: "02:00:00:00:03:85"         # static MAC — stable Unifi device identity; encodes VMID 901 (0x385)
+    vm_hostname: "iventoy.{{ vault_vm_search_domain }}"
+    vm_ip: "10.10.10.91"               # Sentinel host VMs (.9x) — derived from VMID scheme (901 → .91)
+    vm_cores: 2
+    vm_memory_mb: 2048
+    vm_disk_gb: 64                     # the ISO library lives on this disk (/opt/iventoy/iso)
+    pve_storage: "local-lvm"           # sentinel local storage — not replicated
+    pve_target_node: "sentinel"
+    install_docker: false
+    install_desktop: false
+    ufw_rules:                         # iVentoy default ports (vars/configs/iventoy.yaml)
+      - { port: "67", proto: "udp", comment: "iVentoy DHCP snooping (listen only; DISCOVER comes from 0.0.0.0)" }
+      - { port: "69", proto: "udp", src: "{{ vault_prod_lan_subnet }}", comment: "iVentoy TFTP loaders" }
+      - { port: "16000", proto: "tcp", src: "{{ vault_prod_lan_subnet }}", comment: "iVentoy HTTP boot + ISO data" }
+      - { port: "26000", proto: "tcp", src: "{{ vault_prod_lan_subnet }}", comment: "iVentoy web UI + API" }
+      - { port: "3260", proto: "tcp", src: "{{ vault_prod_lan_subnet }}", comment: "iVentoy iSCSI (ISO as a disk)" }
+      - { port: "10809", proto: "tcp", src: "{{ vault_prod_lan_subnet }}", comment: "iVentoy NBD" }
+      - { port: "12049", proto: "tcp", src: "{{ vault_prod_lan_subnet }}", comment: "iVentoy NFS" }
+      - { port: "10445", proto: "tcp", src: "{{ vault_prod_lan_subnet }}", comment: "iVentoy SMB" }
+
   # Hosted desktop VMs — VNC-only access through Guacamole + Authentik groups.
   # Not provisioned via build_ubuntu.yaml (manually created in Proxmox).
   # vm_id + vnc_display are the minimum fields needed for VNC connection resolution.

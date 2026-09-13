@@ -1,0 +1,160 @@
+---
+# Category: Build & Provision
+# Schedule: none
+# Install/converge iVentoy (PXE ISO boot server) on VM `iventoy` and hook it into netboot.xyz.
+# Users pick netboot.xyz "Custom URL Menu" -> "Boot an ISO (iVentoy)"; netboot.xyz itself is untouched.
+#
+#   - VM: create it first with build_ubuntu.yaml -e vm_name=iventoy (vm_definitions.iventoy, incl. UFW)
+#   - iVentoy: pinned release + systemd unit. iventoy-configure (ExecStartPost) forces External
+#     DHCP mode on every start - iVentoy never answers DHCP here - then starts the PXE service.
+#   - netboot.xyz hook: local-vars.ipxe + custom.ipxe in netbootxyz's menus dir (dev host)
+#   - netboot_proxy (container_definitions.yaml) answers iVentoy's BIOS loader - see its comments
+#
+# Idempotent. ISOs: upload in the iVentoy web UI (http://<vm ip>:26000) or copy to /opt/iventoy/iso.
+#
+# Usage:
+#   ansible-playbook build_ubuntu.yaml -e vm_name=iventoy     # once - creates the VM
+#   ansible-playbook build_iventoy.yaml
+#
+# Config: vars/configs/iventoy.yaml · Templates: templates/iventoy/
+
+- name: Resolve iVentoy VM
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/vm_definitions.yaml
+  tasks:
+    - name: Add iVentoy VM to in-memory inventory
+      ansible.builtin.add_host:
+        name: iventoy_vm
+        ansible_host: "{{ vm_definitions.iventoy.vm_ip }}"
+        ansible_user: ansible
+        groups: iventoy_target
+      changed_when: false
+
+- name: Install and configure iVentoy
+  hosts: iventoy_target
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/iventoy.yaml
+
+  tasks:
+    - name: Ensure iVentoy directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ iventoy_dir }}"
+        - "{{ iventoy_dir }}/iso"
+        - /opt/iventoy-dist
+
+    - name: Download pinned iVentoy release
+      ansible.builtin.get_url:
+        url: "{{ iventoy_url }}"
+        dest: "/opt/iventoy-dist/iventoy-{{ iventoy_version }}.tar.gz"
+        checksum: "sha256:{{ iventoy_sha256 }}"
+        mode: "0644"
+
+    # Unpacks over the existing dir: data/config.dat and iso/ are not in the tarball, so
+    # settings and the ISO library survive upgrades. Re-done only when the version changes.
+    - name: Unpack iVentoy
+      ansible.builtin.unarchive:
+        src: "/opt/iventoy-dist/iventoy-{{ iventoy_version }}.tar.gz"
+        dest: "{{ iventoy_dir }}"
+        remote_src: true
+        extra_opts: ["--strip-components=1"]
+        creates: "{{ iventoy_dir }}/.installed-{{ iventoy_version }}"
+      register: _iventoy_unpack
+      notify: Restart iVentoy
+
+    - name: Record installed iVentoy version
+      ansible.builtin.copy:
+        content: "{{ iventoy_version }}\n"
+        dest: "{{ iventoy_dir }}/.installed-{{ iventoy_version }}"
+        mode: "0644"
+      when: _iventoy_unpack.changed
+
+    - name: Install iVentoy configure script
+      ansible.builtin.template:
+        src: templates/iventoy/iventoy-configure.sh.j2
+        dest: /usr/local/sbin/iventoy-configure
+        mode: "0755"
+      notify: Restart iVentoy
+
+    - name: Install iVentoy systemd unit
+      ansible.builtin.template:
+        src: templates/iventoy/iventoy.service.j2
+        dest: /etc/systemd/system/iventoy.service
+        mode: "0644"
+      notify: Restart iVentoy
+
+    - name: Enable and start iVentoy
+      ansible.builtin.systemd:
+        name: iventoy
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Apply pending iVentoy restarts
+      ansible.builtin.meta: flush_handlers
+
+    - name: Read iVentoy DHCP mode
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ iventoy_ui_port }}/iventoy/json"
+        method: POST
+        body_format: json
+        body: { method: get_dhcp_mode }
+      register: _iventoy_mode
+
+    - name: Read iVentoy PXE service status
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ iventoy_ui_port }}/iventoy/json"
+        method: POST
+        body_format: json
+        body: { method: query_status }
+      register: _iventoy_status
+
+    - name: Assert iVentoy is External + running
+      ansible.builtin.assert:
+        that:
+          - _iventoy_mode.json.dhcp_mode | int == 1
+          - _iventoy_status.json.status == 'running'
+        fail_msg: "iVentoy is not External + running: mode={{ _iventoy_mode.json }} status={{ _iventoy_status.json }}"
+        success_msg: "iVentoy {{ iventoy_version }}: External DHCP mode, PXE service running"
+
+  handlers:
+    - name: Restart iVentoy
+      ansible.builtin.systemd:
+        name: iventoy
+        state: restarted
+        daemon_reload: true
+
+- name: Hook iVentoy into netboot.xyz (Custom URL Menu)
+  hosts: dev
+  become: true
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/docker_stacks.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/configs/iventoy.yaml
+  vars:
+    _iv_ip: "{{ vm_definitions.iventoy.vm_ip }}"
+
+  tasks:
+    - name: Install netboot.xyz menu hook files
+      ansible.builtin.template:
+        src: "templates/iventoy/{{ item }}.j2"
+        dest: "{{ iventoy_netboot_menus_dir }}/{{ item }}"
+        owner: "{{ docker_puid | default('1000') }}"
+        group: "{{ docker_pgid | default('1000') }}"
+        mode: "0644"   # world-readable: netboot_proxy's dnsmasq serves TFTP as nobody
+      loop:
+        - local-vars.ipxe
+        - custom.ipxe
