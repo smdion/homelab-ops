@@ -126,6 +126,15 @@
         body: { method: query_status }
       register: _iventoy_status
 
+    # iVentoy scans the ISO dir at startup; ISOs copied in later need a refresh
+    - name: Refresh the iVentoy ISO library
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ iventoy_ui_port }}/iventoy/json"
+        method: POST
+        body_format: json
+        body: { method: refresh_img_list }
+      changed_when: false
+
     - name: Read iVentoy ISO library summary
       ansible.builtin.uri:
         url: "http://127.0.0.1:{{ iventoy_ui_port }}/iventoy/json"
@@ -133,6 +142,36 @@
         body_format: json
         body: { method: get_img_summary }
       register: _iventoy_images
+
+    # iVentoy will not start the PXE service while the ISO library is empty, so it stays
+    # idle until ISOs are added (uploaded in the web UI, or copied into the iso dir).
+    - name: Start the PXE service if it is idle and ISOs are present
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ iventoy_ui_port }}/iventoy/json"
+        method: POST
+        body_format: json
+        body:
+          method: start_server
+          ip: "{{ vm_definitions.iventoy.vm_ip }}"
+          mask: "255.255.255.0"
+          gw: "{{ vm_gateway }}"
+          pool_begin: "{{ iventoy_pool_begin }}"
+          pool_end: "{{ iventoy_pool_end }}"
+          dns_server: ""
+      when:
+        - _iventoy_status.json.status != 'running'
+        - _iventoy_images.json.count | int > 0
+      changed_when: true
+      register: _iventoy_started
+
+    - name: Re-read iVentoy PXE service status
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ iventoy_ui_port }}/iventoy/json"
+        method: POST
+        body_format: json
+        body: { method: query_status }
+      register: _iventoy_status
+      when: _iventoy_started.changed
 
     # iVentoy will not start the PXE service while the ISO library is empty ("No image
     # file detected") — expected on a fresh build, so only require it once ISOs exist.
