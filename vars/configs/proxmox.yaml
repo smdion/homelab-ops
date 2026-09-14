@@ -40,6 +40,17 @@ pve_api_port: 8006
 
 src_raw_files:
   - "/etc"
+# tar -h (backup_hosts.yaml) dereferences symlinks so unRAID's /mnt/user/appdata
+# symlink-to-cache archives correctly (see e7995f9) — but that also dereferences
+# these /dev/null-masked systemd generator/unit/udev-rule symlinks into literal
+# character-device archive entries, which fail to extract with EPERM (confirmed
+# on the verify-staging path; needs real CAP_MKNOD + a device-capable filesystem).
+# Masks, not real config — excluded rather than working around tar's dereference
+# globally.
+backup_exclude_dirs:
+  - /etc/udev/rules.d/60-bridge-network-interface.rules
+  - /etc/systemd/system-generators/systemd-gpt-auto-generator
+  - /etc/systemd/system/netdata.service
 backup_name: "{{ 'PBS' if inventory_hostname in groups['pbs'] else ('PVE' if inventory_hostname in groups['pve'] else 'Proxmox') }}"
 backup_description: "Automatic Proxmox Backup"
 backup_type: "Appliances"
