@@ -109,9 +109,12 @@ update_subtype: "OS"
 
 # Directories excluded from the appdata archive (backup_hosts.yaml).
 # Only for dirs that have dedicated backup jobs (SQL dumps or API exports).
+# No leading slash — tar (-C /) stores archive members without one, and a
+# leading "/" in --exclude can never match (confirmed the hard way on the
+# Proxmox config backup's masked-unit excludes).
 # backup_exclude_dirs:
-#   - /opt/mariadb
-#   - /opt/postgres
+#   - opt/mariadb
+#   - opt/postgres
 
 # =============================================================================
 # MAINTENANCE SETTINGS — deployment-specific values used by maintain_*.yaml

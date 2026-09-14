@@ -47,10 +47,13 @@ src_raw_files:
 # on the verify-staging path; needs real CAP_MKNOD + a device-capable filesystem).
 # Masks, not real config — excluded rather than working around tar's dereference
 # globally.
+# NOTE: no leading slash — tar (-C /) stores members as "etc/...", and a
+# --exclude pattern starting with "/" can never match that (confirmed: with
+# the leading slash, the archive still contained the masked units).
 backup_exclude_dirs:
-  - /etc/udev/rules.d/60-bridge-network-interface.rules
-  - /etc/systemd/system-generators/systemd-gpt-auto-generator
-  - /etc/systemd/system/netdata.service
+  - etc/udev/rules.d/60-bridge-network-interface.rules
+  - etc/systemd/system-generators/systemd-gpt-auto-generator
+  - etc/systemd/system/netdata.service
 backup_name: "{{ 'PBS' if inventory_hostname in groups['pbs'] else ('PVE' if inventory_hostname in groups['pve'] else 'Proxmox') }}"
 backup_description: "Automatic Proxmox Backup"
 backup_type: "Appliances"
