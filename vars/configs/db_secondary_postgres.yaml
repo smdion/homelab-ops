@@ -1,5 +1,11 @@
 # vault_db_password is in vars/secrets.yaml (vault)
 db_host: "{{ vault_db_host_secondary }}"
+# db_host is redemption (bare-metal unRAID, not a cloud-init VM) — the global
+# backup_tmp_dir default (/backup, group_vars/all.yaml) only exists on VM hosts.
+# This config file loads standalone (hosts_variable=db_secondary_postgres), so
+# it doesn't inherit docker_run.yaml/unraid_os.yaml's override — set it directly,
+# matching the same real path those files already use on this host.
+backup_tmp_dir: "/mnt/user/Backup/ansibletemp/"
 backup_stack: databases
 backup_name: "Database"
 backup_url: "https://sql.{{ vault_domain_ext }}"
