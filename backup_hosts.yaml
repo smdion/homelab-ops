@@ -517,19 +517,6 @@
             - _src_dir_content is defined
             - _src_dir_content.stdout is defined
 
-        # When exclude dirs are defined, convert directory paths to globs (e.g. /opt → /opt/*)
-        # so community.general.archive expands them to individual items that exclude_path can match.
-        - name: Convert paths to globs for exclusion support
-          ansible.builtin.set_fact:
-            _archive_paths: >-
-              {{ (_validated_backup_paths | default(src_raw_files))
-                 | map('regex_replace', '/?$', '/*') | list }}
-          when:
-            - inventory_hostname not in groups["docker_stacks"] | default([])
-            - inventory_hostname not in groups["unifi_protect"]
-            - inventory_hostname not in groups["amp"] | default([])
-            - backup_exclude_dirs | default([]) | length > 0
-
         # === unRAID: snapshot disk assignments to boot config (included in /boot archive) ===
         - name: Snapshot unRAID disk assignments to boot config
           ansible.builtin.copy:
@@ -606,7 +593,7 @@
               --exclude='{{ excl }}' \
               {% endfor %}
               -C / \
-              {{ (_archive_paths | default(_validated_backup_paths, true) | default(src_raw_files, true)) | map('regex_replace', '^/', '') | join(' ') }}
+              {{ (_validated_backup_paths | default(src_raw_files, true)) | map('regex_replace', '^/', '') | join(' ') }}
           register: _tar_result
           failed_when: _tar_result.rc > 1
           timeout: 3600
