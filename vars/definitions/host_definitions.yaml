@@ -97,11 +97,11 @@ host_definitions:
       - subdomain: photos
         aliases: [immich]
         upstream_ip: "10.10.10.17"
-        auth: true
+        auth: false
         locations:
           - path: /
             port: 8081
-            auth: true
+            auth: false
             includes: [proxy]
           - path: "~ (/immich)?/api"
             port: 8081
