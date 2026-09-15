@@ -97,13 +97,21 @@ host_definitions:
       - subdomain: photos
         aliases: [immich]
         upstream_ip: "10.10.10.17"
-        auth: false
+        auth: true
         locations:
           - path: /
             port: 8081
-            auth: false
+            auth: true
             includes: [proxy]
           - path: "~ (/immich)?/api"
+            port: 8081
+            auth: false
+            includes: [proxy]
+          # Mobile app server-discovery/OAuth-config endpoint, hit before login —
+          # must bypass Authentik same as /api or mobile login fails (confirmed
+          # 2026-09-15: Immich's mobile client now requires this in addition to
+          # /api, which alone used to be sufficient).
+          - path: "= /.well-known/immich"
             port: 8081
             auth: false
             includes: [proxy]
