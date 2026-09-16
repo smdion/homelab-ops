@@ -1447,6 +1447,17 @@
           ansible.builtin.set_fact:
             _ceph_out: "{{ (_ceph_raw.stdout | default('CEPH_UNREACHABLE')) | trim }}"
 
+        - name: Determine if Ceph probe output counts as healthy
+          # A sticky-muted check (ceph health mute <ID> --sticky) makes `ceph health`
+          # return "HEALTH_OK (muted: ...)", not a bare "HEALTH_OK" -- an exact-match
+          # comparison misses this and misreports critical. startswith covers both.
+          ansible.builtin.set_fact:
+            _ceph_ok: >-
+              {{
+                _ceph_out.startswith('HEALTH_OK')
+                or _ceph_out in ['CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED']
+              }}
+
         - name: Record Ceph health result
           ansible.builtin.set_fact:
             host_health_issues: >-
@@ -1454,7 +1465,7 @@
                 host_health_issues + [{
                   'check_name': 'ceph_health',
                   'status': (
-                    'ok' if _ceph_out in ['HEALTH_OK', 'CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED']
+                    'ok' if _ceph_ok
                     else ('warning' if ('HEALTH_WARN' in _ceph_out or _ceph_out == 'CEPH_UNREACHABLE')
                     else 'critical')
                   ),
@@ -1464,7 +1475,7 @@
                     else _ceph_out | truncate(60))
                   ),
                   'detail': (
-                    '' if _ceph_out in ['HEALTH_OK', 'CEPH_NOT_INSTALLED', 'CEPH_NOT_CONFIGURED']
+                    '' if _ceph_ok
                     else ('ceph probe unreachable (privilege escalation/SSH timeout)' if _ceph_out == 'CEPH_UNREACHABLE'
                     else _ceph_out)
                   )
