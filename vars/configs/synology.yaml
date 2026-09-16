@@ -9,7 +9,7 @@ synology_shares:
   - "Data"
   - "Photography"
   - "Photos"
-  - "NextCloudData"
+  - "FileRunData"
 synology_skip_shutdown: false
 nfs_port: 2049
 umount_timeout: 45
