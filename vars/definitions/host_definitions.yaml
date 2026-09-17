@@ -166,16 +166,46 @@ host_definitions:
           - path: /
             port: 7940
             auth: false
-            includes: [proxy]
-            # FileRun's url_root is locked to https://files.<domain> (no port, see
-            # System > Settings > "Lock the URL" in FileRun's own admin panel). It
-            # refuses any request whose detected port doesn't match. SWAG's stock
-            # proxy.conf sets X-Forwarded-Port to $server_port, which is 8081 here
-            # (the internal NPM->SWAG hop's listener), not the real public-facing
-            # port (443, terminated at NPM on the VPS). Override it to keep FileRun's
-            # match check passing for real external traffic.
-            headers:
-              X-Forwarded-Port: "443"
+            # NOT using includes: [proxy] here. FileRun's url_root is locked to
+            # https://files.<domain> (no port, see System > Settings > "Lock the
+            # URL" in FileRun's own admin panel), and it refuses any request whose
+            # detected port doesn't match. proxy.conf sets X-Forwarded-Port to
+            # $server_port (8081, the internal NPM->SWAG hop, not the real
+            # public-facing port 443). A same-block proxy_set_header override does
+            # NOT replace it — nginx sends both as separate header lines and
+            # FileRun folds the duplicate into "8081, 443", which is worse. So
+            # proxy.conf's contents are reproduced directly below with a single,
+            # correct X-Forwarded-Port line instead.
+            includes: []
+            directives:
+              - "proxy_next_upstream error timeout invalid_header http_500 http_502 http_503"
+              - "proxy_buffers 32 4k"
+              - "proxy_connect_timeout 240"
+              - "proxy_headers_hash_bucket_size 128"
+              - "proxy_headers_hash_max_size 1024"
+              - "proxy_http_version 1.1"
+              - "proxy_read_timeout 240"
+              - "proxy_redirect http:// $scheme://"
+              - "proxy_send_timeout 240"
+              - "proxy_cache_bypass $cookie_session"
+              - "proxy_no_cache $cookie_session"
+              - "proxy_set_header Connection $connection_upgrade"
+              - "proxy_set_header Early-Data $ssl_early_data"
+              - "proxy_set_header Host $host"
+              - 'proxy_set_header Proxy ""'
+              - "proxy_set_header Upgrade $http_upgrade"
+              - 'proxy_set_header Forwarded "for=$remote_addr;proto=$scheme"'
+              - "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for"
+              - "proxy_set_header X-Forwarded-Host $host"
+              - "proxy_set_header X-Forwarded-Method $request_method"
+              - "proxy_set_header X-Forwarded-Port 443"
+              - "proxy_set_header X-Forwarded-Proto $scheme"
+              - "proxy_set_header X-Forwarded-Server $host"
+              - "proxy_set_header X-Forwarded-Ssl on"
+              - "proxy_set_header X-Forwarded-Uri $request_uri"
+              - "proxy_set_header X-Original-Method $request_method"
+              - "proxy_set_header X-Original-URL $scheme://$http_host$request_uri"
+              - "proxy_set_header X-Real-IP $remote_addr"
       - subdomain: share
         # PingVin Share X (manual unRAID container, smp46/pingvin-share-x)
         upstream_ip: "10.10.10.17"
