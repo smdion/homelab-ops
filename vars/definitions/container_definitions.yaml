@@ -270,7 +270,13 @@ container_definitions:
       AUTHENTIK_WORKERS: "2"
       AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "{{ vault_docker_trusted_proxy_cidrs }}"
       AUTHENTIK_EMAIL_FROM: "sso@{{ vault_domain_ext }}"
-      AUTHENTIK_EMAIL_USE_TLS: "true"
+      # Sends through mail_relay (container_definitions.yaml, apps host, :2525)
+      # instead of authenticating to Gmail directly -- the relay is the only
+      # thing on the LAN that holds real Gmail credentials now. TLS off:
+      # PHPMailer-style strict cert verification fails against the relay's
+      # self-signed cert (confirmed testing FileRun against it), and this
+      # connection never leaves the LAN so there's nothing to encrypt against.
+      AUTHENTIK_EMAIL_USE_TLS: "false"
       AUTHENTIK_EMAIL_TIMEOUT: "10"
       # Auto-creation of Authentik-managed outposts (unused here — outposts aren't used) is
       # the only reason authentik/authentik_worker needed docker.sock; disabling it lets us
@@ -279,11 +285,8 @@ container_definitions:
       POSTGRES_HOST: "postgres"
       POSTGRES_USER: "{{ docker_postgres_user }}"
       POSTGRES_PASSWORD: "{{ vault_docker_postgres_password }}"
-      EMAIL_HOST: "{{ docker_email_host }}"
-      EMAIL_PORT: "{{ docker_email_port }}"
-      EMAIL_USERNAME: "{{ vault_docker_email_username }}"
-      EMAIL_PASSWORD: "{{ vault_docker_email_password }}"
-      EMAIL: "{{ vault_docker_email }}"
+      EMAIL_HOST: "{{ docker_mail_relay_host }}"
+      EMAIL_PORT: "{{ docker_mail_relay_port }}"
     compose:
       base: base
       ports: ["9001:9000", "9443:9443"]
@@ -318,8 +321,6 @@ container_definitions:
         AUTHENTIK_SECRET_KEY: "${AUTHENTIK_SECRET_KEY}"
         AUTHENTIK_EMAIL__HOST: "${EMAIL_HOST}"
         AUTHENTIK_EMAIL__PORT: "${EMAIL_PORT}"
-        AUTHENTIK_EMAIL__USERNAME: "${EMAIL_USERNAME}"
-        AUTHENTIK_EMAIL__PASSWORD: "${EMAIL_PASSWORD}"
         AUTHENTIK_EMAIL__FROM: "${AUTHENTIK_EMAIL_FROM}"
         AUTHENTIK_EMAIL__USE_TLS: "${AUTHENTIK_EMAIL_USE_TLS}"
         AUTHENTIK_EMAIL__TIMEOUT: "${AUTHENTIK_EMAIL_TIMEOUT}"
