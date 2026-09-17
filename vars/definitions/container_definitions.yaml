@@ -361,6 +361,16 @@ container_definitions:
         AUTHENTIK_WORKER_CONCURRENCY: "${AUTHENTIK_WORKER_CONCURRENCY}"
         AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS: "${AUTHENTIK_LISTEN__TRUSTED_PROXY_CIDRS}"
         AUTHENTIK_OUTPOSTS__DISCOVER: "${AUTHENTIK_OUTPOSTS__DISCOVER}"
+        # Pre-existing gap, not new: this service actually executes the
+        # send_mail dramatiq task, but never had these mapped -- email sending
+        # was silently broken at the worker level even before the relay
+        # migration (confirmed via ConnectionRefusedError from authentik_worker
+        # while the main authentik container connects fine).
+        AUTHENTIK_EMAIL__HOST: "${EMAIL_HOST}"
+        AUTHENTIK_EMAIL__PORT: "${EMAIL_PORT}"
+        AUTHENTIK_EMAIL__FROM: "${AUTHENTIK_EMAIL_FROM}"
+        AUTHENTIK_EMAIL__USE_TLS: "${AUTHENTIK_EMAIL_USE_TLS}"
+        AUTHENTIK_EMAIL__TIMEOUT: "${AUTHENTIK_EMAIL_TIMEOUT}"
       volumes:
         - "${APPSDIR}/authentik_worker/backups:/backups"
         - "${APPSDIR}/authentik_worker/data:/data"
