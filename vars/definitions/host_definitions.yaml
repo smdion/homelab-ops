@@ -167,13 +167,6 @@ host_definitions:
             port: 7940
             auth: false
             includes: [proxy]
-            # FileRun trusts X-Forwarded-Port to build absolute asset URLs (css.php etc).
-            # SWAG's stock proxy.conf sets it to $server_port, which is 8081 here — the
-            # internal NPM->SWAG hop's listener, not the real public-facing port (443,
-            # terminated at NPM on the VPS). Override it so FileRun's generated URLs
-            # are correct from outside the LAN.
-            headers:
-              X-Forwarded-Port: "443"
       - subdomain: share
         # PingVin Share X (manual unRAID container, smp46/pingvin-share-x)
         upstream_ip: "10.10.10.17"
