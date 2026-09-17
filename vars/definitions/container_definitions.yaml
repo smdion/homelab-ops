@@ -1013,10 +1013,9 @@ container_definitions:
         homelab.backup.paths: "/opt/homebox"
         homelab.proxy.subdomain: "inventory"
         homelab.proxy.error_pages: "true"
-        # Own OIDC login now (see HBOX_OIDC_* above) -- SWAG's Authentik
-        # forward-auth would just be a redundant second gate in front of it,
-        # same reasoning as files/requests/share.
-        homelab.proxy.auth: "false"
+        # Deliberately keeping SWAG's Authentik forward-auth on TOP of
+        # Homebox's own OIDC login (unlike files/requests/share) -- two
+        # layers, by choice.
       environment:
         HBOX_AUTH_API_KEY_PEPPER: "${HBOX_AUTH_API_KEY_PEPPER}"
         HBOX_OIDC_ENABLED: "${HBOX_OIDC_ENABLED}"
