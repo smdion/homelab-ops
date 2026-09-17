@@ -697,6 +697,38 @@ container_definitions:
       profiles: ["agent"]
       healthcheck:
         test: ["NONE"]
+  mail_relay:
+    image: "boky/postfix"
+    tag: "latest"
+    stack: infra
+    env:
+      # Same Gmail app-password credentials Authentik already uses directly
+      # (vault_docker_email_username/password, docker_email_host/port from
+      # vars/configs/docker_stacks.yaml) -- this relay is the single thing that
+      # actually authenticates to Gmail; everything else on the LAN sends to it
+      # unauthenticated and it forwards on.
+      RELAYHOST: "[{{ docker_email_host }}]:{{ docker_email_port }}"
+      RELAYHOST_USERNAME: "{{ vault_docker_email_username }}"
+      RELAYHOST_PASSWORD: "{{ vault_docker_email_password }}"
+      ALLOWED_SENDER_DOMAINS: "{{ vault_domain_ext }}"
+    compose:
+      base: base
+      # infra stack runs on core, apps, and dev -- one central relay only, same
+      # hub/agent split as dozzle above. Other hosts/containers reach it at
+      # {{ vault_apps_vip }}:2525.
+      ports: ["2525:25"]
+      environment:
+        RELAYHOST: "${RELAYHOST}"
+        RELAYHOST_USERNAME: "${RELAYHOST_USERNAME}"
+        RELAYHOST_PASSWORD: "${RELAYHOST_PASSWORD}"
+        ALLOWED_SENDER_DOMAINS: "${ALLOWED_SENDER_DOMAINS}"
+      profiles: ["hub"]
+      healthcheck:
+        test: ["CMD", "nc", "-z", "localhost", "25"]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "15s"
   dumbassets:
     image: "dumbwareio/dumbassets"
     tag: "latest"
