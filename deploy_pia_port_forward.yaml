@@ -54,7 +54,7 @@
     # referenced by BOTH the "Allow PIA to VPN" firewall policy and the "PIA
     # Port Forwarding" DNAT rule, so updating this one object is what makes a
     # rotated port take effect on both.
-    pia_network_id: "6aa3200a8c980caea5209483"      # VPN Client "PIAVPN - SWE"
+    pia_network_id: "6aa3200a8c980caea5209483"      # VPN Client for Transmission's PIA tunnel (name changes with region)
     unifi_port_group_id: "6aa324de8c980caea520966e"  # "Port - PIA Forwarded"
 
   tasks:
