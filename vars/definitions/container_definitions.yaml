@@ -1010,6 +1010,10 @@ container_definitions:
       # scheme) rather than live request headers -- without it, the
       # redirect_uri it sends never matches what's registered in Authentik.
       HBOX_OPTIONS_HOSTNAME: "inventory.{{ vault_domain_ext }}"
+      # Without this, Homebox ignores X-Forwarded-Proto entirely and always
+      # builds redirect_uri with http:// (it's plain HTTP behind SWAG), which
+      # never matches the https:// URI registered in Authentik.
+      HBOX_OPTIONS_TRUST_PROXY: "true"
     compose:
       base: baseenv
       ports: ["3100:7745"]
@@ -1028,6 +1032,7 @@ container_definitions:
         HBOX_OIDC_CLIENT_SECRET: "${HBOX_OIDC_CLIENT_SECRET}"
         HBOX_OPTIONS_ALLOW_LOCAL_LOGIN: "${HBOX_OPTIONS_ALLOW_LOCAL_LOGIN}"
         HBOX_OPTIONS_HOSTNAME: "${HBOX_OPTIONS_HOSTNAME}"
+        HBOX_OPTIONS_TRUST_PROXY: "${HBOX_OPTIONS_TRUST_PROXY}"
       volumes:
         - "${APPSDIR}/homebox:/data/"
       healthcheck:
