@@ -1006,6 +1006,10 @@ container_definitions:
       HBOX_OIDC_CLIENT_ID: "{{ vault_docker_homebox_oidc_client_id }}"
       HBOX_OIDC_CLIENT_SECRET: "{{ vault_docker_homebox_oidc_client_secret }}"
       HBOX_OPTIONS_ALLOW_LOCAL_LOGIN: "false"
+      # Homebox builds its OIDC redirect_uri from this (bare hostname, no
+      # scheme) rather than live request headers -- without it, the
+      # redirect_uri it sends never matches what's registered in Authentik.
+      HBOX_OPTIONS_HOSTNAME: "inventory.{{ vault_domain_ext }}"
     compose:
       base: baseenv
       ports: ["3100:7745"]
@@ -1023,6 +1027,7 @@ container_definitions:
         HBOX_OIDC_CLIENT_ID: "${HBOX_OIDC_CLIENT_ID}"
         HBOX_OIDC_CLIENT_SECRET: "${HBOX_OIDC_CLIENT_SECRET}"
         HBOX_OPTIONS_ALLOW_LOCAL_LOGIN: "${HBOX_OPTIONS_ALLOW_LOCAL_LOGIN}"
+        HBOX_OPTIONS_HOSTNAME: "${HBOX_OPTIONS_HOSTNAME}"
       volumes:
         - "${APPSDIR}/homebox:/data/"
       healthcheck:
