@@ -330,6 +330,11 @@ container_definitions:
       volumes:
         - "${APPSDIR}/authentik_worker/data:/data"
         - "${APPSDIR}/authentik_worker/templates:/templates"
+        # Missing entirely before -- uploaded icons/logos (e.g. application
+        # branding) had nowhere persistent to land, so they'd write to the
+        # container's ephemeral layer and vanish on the next recreate. Must
+        # be the same host path the worker mounts below (shared /media).
+        - "${APPSDIR}/authentik_worker/media:/media"
       command: server
       healthcheck:
         test: ["CMD", "ak", "healthcheck"]
@@ -376,6 +381,9 @@ container_definitions:
         - "${APPSDIR}/authentik_worker/data:/data"
         - "${APPSDIR}/authentik_worker/certs:/certs"
         - "${APPSDIR}/authentik_worker/templates:/templates"
+        # Same host path as the server's /media mount above -- shared,
+        # persistent storage for uploaded icons/logos.
+        - "${APPSDIR}/authentik_worker/media:/media"
       command: worker
       healthcheck:
         test: ["CMD", "ak", "healthcheck"]
