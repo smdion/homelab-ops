@@ -996,6 +996,16 @@ container_definitions:
       # Required since upstream made api_key_pepper mandatory (>= 32 bytes).
       # Persistent — rotating it invalidates all issued homebox API keys.
       HBOX_AUTH_API_KEY_PEPPER: "{{ vault_docker_homebox_api_key_pepper }}"
+      # Authentik OIDC (application slug: inventory). Local password login is
+      # disabled entirely -- OIDC-created users have no password regardless.
+      # Known upstream issue (sysadminsmedia/homebox#1213): if Homebox starts
+      # before Authentik is reachable, OIDC login stays broken until Homebox
+      # is restarted -- worth checking after any full-stack reboot.
+      HBOX_OIDC_ENABLED: "true"
+      HBOX_OIDC_ISSUER_URL: "https://auth.{{ vault_domain_ext }}/application/o/inventory/"
+      HBOX_OIDC_CLIENT_ID: "{{ vault_docker_homebox_oidc_client_id }}"
+      HBOX_OIDC_CLIENT_SECRET: "{{ vault_docker_homebox_oidc_client_secret }}"
+      HBOX_OPTIONS_ALLOW_LOCAL_LOGIN: "false"
     compose:
       base: baseenv
       ports: ["3100:7745"]
@@ -1003,8 +1013,17 @@ container_definitions:
         homelab.backup.paths: "/opt/homebox"
         homelab.proxy.subdomain: "inventory"
         homelab.proxy.error_pages: "true"
+        # Own OIDC login now (see HBOX_OIDC_* above) -- SWAG's Authentik
+        # forward-auth would just be a redundant second gate in front of it,
+        # same reasoning as files/requests/share.
+        homelab.proxy.auth: "false"
       environment:
         HBOX_AUTH_API_KEY_PEPPER: "${HBOX_AUTH_API_KEY_PEPPER}"
+        HBOX_OIDC_ENABLED: "${HBOX_OIDC_ENABLED}"
+        HBOX_OIDC_ISSUER_URL: "${HBOX_OIDC_ISSUER_URL}"
+        HBOX_OIDC_CLIENT_ID: "${HBOX_OIDC_CLIENT_ID}"
+        HBOX_OIDC_CLIENT_SECRET: "${HBOX_OIDC_CLIENT_SECRET}"
+        HBOX_OPTIONS_ALLOW_LOCAL_LOGIN: "${HBOX_OPTIONS_ALLOW_LOCAL_LOGIN}"
       volumes:
         - "${APPSDIR}/homebox:/data/"
       healthcheck:
