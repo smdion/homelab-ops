@@ -1022,6 +1022,11 @@ container_definitions:
       # builds redirect_uri with http:// (it's plain HTTP behind SWAG), which
       # never matches the https:// URI registered in Authentik.
       HBOX_OPTIONS_TRUST_PROXY: "true"
+      # Auto-redirects straight to Authentik instead of showing a login page
+      # with a button to click. With local login already disabled, this
+      # means Authentik being unreachable is a hard dead end (no fallback
+      # login screen at all) -- accepted tradeoff, not an oversight.
+      HBOX_OIDC_FORCE: "true"
     compose:
       base: baseenv
       ports: ["3100:7745"]
@@ -1041,6 +1046,7 @@ container_definitions:
         HBOX_OPTIONS_ALLOW_LOCAL_LOGIN: "${HBOX_OPTIONS_ALLOW_LOCAL_LOGIN}"
         HBOX_OPTIONS_HOSTNAME: "${HBOX_OPTIONS_HOSTNAME}"
         HBOX_OPTIONS_TRUST_PROXY: "${HBOX_OPTIONS_TRUST_PROXY}"
+        HBOX_OIDC_FORCE: "${HBOX_OIDC_FORCE}"
       volumes:
         - "${APPSDIR}/homebox:/data/"
       healthcheck:
