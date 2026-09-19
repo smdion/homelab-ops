@@ -1136,6 +1136,11 @@ container_definitions:
       hide: true   # the dashboard doesn't need a tile for itself
     env:
       HOMEPAGE_ALLOWED_HOSTS: "dashboard.{{ vault_domain_ext }},dashboard.{{ vault_domain_ext_secondary }},landing.{{ vault_domain_ext }},landing.{{ vault_domain_ext_secondary }}"
+      # Homepage's own winston file transport has no size cap and grows forever
+      # (config/logs/homepage.log hit 112M, unrotated, since 2025 — and logs widget API
+      # keys into its error lines). stdout-only + Docker's own bounded json-file driver
+      # below is the fix, not a periodic truncate of a file that shouldn't exist.
+      HOMEPAGE_LOG_TARGETS: "stdout"
       # Widget secrets, one .env var per HOMEPAGE_VAR_* the generator wires below — see
       # filter_plugins/service_catalog.py homepage_secret_vars() for the full derivation.
       HOMEPAGE_AUTHENTIK_KEY: "{{ vault_homepage_authentik_key }}"
@@ -1179,6 +1184,7 @@ container_definitions:
         homelab.proxy.websocket: "true"
       environment:
         HOMEPAGE_ALLOWED_HOSTS: "${HOMEPAGE_ALLOWED_HOSTS}"
+        LOG_TARGETS: "${HOMEPAGE_LOG_TARGETS}"
         HOMEPAGE_VAR_AUTHENTIK_KEY: "${HOMEPAGE_AUTHENTIK_KEY}"
         HOMEPAGE_VAR_BESZEL_USERNAME: "${HOMEPAGE_BESZEL_USERNAME}"
         HOMEPAGE_VAR_BESZEL_PASSWORD: "${HOMEPAGE_BESZEL_PASSWORD}"
@@ -1210,6 +1216,11 @@ container_definitions:
         HOMEPAGE_VAR_UPTIME_ROBOT_KEY: "${HOMEPAGE_UPTIME_ROBOT_KEY}"
       volumes:
         - "${APPSDIR}/homepage:/app/config"
+      logging:
+        driver: json-file
+        options:
+          max-size: "10m"
+          max-file: "3"
       healthcheck:
         test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1"]
         interval: "30s"
