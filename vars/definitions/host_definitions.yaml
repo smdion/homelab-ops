@@ -303,6 +303,7 @@ host_definitions:
     guacamole: { name: Liberty, group: unRAID }
     unraid_containers:          # see redemption
       - jellyfin
+      - zz-negative-test
       - plex
       - metube
       - radarr
