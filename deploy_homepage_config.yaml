@@ -24,8 +24,16 @@
   gather_subset: ['!all', 'date_time']
 
   vars_files:
-    # container_definitions.yaml is loaded raw in a pre_task, as in deploy_swag_configs.yaml
-    # (keeps {{ docker_* }} env values from being templated on Ansible ≤2.18).
+    # Unlike deploy_swag_configs.yaml, container_definitions.yaml loads normally here — the
+    # raw-load workaround there exists only because that playbook also loads
+    # docker_stacks.yaml, whose derived stack_assignments var fails on implicit localhost on
+    # Ansible ≤2.18. This playbook never loads docker_stacks.yaml, and Ansible templates
+    # vars_files lazily (only values actually referenced), so container_definitions' own
+    # dashboard: fields — the only part of it this playbook reads — template correctly
+    # (confirmed 2026-09-19: SWAG's and CrowdSec's dashboard.widget.url, which reference
+    # vault_domain_ext / vault_core_vip, rendered as literal "{{ vault_core_vip }}" text
+    # under the raw-load workaround since that path bypasses Ansible templating entirely).
+    - vars/definitions/container_definitions.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
     - vars/definitions/stack_definitions.yaml
@@ -66,16 +74,6 @@
       vars:
         pre_playbook: "deploy_homepage_config.yaml"
         pre_hostname: "{{ controller_fqdn }}"
-
-    - name: Load container definitions without templating env values
-      ansible.builtin.command:
-        cmd: "python3 -c \"import yaml,json; print(json.dumps(yaml.safe_load(open('vars/definitions/container_definitions.yaml')).get('container_definitions', {})))\""
-      register: _raw_container_defs
-      changed_when: false
-
-    - name: Set container_definitions fact
-      ansible.builtin.set_fact:
-        container_definitions: "{{ _raw_container_defs.stdout | from_json }}"
 
   tasks:
     - name: Initialize deploy state
