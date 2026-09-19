@@ -96,7 +96,7 @@ container_definitions:
     # snapshot) rather than trying to reconcile the migrated data with an
     # older client — the migrated (post-incident) data was moved aside,
     # not deleted: /opt/actual_budget/data.migrated-pre-restore-* on
-    # apps.seandion.local. User accepted losing entries made between the
+    # the apps VM. User accepted losing entries made between the
     # backup and the restore and is manually re-adding them.
     #
     # Bump this only after confirming actual_http_api has (or doesn't
@@ -1079,13 +1079,16 @@ container_definitions:
         timeout: "10s"
         retries: 3
         start_period: "30s"
-  jellyseerr:
+  # Seerr (Jellyseerr + Overseerr merged upstream). Renamed from `jellyseerr` 2026-09-18;
+  # the appdata dir (/opt/jellyseerr) and Postgres DB (jellyseerr) intentionally keep
+  # the legacy name so existing data and backups need no migration.
+  seerr:
     image: "ghcr.io/seerr-team/seerr"
     tag: "preview-new-oidc"
     stack: media
     env:
-      JELLYSEERR_DB_TYPE: "postgres"
-      JELLYSEERR_POSTGRES_DB: "jellyseerr"
+      SEERR_DB_TYPE: "postgres"
+      SEERR_POSTGRES_DB: "jellyseerr"
       POSTGRES_HOST: "postgres"
       POSTGRES_PORT: "5432"
       POSTGRES_USER: "{{ docker_postgres_user }}"
@@ -1098,17 +1101,17 @@ container_definitions:
         homelab.backup.paths: "/opt/jellyseerr"
         homelab.proxy.subdomain: "requests"
         homelab.proxy.aliases: "request"
-        homelab.restore.app: "jellyseerr"
+        homelab.restore.app: "seerr"
         homelab.restore.db_config: "db_primary_postgres"
         homelab.restore.db_names: "jellyseerr"
         homelab.restore.health_url: "http://localhost:5055/"
       environment:
-        DB_TYPE: "${JELLYSEERR_DB_TYPE}"
+        DB_TYPE: "${SEERR_DB_TYPE}"
         DB_HOST: "${POSTGRES_HOST}"
         DB_PORT: "${POSTGRES_PORT}"
         DB_USER: "${POSTGRES_USER}"
         DB_PASS: "${POSTGRES_PASSWORD}"
-        DB_NAME: "${JELLYSEERR_POSTGRES_DB}"
+        DB_NAME: "${SEERR_POSTGRES_DB}"
       volumes:
         - "${APPSDIR}/jellyseerr:/app/config"
       healthcheck:

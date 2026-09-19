@@ -9,7 +9,7 @@
 #   ansible-playbook test_backup_restore.yaml -e source_host=<fqdn>
 #
 #   # Test a subset of apps
-#   ansible-playbook test_backup_restore.yaml -e source_host=<fqdn> -e test_apps=authentik,jellyseerr
+#   ansible-playbook test_backup_restore.yaml -e source_host=<fqdn> -e test_apps=authentik,seerr
 #
 # Required extra vars:
 #   source_host  — inventory_hostname of source host whose stacks to test

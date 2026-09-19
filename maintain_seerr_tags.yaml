@@ -1,6 +1,6 @@
 ---
 # Category: Maintain
-# Strips the Jellyseerr request tag ("seerr") from Sonarr series / Radarr movies once
+# Strips the Seerr request tag ("seerr") from Sonarr series / Radarr movies once
 # everything currently owed to the request has landed, so Force-priority downloading
 # (set on the "SABnzbd - Seerr" / "Transmission - Seerr" download clients) only applies
 # while a request is genuinely outstanding — not forever. Tags in Sonarr/Radarr are
@@ -13,7 +13,7 @@
 #   Radarr: the movie has a file
 # Future unaired episodes never block completion — an ongoing show stays tagged only
 # until everything currently known and aired is in. If someone re-requests the same
-# series/movie later, Jellyseerr re-applies the tag itself; no special handling needed
+# series/movie later, Seerr re-applies the tag itself; no special handling needed
 # here.
 #
 # Usage:
@@ -21,7 +21,7 @@
 #
 # Semaphore: Maintenance view → "Maintain — Seerr [Tags]"
 
-- name: Strip fulfilled Jellyseerr request tags
+- name: Strip fulfilled Seerr request tags
   hosts: localhost
   gather_facts: true
   gather_subset: ['!all', 'date_time']

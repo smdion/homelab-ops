@@ -33,7 +33,7 @@
 #
 #   # Rollback one service (image-only)
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \
-#     --limit <hostname> -e rollback_service=jellyseerr -e confirm=yes
+#     --limit <hostname> -e rollback_service=seerr -e confirm=yes
 #
 #   # Dry run — show snapshot info without rolling back
 #   ansible-playbook rollback_docker.yaml -e hosts_variable=docker_stacks \

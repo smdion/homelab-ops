@@ -59,7 +59,7 @@
 
     - name: Compute extract path for selective app restore
       ansible.builtin.set_fact:
-        _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
+        _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + ((app_definitions[restore_app] | default({})).appdata_dir | default(restore_app)) }}"
 
     - name: Verify app directory exists in archive
       ansible.builtin.shell: |

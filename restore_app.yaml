@@ -5,7 +5,7 @@
 # Stops the stack, restores each DB, restores appdata inplace, restarts, verifies health.
 #
 # Required extra vars:
-#   restore_app    — key in app_definitions dict (e.g., 'authentik', 'jellyseerr')
+#   restore_app    — key in app_definitions dict (e.g., 'authentik', 'seerr')
 #   restore_target — inventory_hostname of the production host to restore on
 #   confirm=yes    — required safety gate (intentional: prevents accidental production runs)
 #

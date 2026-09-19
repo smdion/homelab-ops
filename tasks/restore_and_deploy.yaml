@@ -30,7 +30,7 @@
 
 - name: Compute selective extract path for {{ restore_app | default('') }}
   ansible.builtin.set_fact:
-    _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + restore_app }}"
+    _extract_path: "{{ (src_raw_files[0] | regex_replace('^/', '')) + '/' + ((app_definitions[restore_app] | default({})).appdata_dir | default(restore_app)) }}"
   when: restore_app | default('') | length > 0
 
 - name: Restore appdata from production backup
@@ -45,7 +45,7 @@
 
 # ===== DEPLOY DATABASES STACK FIRST =====
 # DB containers must be running and populated before app stacks start,
-# otherwise apps (authentik, jellyseerr, etc.) connect to empty databases.
+# otherwise apps (authentik, seerr, etc.) connect to empty databases.
 - name: Deploy databases stack first
   include_tasks: tasks/deploy_single_stack.yaml
   vars:

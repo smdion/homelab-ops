@@ -13,6 +13,10 @@
 #   db_config  — vars file to load for DB engine config (e.g., db_primary_postgres)
 #   db_names   — list of database names to back up / restore
 #
+# Optional fields (all apps):
+#   appdata_dir — directory under the appdata root to restore, when it differs
+#                 from the app key (default: the app key)
+#
 # Optional fields (docker_run / selective restore):
 #   containers — list of Docker containers to stop/start during restore
 #   db_host    — inventory_hostname of the DB container host (cross-host delegation)
@@ -21,6 +25,7 @@
 app_definitions:
   authentik:
     stack: auth
+    appdata_dir: authentik_worker
     db_stack: databases
     db_config: db_primary_postgres
     db_names: [authentik]
@@ -29,8 +34,9 @@ app_definitions:
     db_stack: databases
     db_config: db_primary_postgres
     db_names: [crowdsec]
-  jellyseerr:
+  seerr:
     stack: media
+    appdata_dir: jellyseerr   # legacy name kept on rename (see container_definitions seerr)
     db_stack: databases
     db_config: db_primary_postgres
     db_names: [jellyseerr]

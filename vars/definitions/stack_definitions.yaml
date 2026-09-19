@@ -84,7 +84,7 @@ stack_definitions:
       COMPOSE_PROFILES=agent
       {% endif -%}
   media:
-    description: "Media services — Tautulli, Jellyseerr"
+    description: "Media services — Tautulli, Seerr"
     generate_compose: true
     generate_env: true
     globals: [mem_limit, restart, tz, puid, pgid, umask, appsdir]
