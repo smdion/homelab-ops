@@ -1,0 +1,107 @@
+---
+# Homepage dashboard — everything that isn't per-service metadata.
+# Used by deploy_homepage_config.yaml. Service tiles come from `dashboard:` dicts on
+# container_definitions / host_definitions / vm_definitions (see filter_plugins/service_catalog.py).
+#
+# Vault vars required:
+#   vault_homepage_title    — dashboard title (contains the internal domain)
+#   vault_unifi_console_id  — UniFi console id in unifi.ui.com links
+
+# --- Group registry --------------------------------------------------------
+# Grouping is by function, not by host. Order here = display order.
+# Every group: header: true, style: row, columns: 4 unless set.
+homepage_layout:
+  - tab: Infrastructure
+    groups:
+      - name: Hypervisor
+      - name: Containers
+      - name: Storage
+      - name: Backup
+      - name: Database
+      - name: Web
+        columns: 3
+      - name: Network
+  - tab: Management
+    groups:
+      - name: Remote Access
+      - name: Automation
+      - name: Monitoring
+      - name: Security
+      - name: Visualization
+  - tab: Media
+    groups:
+      - name: Media
+      - name: Content
+      - name: Downloaders
+      - name: Sharing
+  - tab: Household
+    groups:
+      - name: Finance
+      - name: Home
+  - tab: Games
+    groups:
+      - name: Games
+
+# --- settings.yaml (everything but layout, which is derived) ---------------
+homepage_settings:
+  title: "{{ vault_homepage_title }}"
+  background:
+    image: https://cdnb.artstation.com/p/assets/images/images/006/897/659/large/mikael-gustafsson-wallpaper-mikael-gustafsson.jpg
+    blur: sm
+    saturate: 100
+    brightness: 50
+    opacity: 100
+  theme: dark
+  color: slate
+  favicon: "{{ lookup('ansible.builtin.file', 'homepage/favicon.txt') }}"
+  useEqualHeights: true
+  quicklaunch:
+    searchDescriptions: true
+    hideInternetSearch: true
+    showSearchSuggestions: true
+    hideVisitURL: true
+  # Set false while validating widget changes so broken widgets show their error
+  hideErrors: true
+
+# --- widgets.yaml (info widgets across the top) ----------------------------
+homepage_widgets:
+  - logo:
+      icon: https://github.com/smdion/public/blob/main/logo.png?raw=true
+  - search:
+      provider: google
+      target: _blank
+  - datetime:
+      text_size: xl
+      format:
+        timeStyle: short
+        dateStyle: short
+        hour12: true
+
+# --- bookmarks.yaml --------------------------------------------------------
+homepage_bookmarks:
+  - Developer:
+      - Github:
+          - abbr: GH
+            href: https://github.com/
+  - Social:
+      - Reddit:
+          - abbr: RE
+            href: https://reddit.com/
+  - Entertainment:
+      - YouTube:
+          - abbr: YT
+            href: https://youtube.com/
+
+# --- Externals: services with no IaC definition ----------------------------
+# Same fields as a `dashboard:` dict; href and any widget url are required.
+homepage_externals:
+  - name: UniFi
+    group: Network
+    icon: unifi.svg
+    description: network
+    href: "https://unifi.ui.com/consoles/{{ vault_unifi_console_id }}/network/default/dashboard"
+    widget:
+      type: unifi
+      url: "https://10.10.10.1"
+      secrets: [username, password]
+      fields: ["uptime", "lan_users", "wlan_users"]

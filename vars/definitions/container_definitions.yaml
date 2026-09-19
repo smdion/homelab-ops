@@ -246,6 +246,16 @@ container_definitions:
     image: "ghcr.io/goauthentik/server"
     tag: "2026.8.2"
     stack: auth
+    dashboard:
+      group: Security
+      name: Authentik
+      icon: authentik.png
+      description: sso
+      widget:
+        type: authentik
+        version: 2
+        secrets: [key]
+        fields: ["loginsLast24H", "failedLoginsLast24H"]
     proxy:
       subdomain: auth
       auth: false

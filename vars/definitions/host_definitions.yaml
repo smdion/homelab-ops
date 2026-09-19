@@ -334,6 +334,15 @@ host_definitions:
             port: 8989
             auth: true
             includes: [proxy]
+            dashboard:
+              group: Content
+              name: Sonarr
+              icon: sonarr.png
+              description: tv indexer
+              widget:
+                type: sonarr
+                secrets: [key]
+                enableQueue: true
           - path: "^~ /sabnzbd"
             upstream_app: "192.168.11.19"
             port: 8080
@@ -418,6 +427,18 @@ host_definitions:
       subdomain: homeone
       upstream_ip: "10.10.10.10"
       external: false
+      dashboard:
+        group: Hypervisor
+        name: HomeOne
+        icon: proxmox.svg
+        description: Proxmox
+        secret_prefix: proxmox      # one API token shared by all PVE node tiles
+        widget:
+          type: proxmox
+          url: "https://{{ vault_pve_vip }}:8006"
+          username: "api@pam!homepage"
+          node: homeone
+          secrets: [password]
       server_directives:
         - "proxy_redirect off"
       locations:

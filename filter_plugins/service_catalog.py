@@ -12,6 +12,7 @@ Each catalog entry:
     kind    — 'label' | 'proxy_key' | 'host_def' | 'vm_def'
     role    — resolved host role (vm_definitions / host_definitions key), '' if unknown
     swag    — the SWAG site-conf dict consumed by templates/swag_site.conf.j2
+    definition / proxy — the raw container definition / proxy entry the entry came from
 
 Semantics mirror the Jinja this replaced in deploy_swag_configs.yaml: a key that
 is present always wins over a default (Jinja ``default()`` only fires on
@@ -21,6 +22,7 @@ Usage (Ansible):
     {{ container_definitions | swag_proxies(vm_definitions, host_definitions, _swag_role) }}
 """
 
+import re
 from collections.abc import Mapping, Sequence
 
 _LBL = 'homelab.proxy.'
@@ -99,6 +101,7 @@ def _label_entries(container_definitions, vm_definitions, host_definitions, swag
             'key': name,
             'kind': 'label',
             'role': role,
+            'definition': definition,
             'swag': {
                 'name': name,
                 'subdomain': labels[_LBL + 'subdomain'],
@@ -144,6 +147,8 @@ def _proxy_key_entries(container_definitions, vm_definitions, host_definitions, 
             'key': name,
             'kind': 'proxy_key',
             'role': role,
+            'definition': definition,
+            'proxy': proxy,
             'swag': _with_optional(config, proxy, ('server_names', 'server_directives', 'buffer_size')),
         }
 
@@ -167,6 +172,7 @@ def _host_entries(host_definitions):
                 'key': name + suffix,
                 'kind': 'host_def',
                 'role': name,
+                'proxy': proxy,
                 'swag': _with_optional(config, proxy, ('server_names', 'server_directives', 'buffer_size')),
             }
 
@@ -182,6 +188,7 @@ def _vm_entries(vm_definitions):
                 'key': name + suffix,
                 'kind': 'vm_def',
                 'role': name,
+                'proxy': proxy,
                 'swag': _with_optional(config, proxy, ('server_names', 'server_directives')),
             }
 
@@ -199,9 +206,230 @@ def swag_proxies(container_definitions, vm_definitions, host_definitions=None, s
     return [e['swag'] for e in service_catalog(container_definitions, vm_definitions, host_definitions, swag_role)]
 
 
+# ---------------------------------------------------------------------------
+# Homepage dashboard
+#
+# A tile comes from a `dashboard:` dict on a container definition, on a host/vm
+# proxy entry, or on one of that entry's locations (path-based services such as
+# media.<domain>/sonarr). `hide: true` marks a service as deliberately absent.
+# Pure externals (no IaC definition) come from vars/configs/homepage.yaml.
+# ---------------------------------------------------------------------------
+
+_TILE_FIELDS = ('icon', 'href', 'description')
+
+
+def _role_addr(role, vm_definitions, vip_definitions):
+    """Address a widget uses to reach a role: its VIP when it has one, else its VM IP."""
+    vip = (vip_definitions or {}).get(role) or {}
+    if vip.get('vip'):
+        return vip['vip']
+    return (vm_definitions.get(role) or {}).get('vm_ip', '')
+
+
+def _published_port(definition, port):
+    """Host port for ``port``: maps a container port through compose ports ("H:C"),
+    and leaves a port that is already a published host port unchanged."""
+    port = str(port)
+    for mapping in (definition.get('compose') or {}).get('ports', []):
+        parts = str(mapping).split('/')[0].split(':')
+        if len(parts) >= 2 and parts[-1] == port:
+            return parts[-2]
+    return port
+
+
+def _location_path(path):
+    """URL base for a prefix location ('^~ /sonarr' -> '/sonarr'); '' for '/' or regex paths."""
+    path = str(path or '/').strip()
+    if path.startswith('^~ '):
+        path = path[3:].strip()
+    if not path.startswith('/') or any(c in path for c in ' ~*()?$='):
+        return ''
+    return path.rstrip('/')
+
+
+def _secret_var(prefix, field):
+    return 'HOMEPAGE_VAR_%s_%s' % (re.sub(r'[^A-Z0-9]+', '_', str(prefix).upper()).strip('_'), field.upper())
+
+
+def _tile(key, dash, subdomain, addr, port, path, proto, domain, source):
+    name = dash.get('name') or key.replace('_', ' ').title()
+    widget = dict(dash['widget']) if dash.get('widget') else None
+    secret_vars = {}
+    if widget is not None:
+        widget_proto = widget.pop('proto', proto)
+        widget_port = widget.pop('port', port)
+        if 'url' not in widget:
+            widget['url'] = '%s://%s:%s%s' % (widget_proto, addr, widget_port, path)
+        for field in widget.pop('secrets', []):
+            secret_vars[field] = _secret_var(dash.get('secret_prefix') or name, field)
+        # type and url first, for readable output
+        widget = dict([(k, widget[k]) for k in ('type', 'url') if k in widget]
+                      + [(k, v) for k, v in widget.items() if k not in ('type', 'url')])
+    href = dash.get('href')
+    if href is None:
+        href = 'https://%s.%s%s' % (subdomain, domain, path) if subdomain else ''
+    return {
+        'key': key,
+        'source': source,
+        'group': dash.get('group', ''),
+        'hide': bool(dash.get('hide')),
+        'name': name,
+        'icon': dash.get('icon', '%s.png' % (subdomain or key).lower()),
+        'href': href,
+        'description': dash.get('description', ''),
+        'order': dash.get('order', 1000),
+        'container': dash.get('container', ''),
+        'widget': widget,
+        'secret_vars': secret_vars,
+    }
+
+
+def _entry_tiles(entry, container_definitions, vm_definitions, vip_definitions, domain):
+    swag = entry['swag']
+    if entry['kind'] in ('label', 'proxy_key'):
+        definition = entry['definition']
+        dash = definition.get('dashboard')
+        if not dash:
+            return
+        proxy = entry.get('proxy') or {}
+        addr = proxy.get('upstream_ip') or _role_addr(entry['role'], vm_definitions, vip_definitions)
+        root = next((l for l in swag['locations'] if l.get('path', '/') == '/'), swag['locations'][0])
+        port = _published_port(definition, root.get('port', swag['port']))
+        yield _tile(entry['key'], dash, swag['subdomain'], addr, port, '',
+                    root.get('proto', swag['proto']), domain, entry['kind'])
+        return
+    proxy = entry['proxy']
+    if proxy.get('dashboard'):
+        root = next((l for l in swag['locations'] if l.get('path', '/') == '/'), swag['locations'][0])
+        yield _tile(swag['subdomain'], proxy['dashboard'], swag['subdomain'],
+                    root.get('upstream_app') or swag['upstream_ip'], root.get('port', swag['port']), '',
+                    root.get('proto', swag['proto']), domain, entry['kind'])
+    for loc in swag['locations']:
+        dash = loc.get('dashboard')
+        if not dash:
+            continue
+        upstream = loc.get('upstream_name') or loc.get('upstream_app') or swag['upstream_ip']
+        port = loc.get('port', swag['port'])
+        if upstream in container_definitions:
+            # Docker name (reachable only from SWAG's host): widget goes via that container's host
+            target = container_definitions[upstream]
+            role = _stack_role(target.get('stack', ''), vm_definitions, None)
+            upstream = _role_addr(role, vm_definitions, vip_definitions)
+            port = _published_port(target, port)
+        path = _location_path(loc.get('path'))
+        yield _tile(path.strip('/') or swag['subdomain'], dash, swag['subdomain'], upstream, port, path,
+                    loc.get('proto', swag['proto']), domain, entry['kind'])
+
+
+def _is_covered(entry):
+    """An entry is placed on (or deliberately hidden from) the dashboard somewhere."""
+    if entry['kind'] in ('label', 'proxy_key'):
+        return bool(entry['definition'].get('dashboard'))
+    return bool(entry['proxy'].get('dashboard')) or any(
+        l.get('dashboard') for l in entry['proxy'].get('locations', []))
+
+
+def dashboard_tiles(container_definitions, vm_definitions, host_definitions=None, vip_definitions=None,
+                    domain='', swag_role='', externals=None):
+    """Visible dashboard tiles (hidden ones dropped), from definitions + externals."""
+    tiles = []
+    catalog = service_catalog(container_definitions, vm_definitions, host_definitions, swag_role)
+    in_catalog = set()
+    for entry in catalog:
+        if entry['kind'] in ('label', 'proxy_key'):
+            in_catalog.add(entry['key'])
+        tiles.extend(_entry_tiles(entry, container_definitions, vm_definitions, vip_definitions, domain))
+    # Containers with a UI but no proxy entry (the tile must give its own href)
+    for name, definition in container_definitions.items():
+        if name not in in_catalog and definition.get('dashboard'):
+            role = _stack_role(definition.get('stack', ''), vm_definitions, host_definitions)
+            tiles.append(_tile(name, definition['dashboard'], '', _role_addr(role, vm_definitions, vip_definitions),
+                               _first_port(definition), '', 'http', domain, 'container'))
+    for ext in externals or []:
+        tiles.append(_tile(ext.get('key') or ext['name'].lower(), ext, '', '', '', '', 'http', domain, 'external'))
+    # A container with both proxy labels and a proxy: key yields two entries — keep one tile
+    seen, result = set(), []
+    for t in tiles:
+        if t['hide'] or (t['group'], t['name']) in seen:
+            continue
+        seen.add((t['group'], t['name']))
+        result.append(t)   # a tile with no group surfaces in dashboard_problems
+    return result
+
+
+def dashboard_uncovered(container_definitions, vm_definitions, host_definitions=None, swag_role=''):
+    """Catalog entries with neither a dashboard group nor hide: true."""
+    return ['%s (%s.*)' % (e['key'], e['swag']['subdomain'])
+            for e in service_catalog(container_definitions, vm_definitions, host_definitions, swag_role)
+            if not _is_covered(e)]
+
+
+def _layout_groups(layout):
+    for tab in layout:
+        for group in tab.get('groups', []):
+            yield tab['tab'], group
+
+
+def dashboard_problems(tiles, layout):
+    """Tiles whose group is not in the registry (empty group included)."""
+    known = {g['name'] for _, g in _layout_groups(layout)}
+    return ['%s: unknown group %r' % (t['name'], t['group']) for t in tiles if t['group'] not in known]
+
+
+def homepage_services(tiles, layout):
+    """services.yaml structure, in registry order; empty groups omitted.
+
+    Secret widget fields become {{HOMEPAGE_VAR_*}} placeholders here — call this inside the
+    template, not in set_fact, so Ansible never sees them as expressions to template.
+    """
+    out = []
+    for _, group in _layout_groups(layout):
+        members = sorted((t for t in tiles if t['group'] == group['name']),
+                         key=lambda t: (t['order'], t['name'].lower()))
+        if not members:
+            continue
+        services = []
+        for t in members:
+            body = {f: t[f] for f in _TILE_FIELDS if t[f]}
+            if t['widget'] is not None:
+                widget = dict(t['widget'])
+                for field, var in t['secret_vars'].items():
+                    widget[field] = '{{%s}}' % var
+                body['widget'] = widget
+            services.append({t['name']: body})
+        out.append({group['name']: services})
+    return out
+
+
+def homepage_layout(tiles, layout):
+    """settings.yaml `layout:` mapping, in registry order; empty groups omitted."""
+    used = {t['group'] for t in tiles}
+    out = {}
+    for tab, group in _layout_groups(layout):
+        if group['name'] in used:
+            out[group['name']] = {
+                'tab': tab,
+                'header': group.get('header', True),
+                'style': group.get('style', 'row'),
+                'columns': group.get('columns', 4),
+            }
+    return out
+
+
+def homepage_secret_vars(tiles):
+    """Every HOMEPAGE_VAR_* the generated services.yaml references."""
+    return sorted({v for t in tiles for v in t['secret_vars'].values()})
+
+
 class FilterModule(object):
     def filters(self):
         return {
             'service_catalog': service_catalog,
             'swag_proxies': swag_proxies,
+            'dashboard_tiles': dashboard_tiles,
+            'dashboard_uncovered': dashboard_uncovered,
+            'dashboard_problems': dashboard_problems,
+            'homepage_services': homepage_services,
+            'homepage_layout': homepage_layout,
+            'homepage_secret_vars': homepage_secret_vars,
         }

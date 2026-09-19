@@ -1,0 +1,252 @@
+---
+# Category: Deploy
+# Schedule: daily
+# Generate the Homepage dashboard config (/opt/homepage on the apps host) from definitions.
+# Tiles come from `dashboard:` dicts on container/host/vm definitions plus externals and the
+# group registry in vars/configs/homepage.yaml; addresses resolve through the shared service
+# catalog (filter_plugins/service_catalog.py), the same one SWAG uses.
+# Widget secrets are never written here: services.yaml references {{HOMEPAGE_VAR_*}}, which
+# Homepage substitutes from the homepage container's environment (vault → .env → compose).
+#
+# Optional extra vars:
+#   dry_run=true  — write to /tmp/homepage-generated/ on the apps host instead of /opt/homepage;
+#                   coverage and secret-wiring gaps are reported instead of failing
+#
+# Usage:
+#   ansible-playbook deploy_homepage_config.yaml
+#   ansible-playbook deploy_homepage_config.yaml -e dry_run=true
+#   ansible-playbook deploy_homepage_config.yaml --diff --check   # show diffs only
+
+- name: Generate Homepage dashboard config
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+
+  vars_files:
+    # container_definitions.yaml is loaded raw in a pre_task, as in deploy_swag_configs.yaml
+    # (keeps {{ docker_* }} env values from being templated on Ansible ≤2.18).
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/stack_definitions.yaml
+    - vars/definitions/vip_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/semaphore_check.yaml
+    - vars/configs/homepage.yaml
+    - vars/secrets.yaml
+
+  vars:
+    _dry_run: "{{ dry_run | default(false) | bool }}"
+    _homepage_dir: "{{ '/tmp/homepage-generated' if _dry_run else '/opt/homepage' }}"
+    # The apps-stack VM hosts Homepage
+    _homepage_host: >-
+      {%- set ns = namespace(host='') -%}
+      {%- for r, rdef in vm_definitions.items() -%}
+        {%- if rdef.stacks is defined and 'apps' in rdef.stacks and not ns.host -%}
+          {%- set ns.host = rdef.vm_ip -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ ns.host }}
+    # SWAG's role, for the catalog's same-host upstream rule (see deploy_swag_configs.yaml)
+    _swag_role: >-
+      {%- set ns = namespace(role='') -%}
+      {%- for r, rdef in vm_definitions.items() -%}
+        {%- if rdef.stacks is defined and 'auth' in rdef.stacks and not ns.role -%}
+          {%- set ns.role = r -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ ns.role }}
+    maintenance_name: "Homepage"
+    maintenance_type: "Local"
+    maintenance_subtype: "Deploy"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "deploy_homepage_config.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
+    - name: Load container definitions without templating env values
+      ansible.builtin.command:
+        cmd: "python3 -c \"import yaml,json; print(json.dumps(yaml.safe_load(open('vars/definitions/container_definitions.yaml')).get('container_definitions', {})))\""
+      register: _raw_container_defs
+      changed_when: false
+
+    - name: Set container_definitions fact
+      ansible.builtin.set_fact:
+        container_definitions: "{{ _raw_container_defs.stdout | from_json }}"
+
+  tasks:
+    - name: Initialize deploy state
+      ansible.builtin.set_fact:
+        deploy_failed: false
+        _deploy_detail: ""
+
+    - block:
+        - name: Build dashboard tiles from the service catalog
+          ansible.builtin.set_fact:
+            _tiles: >-
+              {{ container_definitions | dashboard_tiles(vm_definitions, host_definitions, vip_definitions,
+                 vault_domain_ext, _swag_role, homepage_externals) }}
+            _uncovered: "{{ container_definitions | dashboard_uncovered(vm_definitions, host_definitions, _swag_role) }}"
+
+        - name: Compute registry problems and required secrets
+          ansible.builtin.set_fact:
+            _problems: "{{ _tiles | dashboard_problems(homepage_layout) }}"
+            _secret_vars: "{{ _tiles | homepage_secret_vars }}"
+            # Wired = listed in the homepage container's compose environment (what reaches the container)
+            _secret_vars_missing: >-
+              {{ _tiles | homepage_secret_vars
+                 | difference(((container_definitions.homepage.compose | default({})).environment | default({})).keys() | list) }}
+
+        - name: Show tile summary
+          ansible.builtin.debug:
+            msg: >-
+              {{ _tiles | length }} tiles in {{ _tiles | map(attribute='group') | unique | list | length }} groups;
+              {{ _uncovered | length }} catalog entries without dashboard metadata;
+              {{ _secret_vars | length }} secret vars ({{ _secret_vars_missing | length }} not wired)
+
+        - name: Fail on tiles in unknown groups
+          ansible.builtin.assert:
+            that: _problems | length == 0
+            fail_msg: "Unknown dashboard groups (add to homepage_layout or fix the tile): {{ _problems }}"
+            quiet: true
+
+        # Every proxied service is either on the dashboard or deliberately hidden (hide: true),
+        # so new services can't silently miss it.
+        - name: Check every proxied service is placed or hidden
+          ansible.builtin.assert:
+            that: _uncovered | length == 0
+            fail_msg: "Add dashboard: {group: ...} or {hide: true} to: {{ _uncovered }}"
+            quiet: true
+          when: not _dry_run
+
+        - name: Check every widget secret is wired into the homepage container
+          ansible.builtin.assert:
+            that: _secret_vars_missing | length == 0
+            fail_msg: >-
+              Missing from container_definitions homepage (env: + compose.environment:):
+              {{ _secret_vars_missing }}
+            quiet: true
+          when: not _dry_run
+
+        - name: Report gaps (dry run)
+          ansible.builtin.debug:
+            msg:
+              uncovered: "{{ _uncovered }}"
+              secret_vars_not_wired: "{{ _secret_vars_missing }}"
+          when: _dry_run
+
+        - name: Guard against literal domains in tracked homelab-ops files
+          ansible.builtin.command:
+            cmd: >-
+              git -C {{ playbook_dir }} grep -n -F
+              -e {{ vault_domain_ext | quote }} -e {{ vault_domain_ext_secondary | quote }}
+              -- . ':!future'
+          register: _literal_domains
+          changed_when: false
+          failed_when: _literal_domains.rc == 0
+
+        - name: Check running homepage container has every secret var
+          ansible.builtin.shell:
+            cmd: >-
+              docker inspect homepage --format '{{ '{{' }}range .Config.Env{{ '}}' }}{{ '{{' }}println .{{ '}}' }}{{ '{{' }}end{{ '}}' }}'
+              | cut -d= -f1
+          register: _container_env
+          changed_when: false
+          delegate_to: "{{ _homepage_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when: not _dry_run
+
+        - name: Fail when the running container lacks a secret var (redeploy the apps stack first)
+          ansible.builtin.assert:
+            that: _secret_vars | difference(_container_env.stdout_lines) | length == 0
+            fail_msg: "homepage container is missing {{ _secret_vars | difference(_container_env.stdout_lines) }}"
+            quiet: true
+          when: not _dry_run
+
+        # All file tasks delegate to the apps host over SSH (see deploy_swag_configs.yaml).
+        - name: Create output directory
+          ansible.builtin.file:
+            path: "{{ _homepage_dir }}"
+            state: directory
+            mode: "0755"
+          delegate_to: "{{ _homepage_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+
+        - name: Render Homepage config files
+          ansible.builtin.template:
+            src: "templates/homepage/{{ item }}.j2"
+            dest: "{{ _homepage_dir }}/{{ item }}"
+            mode: "0644"
+          loop:
+            - services.yaml
+            - settings.yaml
+            - widgets.yaml
+            - bookmarks.yaml
+            # Unused integrations — rendered as stubs so Homepage doesn't recreate its samples
+            - docker.yaml
+            - kubernetes.yaml
+            - proxmox.yaml
+          register: _rendered
+          delegate_to: "{{ _homepage_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+
+        - name: Record deploy detail
+          ansible.builtin.set_fact:
+            _deploy_detail: >-
+              {{ _tiles | length }} tiles |
+              {{ _rendered.results | selectattr('changed') | map(attribute='item') | list | join(', ') | default('no', true) }} changed
+              {{ '| dry run' if _dry_run else '' }}
+
+        - name: Report changes
+          ansible.builtin.debug:
+            msg: "{{ _deploy_detail }}"
+
+      rescue:
+        - name: Set failure flag
+          ansible.builtin.set_fact:
+            deploy_failed: true
+            _deploy_detail: "{{ _deploy_detail }} | Error: {{ ansible_failed_result.msg | default('unknown') }}"
+
+      always:
+        # Quiet on success when nothing changed — this runs daily
+        - name: Send notification
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Deploy"
+            discord_status: "{{ 'failed' if deploy_failed else 'successful' }}"
+            discord_color: "{{ discord_color_failure if deploy_failed else discord_color_success }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "{{ '❌ ' if deploy_failed else '✅ ' }}Deploy"
+                value: "{{ _deploy_detail }}"
+                inline: true
+          when: deploy_failed or (_rendered is defined and _rendered is changed)
+
+        - name: Log to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          vars:
+            log_table: maintenance
+            log_hostname: "{{ controller_fqdn }}"
+            log_application: "{{ maintenance_name }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if deploy_failed else 'success' }}"
+
+        - name: Fail play if deploy errored
+          ansible.builtin.fail:
+            msg: "Homepage config deploy failed — see notification for details"
+          when: deploy_failed
