@@ -220,7 +220,7 @@
               inventory_hostname in groups["pbs"]
 
         # Old proxmox-kernel-* packages left as 'rc' after upgrades pile up in
-        # /usr/lib/modules (~1G each) and previously filled backup.seandion.local's
+        # /usr/lib/modules (~1G each) and previously filled the PBS host's
         # root disk to 82%. Purge them every run; apt always protects the running
         # and latest kernel.
         - name: Remove unused packages and old kernels

@@ -261,6 +261,15 @@ host_definitions:
             headers:
               Origin: '""'
             proxy_pass_suffix: "$request_uri"
+      - subdomain: disks1              # Scrutiny (redemption disks)
+        upstream_ip: "10.10.10.17"
+        external: false
+        error_pages: true
+        locations:
+          - path: /
+            port: 8089
+            auth: true
+            includes: [proxy]
 
   liberty:
     vm_hostname: "liberty.{{ vault_vm_search_domain }}"
@@ -343,6 +352,15 @@ host_definitions:
           - path: "^~ /transmission"
             upstream_app: "192.168.11.18"
             port: 9091
+            auth: true
+            includes: [proxy]
+      - subdomain: disks2              # Scrutiny (liberty disks)
+        upstream_ip: "10.10.10.18"
+        external: false
+        error_pages: true
+        locations:
+          - path: /
+            port: 8089
             auth: true
             includes: [proxy]
 
@@ -428,6 +446,18 @@ host_definitions:
   independence:
     vm_hostname: "independence.{{ vault_vm_search_domain }}"
     guacamole: { name: Independence, group: Proxmox }
+    proxy:
+      subdomain: independence
+      upstream_ip: "10.10.10.12"
+      external: false
+      server_directives:
+        - "proxy_redirect off"
+      locations:
+        - path: /
+          port: 8006
+          proto: https
+          auth: true
+          includes: [proxmox]
 
   sentinel:
     vm_hostname: "sentinel.{{ vault_vm_search_domain }}"
@@ -500,22 +530,13 @@ host_definitions:
         upstream_ip: "10.10.10.14"
         auth: false
         error_pages: true
-        server_names: ["status.seandion.com", "status.smdion.com"]
+        server_names: ["status.{{ vault_domain_ext }}", "status.{{ vault_domain_ext_secondary }}"]
         locations:
           - path: /
             port: 3001
             auth: false
             includes: [proxy]
             websocket: true
-      - subdomain: disks2
-        upstream_ip: "10.10.10.14"
-        external: false
-        error_pages: true
-        locations:
-          - path: /
-            port: 8089
-            auth: true
-            includes: [proxy]
 
   plex_host:
     vm_hostname: "plex.{{ vault_vm_search_domain }}"
