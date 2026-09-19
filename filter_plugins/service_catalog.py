@@ -243,6 +243,38 @@ def _published_port(definition, port):
     return port
 
 
+def _container_port(definition, port):
+    """Container-side port for ``port``: maps a published host port through compose
+    ports ("H:C"). Inverse of _published_port, for same-host container addressing."""
+    port = str(port)
+    for mapping in (definition.get('compose') or {}).get('ports', []):
+        parts = str(mapping).split('/')[0].split(':')
+        if len(parts) >= 2 and parts[-2] == port:
+            return parts[-1]
+    return port
+
+
+def _container_name(key, definition):
+    """The container_name compose gives this service (templates/compose.j2)."""
+    return (definition.get('compose') or {}).get('container_name') or key.replace('_', '-')
+
+
+def _local_target(key, definition, role, local_role, port):
+    """(address, port) a widget should use for a container.
+
+    When the container runs on the same host as Homepage, the host IP is the wrong
+    answer: the homepage container reaching its own host's published port hairpins and
+    is blocked (confirmed 2026-09-19 — every widget pointed at the apps VM's own IP
+    failed from inside the container, both before and after the IaC cutover). They
+    share the external 'homelab' docker network, so address it by container name on
+    its internal port instead — the same rule deploy_swag_configs.yaml already uses
+    for upstreams on SWAG's host. Returns (None, None) when the rule doesn't apply.
+    """
+    if not local_role or role != local_role:
+        return None, None
+    return _container_name(key, definition), _container_port(definition, port)
+
+
 def _location_path(path):
     """URL base for a prefix location ('^~ /sonarr' -> '/sonarr'); '' for '/' or regex paths."""
     path = str(path or '/').strip()
@@ -290,7 +322,7 @@ def _tile(key, dash, subdomain, addr, port, path, proto, domain, source):
     }
 
 
-def _entry_tiles(entry, container_definitions, vm_definitions, vip_definitions, domain):
+def _entry_tiles(entry, container_definitions, vm_definitions, vip_definitions, domain, local_role=''):
     swag = entry['swag']
     if entry['kind'] in ('label', 'proxy_key'):
         definition = entry['definition']
@@ -298,9 +330,13 @@ def _entry_tiles(entry, container_definitions, vm_definitions, vip_definitions, 
         if not dash:
             return
         proxy = entry.get('proxy') or {}
-        addr = proxy.get('upstream_ip') or _role_addr(entry['role'], vm_definitions, vip_definitions)
         root = next((l for l in swag['locations'] if l.get('path', '/') == '/'), swag['locations'][0])
-        port = _published_port(definition, root.get('port', swag['port']))
+        raw_port = root.get('port', swag['port'])
+        addr, port = (proxy.get('upstream_ip'), _published_port(definition, raw_port)) if proxy.get('upstream_ip') \
+            else _local_target(entry['key'], definition, entry['role'], local_role, raw_port)
+        if not addr:
+            addr = _role_addr(entry['role'], vm_definitions, vip_definitions)
+            port = _published_port(definition, raw_port)
         yield _tile(entry['key'], dash, swag['subdomain'], addr, port, '',
                     root.get('proto', swag['proto']), domain, entry['kind'])
         return
@@ -367,23 +403,26 @@ def _is_covered(entry):
 
 
 def dashboard_tiles(container_definitions, vm_definitions, host_definitions=None, vip_definitions=None,
-                    domain='', swag_role='', externals=None):
-    """Visible dashboard tiles (hidden ones dropped), from definitions + externals."""
+                    domain='', swag_role='', externals=None, local_role='', amp_tiles=None):
+    """Visible dashboard tiles (hidden ones dropped), from definitions + externals + AMP."""
     tiles = []
     catalog = service_catalog(container_definitions, vm_definitions, host_definitions, swag_role)
     in_catalog = set()
     for entry in catalog:
         if entry['kind'] in ('label', 'proxy_key'):
             in_catalog.add(entry['key'])
-        tiles.extend(_entry_tiles(entry, container_definitions, vm_definitions, vip_definitions, domain))
+        tiles.extend(_entry_tiles(entry, container_definitions, vm_definitions, vip_definitions, domain, local_role))
     # Containers with a UI but no proxy entry (the tile must give its own href)
     for name, definition in container_definitions.items():
         if name not in in_catalog and definition.get('dashboard'):
             role = _stack_role(definition.get('stack', ''), vm_definitions, host_definitions)
-            tiles.append(_tile(name, definition['dashboard'], '', _role_addr(role, vm_definitions, vip_definitions),
-                               _first_port(definition), '', 'http', domain, 'container'))
+            addr, port = _local_target(name, definition, role, local_role, _first_port(definition))
+            tiles.append(_tile(name, definition['dashboard'], '',
+                               addr or _role_addr(role, vm_definitions, vip_definitions),
+                               port or _first_port(definition), '', 'http', domain, 'container'))
     for ext in externals or []:
         tiles.append(_tile(ext.get('key') or ext['name'].lower(), ext, '', '', '', '', 'http', domain, 'external'))
+    tiles.extend(amp_tiles or [])
     # A container with both proxy labels and a proxy: key yields two entries — keep one tile
     seen, result = set(), []
     for t in tiles:
@@ -392,6 +431,81 @@ def dashboard_tiles(container_definitions, vm_definitions, host_definitions=None
         seen.add((t['group'], t['name']))
         result.append(t)   # a tile with no group surfaces in dashboard_problems
     return result
+
+
+# ---------------------------------------------------------------------------
+# AMP game servers
+#
+# AMP instances aren't declared in IaC — they're created in AMP's own UI, so the
+# registry it keeps at ~amp/.ampdata/instances.json is the source of truth (the
+# nightly backup reads the same file). The Games group is built from it, so a new
+# game server appears on the dashboard without touching the repo.
+# ---------------------------------------------------------------------------
+
+def _amp_ports(instance):
+    """[(name, port, protocol)] a GenericModule instance exposes, from DeploymentArgs."""
+    import json as _json
+    raw = (instance.get('DeploymentArgs') or {}).get('GenericModule.App.Ports')
+    if not raw:
+        return []
+    try:
+        ports = _json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    return [(p.get('Name', ''), p.get('Port'), p.get('Protocol')) for p in ports if p.get('Port')]
+
+
+def _amp_query_port(instance):
+    """Port a gamedig query should hit: an explicit query port if the instance has one,
+    else the module's primary application port."""
+    ports = _amp_ports(instance)
+    if not ports:
+        return None
+    for name, port, _ in ports:
+        if 'query' in str(name).lower():
+            return port
+    args = instance.get('DeploymentArgs') or {}
+    primary_ref = args.get('GenericModule.App.PrimaryApplicationPortRef')
+    import json as _json
+    try:
+        for p in _json.loads(args.get('GenericModule.App.Ports') or '[]'):
+            if p.get('Ref') == primary_ref:
+                return p.get('Port')
+    except (ValueError, TypeError):
+        pass
+    return ports[0][1]
+
+
+def amp_game_tiles(instances, amp_addr, domain='', config=None):
+    """Games-group tiles, one per AMP game instance (the ADS panel itself excluded).
+
+    ``config`` (vars/configs/homepage.yaml homepage_amp): group, href, description,
+    and ``widgets``: a game display name -> gamedig serverType map. A game with no
+    mapping still gets a tile, just no widget — gamedig can't query every game.
+    """
+    cfg = config or {}
+    widget_map = {str(k).lower(): v for k, v in (cfg.get('widgets') or {}).items()}
+    tiles = []
+    for inst in instances or []:
+        if inst.get('Module') == 'ADS':
+            continue                      # the AMP panel itself, not a game
+        args = inst.get('DeploymentArgs') or {}
+        game = args.get('GenericModule.App.DisplayName') or inst.get('ModuleDisplayName') or ''
+        name = inst.get('FriendlyName') or inst.get('InstanceName')
+        dash = {
+            'group': cfg.get('group', 'Games'),
+            'name': name,
+            'description': cfg.get('description_prefix', '') + (game.lower() if game else 'game server'),
+            'icon': cfg.get('icons', {}).get(game, '%s.png' % str(game or name).lower().replace(' ', '-')),
+            'href': cfg.get('href', ''),
+        }
+        server_type = widget_map.get(str(game).lower())
+        port = _amp_query_port(inst)
+        if server_type and port:
+            dash['widget'] = {'type': 'gamedig', 'serverType': server_type,
+                              'url': 'udp://%s:%s' % (amp_addr, port)}
+        tiles.append(_tile(str(name).lower(), dash, '', amp_addr, port or '', '', 'udp', domain, 'amp'))
+    return tiles
 
 
 def dashboard_uncovered(container_definitions, vm_definitions, host_definitions=None, swag_role=''):
@@ -474,6 +588,7 @@ class FilterModule(object):
     def filters(self):
         return {
             'service_catalog': service_catalog,
+            'amp_game_tiles': amp_game_tiles,
             'swag_proxies': swag_proxies,
             'dashboard_tiles': dashboard_tiles,
             'dashboard_uncovered': dashboard_uncovered,

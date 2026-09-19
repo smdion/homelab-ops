@@ -272,7 +272,6 @@ host_definitions:
           icon: scrutiny.png
           href: "https://disks1.{{ vault_domain_ext }}/web/dashboard"
           description: redemption disk monitoring
-          container: scrutiny
           widget:
             type: scrutiny
             fields: ["passed", "failed"]
@@ -320,6 +319,9 @@ host_definitions:
           description: media server
           widget:
             type: jellyfin
+            # Jellyfin 12 removed the legacy /emby/* routes the widget's v1 mode uses;
+            # v2 calls the native endpoints with header auth (gethomepage #7113).
+            version: 2
             secrets: [key]
         locations:
           - path: /
@@ -445,7 +447,6 @@ host_definitions:
           icon: scrutiny.png
           href: "https://disks2.{{ vault_domain_ext }}/web/dashboard"
           description: liberty disk monitoring
-          container: scrutiny
           widget:
             type: scrutiny
             fields: ["passed", "failed"]
@@ -771,7 +772,7 @@ host_definitions:
       dashboard:
         group: Home
         name: Coffee
-        icon: gaggiuino.png
+        icon: https://raw.githubusercontent.com/smdion/gaggiuino-barista/main/icon.png
         description: espresso machine controller
       locations:
         - path: /

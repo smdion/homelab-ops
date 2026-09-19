@@ -133,9 +133,19 @@ homepage_externals:
       secrets: [key]
       fields: ["status", "uptime"]
 
-  - name: Valheim
-    group: Games
-    widget:
-      type: gamedig
-      serverType: valheim
-      url: "udp://10.10.10.70:2459"
+# --- AMP game servers -------------------------------------------------------
+# The Games group is built from AMP's own instance registry
+# (~amp/.ampdata/instances.json, read live by deploy_homepage_config.yaml), not from
+# this repo — instances are created in AMP's UI, so a new game server appears on the
+# dashboard by itself. Only the two maps below need touching.
+homepage_amp:
+  group: Games
+  href: "https://amp.{{ vault_domain_ext }}"
+  # game display name -> gamedig serverType. A game that gamedig can't query still
+  # gets a tile, just without live player counts.
+  widgets:
+    Valheim: valheim
+    Enshrouded: enshrouded
+  # icon overrides, for games dashboard-icons doesn't have (default: <game>.png)
+  icons:
+    Windrose: mdi-gamepad-variant

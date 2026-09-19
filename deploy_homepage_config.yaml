@@ -40,6 +40,7 @@
     - vars/definitions/vip_definitions.yaml
     - vars/configs/proxmox.yaml
     - vars/configs/semaphore_check.yaml
+    - vars/configs/amp.yaml
     - vars/configs/homepage.yaml
     - vars/secrets.yaml
 
@@ -55,6 +56,18 @@
         {%- endif -%}
       {%- endfor -%}
       {{ ns.host }}
+    # The role Homepage itself runs on — widgets for containers on this same host are
+    # addressed by container name over the shared 'homelab' docker network, not by the
+    # host's own IP (which hairpins and is blocked). See _local_target in the filter.
+    _homepage_role: >-
+      {%- set ns = namespace(role='') -%}
+      {%- for r, rdef in vm_definitions.items() -%}
+        {%- if rdef.stacks is defined and 'apps' in rdef.stacks and not ns.role -%}
+          {%- set ns.role = r -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ ns.role }}
+    _amp_host: "{{ (vm_definitions.amp | default({})).vm_ip | default('') }}"
     # SWAG's role, for the catalog's same-host upstream rule (see deploy_swag_configs.yaml)
     _swag_role: >-
       {%- set ns = namespace(role='') -%}
@@ -82,11 +95,38 @@
         _deploy_detail: ""
 
     - block:
+        # AMP instances live in AMP's UI, not IaC — its own registry is the source of
+        # truth (same file backup_hosts.yaml reads). Non-fatal: if AMP is down or the
+        # file moves, the rest of the dashboard still generates, minus the game tiles.
+        - name: Read the AMP instance registry
+          ansible.builtin.slurp:
+            src: "{{ amp_home }}/.ampdata/instances.json"
+          register: _amp_registry
+          delegate_to: "{{ _amp_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          failed_when: false
+          when: _amp_host | length > 0
+
+        - name: Build AMP game tiles
+          ansible.builtin.set_fact:
+            _amp_tiles: >-
+              {{ ((_amp_registry.content | default('') | b64decode | from_json)
+                  if (_amp_registry.content is defined) else [])
+                 | amp_game_tiles(_amp_host, vault_domain_ext, homepage_amp | default({})) }}
+
+        - name: Warn when the AMP registry could not be read
+          ansible.builtin.debug:
+            msg: "AMP registry unreadable — Games tiles skipped this run ({{ _amp_registry.msg | default('no amp host') }})"
+          when: _amp_registry.content is not defined
+
         - name: Build dashboard tiles from the service catalog
           ansible.builtin.set_fact:
             _tiles: >-
               {{ container_definitions | dashboard_tiles(vm_definitions, host_definitions, vip_definitions,
-                 vault_domain_ext, _swag_role, homepage_externals) }}
+                 vault_domain_ext, _swag_role, homepage_externals, _homepage_role, _amp_tiles | default([])) }}
             _uncovered: "{{ container_definitions | dashboard_uncovered(vm_definitions, host_definitions, _swag_role) }}"
 
         - name: Compute registry problems and required secrets

@@ -499,7 +499,7 @@ container_definitions:
     dashboard:
       group: Home
       name: BirdNET-Go
-      icon: birdnet-go.png
+      icon: birdnet.png
       description: bird detection
     compose:
       image_var: BIRDNET
@@ -1169,8 +1169,10 @@ container_definitions:
       HOMEPAGE_AUTHENTIK_KEY: "{{ vault_homepage_authentik_key }}"
       HOMEPAGE_BESZEL_USERNAME: "{{ vault_homepage_beszel_username }}"
       HOMEPAGE_BESZEL_PASSWORD: "{{ vault_homepage_beszel_password }}"
-      HOMEPAGE_CROWDSEC_USERNAME: "{{ vault_homepage_crowdsec_username }}"
-      HOMEPAGE_CROWDSEC_PASSWORD: "{{ vault_homepage_crowdsec_password }}"
+      # The credentials carried over from the hand-written config return 401 — reuse the
+      # LAPI machine account crowdsec_web_ui already logs in with (verified 200).
+      HOMEPAGE_CROWDSEC_USERNAME: "{{ vault_docker_crowdsec_web_ui_user }}"
+      HOMEPAGE_CROWDSEC_PASSWORD: "{{ vault_docker_crowdsec_web_ui_password }}"
       HOMEPAGE_GRAFANA_USERNAME: "{{ vault_homepage_grafana_username }}"
       HOMEPAGE_GRAFANA_PASSWORD: "{{ vault_homepage_grafana_password }}"
       HOMEPAGE_HOME_ASSISTANT_KEY: "{{ vault_homepage_home_assistant_key }}"
@@ -1318,7 +1320,7 @@ container_definitions:
     dashboard:
       group: Finance
       name: Ledgr
-      icon: ledgr.png
+      icon: https://raw.githubusercontent.com/smdion/PersonalFinanceImproved/main/src/app/icon.svg
       description: personal finance
     env:
       LEDGR_DATABASE_URL: "postgresql://{{ docker_postgres_user }}:{{ vault_docker_postgres_password }}@{{ vault_db_host_primary }}:5432/ledgr"
