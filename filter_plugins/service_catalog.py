@@ -584,6 +584,58 @@ def homepage_secret_vars(tiles):
     return sorted({v for t in tiles for v in t['secret_vars'].values()})
 
 
+# ---------------------------------------------------------------------------
+# unRAID presence check
+#
+# unRAID containers are not in container_definitions (unRAID manages them), so nothing
+# else notices when one is removed or a new UI appears. Each unRAID host lists the
+# containers it is expected to run in host_definitions (unraid_containers); the daily
+# run compares that list with `docker ps -a` and reports drift. It only ALERTS — the
+# dashboard output depends on IaC alone, because unRAID's own update job restarts
+# containers and a dashboard that followed live state would flicker.
+# ---------------------------------------------------------------------------
+
+def unraid_hosts(host_definitions):
+    """[{name, fqdn, containers}] for every host that declares ``unraid_containers``."""
+    return [{'name': name, 'fqdn': d.get('vm_hostname', ''), 'containers': list(d['unraid_containers'])}
+            for name, d in (host_definitions or {}).items() if d.get('unraid_containers')]
+
+
+def unraid_presence(results, hosts=None):
+    """Drift findings from per-host `docker ps -a` results.
+
+    ``results``: loop results, each with ``item`` = {name, containers} and either
+    ``stdout_lines`` of ``<name>|<state>|<net.unraid.docker.webui label>`` or a failure.
+    A container is *unlisted* only if it is running AND has a web UI label — the
+    infrastructure containers without one (redis, exporters, ...) are not worth a warning.
+    """
+    findings = []
+    for res in results or []:
+        host = res.get('item') or {}
+        name = host.get('name', '?')
+        if res.get('unreachable') or res.get('failed') or res.get('rc', 0) != 0:
+            reason = str(res.get('msg') or res.get('stderr') or 'no output').strip().splitlines()
+            findings.append('%s: presence check could not run (%s)' % (name, reason[0][:90] if reason else 'unknown'))
+            continue
+        seen = {}
+        for line in res.get('stdout_lines', []):
+            parts = line.split('|', 2)
+            if len(parts) == 3:
+                seen[parts[0]] = (parts[1], parts[2])
+        declared = set(host.get('containers') or [])
+        for cname in sorted(declared):
+            state = seen.get(cname, (None, ''))[0]
+            if state is None:
+                findings.append('%s: declared container %s is not present' % (name, cname))
+            elif state != 'running':
+                findings.append('%s: declared container %s is %s' % (name, cname, state))
+        for cname, (state, webui) in sorted(seen.items()):
+            if state == 'running' and webui and cname not in declared:
+                findings.append('%s: unlisted container %s has a web UI — add it to unraid_containers '
+                                'in host_definitions (and give it a dashboard tile)' % (name, cname))
+    return findings
+
+
 class FilterModule(object):
     def filters(self):
         return {
@@ -596,4 +648,6 @@ class FilterModule(object):
             'homepage_services': homepage_services,
             'homepage_layout': homepage_layout,
             'homepage_secret_vars': homepage_secret_vars,
+            'unraid_presence': unraid_presence,
+            'unraid_hosts': unraid_hosts,
         }

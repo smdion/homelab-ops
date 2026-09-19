@@ -23,6 +23,9 @@
 #                    Used by deploy_swag_configs.yaml to auto-generate site-confs.
 #                    A list generates one site-conf per entry.
 #                    See deploy_swag_configs.yaml for full schema.
+#   unraid_containers — (unRAID docker_run hosts) web-UI containers expected to be running.
+#                    deploy_homepage_config.yaml alerts when one is missing/stopped or when
+#                    an undeclared container with a UI appears. Alert-only; never alters output.
 
 host_definitions:
   vps:
@@ -77,6 +80,20 @@ host_definitions:
   redemption:
     vm_hostname: "redemption.{{ vault_vm_search_domain }}"
     guacamole: { name: Redemption, group: unRAID }
+    # Containers unRAID runs here that have a web UI. unRAID manages them (they are not in
+    # container_definitions), so nothing else notices when one is removed or a new UI
+    # appears — deploy_homepage_config.yaml compares this list with `docker ps -a` daily
+    # and alerts on drift. It never changes the dashboard: the tiles come from the proxy
+    # entries below. Containers without a UI (redis, exporters, ...) need no entry.
+    unraid_containers:
+      - immich
+      - pingvin-share
+      - FileRun
+      - OnlyOfficeDocumentServer
+      - binhex-urbackup
+      - semaphore
+      - scrutiny
+      - dozzle-agent
     proxy:
       - subdomain: redemption
         upstream_ip: "10.10.10.17"
@@ -284,6 +301,17 @@ host_definitions:
   liberty:
     vm_hostname: "liberty.{{ vault_vm_search_domain }}"
     guacamole: { name: Liberty, group: unRAID }
+    unraid_containers:          # see redemption
+      - jellyfin
+      - plex
+      - metube
+      - radarr
+      - sonarr
+      - prowlarr
+      - sabnzbd
+      - transmission
+      - scrutiny
+      - dozzle-agent
     proxy:
       - subdomain: liberty
         upstream_ip: "10.10.10.18"

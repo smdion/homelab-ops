@@ -10,7 +10,10 @@
 #
 # Optional extra vars:
 #   dry_run=true  — write to /tmp/homepage-generated/ on the apps host instead of /opt/homepage;
-#                   coverage and secret-wiring gaps are reported instead of failing
+#                   coverage and secret-wiring gaps are reported instead of failing; unRAID drift
+#                   is reported but not sent to Discord
+#
+# Also checks unRAID presence (alert only): see unraid_containers in host_definitions.yaml.
 #
 # Usage:
 #   ansible-playbook deploy_homepage_config.yaml
@@ -68,6 +71,8 @@
       {%- endfor -%}
       {{ ns.role }}
     _amp_host: "{{ (vm_definitions.amp | default({})).vm_ip | default('') }}"
+    # unRAID hosts that declare unraid_containers (host_definitions) — presence-checked below
+    _unraid_hosts: "{{ host_definitions | unraid_hosts }}"
     # SWAG's role, for the catalog's same-host upstream rule (see deploy_swag_configs.yaml)
     _swag_role: >-
       {%- set ns = namespace(role='') -%}
@@ -251,6 +256,40 @@
           ansible.builtin.debug:
             msg: "{{ _deploy_detail }}"
 
+        # unRAID presence check — ALERT ONLY, and last on purpose: nothing here can change or
+        # block the rendered dashboard. unRAID manages its own containers (they are not in
+        # container_definitions), so this is the only thing that notices one disappearing or a
+        # new web UI appearing. Compares docker ps against unraid_containers in host_definitions.
+        - name: List containers on each unRAID host
+          ansible.builtin.command:
+            argv:
+              - docker
+              - ps
+              - -a
+              - --format
+              - '{% raw %}{{.Names}}|{{.State}}|{{.Label "net.unraid.docker.webui"}}{% endraw %}'
+          loop: "{{ _unraid_hosts }}"
+          loop_control:
+            label: "{{ item.name }}"
+          register: _unraid_ps
+          delegate_to: "{{ item.fqdn }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          failed_when: false
+          ignore_unreachable: true
+          changed_when: false
+          check_mode: false
+
+        - name: Compare running containers with the declared lists
+          ansible.builtin.set_fact:
+            _unraid_findings: "{{ _unraid_ps.results | default([]) | unraid_presence }}"
+
+        - name: Report unRAID drift
+          ansible.builtin.debug:
+            msg: "{{ _unraid_findings if _unraid_findings | length > 0 else 'unRAID presence: all declared containers running, nothing unlisted' }}"
+
       rescue:
         - name: Set failure flag
           ansible.builtin.set_fact:
@@ -273,6 +312,25 @@
                 value: "{{ _deploy_detail }}"
                 inline: true
           when: deploy_failed or (_rendered is defined and _rendered is changed)
+
+        # A separate message from the deploy notice: drift persists until someone fixes the
+        # declared list or the container, so it repeats daily until then (intended).
+        - name: Send unRAID drift warning
+          include_tasks: tasks/notify.yaml
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "unRAID Presence"
+            discord_status: "partial"
+            discord_color: "{{ discord_color_warning }}"
+            discord_url: "{{ semaphore_ext_url }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "⚠️ Drift ({{ _unraid_findings | length }})"
+                value: "{{ _unraid_findings | join('; ') | truncate(900, True) }}"
+                inline: false
+          when:
+            - not _dry_run
+            - _unraid_findings | default([]) | length > 0
 
         - name: Log to MariaDB
           include_tasks: tasks/log_mariadb.yaml
