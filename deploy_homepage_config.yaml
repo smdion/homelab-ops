@@ -267,7 +267,7 @@
               - ps
               - -a
               - --format
-              - '{% raw %}{{.Names}}|{{.State}}|{{.Label "net.unraid.docker.webui"}}{% endraw %}'
+              - "{% raw %}{{.Names}}|{{.State}}|{{.Label \"net.unraid.docker.webui\"}}{% endraw %}"
           loop: "{{ _unraid_hosts }}"
           loop_control:
             label: "{{ item.name }}"
