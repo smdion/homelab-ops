@@ -215,14 +215,20 @@ def swag_proxies(container_definitions, vm_definitions, host_definitions=None, s
 # Pure externals (no IaC definition) come from vars/configs/homepage.yaml.
 # ---------------------------------------------------------------------------
 
-_TILE_FIELDS = ('icon', 'href', 'description')
+_TILE_FIELDS = ('icon', 'href', 'description', 'container')
 
 
 def _role_addr(role, vm_definitions, vip_definitions):
-    """Address a widget uses to reach a role: its VIP when it has one, else its VM IP."""
-    vip = (vip_definitions or {}).get(role) or {}
-    if vip.get('vip'):
-        return vip['vip']
+    """Default address a widget uses to reach a role: its VM IP.
+
+    NOT its keepalived VIP, even when the role has one — checked against every live
+    widget (2026-09-19): only Authentik and CrowdSec actually use the core VIP: (.50);
+    Tautulli, Seerr, Home Assistant and Grafana all sit on the same roles (core/apps)
+    and use the plain VM IP. So VIP is opt-in per tile via an explicit
+    ``widget.url: "http://{{ vault_core_vip }}:..."`` override, not a role default.
+    ``vip_definitions`` is accepted for that per-tile use (e.g. Proxmox nodes via
+    ``vault_pve_vip``) but is not consulted here.
+    """
     return (vm_definitions.get(role) or {}).get('vm_ip', '')
 
 
@@ -321,12 +327,43 @@ def _entry_tiles(entry, container_definitions, vm_definitions, vip_definitions, 
                     loc.get('proto', swag['proto']), domain, entry['kind'])
 
 
+# Path segments that mark a location as a helper/companion route (websocket channel,
+# metrics scrape, unauthenticated API passthrough) rather than an independent,
+# tile-worthy service — e.g. "^~ /sabnzbd/api" is not a service distinct from
+# "^~ /sabnzbd", and "/wss" is not distinct from the "/" it accompanies.
+_COMPANION_SEGMENTS = {'wss', 'ws', 'websocket', 'socket', 'metrics', 'api'}
+
+
+def _named_units(locations):
+    """Non-root locations on a multi-service subdomain (e.g. "media") that are each
+    their own distinguishable service and so each need their own dashboard/hide —
+    as opposed to a subdomain with a single "/" location, which needs one marker
+    for the whole proxy entry. Excluded as companion routes riding along with
+    whichever real unit they support (not distinct services of their own): a
+    redirect (``redirect_only: true``), a known helper suffix (``/wss``, ``/api``,
+    …), or — when the entry has a root "/" location — anything hitting that same
+    port, which just means "another route into the same backend"."""
+    root_port = next((l.get('port') for l in locations if str(l.get('path', '/')).strip() == '/'), None)
+    units = []
+    for loc in locations:
+        if loc.get('redirect_only') or (root_port is not None and loc.get('port') == root_port):
+            continue
+        path = _location_path(loc.get('path'))
+        if path and path.rsplit('/', 1)[-1] not in _COMPANION_SEGMENTS:
+            units.append((path, loc))
+    return units
+
+
 def _is_covered(entry):
-    """An entry is placed on (or deliberately hidden from) the dashboard somewhere."""
+    """An entry — or, for a multi-service subdomain, every one of its named units —
+    is placed on (or deliberately hidden from) the dashboard."""
     if entry['kind'] in ('label', 'proxy_key'):
         return bool(entry['definition'].get('dashboard'))
-    return bool(entry['proxy'].get('dashboard')) or any(
-        l.get('dashboard') for l in entry['proxy'].get('locations', []))
+    proxy = entry['proxy']
+    named = _named_units(proxy.get('locations') or [{'path': '/'}])
+    if named:
+        return all(loc.get('dashboard') for _, loc in named)
+    return bool(proxy.get('dashboard'))
 
 
 def dashboard_tiles(container_definitions, vm_definitions, host_definitions=None, vip_definitions=None,
@@ -358,10 +395,22 @@ def dashboard_tiles(container_definitions, vm_definitions, host_definitions=None
 
 
 def dashboard_uncovered(container_definitions, vm_definitions, host_definitions=None, swag_role=''):
-    """Catalog entries with neither a dashboard group nor hide: true."""
-    return ['%s (%s.*)' % (e['key'], e['swag']['subdomain'])
-            for e in service_catalog(container_definitions, vm_definitions, host_definitions, swag_role)
-            if not _is_covered(e)]
+    """Catalog entries — or, on a multi-service subdomain, the specific named units —
+    with neither a dashboard group nor hide: true."""
+    out = []
+    for e in service_catalog(container_definitions, vm_definitions, host_definitions, swag_role):
+        if e['kind'] in ('label', 'proxy_key'):
+            if not e['definition'].get('dashboard'):
+                out.append('%s (%s.*)' % (e['key'], e['swag']['subdomain']))
+            continue
+        proxy = e['proxy']
+        named = _named_units(proxy.get('locations') or [{'path': '/'}])
+        if named:
+            out.extend('%s%s (%s.*%s)' % (e['key'], path, e['swag']['subdomain'], path)
+                       for path, loc in named if not loc.get('dashboard'))
+        elif not proxy.get('dashboard'):
+            out.append('%s (%s.*)' % (e['key'], e['swag']['subdomain']))
+    return out
 
 
 def _layout_groups(layout):

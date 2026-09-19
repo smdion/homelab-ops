@@ -81,6 +81,14 @@ host_definitions:
       - subdomain: redemption
         upstream_ip: "10.10.10.17"
         external: false
+        dashboard:
+          group: Storage
+          name: Redemption
+          icon: unraid.svg
+          description: unRAID
+          widget:
+            type: unraid
+            secrets: [key]
         locations:
           - path: /
             port: 80
@@ -98,6 +106,15 @@ host_definitions:
         aliases: [immich]
         upstream_ip: "10.10.10.17"
         auth: true
+        dashboard:
+          group: Sharing
+          name: Immich
+          icon: immich.png
+          description: photo storage
+          widget:
+            type: immich
+            version: 2
+            secrets: [key]
         locations:
           - path: /
             port: 8081
@@ -118,6 +135,14 @@ host_definitions:
       - subdomain: nextcloud
         upstream_ip: "10.10.10.17"
         auth: false
+        dashboard:
+          group: Sharing
+          name: Nextcloud
+          icon: nextcloud.png
+          description: file storage
+          widget:
+            type: nextcloud
+            secrets: [key]
         locations:
           - path: "= /.well-known/carddav"
             redirect_only: true
@@ -162,6 +187,11 @@ host_definitions:
         # FileRun (manual unRAID container) — own login, no Authelia (WebDAV/mobile apps)
         upstream_ip: "10.10.10.17"
         auth: false
+        dashboard:
+          group: Sharing
+          name: FileRun
+          icon: filerun.png
+          description: file storage
         locations:
           - path: /
             port: 7940
@@ -210,6 +240,11 @@ host_definitions:
         # PingVin Share X (manual unRAID container, smp46/pingvin-share-x)
         upstream_ip: "10.10.10.17"
         error_pages: true
+        dashboard:
+          group: Sharing
+          name: PingVin
+          icon: pingvin.png
+          description: file drop
         locations:
           - path: /
             port: 3000
@@ -222,6 +257,8 @@ host_definitions:
         upstream_ip: "10.10.10.17"
         auth: false
         error_pages: true
+        dashboard:
+          hide: true   # ONLYOFFICE backend for FileRun, not a user-facing service
         locations:
           - path: /
             port: 9980
@@ -231,6 +268,14 @@ host_definitions:
         # UrBackup (binhex-urbackup, manual unRAID container)
         upstream_ip: "10.10.10.17"
         external: false
+        dashboard:
+          group: Backup
+          name: urBackup
+          icon: urbackup.png
+          description: urBackup for Desktops
+          widget:
+            type: urbackup
+            maxDays: 5
         locations:
           - path: /
             port: 55414
@@ -238,6 +283,11 @@ host_definitions:
             includes: [proxy]
       - subdomain: ansible
         upstream_ip: "10.10.10.17"
+        dashboard:
+          group: Automation
+          name: Ansible Semaphore
+          icon: ansible.png
+          description: ansible automation
         server_directives:
           - "proxy_redirect off"
           - "chunked_transfer_encoding on"
@@ -265,6 +315,15 @@ host_definitions:
         upstream_ip: "10.10.10.17"
         external: false
         error_pages: true
+        dashboard:
+          group: Monitoring
+          name: Scrutiny1
+          icon: scrutiny.png
+          description: redemption disk monitoring
+          container: scrutiny
+          widget:
+            type: scrutiny
+            fields: ["passed", "failed"]
         locations:
           - path: /
             port: 8089
@@ -278,6 +337,14 @@ host_definitions:
       - subdomain: liberty
         upstream_ip: "10.10.10.18"
         external: false
+        dashboard:
+          group: Storage
+          name: Liberty
+          icon: unraid.svg
+          description: unRAID
+          widget:
+            type: unraid
+            secrets: [key]
         locations:
           - path: /
             port: 80
@@ -294,6 +361,14 @@ host_definitions:
       - subdomain: video
         upstream_ip: "10.10.10.18"
         auth: true
+        dashboard:
+          group: Media
+          name: Jellyfin
+          icon: jellyfin.svg
+          description: media server
+          widget:
+            type: jellyfin
+            secrets: [key]
         locations:
           - path: /
             port: 8096
@@ -324,11 +399,28 @@ host_definitions:
             port: 8181
             auth: true
             includes: [proxy]
+            dashboard:
+              group: Media
+              name: Tautulli
+              icon: tautulli.svg
+              description: plex stats
+              widget:
+                type: tautulli
+                secrets: [key]
           - path: "^~ /radarr"
             upstream_app: "10.10.10.18"
             port: 7878
             auth: true
             includes: [proxy]
+            dashboard:
+              group: Content
+              name: Radarr
+              icon: radarr.png
+              description: movie indexer
+              widget:
+                type: radarr
+                secrets: [key]
+                enableQueue: true
           - path: "^~ /sonarr"
             upstream_app: "10.10.10.18"
             port: 8989
@@ -348,6 +440,14 @@ host_definitions:
             port: 8080
             auth: true
             includes: [proxy]
+            dashboard:
+              group: Downloaders
+              name: SABnzbd
+              icon: sabnzbd.png
+              description: usenet downloader
+              widget:
+                type: sabnzbd
+                secrets: [key]
           - path: "^~ /sabnzbd/api"
             upstream_app: "192.168.11.19"
             port: 8080
@@ -358,15 +458,41 @@ host_definitions:
             port: 9696
             auth: true
             includes: [proxy]
+            dashboard:
+              group: Content
+              name: Prowlarr
+              icon: prowlarr.png
+              description: index manager
+              widget:
+                type: prowlarr
+                secrets: [key]
+                fields: ["numberOfGrabs", "numberOfQueries"]
           - path: "^~ /transmission"
             upstream_app: "192.168.11.18"
             port: 9091
             auth: true
             includes: [proxy]
+            dashboard:
+              group: Downloaders
+              name: Transmission
+              icon: transmission.png
+              description: torrent downloader
+              widget:
+                type: transmission
+                secrets: [key]
       - subdomain: disks2              # Scrutiny (liberty disks)
         upstream_ip: "10.10.10.18"
         external: false
         error_pages: true
+        dashboard:
+          group: Monitoring
+          name: Scrutiny2
+          icon: scrutiny.png
+          description: liberty disk monitoring
+          container: scrutiny
+          widget:
+            type: scrutiny
+            fields: ["passed", "failed"]
         locations:
           - path: /
             port: 8089
@@ -382,6 +508,16 @@ host_definitions:
       aliases: [backups]
       upstream_ip: "10.10.10.60"
       external: false
+      dashboard:
+        group: Backup
+        name: Proxmox Backup
+        icon: proxmox.svg
+        description: Backup
+        widget:
+          type: proxmoxbackupserver
+          username: "root@pam!homepage"
+          secrets: [password]
+          fields: ["datastore_usage", "failed_tasks_24h"]
       locations:
         - path: /
           port: 8007
@@ -397,6 +533,12 @@ host_definitions:
       subdomain: pikvm
       upstream_ip: "10.10.10.30"
       external: false
+      dashboard:
+        group: Remote Access
+        name: PiKVM
+        icon: https://avatars.githubusercontent.com/u/41749659?s=200&v=4
+        href: "https://pikvm.{{ vault_domain_ext }}/kvm/"
+        description: remote kvm
       locations:
         - path: /
           port: 443
@@ -412,6 +554,16 @@ host_definitions:
       subdomain: synology
       upstream_ip: "10.10.10.31"
       external: false
+      dashboard:
+        group: Storage
+        name: Synology
+        icon: synology.svg
+        description: Synology
+        widget:
+          type: diskstation
+          username: smdion
+          secrets: [password]
+          volume: volume_1
       locations:
         - path: /
           port: 5001
@@ -455,6 +607,18 @@ host_definitions:
       subdomain: defiance
       upstream_ip: "10.10.10.11"
       external: false
+      dashboard:
+        group: Hypervisor
+        name: Defiance
+        icon: proxmox.svg
+        description: Proxmox
+        secret_prefix: proxmox      # one API token shared by all PVE node tiles
+        widget:
+          type: proxmox
+          url: "https://{{ vault_pve_vip }}:8006"
+          username: "api@pam!homepage"
+          node: defiance
+          secrets: [password]
       server_directives:
         - "proxy_redirect off"
       locations:
@@ -471,6 +635,18 @@ host_definitions:
       subdomain: independence
       upstream_ip: "10.10.10.12"
       external: false
+      dashboard:
+        group: Hypervisor
+        name: Independence
+        icon: proxmox.svg
+        description: Proxmox
+        secret_prefix: proxmox      # one API token shared by all PVE node tiles
+        widget:
+          type: proxmox
+          url: "https://{{ vault_pve_vip }}:8006"
+          username: "api@pam!homepage"
+          node: independence
+          secrets: [password]
       server_directives:
         - "proxy_redirect off"
       locations:
@@ -487,6 +663,21 @@ host_definitions:
       - subdomain: sentinel
         upstream_ip: "10.10.10.13"
         external: false
+        dashboard:
+          group: Hypervisor
+          name: Sentinel
+          icon: proxmox.svg
+          description: Proxmox
+          # Standalone node (pve_definitions.yaml) — not in the cluster, so it isn't
+          # reachable via the cluster VIP or the shared homepage cluster token; use
+          # its own node IP and the standalone API token instead.
+          secret_prefix: sentinel_proxmox
+          widget:
+            type: proxmox
+            url: "https://10.10.10.13:8006"
+            username: "{{ vault_pve_standalone_api_user }}!{{ vault_pve_standalone_api_token_id }}"
+            node: sentinel
+            secrets: [password]
         server_directives:
           - "proxy_redirect off"
         locations:
@@ -504,6 +695,12 @@ host_definitions:
       - subdomain: pdm
         upstream_ip: "10.10.10.62"
         external: false
+        dashboard:
+          group: Hypervisor
+          name: PDM
+          icon: proxmox.svg
+          description: Datacenter Manager
+          # No gethomepage widget for PDM as of this writing — plain link tile.
         server_directives:
           - "proxy_redirect off"
         locations:
@@ -514,50 +711,11 @@ host_definitions:
             includes: [proxmox]     # same upgrade/websocket handling as the PVE UIs
 
   # --- Services on misc hosts (not in container_definitions) ---
-  octoprint_host:
-    vm_hostname: "octoprint.{{ vault_vm_search_domain }}"
-    proxy:
-      - subdomain: octoprint
-        upstream_ip: "10.10.10.14"
-        external: false
-        locations:
-          - path: /
-            port: 5002
-            auth: true
-            includes: [proxy]
-            headers:
-              X-Scheme: "https"
-      - subdomain: octoprintcam
-        upstream_ip: "10.10.10.14"
-        external: false
-        locations:
-          - path: /
-            port: 5003
-            auth: true
-            includes: [proxy]
-            headers:
-              X-Scheme: "https"
-      - subdomain: octoprinttimelapse
-        upstream_ip: "10.10.10.14"
-        external: false
-        locations:
-          - path: /
-            port: 5004
-            auth: true
-            includes: [proxy]
-            headers:
-              X-Scheme: "https"
-      - subdomain: status
-        upstream_ip: "10.10.10.14"
-        auth: false
-        error_pages: true
-        server_names: ["status.{{ vault_domain_ext }}", "status.{{ vault_domain_ext_secondary }}"]
-        locations:
-          - path: /
-            port: 3001
-            auth: false
-            includes: [proxy]
-            websocket: true
+  # octoprint_host (10.10.10.14: octoprint, octoprintcam, octoprinttimelapse, status/Uptime
+  # Kuma) removed 2026-09-19 — confirmed retired: status has auth:false (no Authentik gate),
+  # so SWAG's request went straight to the upstream and got SWAG's own fake-200 error page,
+  # meaning the host itself is unreachable, not just one app. If it comes back, re-add from
+  # git history (this comment's commit) rather than re-guessing the config.
 
   plex_host:
     vm_hostname: "plex.{{ vault_vm_search_domain }}"
@@ -565,6 +723,16 @@ host_definitions:
       subdomain: plex
       upstream_ip: "10.10.10.19"
       auth: false
+      dashboard:
+        group: Media
+        name: Plex
+        icon: plex.svg
+        description: media server
+        href: "https://app.plex.tv"   # user preference — not the plex.<domain> subdomain
+        widget:
+          type: plex
+          url: "https://10.10.10.19:32400"
+          secrets: [key]
       server_directives:
         - "proxy_redirect off"
         - "proxy_buffering off"
@@ -599,6 +767,8 @@ host_definitions:
       subdomain: testunraid
       upstream_ip: "10.10.10.245"
       external: false
+      dashboard:
+        hide: true   # ephemeral test VM, not a dashboard tile
       locations:
         - path: /
           port: 443
@@ -623,6 +793,11 @@ host_definitions:
       # so SWAG targets liberty's mgmt IP. Was 192.168.11.17 (metube's old
       # macvlan IP on the isolated media VLAN) before the move to bridge.
       upstream_ip: "10.10.10.18"
+      dashboard:
+        group: Downloaders
+        name: MeTube
+        icon: metube.png
+        description: yt-dlp
       locations:
         - path: /
           port: 8081
@@ -637,6 +812,11 @@ host_definitions:
       upstream_ip: "10.10.13.232"
       auth: true
       error_pages: true
+      dashboard:
+        group: Home
+        name: Coffee
+        icon: gaggiuino.png
+        description: espresso machine controller
       locations:
         - path: /
           port: 80

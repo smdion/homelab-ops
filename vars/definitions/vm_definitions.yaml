@@ -88,6 +88,8 @@ vm_definitions:
       subdomain: financial
       external: true
       auth: true
+      dashboard:
+        hide: true   # personal-finance dev server's domain, not a service tile
       locations:
         - path: /
           port: 3001
@@ -113,6 +115,11 @@ vm_definitions:
       subdomain: amp
       external: false
       error_pages: true
+      dashboard:
+        group: Games
+        name: AMP
+        icon: amp.png
+        description: games server
       server_directives:
         - "proxy_redirect off"
       locations:
@@ -221,6 +228,17 @@ vm_definitions:
     proxy:
       subdomain: freshjams
       upstream_ip: "192.168.12.12"
+      dashboard:
+        group: Web
+        name: Fresh-Jams
+        icon: https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/linuxserver-ls-logo.png
+        description: nginx - fresh-jams.com
+        widget:
+          # Its own nginx admin panel, not the port 8080 app the "freshjams" subdomain
+          # proxies to below — same port (81) as the SWAG tile's own dashboard mod.
+          type: swagdashboard
+          url: "http://192.168.12.12:81/"
+          fields: ["proxied", "auth", "outdated"]
       locations:
         - path: /
           port: 8080

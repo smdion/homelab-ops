@@ -105,3 +105,37 @@ homepage_externals:
       url: "https://10.10.10.1"
       secrets: [username, password]
       fields: ["uptime", "lan_users", "wlan_users"]
+
+  - name: Protect
+    group: Security
+    icon: https://play-lh.googleusercontent.com/DmgQvSdocOrGr0D0rxSBE9sqh23Fw3ck3BgKRN788cZnOKgcZlcEAFRYwmUbp6vMTVI
+    description: nvr
+    href: "https://unifi.ui.com/consoles/{{ vault_unifi_console_id }}/protect/dashboard/all"
+    # No proxy/widget — UniFi Protect's own cloud console, no local API this widget can poll.
+
+  - name: HDHomerun
+    group: Media
+    icon: hdhomerun.png
+    description: connect dual
+    widget:
+      type: hdhomerun
+      url: "http://10.10.13.109"
+      fields: ["channels", "hd", "tunerCount"]
+
+  - name: Uptime Robot
+    group: Monitoring
+    icon: https://play-lh.googleusercontent.com/cUrv0t00FYQ1GKLuOTvv8qjo1lSDjqZC16IOp3Fb6ijew6Br5m4o16HhDp0GBu_Bw8Y=w240-h480-rw
+    description: "vps.{{ vault_domain_ext }}"
+    href: "https://uptimerobot.com/dashboard"
+    widget:
+      type: uptimerobot
+      url: "https://api.uptimerobot.com"
+      secrets: [key]
+      fields: ["status", "uptime"]
+
+  - name: Valheim
+    group: Games
+    widget:
+      type: gamedig
+      serverType: valheim
+      url: "udp://10.10.10.70:2459"

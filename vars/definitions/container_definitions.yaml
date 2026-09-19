@@ -105,6 +105,11 @@ container_definitions:
     image: "actualbudget/actual-server"
     tag: "26.8.1"
     stack: apps
+    dashboard:
+      group: Finance
+      name: Actual Budget
+      icon: actual-budget.png
+      description: budgeting
     compose:
       image_var: ACTUAL
       base: base
@@ -220,6 +225,11 @@ container_definitions:
     image: "adminer"
     tag: "latest"
     stack: databases
+    dashboard:
+      group: Database
+      name: SQL
+      icon: adminer.png
+      description: sql
     env:
       ADMINER_DESIGN: "{{ docker_adminer_design }}"
     compose:
@@ -253,6 +263,10 @@ container_definitions:
       description: sso
       widget:
         type: authentik
+        # Authentik fronts itself with the core VIP (not its VM IP) so login keeps
+        # working through a host failover — one of only two services that do (the
+        # other is CrowdSec). Everything else on core uses the plain VM IP.
+        url: "http://{{ vault_core_vip }}:9001"
         version: 2
         secrets: [key]
         fields: ["loginsLast24H", "failedLoginsLast24H"]
@@ -424,6 +438,15 @@ container_definitions:
     image: "henrygd/beszel"
     tag: "latest"
     stack: vpn
+    dashboard:
+      group: Monitoring
+      name: Beszel
+      icon: beszel.png
+      description: monitoring
+      widget:
+        type: beszel
+        version: 2
+        secrets: [username, password]
     proxy:
       subdomain: monitor
       upstream_ip: "10.253.100.1"
@@ -473,6 +496,11 @@ container_definitions:
     image: "ghcr.io/tphakala/birdnet-go"
     tag: "nightly"
     stack: apps
+    dashboard:
+      group: Home
+      name: BirdNET-Go
+      icon: birdnet-go.png
+      description: bird detection
     compose:
       image_var: BIRDNET
       base: base
@@ -498,6 +526,11 @@ container_definitions:
     image: "ghcr.io/cleanuparr/cleanuparr"
     tag: "latest"
     stack: media
+    dashboard:
+      group: Content
+      name: Cleanuparr
+      icon: cleanuparr.png
+      description: media cleanup
     compose:
       base: baseenv
       ports: ["11011:11011"]
@@ -553,6 +586,11 @@ container_definitions:
     image: "lscr.io/linuxserver/code-server"
     tag: "latest"
     stack: dev
+    dashboard:
+      group: Remote Access
+      name: Code-Server
+      icon: code-server.png
+      description: ide
     env:
       CODESERVER_PROXY_DOMAIN: "code.{{ vault_domain_ext }}"
       CODESERVER_DEFAULT_WORKSPACE: "/config/workspace.code-workspace"
@@ -627,6 +665,17 @@ container_definitions:
     image: "ghcr.io/theduffman85/crowdsec-web-ui"
     tag: "latest"
     stack: monitoring
+    dashboard:
+      group: Security
+      name: Crowdsec
+      icon: crowdsec.png
+      description: ids
+      widget:
+        type: crowdsec
+        # Widget hits the crowdsec container's own LAPI (core VIP), not crowdsec_web_ui —
+        # crowdsec_web_ui just serves the /security UI that proxies to it.
+        url: "http://{{ vault_core_vip }}:8080"
+        secrets: [username, password]
     env:
       # CONFIG_INSTANCE_* is the current (non-deprecated) scheme — the legacy
       # CROWDSEC_URL/USER/PASSWORD vars this used to use only apply during the
@@ -662,6 +711,11 @@ container_definitions:
     image: "nginx"
     tag: "alpine"
     stack: dev
+    dashboard:
+      group: Remote Access
+      name: Docs
+      icon: mkdocs.png
+      description: documentation
     compose:
       base: base
       ports: ["8084:80"]
@@ -682,6 +736,11 @@ container_definitions:
     image: "amir20/dozzle"
     tag: "latest"
     stack: infra
+    dashboard:
+      group: Containers
+      name: Dozzle
+      icon: dozzle.png
+      description: logs
     proxy:
       subdomain: logs
       # infra stack is on both core and apps — hub runs only on apps (profile: hub)
@@ -762,6 +821,11 @@ container_definitions:
     image: "dumbwareio/dumbassets"
     tag: "latest"
     stack: apps
+    dashboard:
+      group: Home
+      name: DumbAssets
+      icon: dumbassets.png
+      description: asset tracking
     env:
       BASE_URL: "https://tracking.{{ vault_domain_ext }}"
     compose:
@@ -864,6 +928,15 @@ container_definitions:
     image: "grafana/grafana"
     tag: "latest"
     stack: monitoring
+    dashboard:
+      group: Visualization
+      name: Grafana
+      icon: grafana.png
+      description: data visualization
+      widget:
+        type: grafana
+        secrets: [username, password]
+        fields: ["dashboards", "datasources"]
     proxy:
       subdomain: grafana
       auth: true
@@ -931,6 +1004,11 @@ container_definitions:
     image: "abesnier/guacamole"
     tag: "latest"
     stack: apps
+    dashboard:
+      group: Remote Access
+      name: Guacamole
+      icon: guacamole.png
+      description: remote ssh
     env:
       GUAC_EXTENSIONS: "auth-sso-openid"
     proxy:
@@ -970,6 +1048,14 @@ container_definitions:
     image: "lscr.io/linuxserver/homeassistant"
     tag: "latest"
     stack: apps
+    dashboard:
+      group: Automation
+      name: Home Assistant
+      icon: home-assistant.svg
+      description: home automation
+      widget:
+        type: homeassistant
+        secrets: [key]
     proxy:
       subdomain: home
       auth: false
@@ -1010,6 +1096,11 @@ container_definitions:
     image: "ghcr.io/sysadminsmedia/homebox"
     tag: "latest"
     stack: apps
+    dashboard:
+      group: Home
+      name: Homebox
+      icon: homebox.png
+      description: inventory
     env:
       # Required since upstream made api_key_pepper mandatory (>= 32 bytes).
       # Persistent — rotating it invalidates all issued homebox API keys.
@@ -1069,8 +1160,42 @@ container_definitions:
     image: "ghcr.io/gethomepage/homepage"
     tag: "latest"
     stack: apps
+    dashboard:
+      hide: true   # the dashboard doesn't need a tile for itself
     env:
       HOMEPAGE_ALLOWED_HOSTS: "dashboard.{{ vault_domain_ext }},dashboard.{{ vault_domain_ext_secondary }},landing.{{ vault_domain_ext }},landing.{{ vault_domain_ext_secondary }}"
+      # Widget secrets, one .env var per HOMEPAGE_VAR_* the generator wires below — see
+      # filter_plugins/service_catalog.py homepage_secret_vars() for the full derivation.
+      HOMEPAGE_AUTHENTIK_KEY: "{{ vault_homepage_authentik_key }}"
+      HOMEPAGE_BESZEL_USERNAME: "{{ vault_homepage_beszel_username }}"
+      HOMEPAGE_BESZEL_PASSWORD: "{{ vault_homepage_beszel_password }}"
+      HOMEPAGE_CROWDSEC_USERNAME: "{{ vault_homepage_crowdsec_username }}"
+      HOMEPAGE_CROWDSEC_PASSWORD: "{{ vault_homepage_crowdsec_password }}"
+      HOMEPAGE_GRAFANA_USERNAME: "{{ vault_homepage_grafana_username }}"
+      HOMEPAGE_GRAFANA_PASSWORD: "{{ vault_homepage_grafana_password }}"
+      HOMEPAGE_HOME_ASSISTANT_KEY: "{{ vault_homepage_home_assistant_key }}"
+      HOMEPAGE_IMMICH_KEY: "{{ vault_homepage_immich_key }}"
+      HOMEPAGE_JELLYFIN_KEY: "{{ vault_homepage_jellyfin_key }}"
+      HOMEPAGE_LIBERTY_KEY: "{{ vault_homepage_liberty_key }}"
+      HOMEPAGE_NEXTCLOUD_KEY: "{{ vault_homepage_nextcloud_key }}"
+      HOMEPAGE_NPM_USERNAME: "{{ vault_homepage_npm_username }}"
+      HOMEPAGE_NPM_PASSWORD: "{{ vault_homepage_npm_password }}"
+      HOMEPAGE_PLEX_KEY: "{{ vault_homepage_plex_key }}"
+      HOMEPAGE_PROWLARR_KEY: "{{ vault_homepage_prowlarr_key }}"
+      HOMEPAGE_PROXMOX_BACKUP_PASSWORD: "{{ vault_homepage_proxmox_backup_password }}"
+      HOMEPAGE_PROXMOX_PASSWORD: "{{ vault_homepage_proxmox_password }}"
+      HOMEPAGE_RADARR_KEY: "{{ vault_homepage_radarr_key }}"
+      HOMEPAGE_REDEMPTION_KEY: "{{ vault_homepage_redemption_key }}"
+      HOMEPAGE_SABNZBD_KEY: "{{ vault_homepage_sabnzbd_key }}"
+      HOMEPAGE_SEERR_KEY: "{{ vault_homepage_seerr_key }}"
+      HOMEPAGE_SENTINEL_PROXMOX_PASSWORD: "{{ vault_homepage_sentinel_proxmox_password }}"
+      HOMEPAGE_SONARR_KEY: "{{ vault_homepage_sonarr_key }}"
+      HOMEPAGE_SYNOLOGY_PASSWORD: "{{ vault_homepage_synology_password }}"
+      HOMEPAGE_TAUTULLI_KEY: "{{ vault_homepage_tautulli_key }}"
+      HOMEPAGE_TRANSMISSION_KEY: "{{ vault_homepage_transmission_key }}"
+      HOMEPAGE_UNIFI_USERNAME: "{{ vault_homepage_unifi_username }}"
+      HOMEPAGE_UNIFI_PASSWORD: "{{ vault_homepage_unifi_password }}"
+      HOMEPAGE_UPTIME_ROBOT_KEY: "{{ vault_homepage_uptime_robot_key }}"
     compose:
       base: base
       ports: ["3003:3000"]
@@ -1081,6 +1206,36 @@ container_definitions:
         homelab.proxy.websocket: "true"
       environment:
         HOMEPAGE_ALLOWED_HOSTS: "${HOMEPAGE_ALLOWED_HOSTS}"
+        HOMEPAGE_VAR_AUTHENTIK_KEY: "${HOMEPAGE_AUTHENTIK_KEY}"
+        HOMEPAGE_VAR_BESZEL_USERNAME: "${HOMEPAGE_BESZEL_USERNAME}"
+        HOMEPAGE_VAR_BESZEL_PASSWORD: "${HOMEPAGE_BESZEL_PASSWORD}"
+        HOMEPAGE_VAR_CROWDSEC_USERNAME: "${HOMEPAGE_CROWDSEC_USERNAME}"
+        HOMEPAGE_VAR_CROWDSEC_PASSWORD: "${HOMEPAGE_CROWDSEC_PASSWORD}"
+        HOMEPAGE_VAR_GRAFANA_USERNAME: "${HOMEPAGE_GRAFANA_USERNAME}"
+        HOMEPAGE_VAR_GRAFANA_PASSWORD: "${HOMEPAGE_GRAFANA_PASSWORD}"
+        HOMEPAGE_VAR_HOME_ASSISTANT_KEY: "${HOMEPAGE_HOME_ASSISTANT_KEY}"
+        HOMEPAGE_VAR_IMMICH_KEY: "${HOMEPAGE_IMMICH_KEY}"
+        HOMEPAGE_VAR_JELLYFIN_KEY: "${HOMEPAGE_JELLYFIN_KEY}"
+        HOMEPAGE_VAR_LIBERTY_KEY: "${HOMEPAGE_LIBERTY_KEY}"
+        HOMEPAGE_VAR_NEXTCLOUD_KEY: "${HOMEPAGE_NEXTCLOUD_KEY}"
+        HOMEPAGE_VAR_NPM_USERNAME: "${HOMEPAGE_NPM_USERNAME}"
+        HOMEPAGE_VAR_NPM_PASSWORD: "${HOMEPAGE_NPM_PASSWORD}"
+        HOMEPAGE_VAR_PLEX_KEY: "${HOMEPAGE_PLEX_KEY}"
+        HOMEPAGE_VAR_PROWLARR_KEY: "${HOMEPAGE_PROWLARR_KEY}"
+        HOMEPAGE_VAR_PROXMOX_BACKUP_PASSWORD: "${HOMEPAGE_PROXMOX_BACKUP_PASSWORD}"
+        HOMEPAGE_VAR_PROXMOX_PASSWORD: "${HOMEPAGE_PROXMOX_PASSWORD}"
+        HOMEPAGE_VAR_RADARR_KEY: "${HOMEPAGE_RADARR_KEY}"
+        HOMEPAGE_VAR_REDEMPTION_KEY: "${HOMEPAGE_REDEMPTION_KEY}"
+        HOMEPAGE_VAR_SABNZBD_KEY: "${HOMEPAGE_SABNZBD_KEY}"
+        HOMEPAGE_VAR_SEERR_KEY: "${HOMEPAGE_SEERR_KEY}"
+        HOMEPAGE_VAR_SENTINEL_PROXMOX_PASSWORD: "${HOMEPAGE_SENTINEL_PROXMOX_PASSWORD}"
+        HOMEPAGE_VAR_SONARR_KEY: "${HOMEPAGE_SONARR_KEY}"
+        HOMEPAGE_VAR_SYNOLOGY_PASSWORD: "${HOMEPAGE_SYNOLOGY_PASSWORD}"
+        HOMEPAGE_VAR_TAUTULLI_KEY: "${HOMEPAGE_TAUTULLI_KEY}"
+        HOMEPAGE_VAR_TRANSMISSION_KEY: "${HOMEPAGE_TRANSMISSION_KEY}"
+        HOMEPAGE_VAR_UNIFI_USERNAME: "${HOMEPAGE_UNIFI_USERNAME}"
+        HOMEPAGE_VAR_UNIFI_PASSWORD: "${HOMEPAGE_UNIFI_PASSWORD}"
+        HOMEPAGE_VAR_UPTIME_ROBOT_KEY: "${HOMEPAGE_UPTIME_ROBOT_KEY}"
       volumes:
         - "${APPSDIR}/homepage:/app/config"
       healthcheck:
@@ -1096,6 +1251,14 @@ container_definitions:
     image: "ghcr.io/seerr-team/seerr"
     tag: "preview-new-oidc"
     stack: media
+    dashboard:
+      group: Content
+      name: Seerr
+      icon: seerr.png
+      description: media request
+      widget:
+        type: seerr   # was "ombi" in the hand-written config — Jellyseerr/Overseerr merged into Seerr
+        secrets: [key]
     env:
       SEERR_DB_TYPE: "postgres"
       SEERR_POSTGRES_DB: "jellyseerr"
@@ -1154,6 +1317,11 @@ container_definitions:
     image: "ledgr"
     tag: "latest"
     stack: dev
+    dashboard:
+      group: Finance
+      name: Ledgr
+      icon: ledgr.png
+      description: personal finance
     env:
       LEDGR_DATABASE_URL: "postgresql://{{ docker_postgres_user }}:{{ vault_docker_postgres_password }}@{{ vault_db_host_primary }}:5432/ledgr"
       LEDGR_NEXTAUTH_SECRET: "{{ vault_docker_ledgr_nextauth_secret }}"
@@ -1203,6 +1371,8 @@ container_definitions:
     image: "ledgr"
     tag: "latest"
     stack: dev
+    dashboard:
+      hide: true   # public demo instance, not a personal dashboard tile
     env:
       LEDGRDEMO_DATABASE_URL: "postgresql://{{ docker_postgres_user }}:{{ vault_docker_postgres_password }}@{{ vault_db_host_primary }}:5432/ledgrdemo"
       LEDGRDEMO_NEXTAUTH_SECRET: "{{ vault_docker_ledgr_nextauth_secret }}"
@@ -1235,6 +1405,11 @@ container_definitions:
     image: "ghcr.io/mealie-recipes/mealie"
     tag: "latest"
     stack: apps
+    dashboard:
+      group: Home
+      name: Mealie
+      icon: mealie.png
+      description: recipes
     env:
       MEALIE_POSTGRES_DB: "mealie"
       MEALIE_POSTGRES_USER: "{{ docker_postgres_user }}"
@@ -1418,6 +1593,11 @@ container_definitions:
     image: "netbootxyz/netbootxyz"
     tag: "latest"
     stack: dev
+    dashboard:
+      group: Network
+      name: Netboot
+      icon: netbootxyz.png
+      description: network boot utility
     # The image fetches the -legacy boot files only on first init; the web UI's
     # menu upgrade (webapp upgrademenu) wipes menus/remote and re-downloads a
     # hardcoded list without them. Pin them into the TFTP root, which the UI
@@ -1475,6 +1655,14 @@ container_definitions:
     image: "docker.io/jc21/nginx-proxy-manager"
     tag: "latest"
     stack: vpn
+    dashboard:
+      group: Web
+      name: NPM
+      icon: nginx-proxy-manager.svg
+      description: nginx proxy manager - vps invisible proxy
+      widget:
+        type: npm
+        secrets: [username, password]
     proxy:
       subdomain: npm
       upstream_ip: "10.253.100.1"
@@ -1509,6 +1697,11 @@ container_definitions:
     image: "spaceinvaderone/pia-wg-config-generator"
     tag: "latest"
     stack: apps
+    dashboard:
+      group: Network
+      name: PIA WG
+      icon: pia.png
+      description: PIA WireGuard config generator
     compose:
       base: base
       ports: ["8292:80"]
@@ -1552,6 +1745,11 @@ container_definitions:
     image: "ghcr.io/dictionarry-hub/profilarr"
     tag: "latest"
     stack: media
+    dashboard:
+      group: Content
+      name: Profilarr
+      icon: profilarr.png
+      description: profile manager
     compose:
       base: baseenv
       ports: ["6868:6868"]
@@ -1598,6 +1796,19 @@ container_definitions:
     image: "lscr.io/linuxserver/swag"
     tag: "latest"
     stack: auth
+    # No homelab.proxy.* label — SWAG doesn't route to itself the normal way. Its own
+    # dashboard (the swag-dashboard mod, port 81) is what the Homepage tile below reads;
+    # keep swagdashboard.conf on the orphan-prune keep-list in deploy_swag_configs.yaml.
+    dashboard:
+      group: Web
+      name: SWAG
+      icon: https://raw.githubusercontent.com/linuxserver/docker-templates/master/linuxserver.io/img/linuxserver-ls-logo.png
+      href: "https://swagdashboard.{{ vault_domain_ext }}/"
+      description: "nginx - {{ vault_domain_ext }}"
+      widget:
+        type: swagdashboard
+        url: "https://swagdashboard.{{ vault_domain_ext }}/"
+        fields: ["proxied", "auth", "outdated"]
     env:
       SWAG_URL: "{{ vault_domain_ext }}"
       SWAG_AUTH_ALIAS: "auth.{{ vault_domain_ext }}"
@@ -1788,6 +1999,11 @@ container_definitions:
     image: "lscr.io/linuxserver/xbackbone"
     tag: "latest"
     stack: apps
+    dashboard:
+      group: Sharing
+      name: xBackbone
+      icon: xbackbone.png
+      description: image hosting
     proxy:
       subdomain: img
       aliases: [images, image, i]
@@ -1822,6 +2038,11 @@ container_definitions:
     image: "koenkk/zigbee2mqtt"
     tag: "latest"
     stack: apps
+    dashboard:
+      group: Automation
+      name: Zigbee2MQTT
+      icon: zigbee2mqtt.png
+      description: zigbee bridge
     proxy:
       subdomain: zigbee
       external: false
