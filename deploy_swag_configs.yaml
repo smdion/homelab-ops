@@ -4,7 +4,9 @@
 # Generate SWAG reverse proxy site-confs from definitions-as-code.
 # Reads proxy metadata from container_definitions (homelab.proxy.* labels + proxy: keys)
 # and host/vm_definitions (proxy: dicts), resolves upstream IPs via the stack→host→vm_ip
-# chain, renders Jinja2 templates, and deploys to the SWAG container on the auth stack host.
+# chain (filter_plugins/service_catalog.py), renders Jinja2 templates, and deploys to the
+# SWAG container on the auth stack host. Site-confs it did not generate are removed, except
+# swag_unmanaged_keep.
 #
 # Optional extra vars:
 #   dry_run=true  — write to /tmp/swag-generated/ instead of live SWAG dir (default: false)
@@ -67,6 +69,11 @@
     maintenance_name: "SWAG"
     maintenance_type: "Local"
     maintenance_subtype: "Deploy"
+    # site-confs the prune below must never delete. swagdashboard.conf is not a proxy:
+    # it is the swag-dashboard mod's own page (port 81 + swagdashboard.*, LAN-only),
+    # read by the Homepage SWAG tile.
+    swag_unmanaged_keep:
+      - swagdashboard.conf
 
   pre_tasks:
     - name: Run standard pre-flight assertions
@@ -174,12 +181,48 @@
             ansible_connection: ssh
             ansible_user: "{{ vm_user }}"
 
+        # Anything in site-confs this playbook didn't generate is an orphan (a removed
+        # service, a hand-made conf). nginx loads every *.conf, so orphans keep serving
+        # stale routes. Remove them, except the keep-list. *.sample files are ignored.
+        - name: Find site-confs on the SWAG host
+          ansible.builtin.find:
+            paths: "{{ _swag_output_dir }}"
+            patterns: "*.conf"
+          register: _existing_confs
+          delegate_to: "{{ _swag_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+          when: not (dry_run | default(false) | bool)
+
+        - name: Remove orphaned site-confs
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop: >-
+            {{ (_existing_confs.files | default([]) | map(attribute='path') | list)
+               | reject('search', '/(' ~ (_managed_confs | map('regex_escape') | join('|')) ~ ')$')
+               | list }}
+          register: _pruned_confs
+          delegate_to: "{{ _swag_host }}"
+          become: true
+          vars:
+            ansible_connection: ssh
+            ansible_user: "{{ vm_user }}"
+            _managed_confs: >-
+              {{ (_all_proxies | map(attribute='subdomain') | map('regex_replace', '$', '.conf') | list)
+                 + ['default.conf'] + swag_unmanaged_keep }}
+          when: not (dry_run | default(false) | bool)
+
         - name: Record deploy detail
           ansible.builtin.set_fact:
             _deploy_detail: >-
               {{ _all_proxies | length }} configs generated |
               {{ (_generated_configs.results | selectattr('changed') | list | length)
-                 + (1 if _generated_default is changed else 0) }} changed
+                 + (1 if _generated_default is changed else 0) }} changed |
+              {{ _pruned_confs.results | default([]) | selectattr('changed') | map(attribute='item') | map('basename') | list
+                 | join(', ') | default('none', true) }} pruned
 
         - name: Report changes
           ansible.builtin.debug:
@@ -187,6 +230,8 @@
               Generated {{ _all_proxies | length }} site-confs + default.conf.
               {{ (_generated_configs.results | selectattr('changed') | list | length)
                  + (1 if _generated_default is changed else 0) }} changed.
+              Pruned: {{ _pruned_confs.results | default([]) | selectattr('changed') | map(attribute='item') | map('basename') | list
+                 | join(', ') | default('none', true) }}.
         - name: Validate nginx configuration
           ansible.builtin.command:
             cmd: docker exec swag nginx -t
@@ -201,7 +246,7 @@
           when:
             - not (dry_run | default(false) | bool)
             - not ansible_check_mode
-            - (_generated_configs is changed) or (_generated_default is changed)
+            - (_generated_configs is changed) or (_generated_default is changed) or (_pruned_confs is changed)
 
         - name: Reload nginx
           ansible.builtin.command:
@@ -215,7 +260,7 @@
           when:
             - not (dry_run | default(false) | bool)
             - not ansible_check_mode
-            - (_generated_configs is changed) or (_generated_default is changed)
+            - (_generated_configs is changed) or (_generated_default is changed) or (_pruned_confs is changed)
             - _nginx_test is succeeded
 
         # Canary: nginx returns rc 0 even when it silently ignores duplicate server_names
