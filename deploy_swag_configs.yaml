@@ -91,9 +91,13 @@
       register: _raw_container_defs
       changed_when: false
 
-    - name: Set container_definitions fact
+    # Deliberately NOT named container_definitions: a set_fact outranks a later play's
+    # vars_files, so under the canonical name this raw (untemplated) copy leaked into every
+    # play chained after it by apply_full.yaml — silently turning {{ vault_* }} in other
+    # playbooks' container_definitions fields into literal text (reproduced 2026-09-19).
+    - name: Set swag_container_definitions fact
       ansible.builtin.set_fact:
-        container_definitions: "{{ _raw_container_defs.stdout | from_json }}"
+        swag_container_definitions: "{{ _raw_container_defs.stdout | from_json }}"
 
   tasks:
     - name: Initialize deploy state
@@ -106,7 +110,7 @@
         # the Homepage generator and docs. Order: label, proxy_key, host, vm.
         - name: Build proxy configs from the service catalog
           ansible.builtin.set_fact:
-            _all_proxies: "{{ container_definitions | swag_proxies(vm_definitions, host_definitions, _swag_role) }}"
+            _all_proxies: "{{ swag_container_definitions | swag_proxies(vm_definitions, host_definitions, _swag_role) }}"
 
         - name: Show proxy config count
           ansible.builtin.debug:

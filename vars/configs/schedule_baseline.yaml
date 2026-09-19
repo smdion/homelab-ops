@@ -49,6 +49,8 @@ schedule_baseline:
     cron_expression: "0 3 * * *"
   - template_name: "Deploy — PIA [Port Forward]"
     cron_expression: "0 6,18 * * *"
+  - template_name: "Deploy — Homepage [Config]"
+    cron_expression: "45 5 * * *"
   - template_name: "Download — Series"
     cron_expression: "30 6 * * *"
   - template_name: "Maintain — Logging DB [Summary]"
