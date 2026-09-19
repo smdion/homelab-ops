@@ -132,57 +132,8 @@ host_definitions:
             port: 8081
             auth: false
             includes: [proxy]
-      - subdomain: nextcloud
-        upstream_ip: "10.10.10.17"
-        auth: false
-        dashboard:
-          group: Sharing
-          name: Nextcloud
-          icon: nextcloud.png
-          description: file storage
-          widget:
-            type: nextcloud
-            secrets: [key]
-        locations:
-          - path: "= /.well-known/carddav"
-            redirect_only: true
-            auth: false
-            includes: []
-            directives:
-              - 'return 301 $scheme://$host/remote.php/dav'
-          - path: "= /.well-known/caldav"
-            redirect_only: true
-            auth: false
-            includes: []
-            directives:
-              - 'return 301 $scheme://$host/remote.php/dav'
-          - path: "= /.well-known/webfinger"
-            redirect_only: true
-            auth: false
-            includes: []
-            directives:
-              - 'return 301 $scheme://$host/index.php/.well-known/webfinger'
-          - path: "= /.well-known/nodeinfo"
-            redirect_only: true
-            auth: false
-            includes: []
-            directives:
-              - 'return 301 $scheme://$host/index.php/.well-known/nodeinfo'
-          - path: "^~ /.well-known"
-            redirect_only: true
-            auth: false
-            includes: []
-            directives:
-              - 'return 301 $scheme://$host/index.php$request_uri'
-          - path: /
-            port: 446
-            proto: https
-            auth: false
-            includes: [proxy]
-            add_headers:
-              Strict-Transport-Security: '"max-age=15552000; includeSubDomains" always'
-            directives:
-              - "proxy_max_temp_file_size 5096m"
+      # nextcloud removed 2026-09-19 — replaced by FileRun (files.*); its :446 upstream no
+      # longer answers. Re-add from git history if it ever comes back.
       - subdomain: files
         # FileRun (manual unRAID container) — own login, no Authelia (WebDAV/mobile apps)
         upstream_ip: "10.10.10.17"
@@ -319,6 +270,7 @@ host_definitions:
           group: Monitoring
           name: Scrutiny1
           icon: scrutiny.png
+          href: "https://disks1.{{ vault_domain_ext }}/web/dashboard"
           description: redemption disk monitoring
           container: scrutiny
           widget:
@@ -447,6 +399,7 @@ host_definitions:
               description: usenet downloader
               widget:
                 type: sabnzbd
+                url: "http://192.168.11.19:8080"   # root works too; matches the hand-written config
                 secrets: [key]
           - path: "^~ /sabnzbd/api"
             upstream_app: "192.168.11.19"
@@ -479,6 +432,8 @@ host_definitions:
               description: torrent downloader
               widget:
                 type: transmission
+                # Bare host:port — the widget appends /transmission/rpc itself
+                url: "http://192.168.11.18:9091"
                 secrets: [key]
       - subdomain: disks2              # Scrutiny (liberty disks)
         upstream_ip: "10.10.10.18"
@@ -488,6 +443,7 @@ host_definitions:
           group: Monitoring
           name: Scrutiny2
           icon: scrutiny.png
+          href: "https://disks2.{{ vault_domain_ext }}/web/dashboard"
           description: liberty disk monitoring
           container: scrutiny
           widget:

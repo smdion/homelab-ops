@@ -61,7 +61,7 @@ homepage_settings:
     showSearchSuggestions: true
     hideVisitURL: true
   # Set false while validating widget changes so broken widgets show their error
-  hideErrors: true
+  hideErrors: false   # cutover 2026-09-19: show widget errors; set back to true once all widgets are verified
 
 # --- widgets.yaml (info widgets across the top) ----------------------------
 homepage_widgets:

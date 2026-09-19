@@ -1177,7 +1177,6 @@ container_definitions:
       HOMEPAGE_IMMICH_KEY: "{{ vault_homepage_immich_key }}"
       HOMEPAGE_JELLYFIN_KEY: "{{ vault_homepage_jellyfin_key }}"
       HOMEPAGE_LIBERTY_KEY: "{{ vault_homepage_liberty_key }}"
-      HOMEPAGE_NEXTCLOUD_KEY: "{{ vault_homepage_nextcloud_key }}"
       HOMEPAGE_NPM_USERNAME: "{{ vault_homepage_npm_username }}"
       HOMEPAGE_NPM_PASSWORD: "{{ vault_homepage_npm_password }}"
       HOMEPAGE_PLEX_KEY: "{{ vault_homepage_plex_key }}"
@@ -1217,7 +1216,6 @@ container_definitions:
         HOMEPAGE_VAR_IMMICH_KEY: "${HOMEPAGE_IMMICH_KEY}"
         HOMEPAGE_VAR_JELLYFIN_KEY: "${HOMEPAGE_JELLYFIN_KEY}"
         HOMEPAGE_VAR_LIBERTY_KEY: "${HOMEPAGE_LIBERTY_KEY}"
-        HOMEPAGE_VAR_NEXTCLOUD_KEY: "${HOMEPAGE_NEXTCLOUD_KEY}"
         HOMEPAGE_VAR_NPM_USERNAME: "${HOMEPAGE_NPM_USERNAME}"
         HOMEPAGE_VAR_NPM_PASSWORD: "${HOMEPAGE_NPM_PASSWORD}"
         HOMEPAGE_VAR_PLEX_KEY: "${HOMEPAGE_PLEX_KEY}"
@@ -1596,7 +1594,7 @@ container_definitions:
     dashboard:
       group: Network
       name: Netboot
-      icon: netbootxyz.png
+      icon: https://netboot.xyz/img/nbxyz-laptop.gif
       description: network boot utility
     # The image fetches the -legacy boot files only on first init; the web UI's
     # menu upgrade (webapp upgrademenu) wipes menus/remote and re-downloads a
