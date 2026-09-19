@@ -18,7 +18,7 @@
 # Usage:
 #   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres
 #   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm=yes
-#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_mariadb -e confirm=yes -e restore_db=nextcloud
+#   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_mariadb -e confirm=yes -e restore_db=filerun
 #   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm=yes -e restore_db=authentik -e restore_date=2026-02-20
 #   ansible-playbook restore_databases.yaml -e hosts_variable=db_primary_postgres -e confirm=yes -e skip_pre_backup=yes
 

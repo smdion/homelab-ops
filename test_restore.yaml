@@ -7,7 +7,7 @@
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e role=apps
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e role=core -e restore_app=authentik
 #   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e role=core -e deploy_ssh_key=yes
-#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e role=apps -e skip_dbs=nextcloud
+#   ansible-playbook build_ubuntu.yaml -e vm_name=test-vm -e role=apps -e skip_dbs=filerun
 #
 # For DR recovery, use dr_rebuild.yaml (separate operational intent).
 #
@@ -27,7 +27,7 @@
 #   restore_app   — single app name to selectively extract from archive
 #   stack         — single stack to deploy (instead of all assigned stacks)
 #   dr_mode=yes   — DR recovery mode (skip snapshot/revert, keep state)
-#   skip_dbs      — comma-separated DB names to skip restoring (e.g. -e skip_dbs=nextcloud)
+#   skip_dbs      — comma-separated DB names to skip restoring (e.g. -e skip_dbs=filerun)
 
 # ═══════════════════════════════════════════════════════════════════
 # Play 1 — Prepare: Validate, find backup, build VM if needed, snapshot

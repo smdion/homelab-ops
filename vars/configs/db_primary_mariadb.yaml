@@ -18,7 +18,6 @@ is_mariadb: true
 # Restore support — maps each DB to dependent containers ON THE SAME HOST as mariadb.
 # Cross-host deps (app on a different host) are [] — use restore_hosts.yaml -e with_databases=yes.
 db_container_deps:
-  nextcloud: []
   filerun: []
   semaphore: []
   ansible_logging: []

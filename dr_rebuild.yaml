@@ -22,7 +22,7 @@
 # Optional extra vars:
 #   vm_name      — VM key from vm_definitions (default: same as role). Override for test VMs.
 #   deploy_ssh_key=yes — install ansible SSH private key on VM
-#   skip_dbs     — comma-separated DB names to skip restoring (e.g. -e skip_dbs=nextcloud)
+#   skip_dbs     — comma-separated DB names to skip restoring (e.g. -e skip_dbs=filerun)
 #   restore_app  — single app name to selectively extract from archive
 #   vm_index=N   — test-vm slot 0..9; auto-detected if omitted (only for test-pool VMs)
 #   debug_no_log=yes — show template output in logs
