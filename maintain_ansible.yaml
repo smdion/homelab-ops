@@ -288,9 +288,12 @@
               register: _semaphore_info
               no_log: "{{ _no_log }}"
 
+            # Keep only vMAJOR.MINOR.PATCH. The API reports build metadata after it
+            # (e.g. v2.19.14-7d1872e-1788945498); left in, the patch number failed to
+            # parse as an int (-> 0) and a current install was reported as outdated.
             - name: Parse installed Semaphore version (strip build suffix)
               ansible.builtin.set_fact:
-                _semaphore_current: "{{ (_semaphore_info.content | from_json).version | regex_replace('\\^.*$', '') }}"
+                _semaphore_current: "{{ (_semaphore_info.content | from_json).version | regex_search('^v?\\d+\\.\\d+\\.\\d+') | default('unknown', true) }}"
 
             - name: Query Docker Hub for latest Semaphore tags
               ansible.builtin.uri:
