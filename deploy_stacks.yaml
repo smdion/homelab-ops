@@ -93,6 +93,18 @@
           automatically), `none` to opt out with a comment saying why.
       when: not (_role_injected | default(false))
 
+    - name: Assert hosts running the infra/vpn stack declare a container Beszel agent
+      ansible.builtin.assert:
+        that:
+          - (all_definitions[host_roles[inventory_hostname]].beszel | default({})).agent | default('') == 'container'
+        fail_msg: >-
+          {{ host_roles[inventory_hostname] }} runs a stack that deploys a beszel-agent container (infra / vpn) but its definition
+          does not declare `beszel: { agent: container }`. The container is deployed regardless, so declaring `none` or
+          `binary` would leave it unregistered and unfirewalled — set `container`.
+      when:
+        - not (_role_injected | default(false))
+        - (all_definitions[host_roles[inventory_hostname]].stacks | default([])) | intersect(['infra', 'vpn']) | length > 0
+
     - name: Assert host has stack assignments
       ansible.builtin.assert:
         that: inventory_hostname in stack_assignments

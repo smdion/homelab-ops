@@ -388,7 +388,7 @@ all_definitions: >-
 # agent in DOZZLE_REMOTE_AGENT, generated below — so a new Docker host is picked up by adding its block, never by
 # editing a string. Address: dozzle.address, else the role's keepalived VIP (stable across reprovisions), else the
 # host's proxy upstream_ip (unRAID). Sorted by definition key so the value is stable between renders.
-# Needs vip_definitions loaded (deploy_stacks does); the docker-host coverage rule is in scripts/check_dozzle_coverage.py.
+# Needs vip_definitions loaded (deploy_stacks does); the docker-host coverage rule is in scripts/check_monitoring_definitions.py.
 dozzle_agent_port: 7007
 
 # Comma-joined "address:port" list, e.g. "10.10.10.50:7007,10.10.10.52:7007,..." (empty string when no agents)

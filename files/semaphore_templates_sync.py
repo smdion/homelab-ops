@@ -11,6 +11,9 @@
 #            alert/override flags, debug, limit, vault attached)
 #   EXTRA    live but not in the registry — i.e. created outside IaC ("bypassed"). Reported; never deleted unless --prune
 #
+# Schedules are managed the same way: a template's `schedule: [{cron, name}]` in the registry is the ONLY set of
+# schedules it should have (SCHED+ missing, SCHED~ wrong name/inactive, SCHED-EXTRA not in the registry).
+#
 #   default   report only — nothing is written
 #   --apply   create and update
 #   --prune   with --apply, ALSO delete EXTRA templates (refuses if the registry is suspiciously small)
@@ -117,6 +120,40 @@ def plan(desired, defaults, live_by_name, ids):
     return {"creates": creates, "updates": updates, "extras": extras, "problems": problems}
 
 
+def plan_schedules(desired, live_schedules, template_ids):
+    """Pure function: compare each template's registry schedules with the live ones.
+
+    Returns {"creates": [{template, cron, name}], "updates": [{id, template, cron, diff}],
+             "extras": [{id, template, cron}]}. `template_ids` maps a live template name to its id (templates that do not
+    exist yet have no id, so all of their schedules are creates)."""
+    by_tid = {}
+    for sch in live_schedules:
+        by_tid.setdefault(sch["template_id"], []).append(sch)
+    id_to_name = {v: k for k, v in template_ids.items()}
+    creates, updates, extras = [], [], []
+    for d in desired:
+        want = d.get("schedule") or []
+        tid = template_ids.get(d["name"])
+        live = by_tid.get(tid, []) if tid else []
+        for w in want:
+            match = next((x for x in live if x["cron_format"] == w["cron"]), None)
+            if match is None:
+                creates.append({"template": d["name"], "cron": w["cron"], "name": w.get("name") or w["cron"]})
+                continue
+            diff = {}
+            if w.get("name") and match.get("name") != w["name"]:
+                diff["name"] = (match.get("name"), w["name"])
+            if not match.get("active"):
+                diff["active"] = (False, True)
+            if diff:
+                updates.append({"id": match["id"], "template": d["name"], "cron": w["cron"], "diff": diff, "live": match})
+        wanted_crons = {w["cron"] for w in want}
+        extras += [{"id": x["id"], "template": d["name"], "cron": x["cron_format"]} for x in live
+                   if x["cron_format"] not in wanted_crons]
+    # schedules of templates that are not in the registry at all disappear with the extra template (reported there)
+    return {"creates": creates, "updates": updates, "extras": extras}
+
+
 def body_from(want, live=None):
     """Request body for create/update from the resolved wanted state (keeps every unmanaged field of `live`)."""
     b = dict(live or {"app": "ansible", "repository_id": 1, "type": ""})
@@ -160,6 +197,7 @@ def main():
         listing = get("/templates")
         with ThreadPoolExecutor(8) as ex:
             live_full = list(ex.map(lambda t: get(f"/templates/{t['id']}"), listing))
+        live_sched = get("/schedules")
         ids = {
             "views": {v["title"]: v["id"] for v in get("/views")},
             "inventories": {i["name"]: i["id"] for i in get("/inventory")},
@@ -177,6 +215,7 @@ def main():
     dups = sorted({n for n in names if names.count(n) > 1})
     live_by_name = {t["name"]: t for t in live_full}
     p = plan(desired, defaults, live_by_name, ids)
+    sp = plan_schedules(desired, live_sched, {n: t["id"] for n, t in live_by_name.items()})
 
     say(f"semaphore: {len(live_full)} live template(s), {len(desired)} in the registry")
     for c in p["creates"]:
@@ -185,17 +224,27 @@ def main():
         say(f"  UPDATE  {u['name']}: " + "; ".join(f"{k}: {a!r} -> {b!r}" for k, (a, b) in u["diff"].items()))
     for n in p["extras"]:
         say(f"  EXTRA   {n}  (live, not in the registry — created outside IaC)")
+    for c in sp["creates"]:
+        say(f"  SCHED+  {c['template']} @ {c['cron']} ({c['name']})")
+    for u in sp["updates"]:
+        say(f"  SCHED~  {u['template']} @ {u['cron']}: " + "; ".join(f"{k}: {a!r} -> {b!r}" for k, (a, b) in u["diff"].items()))
+    for x in sp["extras"]:
+        say(f"  SCHED-EXTRA  {x['template']} @ {x['cron']}  (live schedule not in the registry)")
     for n in dups:
         say(f"  DUPLICATE live name: {n}")
     for pr in p["problems"]:
         say(f"  PROBLEM {pr}")
 
-    drift = bool(p["creates"] or p["updates"] or p["extras"] or dups or p["problems"])
+    drift = bool(p["creates"] or p["updates"] or p["extras"] or dups or p["problems"]
+                 or sp["creates"] or sp["updates"] or sp["extras"])
     result = {"drift": drift, "applied": False, "errors": [], "deleted": [],
-              "counts": {k: len(v) for k, v in p.items()},
+              "counts": {**{k: len(v) for k, v in p.items()}, **{f"sched_{k}": len(v) for k, v in sp.items()}},
               "details": {"missing": [c["name"] for c in p["creates"]],
                           "changed": [f"{u['name']} ({', '.join(u['diff'])})" for u in p["updates"]],
-                          "extra": p["extras"], "duplicates": dups, "problems": p["problems"]}}
+                          "extra": p["extras"], "duplicates": dups, "problems": p["problems"],
+                          "schedules_missing": [f"{c['template']} @ {c['cron']}" for c in sp["creates"]],
+                          "schedules_changed": [f"{u['template']} @ {u['cron']} ({', '.join(u['diff'])})" for u in sp["updates"]],
+                          "schedules_extra": [f"{x['template']} @ {x['cron']}" for x in sp["extras"]]}}
 
     if args.apply and p["problems"]:
         say("REFUSING to apply: the registry references unknown views/inventories/environments")
@@ -218,6 +267,29 @@ def main():
             st, res = api.call("PUT", f"/templates/{u['id']}", body)
             if st not in (200, 204):
                 result["errors"].append(f"update {u['name']}: HTTP {st} {res}")
+        # schedules (templates now exist; resolve ids fresh so newly created templates are included)
+        tids = {t["name"]: t["id"] for t in get("/templates")}
+        for c in sp["creates"]:
+            tid = tids.get(c["template"])
+            if not tid:
+                result["errors"].append(f"schedule {c['template']} @ {c['cron']}: template not found")
+                continue
+            st, res = api.call("POST", "/schedules", {"project_id": args.project, "template_id": tid,
+                                                      "cron_format": c["cron"], "name": c["name"], "active": True,
+                                                      "type": "", "delete_after_run": False})
+            if st not in (200, 201):
+                result["errors"].append(f"schedule {c['template']} @ {c['cron']}: HTTP {st} {res}")
+        for u in sp["updates"]:
+            body = dict(u["live"])
+            body.update({"name": u["diff"].get("name", (None, u["live"].get("name")))[1], "active": True})
+            st, res = api.call("PUT", f"/schedules/{u['id']}", body)
+            if st not in (200, 204):
+                result["errors"].append(f"schedule update {u['template']} @ {u['cron']}: HTTP {st} {res}")
+        if args.prune:
+            for x in sp["extras"]:
+                st, res = api.call("DELETE", f"/schedules/{x['id']}")
+                if st not in (200, 204):
+                    result["errors"].append(f"schedule delete {x['template']} @ {x['cron']}: HTTP {st} {res}")
         if args.prune:
             if len(desired) < MIN_TEMPLATES:
                 say(f"REFUSING to prune: only {len(desired)} template(s) in the registry (minimum {MIN_TEMPLATES})")

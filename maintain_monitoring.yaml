@@ -1,0 +1,72 @@
+---
+# Category: Maintain
+# Weekly self-heal of the monitoring systems: makes the Beszel hub and the Dozzle log-viewer hub match the definitions
+# in ONE run — Beszel: create/rename systems, default alerts, Discord target (never deletes); Dozzle: the hub's agent
+# list. The build/deploy playbooks already sync at their end (tasks/monitoring_hook.yaml, best effort); this is the safety
+# net for anything changed outside them, and for runs that skipped the hook (e.g. --limit). Unlike the hook, a failure
+# here FAILS the run (both syncs are still attempted first), so Semaphore's failure alerting fires.
+#
+# Schedule: weekly Wednesday 06:00 — defined in vars/configs/semaphore_templates.yaml (never in Semaphore itself).
+# Read-only equivalents: deploy_beszel_monitoring.yaml / deploy_dozzle_hub.yaml (report-only by default);
+# maintain_health CHECK 32 / 33 alert on drift twice daily.
+# Deleting stale Beszel systems is NOT done here — that stays an explicit `beszel_prune=true` run.
+#
+# Design: homelab-docs tasks/beszel-iac.md, tasks/dozzle-iac.md
+
+- name: Sync Beszel and Dozzle with the definitions
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/vip_definitions.yaml
+    - vars/configs/beszel.yaml
+  vars:
+    _mon_failures: []
+  tasks:
+    - name: Resolve Semaphore task URL for notifications
+      ansible.builtin.include_tasks: tasks/resolve_semaphore_task.yaml
+
+    - name: Sync Beszel
+      block:
+        - name: Reconcile Beszel with the definitions (apply, no prune)
+          ansible.builtin.include_tasks: tasks/beszel_sync.yaml
+          vars:
+            beszel_apply: true
+            beszel_prune: false
+      rescue:
+        - name: Remember the Beszel failure
+          ansible.builtin.set_fact:
+            _mon_failures: "{{ _mon_failures + ['Beszel: ' ~ (ansible_failed_result.msg | default('failed'))] }}"
+
+    - name: Sync Dozzle
+      block:
+        - name: Reconcile the Dozzle hub's agent list with the definitions (apply)
+          ansible.builtin.include_tasks: tasks/dozzle_sync.yaml
+          vars:
+            dozzle_apply: true
+      rescue:
+        - name: Remember the Dozzle failure
+          ansible.builtin.set_fact:
+            _mon_failures: "{{ _mon_failures + ['Dozzle: ' ~ (ansible_failed_result.msg | default('failed'))] }}"
+
+    - name: Report monitoring sync failures on Discord
+      ansible.builtin.include_tasks: tasks/notify.yaml
+      vars:
+        discord_name: "Monitoring"
+        discord_operation: "Weekly sync"
+        discord_status: "failed"
+        discord_detail: "{{ _mon_failures | join('; ') }}"
+        discord_color: "{{ discord_color_failure }}"
+        discord_url: "{{ semaphore_ext_url | default('') }}"
+        discord_author: "{{ controller_fqdn | default('controller') }}"
+      when:
+        - _mon_failures | length > 0
+        - _is_semaphore | default(false)
+
+    - name: Fail the run if either sync failed
+      ansible.builtin.fail:
+        msg: "Monitoring sync incomplete — {{ _mon_failures | join('; ') }}"
+      when: _mon_failures | length > 0

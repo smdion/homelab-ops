@@ -9,7 +9,7 @@
 #                      backup size anomaly, failed maintenance DB check,
 #                      stale maintenance check, MariaDB health, WAN connectivity,
 #                      appliance reachability, schedule coverage,
-#                      schedule drift, Beszel + Dozzle monitoring drift, Semaphore template drift, UniFi device health
+#                      Beszel + Dozzle monitoring drift, Semaphore template + schedule drift, UniFi device health
 # Play 2 (SSH hosts):  Per-host system metrics — disk, memory, CPU, journal errors,
 #                      OOM kills, Docker health, Docker image updates, SMART disk health,
 #                      PVE cluster quorum, Ceph health, APT repo health (PVE only),
@@ -46,7 +46,6 @@
   vars_files:
     - vars/secrets.yaml
     - vars/configs/semaphore_check.yaml
-    - vars/configs/schedule_baseline.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
     - vars/definitions/vip_definitions.yaml
@@ -703,132 +702,6 @@
           ansible.builtin.debug:
             msg: "CHECK 28 FAILED: Schedule coverage check error — skipping"
 
-    # ── CHECK 28b: Schedule drift detection ────────────────────────────────────
-    # Compares live Semaphore schedules against the Git-tracked baseline in
-    # vars/configs/schedule_baseline.yaml. Detects unauthorized additions,
-    # removals, or cron expression changes. Warning-level (not critical).
-    - name: Check schedule drift against baseline
-      block:
-        - name: Get all templates from Semaphore (drift check)
-          ansible.builtin.uri:
-            url: "{{ semaphore_url }}/api/project/{{ project_id }}/templates"
-            method: GET
-            headers:
-              Authorization: "Bearer {{ vault_semaphore_api_token }}"
-              Accept: "application/json"
-            return_content: true
-            status_code: 200
-          register: _drift_templates
-          no_log: "{{ _no_log }}"
-
-        - name: Get all schedules from Semaphore (drift check)
-          ansible.builtin.uri:
-            url: "{{ semaphore_url }}/api/project/{{ project_id }}/schedules"
-            method: GET
-            headers:
-              Authorization: "Bearer {{ vault_semaphore_api_token }}"
-              Accept: "application/json"
-            return_content: true
-            status_code: 200
-          register: _drift_schedules
-          no_log: "{{ _no_log }}"
-
-        - name: Build template ID-to-name map
-          ansible.builtin.set_fact:
-            _drift_template_map: >-
-              {{ dict((_drift_templates.content | from_json)
-                 | map(attribute='id') | map('int') | list
-                 | zip((_drift_templates.content | from_json)
-                 | map(attribute='name') | list)) }}
-
-        - name: Filter active live schedules
-          ansible.builtin.set_fact:
-            _drift_active_schedules: >-
-              {{ (_drift_schedules.content | from_json)
-                 | selectattr('active', 'defined')
-                 | selectattr('active')
-                 | list }}
-
-        - name: Build live schedule keys (template_name||cron)
-          ansible.builtin.set_fact:
-            _drift_live_named: >-
-              {{ _drift_active_schedules
-                 | map(attribute='template_id')
-                 | map('int')
-                 | map('extract', _drift_template_map)
-                 | zip(_drift_active_schedules | map(attribute='cron_format'))
-                 | map('join', '||')
-                 | list }}
-
-        - name: Build baseline schedule keys
-          ansible.builtin.set_fact:
-            _drift_baseline_keys: >-
-              {{ schedule_baseline
-                 | map(attribute='template_name')
-                 | list
-                 | zip(schedule_baseline | map(attribute='cron_expression') | list)
-                 | map('join', '||')
-                 | list }}
-
-        - name: Detect drift — added schedules (in live but not baseline)
-          ansible.builtin.set_fact:
-            _drift_added: >-
-              {{ _drift_live_named | difference(_drift_baseline_keys)
-                 | map('regex_replace', '\|\|', ' @ ')
-                 | list }}
-
-        - name: Detect drift — removed schedules (in baseline but not live)
-          ansible.builtin.set_fact:
-            _drift_removed: >-
-              {{ _drift_baseline_keys | difference(_drift_live_named)
-                 | map('regex_replace', '\|\|', ' @ ')
-                 | list }}
-
-        - name: Calculate total drift
-          ansible.builtin.set_fact:
-            _drift_total: "{{ (_drift_added | length) + (_drift_removed | length) }}"
-
-        - name: Show schedule drift results
-          ansible.builtin.debug:
-            msg: "Baseline: {{ schedule_baseline | length }} | Live: {{ _drift_active_schedules | length }} | Added: {{ _drift_added | length }} | Removed: {{ _drift_removed | length }}"
-
-        - name: Send alert for schedule drift
-          include_tasks: tasks/notify.yaml
-          when: _drift_total | int > 0
-          vars:
-            discord_name: "Semaphore"
-            discord_operation: "Schedule Drift"
-            discord_status: "warning"
-            discord_detail: "{{ _drift_total }} schedule(s) differ from Git baseline"
-            discord_color: "{{ discord_color_warning }}"
-            discord_author: "{{ controller_fqdn }}"
-            discord_fields:
-              - name: "Added (not in baseline)"
-                value: "{{ _drift_added | join(', ') if _drift_added | length > 0 else 'none' }}"
-              - name: "Removed (missing from live)"
-                value: "{{ _drift_removed | join(', ') if _drift_removed | length > 0 else 'none' }}"
-            discord_footer:
-              text: "Health Check"
-            discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
-
-        - name: Record schedule drift result
-          ansible.builtin.set_fact:
-            play1_health_results: >-
-              {{ play1_health_results + [{
-                'check_name': 'schedule_drift',
-                'status': ('check_warning' if _drift_total | int > 0 else 'ok'),
-                'value': (_drift_total | string + ' drifted') if _drift_total | int > 0 else 'in sync',
-                'detail': ((_drift_added | map('regex_replace', '^', 'added: ') | list + _drift_removed | map('regex_replace', '^', 'removed: ') | list) | join('; ')) if _drift_total | int > 0 else ''
-              }] }}
-
-      rescue:
-        - name: Set maintenance failed (schedule drift error)
-          ansible.builtin.set_fact:
-            maintenance_failed: true
-        - name: Log debug check results
-          ansible.builtin.debug:
-            msg: "CHECK 28b FAILED: Schedule drift check error — skipping"
-
     # ── CHECK 32: Beszel monitoring drift ─────────────────────────────────────────
     # The hub's system list is UI-managed, so it drifts when hosts are renamed, added or retired. The build/deploy
     # playbooks re-sync it as changes happen (tasks/monitoring_hook.yaml); this is the safety net for anything changed
@@ -947,10 +820,10 @@
           ansible.builtin.debug:
             msg: "CHECK 33 FAILED: Dozzle log-viewer drift check error — skipping"
 
-    # ── CHECK 34: Semaphore templates vs the git registry ─────────────────────────
-    # Templates are IaC (vars/configs/semaphore_templates.yaml). This alerts when the live project differs — a template
-    # created or edited by hand (UI, CLI, API), one missing, or a setting that drifted — i.e. whenever something bypassed
-    # the registry. Report only; deploy_semaphore_templates.yaml -e semaphore_apply=true fixes it (never delete by default).
+    # ── CHECK 34: Semaphore templates + schedules vs the git registry ─────────────
+    # Templates AND their schedules are IaC (vars/configs/semaphore_templates.yaml). This alerts when the live project
+    # differs — a template or schedule created or edited by hand (UI, CLI, API), one missing, or a setting that drifted —
+    # i.e. whenever something bypassed the registry. (It replaced the old schedule-only CHECK 28b + schedule_baseline.yaml.) Report only; deploy_semaphore_templates.yaml -e semaphore_apply=true fixes it (never delete by default).
     - name: Check Semaphore templates against the registry
       block:
         - name: Compare live templates with the registry (report only)
@@ -966,6 +839,9 @@
               {%- if r.details.extra -%}{%- set _ = out.append('Created outside IaC (not in the registry): ' ~ r.details.extra | join(', ')) -%}{%- endif -%}
               {%- if r.details.missing -%}{%- set _ = out.append('In the registry, not live: ' ~ r.details.missing | join(', ')) -%}{%- endif -%}
               {%- if r.details.changed -%}{%- set _ = out.append('Differs from the registry: ' ~ r.details.changed | join('; ')) -%}{%- endif -%}
+              {%- if r.details.schedules_missing -%}{%- set _ = out.append('Schedules missing live: ' ~ r.details.schedules_missing | join('; ')) -%}{%- endif -%}
+              {%- if r.details.schedules_changed -%}{%- set _ = out.append('Schedules differ: ' ~ r.details.schedules_changed | join('; ')) -%}{%- endif -%}
+              {%- if r.details.schedules_extra -%}{%- set _ = out.append('Schedules created outside IaC: ' ~ r.details.schedules_extra | join('; ')) -%}{%- endif -%}
               {%- if r.details.duplicates -%}{%- set _ = out.append('Duplicate live names: ' ~ r.details.duplicates | join(', ')) -%}{%- endif -%}
               {%- if r.details.problems -%}{%- set _ = out.append('Registry problems: ' ~ r.details.problems | join('; ')) -%}{%- endif -%}
               {{ out | to_json }}

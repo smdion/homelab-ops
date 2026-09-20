@@ -10,7 +10,7 @@
 #   * scripts/check_semaphore_templates.py fails when a playbook (with a `# Category:` header) has no entry.
 #
 # To add or change a template: edit THIS file, commit, push to main, run the deploy template. Never use the Semaphore UI,
-# `semaphore_cli.py template create/update` or the API for that. Schedules stay in schedule_baseline.yaml.
+# `semaphore_cli.py template create/update` or the API for that. The same goes for schedules (below).
 #
 # Fields (names, not ids — the sync resolves them):
 #   name, playbook, view, inventory, environment   required
@@ -18,6 +18,8 @@
 #   description           optional
 #   suppress_success_alerts / allow_debug          optional booleans (default false)
 #   limit                 optional list of host patterns (the template-level Limit, which overrides a per-run --limit)
+#   schedule              optional list of { cron, name } — the ONLY schedules this template has (none listed = none live).
+#                         A playbook marked `# Schedule: none` (ad-hoc/manual) simply has no schedule here.
 # Every template also gets the settings in semaphore_template_defaults.
 
 semaphore_template_defaults:
@@ -231,6 +233,7 @@ semaphore_templates:
     description: |-
       Generate the Homepage dashboard config (/opt/homepage on the apps host) from definitions.
       Optional: dry_run=true
+    schedule: [{ cron: "45 5 * * *", name: "Homepage config regenerate (daily)" }]
   - name: "Deploy — Kometa [Config]"
     playbook: deploy_kometa_config.yaml
     view: Deploy
@@ -252,6 +255,7 @@ semaphore_templates:
     description: |-
       Deploys files/pia_port_forward.py to liberty and registers a User Scripts
       Required: hosts_variable
+    schedule: [{ cron: "0 6,18 * * *", name: "PIA Port Forward — reconcile" }]
   - name: "Deploy — Semaphore [Templates]"
     playbook: deploy_semaphore_templates.yaml
     view: Deploy
@@ -337,6 +341,7 @@ semaphore_templates:
       Back up host configurations and appdata.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
     suppress_success_alerts: true
+    schedule: [{ cron: "0 3 * * 4", name: "Weekly Thursday 3AM" }]
   - name: "Backup — B2 [Offsite]"
     playbook: backup_offsite.yaml
     view: Backups
@@ -345,6 +350,7 @@ semaphore_templates:
     description: |-
       Sync local backups to Backblaze B2 offsite storage.
       Optional: offsite_method=restic|rclone, dry_run=yes, bwlimit=<rate>
+    schedule: [{ cron: "30 4 * * 0", name: "Weekly Sunday 4:30am" }]
   - name: "Backup — Database [Primary InfluxDB]"
     playbook: backup_databases.yaml
     view: Backups
@@ -364,6 +370,7 @@ semaphore_templates:
       Required: hosts_variable
     suppress_success_alerts: true
     allow_debug: true
+    schedule: [{ cron: "0 1 * * 3", name: "Weekly Wednesday 1AM" }]
   - name: "Backup — Database [Primary PostgreSQL]"
     playbook: backup_databases.yaml
     view: Backups
@@ -373,6 +380,7 @@ semaphore_templates:
       Back up databases from remote Docker containers.
       Required: hosts_variable
     suppress_success_alerts: true
+    schedule: [{ cron: "0 2 * * 3", name: "Weekly Wednesday 2AM" }]
   - name: "Backup — Database [Secondary PostgreSQL]"
     playbook: backup_databases.yaml
     view: Backups
@@ -382,6 +390,7 @@ semaphore_templates:
       Back up databases from remote Docker containers.
       Required: hosts_variable
     suppress_success_alerts: true
+    schedule: [{ cron: "0 4 * * 3", name: "Weekly Wednesday 4AM" }]
   - name: "Backup — Docker Run [Appdata]"
     playbook: backup_hosts.yaml
     view: Backups
@@ -392,6 +401,7 @@ semaphore_templates:
       Back up host configurations and appdata.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
     suppress_success_alerts: true
+    schedule: [{ cron: "0 3 * * 0", name: "Weekly Sunday 3AM" }]
   - name: "Backup — Docker Stacks [Appdata]"
     playbook: backup_hosts.yaml
     view: Backups
@@ -412,6 +422,7 @@ semaphore_templates:
       Back up host configurations and appdata.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
     suppress_success_alerts: true
+    schedule: [{ cron: "0 1 * * 0", name: "Weekly Sunday 1AM" }]
   - name: "Backup — PiKVM [Config]"
     playbook: backup_hosts.yaml
     view: Backups
@@ -421,6 +432,7 @@ semaphore_templates:
       Back up host configurations and appdata.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
     suppress_success_alerts: true
+    schedule: [{ cron: "0 23 * * 1", name: "Weekly Monday 11PM" }]
   - name: "Backup — Proxmox [Config]"
     playbook: backup_hosts.yaml
     view: Backups
@@ -430,6 +442,7 @@ semaphore_templates:
       Back up host configurations and appdata.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
     suppress_success_alerts: true
+    schedule: [{ cron: "0 23 * * 0", name: "Weekly Sunday 11PM" }]
   - name: "Backup — Unifi Network [Config]"
     playbook: backup_hosts.yaml
     view: Backups
@@ -439,6 +452,7 @@ semaphore_templates:
       Back up host configurations and appdata.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
     suppress_success_alerts: true
+    schedule: [{ cron: "0 3 * * 5", name: "Weekly Friday 3AM" }]
   - name: "Backup — Unifi Protect [Config]"
     playbook: backup_hosts.yaml
     view: Backups
@@ -448,6 +462,7 @@ semaphore_templates:
       Back up host configurations and appdata.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
     suppress_success_alerts: true
+    schedule: [{ cron: "0 4 * * 5", name: "Weekly Friday 4AM" }]
   - name: "Backup — unRAID [Config]"
     playbook: backup_hosts.yaml
     view: Backups
@@ -457,6 +472,7 @@ semaphore_templates:
     description: |-
       Back up host configurations and appdata.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
+    schedule: [{ cron: "0 1 * * 4", name: "Weekly Thursday 1AM" }, { cron: "0 2 1 * *", name: "Monthly — Tree Index" }]
   - name: "Backup — unRAID [Offline]"
     playbook: backup_offline.yaml
     view: Backups
@@ -466,6 +482,7 @@ semaphore_templates:
       Sync backups to offline Synology storage.
       Required: hosts_variable · Optional: synology_skip_shutdown=true, synology_share_name=<name>
     suppress_success_alerts: true
+    schedule: [{ cron: "0 5 * * 3", name: "Weekly Wednesday 5AM" }]
 
   # ── Restore ─────────────────────────────────────────────────────
   - name: "Restore — AMP [Instance]"
@@ -634,6 +651,7 @@ semaphore_templates:
       Verify that the latest backups are restorable.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
     suppress_success_alerts: true
+    schedule: [{ cron: "0 4 * * 1", name: "Weekly Monday 4AM" }, { cron: "0 5 * * 4", name: "Weekly Thursday 5AM" }]
   - name: "Verify — Database [Primary InfluxDB]"
     playbook: verify_backups.yaml
     view: Verify
@@ -652,6 +670,7 @@ semaphore_templates:
       Verify that the latest backups are restorable.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
     suppress_success_alerts: true
+    schedule: [{ cron: "0 4 * * 6", name: "Weekly Saturday 4AM" }]
   - name: "Verify — Database [Primary PostgreSQL]"
     playbook: verify_backups.yaml
     view: Verify
@@ -661,6 +680,7 @@ semaphore_templates:
       Verify that the latest backups are restorable.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
     suppress_success_alerts: true
+    schedule: [{ cron: "0 6 * * 6", name: "Weekly Saturday 6AM" }]
   - name: "Verify — Database [Secondary PostgreSQL]"
     playbook: verify_backups.yaml
     view: Verify
@@ -670,6 +690,7 @@ semaphore_templates:
       Verify that the latest backups are restorable.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
     suppress_success_alerts: true
+    schedule: [{ cron: "0 4 * * 1", name: "Weekly Monday 4AM" }]
   - name: "Verify — Docker Run [Appdata]"
     playbook: verify_backups.yaml
     view: Verify
@@ -679,6 +700,7 @@ semaphore_templates:
       Verify that the latest backups are restorable.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
     suppress_success_alerts: true
+    schedule: [{ cron: "0 6 * * 0", name: "Weekly Sunday 6AM" }]
   - name: "Verify — Docker Stacks [Appdata]"
     playbook: verify_backups.yaml
     view: Verify
@@ -688,6 +710,7 @@ semaphore_templates:
       Verify that the latest backups are restorable.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
     suppress_success_alerts: true
+    schedule: [{ cron: "0 4 * * 0", name: "Weekly Sunday 4AM" }]
   - name: "Verify — Proxmox [Config]"
     playbook: verify_backups.yaml
     view: Verify
@@ -697,6 +720,7 @@ semaphore_templates:
       Verify that the latest backups are restorable.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
     suppress_success_alerts: true
+    schedule: [{ cron: "0 1 * * 1", name: "Weekly Monday 1AM" }]
   - name: "Verify — unRAID [Config]"
     playbook: verify_backups.yaml
     view: Verify
@@ -706,6 +730,7 @@ semaphore_templates:
       Verify that the latest backups are restorable.
       Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
     suppress_success_alerts: true
+    schedule: [{ cron: "0 4 * * 4", name: "Weekly Thursday 4AM" }]
   - name: "Verify — VLAN [Isolation]"
     playbook: verify_isolation.yaml
     view: Verify
@@ -727,6 +752,7 @@ semaphore_templates:
     description: |-
       Update OS packages, Docker containers, and unRAID plugins.
       Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+    schedule: [{ cron: "0 3 * * 6", name: "Weekly Saturday 3AM" }]
   - name: "Update — Docker Run [Containers]"
     playbook: update_systems.yaml
     view: Updates
@@ -735,6 +761,7 @@ semaphore_templates:
     description: |-
       Update OS packages, Docker containers, and unRAID plugins.
       Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+    schedule: [{ cron: "0 3 * * 2", name: "Weekly Tuesday 3AM" }]
   - name: "Update — Docker Stacks [Containers]"
     playbook: update_systems.yaml
     view: Updates
@@ -743,6 +770,7 @@ semaphore_templates:
     description: |-
       Update OS packages, Docker containers, and unRAID plugins.
       Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+    schedule: [{ cron: "0 4 * * 2", name: "Weekly Tuesday 4AM" }]
   - name: "Update — PiKVM [Appliance]"
     playbook: update_systems.yaml
     view: Updates
@@ -753,6 +781,7 @@ semaphore_templates:
       Update OS packages, Docker containers, and unRAID plugins.
       Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
     suppress_success_alerts: true
+    schedule: [{ cron: "0 3 * * 4", name: "Weekly Thursday 3AM" }]
   - name: "Update — Proxmox [Appliance]"
     playbook: update_systems.yaml
     view: Updates
@@ -763,6 +792,7 @@ semaphore_templates:
       Update OS packages, Docker containers, and unRAID plugins.
       Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
     suppress_success_alerts: true
+    schedule: [{ cron: "0 3 * * 1", name: "Weekly Monday 3AM" }]
   - name: "Update — Proxmox [Standalone]"
     playbook: update_systems.yaml
     view: Updates
@@ -783,6 +813,7 @@ semaphore_templates:
       Update OS packages, Docker containers, and unRAID plugins.
       Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
     suppress_success_alerts: true
+    schedule: [{ cron: "0 3 * * 3", name: "Weekly Wednesday 3AM" }]
   - name: "Update — unRAID [Plugins]"
     playbook: update_systems.yaml
     view: Updates
@@ -791,6 +822,7 @@ semaphore_templates:
     description: |-
       Update OS packages, Docker containers, and unRAID plugins.
       Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+    schedule: [{ cron: "0 4 * * 2", name: "Weekly Tuesday 4AM" }]
 
   # ── Maintenance ─────────────────────────────────────────────────
   - name: "Maintain — AMP [Cleanup]"
@@ -801,18 +833,21 @@ semaphore_templates:
     description: |-
       AMP Server Maintenance Playbook
       Optional: amp_scope=versions|cleanup|coredumps|prune|journal, amp_versions_keep=<N>
+    schedule: [{ cron: "0 8 * * 1", name: "Weekly Monday 8AM" }]
   - name: "Maintain — Ansible [Health]"
     playbook: maintain_ansible.yaml
     view: Maintenance
     inventory: ansible-user-ssh
     environment: blank
     description: "Ansible environment health check. Runs entirely on localhost — no SSH to managed hosts."
+    schedule: [{ cron: "0 8 * * 0", name: "Weekly Sunday 08:00" }]
   - name: "Maintain — CrowdSec Bouncer [Restart]"
     playbook: maintain_crowdsec_bouncer.yaml
     view: Maintenance
     inventory: ansible-user-ssh
     environment: blank
     description: "Restart the SWAG container to force a clean CrowdSec bouncer decision resync."
+    schedule: [{ cron: "0 3 * * *", name: "Daily 3AM" }]
   - name: "Maintain — Docker [Cleanup]"
     playbook: maintain_docker.yaml
     view: Maintenance
@@ -820,6 +855,7 @@ semaphore_templates:
     environment: blank
     description: "Docker prune + page cache maintenance."
     suppress_success_alerts: true
+    schedule: [{ cron: "0 5 * * *", name: "Daily 5AM" }]
   - name: "Maintain — Guacamole [Connections]"
     playbook: maintain_guacamole.yaml
     view: Maintenance
@@ -828,12 +864,14 @@ semaphore_templates:
     description: |-
       Manage Guacamole connections and user group permissions declaratively.
       Optional: remove_unmanaged=yes, confirm=yes
+    schedule: [{ cron: "0 6 * * *", name: "Daily 6AM" }]
   - name: "Maintain — Health [Check]"
     playbook: maintain_health.yaml
     view: Maintenance
     inventory: ansible-user-ssh
     environment: blank
     description: "Health Maintenance Playbook"
+    schedule: [{ cron: "00 07,19 * * *", name: "Twice Daily 7AM + 7PM" }]
   - name: "Maintain — Logging DB [Cleanup]"
     playbook: maintain_logging_db.yaml
     view: Maintenance
@@ -843,6 +881,7 @@ semaphore_templates:
       Purge failure and stale records from ansible_logging.
       Optional: purge_all=yes, confirm=yes
     suppress_success_alerts: true
+    schedule: [{ cron: "0 5 1 * *", name: "Monthly 1st 5AM" }]
   - name: "Maintain — Logging DB [Purge All]"
     playbook: maintain_logging_db.yaml
     view: Maintenance
@@ -859,6 +898,14 @@ semaphore_templates:
     inventory: ansible-user-ssh
     environment: blank
     description: "Weekly ansible_logging summary — queries 7-day row counts, hosts with no recent backup, and failed operation counts; sends a notification and logs to MariaDB."
+    schedule: [{ cron: "0 8 * * 0", name: "Weekly Sunday 8AM" }]
+  - name: "Maintain — Monitoring [Sync]"
+    playbook: maintain_monitoring.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Weekly self-heal: makes the Beszel hub and the Dozzle hub match the definitions (apply, never deletes). A failure fails the run."
+    schedule: [{ cron: "0 6 * * 3", name: "Weekly Wednesday 6AM" }]
   - name: "Maintain — PVE [Config]"
     playbook: maintain_pve.yaml
     view: Maintenance
@@ -866,6 +913,7 @@ semaphore_templates:
     environment: maintain_pve
     description: "Idempotent Proxmox node configuration — run after bare-metal reinstall or new node join."
     suppress_success_alerts: true
+    schedule: [{ cron: "0 2 * * 0", name: "Weekly Sunday 2AM" }]
   - name: "Maintain — PVE [Re-IP VMID]"
     playbook: reip_vmid.yaml
     view: Maintenance
@@ -878,6 +926,7 @@ semaphore_templates:
     inventory: ansible-user-ssh
     environment: maintain_guacamole
     description: "Strips the Seerr request tag (\"seerr\") from Sonarr series / Radarr movies once"
+    schedule: [{ cron: "0 0,6,12,18 * * *", name: "Seerr Tag Cleanup — 6h" }]
   - name: "Maintain — Semaphore [Cleanup]"
     playbook: maintain_semaphore.yaml
     view: Maintenance
@@ -891,12 +940,14 @@ semaphore_templates:
     inventory: ansible-user-ssh
     environment: blank
     description: "Synchronize SSH known_hosts across all inventory hosts."
+    schedule: [{ cron: "0 3 * * 0", name: "Weekly Sunday 3AM" }]
   - name: "Maintain — Unifi [Restart]"
     playbook: maintain_unifi.yaml
     view: Maintenance
     inventory: unifi_network
     environment: unifi_network
     description: "Restart Unifi Network services."
+    schedule: [{ cron: "0 1 * * *", name: "Daily 1AM" }]
   - name: "Purge — Ceph [PVE]"
     playbook: purge_ceph.yaml
     view: Maintenance
@@ -923,6 +974,7 @@ semaphore_templates:
     description: |-
       Mirrors a YouTube-exclusive series (no Usenet/torrent indexer will ever
       Required: hosts_variable, config_file
+    schedule: [{ cron: "30 6 * * *", name: "Daily 6:30AM" }]
   - name: "Download — Videos"
     playbook: download_videos.yaml
     view: Downloads
