@@ -1,0 +1,934 @@
+---
+# Semaphore template registry — the single, git-tracked source for EVERY Semaphore template.
+#
+# Semaphore keeps templates in its own database, so anything created or edited there by hand (UI, CLI, raw API) is
+# invisible to git and lost on a rebuild. This file is the source of truth instead:
+#   * deploy_semaphore_templates.yaml (template "Deploy — Semaphore [Templates]") makes Semaphore match it —
+#     report-only by default, `-e semaphore_apply=true` creates/updates, `-e semaphore_prune=true` deletes extras.
+#   * maintain_health CHECK 34 (`semaphore_templates`) alerts when a live template is missing here, absent live, or differs
+#     — i.e. whenever something bypassed this file.
+#   * scripts/check_semaphore_templates.py fails when a playbook (with a `# Category:` header) has no entry.
+#
+# To add or change a template: edit THIS file, commit, push to main, run the deploy template. Never use the Semaphore UI,
+# `semaphore_cli.py template create/update` or the API for that. Schedules stay in schedule_baseline.yaml.
+#
+# Fields (names, not ids — the sync resolves them):
+#   name, playbook, view, inventory, environment   required
+#   arguments             optional JSON-array string of extra CLI args, e.g. '["-e","confirm=yes"]'
+#   description           optional
+#   suppress_success_alerts / allow_debug          optional booleans (default false)
+#   limit                 optional list of host patterns (the template-level Limit, which overrides a per-run --limit)
+# Every template also gets the settings in semaphore_template_defaults.
+
+semaphore_template_defaults:
+  vault_key: ansible-vault                 # the vault password key attached to every template (without it secrets.yaml cannot be read)
+  allow_override_args_in_task: true        # docs/runbooks/common-changes.md: both overrides on for every template
+  allow_override_branch_in_task: true
+
+semaphore_templates:
+
+  # ── Deploy ──────────────────────────────────────────────────────
+  - name: "Apply — Full [All]"
+    playbook: apply_full.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    description: |-
+      Full reconciliation — apply roles, regenerate SWAG proxy configs and the Homepage dashboard,
+      Optional: role=core, stack=auth, dry_run=true
+  - name: "Apply — Role [All]"
+    playbook: apply_role.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    description: |-
+      Idempotent host state reconciliation — single command to make a host match its definition.
+      Optional: role, deploy_ssh_key=yes, debug_no_log=yes, dry_run=true, resize=yes, stack=<name>, skip_bootstrap=yes, skip_stacks=yes, skip_verify=yes
+    suppress_success_alerts: true
+  - name: "Build — AMP [Game Server]"
+    playbook: bootstrap_amp.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: amp
+    description: |-
+      Bootstrap AMP game server: provision VM, install software, restore instances
+      Required: confirm=yes · Optional: vm_state=absent, restore_host
+  - name: "Build — BGW Syslog [LXC]"
+    playbook: build_bgw_syslog.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Build the BGW syslog collector — LXC CT bgw_ct_vmid (bgw-syslog) on standalone PVE node sentinel."
+  - name: "Build — iVentoy [ISO Boot]"
+    playbook: build_iventoy.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    description: |-
+      Install/converge iVentoy (PXE ISO boot server) on VM `iventoy` and hook it into netboot.xyz.
+      Optional: vm_name=iventoy
+  - name: "Build — PVE [Cluster Join]"
+    playbook: build_pve.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: vm_definitions
+    arguments: "[\"-e pve_host=sentinel.seandion.local\"]"
+    description: |-
+      Post-install PVE bootstrap — configures a freshly installed Proxmox VE host.
+      Required: pve_host · Optional: cluster_join=yes, cluster_master, pve_debian_release
+  - name: "Build — PVE [Standalone]"
+    playbook: build_pve.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: vm_definitions
+    arguments: "[\"-e\",\"pve_host=sentinel.seandion.local\"]"
+    description: |-
+      Post-install PVE bootstrap — configures a freshly installed Proxmox VE host.
+      Required: pve_host · Optional: cluster_join=yes, cluster_master, pve_debian_release
+  - name: "Build — Ubuntu [Apps]"
+    playbook: build_ubuntu.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: vm_definitions
+    arguments: "[\"-e\", \"vm_name=apps\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+  - name: "Build — Ubuntu [Core]"
+    playbook: build_ubuntu.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: vm_definitions
+    arguments: "[\"-e\", \"vm_name=core\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+  - name: "Build — Ubuntu [Desktop]"
+    playbook: build_ubuntu.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: vm_definitions
+    arguments: "[\"-e\", \"vm_name=desktop\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+  - name: "Build — Ubuntu [Dev]"
+    playbook: build_ubuntu.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: vm_definitions
+    arguments: "[\"-e\", \"vm_name=dev\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+  - name: "Build — Ubuntu [iVentoy]"
+    playbook: build_ubuntu.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    arguments: "[\"-e\", \"vm_name=iventoy\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+  - name: "Build — Ubuntu [Sandbox]"
+    playbook: build_ubuntu.yaml
+    view: Deploy                          # was unset in Semaphore (hand-made template)
+    inventory: ansible-user-ssh
+    environment: blank   # was unset in Semaphore (hand-made template)
+    arguments: "[\"-e\", \"vm_name=sandbox\", \"-e\", \"debug_no_log=yes\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+  - name: "Build — Ubuntu [TronLabs]"
+    playbook: build_ubuntu.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank   # was unset in Semaphore (hand-made template)
+    arguments: "[\"-e\",\"vm_name=tronlabs\",\"-e debug_no_log=yes\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+  - name: "Build — Ubuntu [VM]"
+    playbook: build_ubuntu.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: vm_definitions
+    arguments: "[\"-e\", \"vm_name=test-vm\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+    suppress_success_alerts: true
+  - name: "Deploy — Beszel [Monitoring]"
+    playbook: deploy_beszel_monitoring.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    description: |-
+      Make the Beszel hub match the definitions: monitored systems (created / renamed / re-addressed), default alerts,
+      Optional: beszel_apply=true, beszel_prune=true
+  - name: "Deploy — CrowdSec [Configs]"
+    playbook: deploy_crowdsec_configs.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    description: |-
+      Generate CrowdSec configuration from definitions-as-code and deploy it to the
+      Optional: dry_run=true
+  - name: "Deploy — Docker [Stacks]"
+    playbook: deploy_stacks.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    description: |-
+      Deploy Docker stacks from Git to target hosts.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, deploy_stack=<name>, role=<name>, dry_run=true, pull_only=yes, debug_no_log=yes
+    suppress_success_alerts: true
+  - name: "Deploy — Docker Stacks [Validate]"
+    playbook: deploy_stacks.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    arguments: "[\"-e\",\"validate_only=yes\"]"
+    description: |-
+      Deploy Docker stacks from Git to target hosts.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, deploy_stack=<name>, role=<name>, dry_run=true, pull_only=yes, debug_no_log=yes
+  - name: "Deploy — Docs [Site]"
+    playbook: deploy_docs.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    arguments: "[\"-e\",\"stack=dev\"]"
+    description: |-
+      Deploy homelab-docs MkDocs site to the docs container on the dev VM.
+      Required: hosts_variable · Optional: stack=<name>, role=<name>
+  - name: "Deploy — Dozzle [Hub]"
+    playbook: deploy_dozzle_hub.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    description: |-
+      Make the Dozzle (log viewer) hub match the definitions: every Docker host that declares `dozzle: { role: agent }`
+      Optional: dozzle_apply=true
+  - name: "Deploy — Fast Check [User Script]"
+    playbook: deploy_fast_check.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    arguments: "[\"-e\",\"hosts_variable=liberty\"]"
+    description: "Deploy files/fast_check.py and its User Scripts entry to the metube host (was run by hand; no template existed)"
+  - name: "Deploy — Grafana [Dashboard]"
+    playbook: deploy_grafana.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Deploy Grafana dashboard and Ansible-Logging datasource via API."
+    suppress_success_alerts: true
+  - name: "Deploy — Homepage [Config]"
+    playbook: deploy_homepage_config.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    description: |-
+      Generate the Homepage dashboard config (/opt/homepage on the apps host) from definitions.
+      Optional: dry_run=true
+  - name: "Deploy — Kometa [Config]"
+    playbook: deploy_kometa_config.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    description: "Deploy the Kometa config (was run by hand; no template existed)"
+  - name: "Deploy — MariaDB [Config]"
+    playbook: deploy_mariadb_config.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Deploy the MariaDB custom.cnf and settings (was run by hand; no template existed)"
+  - name: "Deploy — PIA [Port Forward]"
+    playbook: deploy_pia_port_forward.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    arguments: "[\"-e\",\"hosts_variable=liberty\"]"
+    description: |-
+      Deploys files/pia_port_forward.py to liberty and registers a User Scripts
+      Required: hosts_variable
+  - name: "Deploy — Semaphore [Templates]"
+    playbook: deploy_semaphore_templates.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Make Semaphore's templates match this registry (report-only by default; -e semaphore_apply=true)"
+  - name: "Deploy — SWAG [Configs]"
+    playbook: deploy_swag_configs.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    description: |-
+      Generate SWAG reverse proxy site-confs from definitions-as-code.
+      Optional: dry_run=true
+  - name: "DR — Rebuild [Apps]"
+    playbook: dr_rebuild.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    arguments: "[\"-e\", \"role=apps\", \"-e\", \"confirm=yes\", \"-e\", \"deploy_ssh_key=yes\"]"
+    description: |-
+      DR rebuild — build a VM and restore stack backups in one command.
+      Required: role, confirm=yes · Optional: vm_name, deploy_ssh_key=yes, skip_dbs, restore_app, vm_index=N, debug_no_log=yes
+  - name: "DR — Rebuild [Core]"
+    playbook: dr_rebuild.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    arguments: "[\"-e\", \"role=core\", \"-e\", \"confirm=yes\", \"-e\", \"deploy_ssh_key=yes\"]"
+    description: |-
+      DR rebuild — build a VM and restore stack backups in one command.
+      Required: role, confirm=yes · Optional: vm_name, deploy_ssh_key=yes, skip_dbs, restore_app, vm_index=N, debug_no_log=yes
+    suppress_success_alerts: true
+  - name: "DR — Rebuild [Dev]"
+    playbook: dr_rebuild.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
+    arguments: "[\"-e\", \"role=dev\", \"-e\", \"confirm=yes\", \"-e\", \"deploy_ssh_key=yes\"]"
+    description: |-
+      DR rebuild — build a VM and restore stack backups in one command.
+      Required: role, confirm=yes · Optional: vm_name, deploy_ssh_key=yes, skip_dbs, restore_app, vm_index=N, debug_no_log=yes
+
+  # ── Setup ───────────────────────────────────────────────────────
+  - name: "Manage — Vault"
+    playbook: manage_vault.yaml
+    view: Setup
+    inventory: ansible-user-ssh
+    environment: manage_vault
+    arguments: "[\"-e\",\"action=status\"]"
+    description: |-
+      Vault management utility — check status, decrypt, encrypt, change, or validate secrets.yaml.
+      Optional: action=status|change|decrypt|encrypt|validate, vault_pass_file=<path>
+  - name: "Setup — Ansible User [SSH]"
+    playbook: setup_ansible_user.yaml
+    view: Setup
+    inventory: root
+    environment: blank
+    description: "Set up the ansible user on all managed hosts."
+    limit: ["pdm.seandion.local"]   # the host being onboarded — change here in git, then apply
+  - name: "Setup — PVE [VIP]"
+    playbook: setup_pve_vip.yaml
+    view: Setup
+    inventory: ansible-user-ssh
+    environment: pve-vip
+    description: "Install and configure keepalived on all Proxmox nodes to provide a floating management VIP."
+    suppress_success_alerts: true
+  - name: "Setup — Test VLAN [Unifi]"
+    playbook: setup_test_network.yaml
+    view: Setup
+    inventory: unifi_network
+    environment: unifi_network
+    description: "One-time setup for test VM VLAN isolation on Unifi UDM."
+    suppress_success_alerts: true
+
+  # ── Backups ─────────────────────────────────────────────────────
+  - name: "Backup — AMP [Config]"
+    playbook: backup_hosts.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: amp
+    description: |-
+      Back up host configurations and appdata.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Backup — B2 [Offsite]"
+    playbook: backup_offsite.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: backup_offsite
+    description: |-
+      Sync local backups to Backblaze B2 offsite storage.
+      Optional: offsite_method=restic|rclone, dry_run=yes, bwlimit=<rate>
+  - name: "Backup — Database [Primary InfluxDB]"
+    playbook: backup_databases.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: db_primary_influxdb
+    description: |-
+      Back up databases from remote Docker containers.
+      Required: hosts_variable
+    suppress_success_alerts: true
+  - name: "Backup — Database [Primary MariaDB]"
+    playbook: backup_databases.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: db_primary_mariadb
+    description: |-
+      Back up databases from remote Docker containers.
+      Required: hosts_variable
+    suppress_success_alerts: true
+    allow_debug: true
+  - name: "Backup — Database [Primary PostgreSQL]"
+    playbook: backup_databases.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: db_primary_postgres
+    description: |-
+      Back up databases from remote Docker containers.
+      Required: hosts_variable
+    suppress_success_alerts: true
+  - name: "Backup — Database [Secondary PostgreSQL]"
+    playbook: backup_databases.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: db_secondary_postgres
+    description: |-
+      Back up databases from remote Docker containers.
+      Required: hosts_variable
+    suppress_success_alerts: true
+  - name: "Backup — Docker Run [Appdata]"
+    playbook: backup_hosts.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: docker_run
+    arguments: "[\"-e hosts_variable=docker_run\"]"
+    description: |-
+      Back up host configurations and appdata.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Backup — Docker Stacks [Appdata]"
+    playbook: backup_hosts.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    arguments: "[\"-e hosts_variable=docker_stacks\"]"
+    description: |-
+      Back up host configurations and appdata.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Backup — Docker Stacks [Combined]"
+    playbook: backup_hosts.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: docker_stacks_combined
+    arguments: "[\"-e hosts_variable=docker_stacks -e with_databases=yes\"]"
+    description: |-
+      Back up host configurations and appdata.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Backup — PiKVM [Config]"
+    playbook: backup_hosts.yaml
+    view: Backups
+    inventory: pikvm
+    environment: pikvm
+    description: |-
+      Back up host configurations and appdata.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Backup — Proxmox [Config]"
+    playbook: backup_hosts.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: proxmox
+    description: |-
+      Back up host configurations and appdata.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Backup — Unifi Network [Config]"
+    playbook: backup_hosts.yaml
+    view: Backups
+    inventory: unifi_network
+    environment: unifi_network
+    description: |-
+      Back up host configurations and appdata.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Backup — Unifi Protect [Config]"
+    playbook: backup_hosts.yaml
+    view: Backups
+    inventory: unifi_protect
+    environment: unifi_protect
+    description: |-
+      Back up host configurations and appdata.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Backup — unRAID [Config]"
+    playbook: backup_hosts.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: unraid_os
+    arguments: "[\"-e hosts_variable=unraid -e config_file=unraid_os\"]"
+    description: |-
+      Back up host configurations and appdata.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>, with_databases=yes
+  - name: "Backup — unRAID [Offline]"
+    playbook: backup_offline.yaml
+    view: Backups
+    inventory: ansible-user-ssh
+    environment: synology
+    description: |-
+      Sync backups to offline Synology storage.
+      Required: hosts_variable · Optional: synology_skip_shutdown=true, synology_share_name=<name>
+    suppress_success_alerts: true
+
+  # ── Restore ─────────────────────────────────────────────────────
+  - name: "Restore — AMP [Instance]"
+    playbook: restore_amp.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: restore_amp
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Restore AMP game server instance(s) from backup.
+      Required: restore_target, confirm=yes · Optional: amp_instance_filter
+  - name: "Restore — App [Production]"
+    playbook: restore_app.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: restore_app_production
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Restore a single app (stack appdata + databases) to a production host.
+      Required: restore_app, restore_target, confirm=yes
+    suppress_success_alerts: true
+  - name: "Restore — Database [Primary InfluxDB]"
+    playbook: restore_databases.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: db_primary_influxdb
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Restore database dumps from backup.
+      Required: hosts_variable, confirm=yes · Optional: restore_db=<name>, restore_date=YYYY-MM-DD, skip_pre_backup=yes
+    suppress_success_alerts: true
+  - name: "Restore — Database [Primary MariaDB]"
+    playbook: restore_databases.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: db_primary_mariadb
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Restore database dumps from backup.
+      Required: hosts_variable, confirm=yes · Optional: restore_db=<name>, restore_date=YYYY-MM-DD, skip_pre_backup=yes
+    suppress_success_alerts: true
+  - name: "Restore — Database [Primary PostgreSQL]"
+    playbook: restore_databases.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: db_primary_postgres
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Restore database dumps from backup.
+      Required: hosts_variable, confirm=yes · Optional: restore_db=<name>, restore_date=YYYY-MM-DD, skip_pre_backup=yes
+    suppress_success_alerts: true
+  - name: "Restore — Database [Secondary PostgreSQL]"
+    playbook: restore_databases.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: db_secondary_postgres
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Restore database dumps from backup.
+      Required: hosts_variable, confirm=yes · Optional: restore_db=<name>, restore_date=YYYY-MM-DD, skip_pre_backup=yes
+    suppress_success_alerts: true
+  - name: "Restore — Docker Run [Appdata]"
+    playbook: restore_hosts.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: docker_run
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Restore config/appdata archives from backup.
+      Required: hosts_variable, confirm=yes · Optional: stack=<name>, app=<name>, role=<name>, restore_app=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Restore — Docker Stacks [Appdata]"
+    playbook: restore_hosts.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Restore config/appdata archives from backup.
+      Required: hosts_variable, confirm=yes · Optional: stack=<name>, app=<name>, role=<name>, restore_app=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Restore — Proxmox [Config]"
+    playbook: restore_hosts.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: proxmox
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Restore config/appdata archives from backup.
+      Required: hosts_variable, confirm=yes · Optional: stack=<name>, app=<name>, role=<name>, restore_app=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Restore — unRAID [Config]"
+    playbook: restore_hosts.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: unraid_os
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Restore config/appdata archives from backup.
+      Required: hosts_variable, confirm=yes · Optional: stack=<name>, app=<name>, role=<name>, restore_app=<name>, with_databases=yes
+    suppress_success_alerts: true
+  - name: "Rollback — Docker [Containers]"
+    playbook: rollback_docker.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Rollback Docker containers to their previous image versions.
+      Required: hosts_variable, confirm=yes · Optional: stack=<name>, app=<name>, rollback_stack=<name>, rollback_service=<name>, role=<name>, with_backup=yes
+    suppress_success_alerts: true
+  - name: "Test — Backup Restore [VM]"
+    playbook: test_backup_restore.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: test_app_restore
+    description: |-
+      Test all app restores on a disposable VM.
+      Required: source_host · Optional: vm_name, vm_index, test_apps, deploy_ssh_key
+    suppress_success_alerts: true
+  - name: "Test — Cleanup [VMs]"
+    playbook: cleanup_test_vms.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: blank
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      Remove all test VMs from the Proxmox cluster.
+      Required: confirm=yes
+  - name: "Test — Restore [Apps]"
+    playbook: build_ubuntu.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: vm_definitions
+    arguments: "[\"-e\", \"vm_name=test-vm\", \"-e\", \"role=apps\", \"-e\", \"deploy_ssh_key=yes\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+  - name: "Test — Restore [Core]"
+    playbook: build_ubuntu.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: vm_definitions
+    arguments: "[\"-e\", \"vm_name=test-vm\", \"-e\", \"role=core\", \"-e\", \"deploy_ssh_key=yes\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+    suppress_success_alerts: true
+  - name: "Test — Restore [Dev]"
+    playbook: build_ubuntu.yaml
+    view: Restore
+    inventory: ansible-user-ssh
+    environment: vm_definitions
+    arguments: "[\"-e\", \"vm_name=test-vm\", \"-e\", \"role=dev\", \"-e\", \"deploy_ssh_key=yes\"]"
+    description: |-
+      Unified VM lifecycle orchestrator for Proxmox.
+      Required: vm_name · Optional: vm_state=absent, vm_state=snapshot, vm_state=revert, snapshot_name, confirm=yes, role=core|apps|dev, vm_cleanup=no, restore_app=<name>, deploy_ssh_key=yes, skip_dbs=<csv>, stack=<name>
+
+  # ── Verify ──────────────────────────────────────────────────────
+  - name: "Verify — AMP [Backup]"
+    playbook: verify_backups.yaml
+    view: Verify
+    inventory: ansible-user-ssh
+    environment: amp
+    description: |-
+      Verify that the latest backups are restorable.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
+    suppress_success_alerts: true
+  - name: "Verify — Database [Primary InfluxDB]"
+    playbook: verify_backups.yaml
+    view: Verify
+    inventory: ansible-user-ssh
+    environment: db_primary_influxdb
+    description: |-
+      Verify that the latest backups are restorable.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
+    suppress_success_alerts: true
+  - name: "Verify — Database [Primary MariaDB]"
+    playbook: verify_backups.yaml
+    view: Verify
+    inventory: ansible-user-ssh
+    environment: db_primary_mariadb
+    description: |-
+      Verify that the latest backups are restorable.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
+    suppress_success_alerts: true
+  - name: "Verify — Database [Primary PostgreSQL]"
+    playbook: verify_backups.yaml
+    view: Verify
+    inventory: ansible-user-ssh
+    environment: db_primary_postgres
+    description: |-
+      Verify that the latest backups are restorable.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
+    suppress_success_alerts: true
+  - name: "Verify — Database [Secondary PostgreSQL]"
+    playbook: verify_backups.yaml
+    view: Verify
+    inventory: ansible-user-ssh
+    environment: db_secondary_postgres
+    description: |-
+      Verify that the latest backups are restorable.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
+    suppress_success_alerts: true
+  - name: "Verify — Docker Run [Appdata]"
+    playbook: verify_backups.yaml
+    view: Verify
+    inventory: ansible-user-ssh
+    environment: docker_run
+    description: |-
+      Verify that the latest backups are restorable.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
+    suppress_success_alerts: true
+  - name: "Verify — Docker Stacks [Appdata]"
+    playbook: verify_backups.yaml
+    view: Verify
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    description: |-
+      Verify that the latest backups are restorable.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
+    suppress_success_alerts: true
+  - name: "Verify — Proxmox [Config]"
+    playbook: verify_backups.yaml
+    view: Verify
+    inventory: ansible-user-ssh
+    environment: proxmox
+    description: |-
+      Verify that the latest backups are restorable.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
+    suppress_success_alerts: true
+  - name: "Verify — unRAID [Config]"
+    playbook: verify_backups.yaml
+    view: Verify
+    inventory: ansible-user-ssh
+    environment: unraid_os
+    description: |-
+      Verify that the latest backups are restorable.
+      Required: hosts_variable · Optional: stack=<name>, app=<name>, role=<name>
+    suppress_success_alerts: true
+  - name: "Verify — VLAN [Isolation]"
+    playbook: verify_isolation.yaml
+    view: Verify
+    inventory: ansible-user-ssh
+    environment: verify_isolation
+    arguments: "[\"-e vm_name=test-vm\"]"
+    description: |-
+      Lightweight test VLAN isolation verification.
+      Required: vm_name
+    suppress_success_alerts: true
+
+  # ── Updates ─────────────────────────────────────────────────────
+  - name: "Update — AMP [Instances]"
+    playbook: update_systems.yaml
+    view: Updates
+    inventory: ansible-user-ssh
+    environment: amp
+    arguments: "[\"-e hosts_variable=amp -e update_scope=software\"]"
+    description: |-
+      Update OS packages, Docker containers, and unRAID plugins.
+      Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+  - name: "Update — Docker Run [Containers]"
+    playbook: update_systems.yaml
+    view: Updates
+    inventory: ansible-user-ssh
+    environment: docker_run
+    description: |-
+      Update OS packages, Docker containers, and unRAID plugins.
+      Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+  - name: "Update — Docker Stacks [Containers]"
+    playbook: update_systems.yaml
+    view: Updates
+    inventory: ansible-user-ssh
+    environment: docker_stacks
+    description: |-
+      Update OS packages, Docker containers, and unRAID plugins.
+      Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+  - name: "Update — PiKVM [Appliance]"
+    playbook: update_systems.yaml
+    view: Updates
+    inventory: pikvm
+    environment: pikvm
+    arguments: "[\"-e hosts_variable=pikvm\"]"
+    description: |-
+      Update OS packages, Docker containers, and unRAID plugins.
+      Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+    suppress_success_alerts: true
+  - name: "Update — Proxmox [Appliance]"
+    playbook: update_systems.yaml
+    view: Updates
+    inventory: ansible-user-ssh
+    environment: proxmox
+    arguments: "[\"-e hosts_variable=pve:pbs\"]"
+    description: |-
+      Update OS packages, Docker containers, and unRAID plugins.
+      Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+    suppress_success_alerts: true
+  - name: "Update — Proxmox [Standalone]"
+    playbook: update_systems.yaml
+    view: Updates
+    inventory: ansible-user-ssh
+    environment: proxmox
+    arguments: "[\"-e hosts_variable=pve_standalone\"]"
+    description: |-
+      Update OS packages, Docker containers, and unRAID plugins.
+      Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+    suppress_success_alerts: true
+  - name: "Update — Ubuntu [OS]"
+    playbook: update_systems.yaml
+    view: Updates
+    inventory: ansible-user-ssh
+    environment: ubuntu_os
+    arguments: "[\"-e hosts_variable=ubuntu\"]"
+    description: |-
+      Update OS packages, Docker containers, and unRAID plugins.
+      Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+    suppress_success_alerts: true
+  - name: "Update — unRAID [Plugins]"
+    playbook: update_systems.yaml
+    view: Updates
+    inventory: ansible-user-ssh
+    environment: unraid_plugins
+    description: |-
+      Update OS packages, Docker containers, and unRAID plugins.
+      Required: hosts_variable · Optional: config_file, update_scope=os|docker|software|plugin
+
+  # ── Maintenance ─────────────────────────────────────────────────
+  - name: "Maintain — AMP [Cleanup]"
+    playbook: maintain_amp.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: maintain_amp
+    description: |-
+      AMP Server Maintenance Playbook
+      Optional: amp_scope=versions|cleanup|coredumps|prune|journal, amp_versions_keep=<N>
+  - name: "Maintain — Ansible [Health]"
+    playbook: maintain_ansible.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Ansible environment health check. Runs entirely on localhost — no SSH to managed hosts."
+  - name: "Maintain — CrowdSec Bouncer [Restart]"
+    playbook: maintain_crowdsec_bouncer.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Restart the SWAG container to force a clean CrowdSec bouncer decision resync."
+  - name: "Maintain — Docker [Cleanup]"
+    playbook: maintain_docker.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Docker prune + page cache maintenance."
+    suppress_success_alerts: true
+  - name: "Maintain — Guacamole [Connections]"
+    playbook: maintain_guacamole.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: maintain_guacamole
+    description: |-
+      Manage Guacamole connections and user group permissions declaratively.
+      Optional: remove_unmanaged=yes, confirm=yes
+  - name: "Maintain — Health [Check]"
+    playbook: maintain_health.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Health Maintenance Playbook"
+  - name: "Maintain — Logging DB [Cleanup]"
+    playbook: maintain_logging_db.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    description: |-
+      Purge failure and stale records from ansible_logging.
+      Optional: purge_all=yes, confirm=yes
+    suppress_success_alerts: true
+  - name: "Maintain — Logging DB [Purge All]"
+    playbook: maintain_logging_db.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    arguments: "[\"-e\", \"purge_all=yes\", \"-e\", \"confirm=yes\"]"
+    description: |-
+      Purge failure and stale records from ansible_logging.
+      Optional: purge_all=yes, confirm=yes
+    suppress_success_alerts: true
+  - name: "Maintain — Logging DB [Summary]"
+    playbook: check_logging_db.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Weekly ansible_logging summary — queries 7-day row counts, hosts with no recent backup, and failed operation counts; sends a notification and logs to MariaDB."
+  - name: "Maintain — PVE [Config]"
+    playbook: maintain_pve.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: maintain_pve
+    description: "Idempotent Proxmox node configuration — run after bare-metal reinstall or new node join."
+    suppress_success_alerts: true
+  - name: "Maintain — PVE [Re-IP VMID]"
+    playbook: reip_vmid.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: maintain_pve
+    description: "Change a VM's VMID and IP (pass old_vmid/new_vmid/confirm as run-time extra vars; was run by hand; no template existed)"
+  - name: "Maintain — Seerr [Tags]"
+    playbook: maintain_seerr_tags.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: maintain_guacamole
+    description: "Strips the Seerr request tag (\"seerr\") from Sonarr series / Radarr movies once"
+  - name: "Maintain — Semaphore [Cleanup]"
+    playbook: maintain_semaphore.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Clean up Semaphore task history and prune ansible_logging retention."
+    suppress_success_alerts: true
+  - name: "Maintain — SSH [Known Hosts]"
+    playbook: maintain_known_hosts.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    description: "Synchronize SSH known_hosts across all inventory hosts."
+  - name: "Maintain — Unifi [Restart]"
+    playbook: maintain_unifi.yaml
+    view: Maintenance
+    inventory: unifi_network
+    environment: unifi_network
+    description: "Restart Unifi Network services."
+  - name: "Purge — Ceph [PVE]"
+    playbook: purge_ceph.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: maintain_pve
+    arguments: "[\"-e\", \"confirm=yes\"]"
+    description: |-
+      One-time complete Ceph removal from all PVE cluster nodes.
+      Required: confirm=yes
+  - name: "Review — Proxmox [Cluster+PBS]"
+    playbook: review_pve.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: review_pve
+    description: "Read-only review of Proxmox VE cluster and PBS backup server state."
+
+  # ── Downloads ───────────────────────────────────────────────────
+  - name: "Download — Series"
+    playbook: download_series.yaml
+    view: Downloads
+    inventory: ansible-user-ssh
+    environment: download
+    arguments: "[\"-e\", \"config_file=alton_brown\"]"
+    description: |-
+      Mirrors a YouTube-exclusive series (no Usenet/torrent indexer will ever
+      Required: hosts_variable, config_file
+  - name: "Download — Videos"
+    playbook: download_videos.yaml
+    view: Downloads
+    inventory: ansible-user-ssh
+    environment: download
+    description: |-
+      Download videos via MeTube / yt-dlp — dispatcher pattern.
+      Required: hosts_variable, config_file
+    suppress_success_alerts: true

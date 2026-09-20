@@ -1,0 +1,52 @@
+---
+# Category: Deploy
+# Schedule: none
+# Make Semaphore's templates match the git-tracked registry (vars/configs/semaphore_templates.yaml). Semaphore keeps
+# templates in its own database, so without this anything created or edited by hand is invisible to git and lost on a
+# rebuild. Never create or edit a template in the UI, with semaphore_cli.py or through the API — edit the registry,
+# push to main, and run this. maintain_health CHECK 34 alerts when live and registry differ.
+#
+# Safe by default — REPORT ONLY unless told otherwise.
+#
+# Usage:
+#   ansible-playbook deploy_semaphore_templates.yaml                                   # report drift, change nothing
+#   ansible-playbook deploy_semaphore_templates.yaml -e semaphore_apply=true           # create / fix templates
+#   ansible-playbook deploy_semaphore_templates.yaml -e semaphore_apply=true -e semaphore_prune=true
+#                                                                                      # also delete templates not in the registry
+#
+# First run on a fresh Semaphore (the template for THIS playbook does not exist yet) is the one place it is run from the
+# CLI: it creates its own template along with the rest.
+# Required vault vars: vault_semaphore_host_url, vault_semaphore_api_token
+
+- name: Reconcile Semaphore templates with the registry
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/semaphore_templates.yaml
+  tasks:
+    - name: Reconcile templates
+      ansible.builtin.include_tasks: tasks/semaphore_templates_sync.yaml
+
+# ═══════════════════════════════════════════════════════════════════
+# Monitoring — register / clean up in Beszel + Dozzle (best effort, see tasks/monitoring_hook.yaml)
+# ═══════════════════════════════════════════════════════════════════
+- name: "Sync monitoring (Beszel + Dozzle)"
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/vip_definitions.yaml
+    - vars/configs/beszel.yaml
+  vars:
+    playbook_name: "deploy_semaphore_templates.yaml"
+    beszel_hook_prune: false
+  tasks:
+    - name: Resolve Semaphore task URL for notifications
+      ansible.builtin.include_tasks: tasks/resolve_semaphore_task.yaml
+
+    - name: Register / clean up monitoring
+      ansible.builtin.include_tasks: tasks/monitoring_hook.yaml

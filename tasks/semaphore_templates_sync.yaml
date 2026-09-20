@@ -1,0 +1,55 @@
+---
+# Reconcile Semaphore's templates with vars/configs/semaphore_templates.yaml (the git-tracked registry).
+# Shared task — included by deploy_semaphore_templates.yaml and maintain_health CHECK 34. See
+# files/semaphore_templates_sync.py for the rules and the homelab-docs semaphore/index.md ("Templates are IaC").
+#
+# Needs in the calling play: vars_files vars/secrets.yaml and vars/configs/semaphore_templates.yaml.
+# Mode (all default false = REPORT ONLY, nothing is written):
+#   semaphore_apply=true   create missing templates, fix drifted ones (incl. attaching the vault)
+#   semaphore_prune=true   with apply: also DELETE live templates that are not in the registry
+# Sets `_semaphore_res` (the command result); stdout is one JSON document, stderr the human report.
+
+- name: Write the registry for the sync script
+  ansible.builtin.tempfile:
+    state: file
+    suffix: .semaphore.json
+  register: _semaphore_file
+  changed_when: false
+
+- name: Save the registry
+  ansible.builtin.copy:
+    content: "{{ {'defaults': semaphore_template_defaults, 'templates': semaphore_templates} | to_json }}"
+    dest: "{{ _semaphore_file.path }}"
+    mode: "0600"
+  changed_when: false
+
+- name: Reconcile Semaphore templates (report only unless semaphore_apply is true)
+  ansible.builtin.command:
+    argv: >-
+      {{ ['python3', playbook_dir ~ '/files/semaphore_templates_sync.py',
+          '--url', vault_semaphore_host_url, '--desired', _semaphore_file.path]
+         + (['--apply'] if semaphore_apply | default(false) | bool else [])
+         + (['--prune'] if semaphore_prune | default(false) | bool else []) }}
+  environment:
+    SEMAPHORE_TOKEN: "{{ vault_semaphore_api_token }}"
+  register: _semaphore_res
+  failed_when: false  # judged below so the script's own error line (no secrets in it) shows despite no_log
+  changed_when: (semaphore_apply | default(false) | bool) and _semaphore_res.rc | default(1) == 0 and (_semaphore_res.stdout | from_json).drift
+  no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+
+- name: Remove the temporary registry file
+  ansible.builtin.file:
+    path: "{{ _semaphore_file.path }}"
+    state: absent
+  changed_when: false
+
+- name: Fail with the sync's own error message
+  ansible.builtin.fail:
+    msg: >-
+      {{ (_semaphore_res.stderr_lines | default([]) | select('match', '^ *ERROR') | list | first)
+         | default('Semaphore template sync failed (exit ' ~ _semaphore_res.rc | default('?') ~ ')') }}
+  when: _semaphore_res.rc | default(1) not in [0, 2]
+
+- name: Show the Semaphore template report
+  ansible.builtin.debug:
+    msg: "{{ _semaphore_res.stderr_lines }}"

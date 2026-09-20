@@ -1,6 +1,6 @@
 ---
 # Category: Utilities
-# Schedule-exempt: Deploy — Kometa Config
+# Schedule: none
 # Seeds Kometa's config.yml onto core. Self-contained like download_series.yaml
 # -- no secrets in this file (Plex token / TMDb key are injected at container
 # start via KOMETA_PLEXTOKEN/KOMETA_TMDBKEY env vars, rendered from vault by
