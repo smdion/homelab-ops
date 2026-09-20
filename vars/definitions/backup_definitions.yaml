@@ -1,0 +1,18 @@
+---
+# Backup source definitions — the unRAID user shares protected by BOTH the offsite
+# (B2, backup_offsite.yaml) and offline (Synology, backup_offline.yaml) backups.
+# Single source of truth: add or remove a share here and both jobs pick it up.
+# Both jobs run on the unRAID host, where shares live under src_base_path.
+#
+# Fields:
+#   src_base_path  — directory holding the user shares on the unRAID host (trailing slash)
+#   shares         — share names (directory names under src_base_path)
+
+backup_definitions:
+  src_base_path: "/mnt/user/"
+  shares:
+    - Backup
+    - Data
+    - Photography
+    - Photos
+    - FileRunData

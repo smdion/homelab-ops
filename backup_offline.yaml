@@ -25,6 +25,7 @@
     - vars/secrets.yaml
     - "vars/configs/{{ config_file }}.yaml"
     - vars/configs/synology.yaml
+    - vars/definitions/backup_definitions.yaml
   vars:
     config_file: "{{ hosts_variable }}"
   pre_tasks:
@@ -147,8 +148,8 @@
         - name: Rsync share to Synology
           become: true
           ansible.builtin.shell: |
-            rsync -a --stats {{ synology_src_base_path }}{{ item }}/ "{{ _mount_point }}/{{ item }}/" --delete-after 2>&1
-          loop: "{{ synology_shares }}"
+            rsync -a --stats {{ backup_definitions.src_base_path }}{{ item }}/ "{{ _mount_point }}/{{ item }}/" --delete-after 2>&1
+          loop: "{{ backup_definitions.shares }}"
           register: _rsync_results
           ignore_errors: true  # best-effort — individual share sync may fail; others continue
           loop_control:

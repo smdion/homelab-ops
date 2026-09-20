@@ -12,6 +12,13 @@
 #
 # Sends notification + logs to MariaDB.
 #
+# What gets backed up: every share in backup_definitions.shares
+# (vars/definitions/backup_definitions.yaml) under src_base_path — the same list the
+# Synology offline backup (backup_offline.yaml) syncs. Requires the offsite host to
+# be the unRAID box where those shares live.
+#   restic: one snapshot covering /data/<share> for each share (each mounted read-only)
+#   rclone: one sync per share into <bucket>/<share>/
+#
 # Prerequisites:
 #   restic: Docker installed on target host, B2 S3-compatible bucket,
 #           vault keys vault_restic_repository/vault_restic_password/vault_b2_account_id/vault_b2_application_key
@@ -61,11 +68,14 @@
   vars_files:
     - vars/secrets.yaml
     - vars/configs/semaphore_check.yaml
+    - vars/definitions/backup_definitions.yaml
   vars:
     backup_name: "B2"
     backup_subtype: "Offsite"
     offsite_method: "restic"
-    _backup_source: "{{ offsite_backup_source | default(backup_base_dir) }}"
+    # One read-only bind mount + one backup path per shared share (trailing space is harmless)
+    _restic_mounts: "{% for s in backup_definitions.shares %}-v {{ backup_definitions.src_base_path }}{{ s }}:/data/{{ s }}:ro {% endfor %}"
+    _restic_paths: "{% for s in backup_definitions.shares %}/data/{{ s }} {% endfor %}"
     _cache_dir: "{{ offsite_restic_cache_dir | default(restic_cache_dir | default('/opt/restic-cache')) }}"
     _restic_image: "restic/restic:latest"
     _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -85,7 +95,7 @@
     _restic_run: >-
       docker run --rm --name restic
       {{ _docker_labels }}
-      -v {{ _backup_source }}:/data:ro
+      {{ _restic_mounts }}
       -v {{ _cache_dir }}:/root/.cache/restic
       -e AWS_ACCESS_KEY_ID
       -e AWS_SECRET_ACCESS_KEY
@@ -118,11 +128,14 @@
           - offsite_method in ['rclone', 'restic']
         fail_msg: "offsite_method must be 'rclone' or 'restic' — got '{{ offsite_method }}'"
 
-    - name: Assert backup source directory exists
+    - name: Assert backup source directories exist
       ansible.builtin.stat:
-        path: "{{ _backup_source }}"
+        path: "{{ backup_definitions.src_base_path }}{{ item }}"
       register: _backup_dir
       failed_when: not _backup_dir.stat.exists
+      loop: "{{ backup_definitions.shares }}"
+      loop_control:
+        label: "{{ item }}"
 
     # ── rclone pre-flight ──
     - name: Assert rclone is installed
@@ -199,7 +212,7 @@
               become: true
               ansible.builtin.command: >-
                 {{ _restic_run }}
-                backup /data
+                backup {{ _restic_paths }}
                 --json
                 {{ '--dry-run' if dry_run | default(false) | bool else '' }}
               environment: "{{ _restic_env }}"
@@ -249,8 +262,8 @@
             - name: Sync backups to B2 via rclone
               ansible.builtin.command: >-
                 rclone sync
-                {{ _backup_source }}
-                :b2:{{ vault_b2_bucket_name }}
+                {{ backup_definitions.src_base_path }}{{ item }}
+                :b2:{{ vault_b2_bucket_name }}/{{ item }}
                 --fast-list
                 --size-only
                 --transfers {{ b2_transfers | default(4) }}
@@ -265,6 +278,9 @@
               environment:
                 RCLONE_B2_ACCOUNT: "{{ vault_b2_account_id }}"
                 RCLONE_B2_KEY: "{{ vault_b2_application_key }}"
+              loop: "{{ backup_definitions.shares }}"
+              loop_control:
+                label: "{{ item }}"
               register: _rclone_result
               changed_when: _rclone_result.rc == 0
               timeout: 7200
