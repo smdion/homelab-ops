@@ -36,6 +36,9 @@ pve03.home.local
 [pbs01]
 pbs01.home.local
 
+[pdm]
+pdm.home.local
+
 [udmp]
 udmp.home.local
 
@@ -78,6 +81,7 @@ pbs01.home.local
 pve
 pve_standalone
 pbs
+pdm
 
 [docker_stacks]
 vps.example.com
