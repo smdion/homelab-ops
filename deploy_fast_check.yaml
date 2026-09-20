@@ -164,6 +164,9 @@
           {% for platform, cfg in fast_check_platforms.items() %}
           docker exec metube python3 /configs/scripts/fast_check.py --platform {{ platform }}
           {% endfor %}
+          # Keep the Home Assistant download tracker honest: publish idle if yt-dlp is not
+          # actually running (a container killed mid-download never reports finished).
+          docker exec metube python3 /configs/scripts/metube_status.py reconcile || true
           {% for platform, cfg in fast_check_platforms.items() %}
           echo "--- recent history ({{ platform }}, last 2000 lines) ---"
           docker exec metube tail -n 2000 /configs/{{ cfg.state_dir_name }}/fast_check.log

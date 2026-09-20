@@ -93,3 +93,11 @@
 # after_move: prefix ensures only actually-downloaded videos are logged (not skipped/archived).
 # %(field)j uses yt-dlp's JSON escape flag for properly quoted strings.
 --print-to-file "after_move:{\"id\":%(id)j,\"title\":%(title)j,\"uploader\":%(uploader)j,\"duration\":%(duration_string)j,\"url\":%(original_url)j,\"extractor\":%(extractor_key)j,\"channel_url\":%(channel_url|)j,\"thumbnail\":%(thumbnail)j,\"description\":%(description|)j}" /tmp/downloads_{{ config_name }}.jsonl
+
+# Home Assistant tracker: as each video is about to download, publish its title/source
+# to MQTT (files/metube_status.py). before_dl fires once per video, after filtering, so
+# archived or skipped videos never trigger it. Fields are passed with %(...)q so the shell
+# quotes them (titles are attacker-controlled text) and yt-dlp does not append a filepath.
+# `|| true` is required: yt-dlp fails the item (and skips its archive entry) when an --exec
+# command exits non-zero, and a broker hiccup must never be able to do that.
+--exec "before_dl:python3 {{ metube_scripts_dir }}/metube_status.py item %(extractor_key)q %(title)q %(uploader|)q %(webpage_url)q || true"

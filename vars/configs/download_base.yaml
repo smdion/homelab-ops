@@ -34,6 +34,14 @@ metube_down_alert_flag: "/run/metube_down_alerted_{{ config_name }}"
 metube_mqtt_publish_host: "apps.{{ vault_vm_search_domain }}"
 metube_mqtt_container: "mosquitto"
 metube_mqtt_topic: "homelab/metube/{{ config_name }}"
+# The metube container publishes the tracker itself too (files/metube_status.py: the
+# item title/source from yt-dlp's before_dl hook, plus begin/end from the wrapper), so it
+# needs a route to the broker: the apps VIP, port published by the mosquitto container.
+# Credentials are rendered into metube_mqtt.json next to the script (0600, container user).
+metube_mqtt_broker_host: "{{ vault_apps_vip }}"
+metube_mqtt_broker_port: 1883
+# Helper scripts inside the metube container (host side: {{ metube_config_host_dir }}/scripts).
+metube_scripts_dir: "/configs/scripts"
 
 # Event-driven trigger — Semaphore self-invocation.
 # The detached download wrapper re-invokes this template on exit so the next
@@ -55,8 +63,17 @@ ytdlp_output: "%(extractor_key)s/%(uploader)s - %(title)s - %(id)s.%(ext)s"
 # Extractor configuration
 ytdlp_extractor_args: "youtube:player-client=default,-tv,web_safari,web_embedded"
 
-# Cookies file (inside metube container) — required for YouTube bot-check bypass
-ytdlp_cookies: "/configs/default/www.youtube.com_cookies.txt"
+# Cookies file (inside metube container), added 2026-04-24 for YouTube bot-check bypass.
+# INTERIM: set empty 2026-09-20. YouTube revoked the logged-in session server-side between
+# 12:04 and 12:51 that day — with the file, EVERY lookup and download failed with "Video
+# unavailable" (even videos fetched successfully an hour earlier, and the 03:26 backup copy of
+# the file); without it, extraction and real downloads work (verified, PO-token provider
+# handles the bot check). Empty omits --cookies from both the download config and the YouTube
+# probe config. Trade-off: no age-restricted / members-only / account-only videos, and if
+# bot detection tightens again, restore the line below with a FRESH browser cookie export
+# (re-export to the path, then set it back).
+# ytdlp_cookies: "/configs/default/www.youtube.com_cookies.txt"
+ytdlp_cookies: ""
 
 # Download defaults — profiles override per-user preferences
 # vcodec:h264 is a no-op for Twitch (h264 is its only offered codec) but fixes

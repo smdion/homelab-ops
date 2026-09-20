@@ -103,6 +103,38 @@
         dest: "{{ metube_config_host_dir }}/scripts/prune_batch_file.py"
         mode: "0755"
 
+    # Publishes the current item (title/source) and begin/end to MQTT from inside the
+    # metube container, so Home Assistant shows what is downloading (see the script header).
+    # Called by the detached wrapper below and by yt-dlp's --exec before_dl hook in
+    # templates/metube.conf.j2.
+    - name: Deploy tracker status helper script
+      become: true
+      ansible.builtin.copy:
+        src: files/metube_status.py
+        dest: "{{ metube_config_host_dir }}/scripts/metube_status.py"
+        mode: "0755"
+
+    # Connection settings for the helper: holds the MQTT password, so 0600 and owned by
+    # the container user (99:100) — same pattern as fast_check's alert_webhook.
+    - name: Render tracker MQTT connection settings
+      become: true
+      ansible.builtin.copy:
+        content: "{{ _tracker_cfg | to_nice_json }}"
+        dest: "{{ metube_config_host_dir }}/scripts/metube_mqtt.json"
+        mode: "0600"
+        owner: "99"
+        group: "100"
+      vars:
+        _tracker_cfg:
+          host: "{{ metube_mqtt_broker_host }}"
+          port: "{{ metube_mqtt_broker_port }}"
+          user: "{{ vault_docker_mqtt_user }}"
+          password: "{{ vault_docker_mqtt_password }}"
+          topic: "{{ metube_mqtt_topic }}"
+          profile: "{{ config_name }}"
+          state_file: "{{ ytdlp_state_file }}"
+      no_log: true
+
     - name: Clean old successful Semaphore task runs
       include_tasks: tasks/clean_semaphore_tasks.yaml
 
@@ -164,13 +196,16 @@
     # Publish the guard's truth to MQTT (retained) so HA always has the last
     # known state. Done here, before the early end_play, so it runs every cycle —
     # including the runs that bail out because a download is in flight.
+    # The item (title/source) is published by the download itself (metube_status.py),
+    # so while a download is running only the state is re-asserted here: writing the
+    # info topic would wipe the title on every mid-download trigger. When idle or down
+    # this also clears any item a killed download left behind.
     - name: Publish download state to MQTT for HA
       delegate_to: "{{ metube_mqtt_publish_host }}"
       become: true
       when: _mosq_up.stdout | default('') | length > 0
       vars:
         _running: "{{ _ytdlp_running.stdout is search('running') }}"
-        _since: "{{ (_ytdlp_running.stdout.split() | last) if (_ytdlp_running.stdout is search('running')) else '' }}"
       ansible.builtin.command:
         argv:
           - docker
@@ -182,11 +217,13 @@
             mosquitto_pub -h 127.0.0.1 -u {{ vault_docker_mqtt_user }}
             -P "{{ vault_docker_mqtt_password }}"
             -t {{ metube_mqtt_topic }}/state -r
-            -m {{ 'ON' if (_running | bool) else 'OFF' }} ;
-            mosquitto_pub -h 127.0.0.1 -u {{ vault_docker_mqtt_user }}
+            -m {{ 'ON' if (_running | bool) else 'OFF' }}
+            {% if not (_running | bool) %}
+            ; mosquitto_pub -h 127.0.0.1 -u {{ vault_docker_mqtt_user }}
             -P "{{ vault_docker_mqtt_password }}"
             -t {{ metube_mqtt_topic }}/info -r
-            -m '{"profile":"{{ config_name }}","status":"{{ 'downloading' if (_running | bool) else 'idle' }}","since":"{{ _since }}"}'
+            -m '{{ {"profile": config_name, "status": "idle", "since": "", "title": "", "source": "", "uploader": "", "url": ""} | to_json }}'
+            {% endif %}
       changed_when: false
       no_log: true
 
@@ -577,7 +614,7 @@
           - "{{ metube_container }}"
           - sh
           - -c
-          - "echo $$ > {{ ytdlp_state_file }}; yt-dlp --config-location {{ metube_config_path }}; echo $? > {{ ytdlp_status_file }}; rm -f {{ ytdlp_state_file }}; python3 /configs/scripts/build_sweep_message.py {{ metube_manifest }} {{ semaphore_download_template_id }} {{ semaphore_project_id }} | curl -sf --connect-timeout 8 --max-time 25 --retry 3 --retry-delay 5 -X POST -H 'Authorization: Bearer {{ vault_semaphore_download_trigger_token }}' -H 'Content-Type: application/json' -d @- {{ vault_semaphore_host_url }}/api/project/{{ semaphore_project_id }}/tasks >/dev/null 2>&1 || true"
+          - "echo $$ > {{ ytdlp_state_file }}; python3 {{ metube_scripts_dir }}/metube_status.py begin || true; yt-dlp --config-location {{ metube_config_path }}; echo $? > {{ ytdlp_status_file }}; rm -f {{ ytdlp_state_file }}; python3 {{ metube_scripts_dir }}/metube_status.py end || true; python3 /configs/scripts/build_sweep_message.py {{ metube_manifest }} {{ semaphore_download_template_id }} {{ semaphore_project_id }} | curl -sf --connect-timeout 8 --max-time 25 --retry 3 --retry-delay 5 -X POST -H 'Authorization: Bearer {{ vault_semaphore_download_trigger_token }}' -H 'Content-Type: application/json' -d @- {{ vault_semaphore_host_url }}/api/project/{{ semaphore_project_id }}/tasks >/dev/null 2>&1 || true"
       changed_when: true
       when: _should_launch | bool
 
