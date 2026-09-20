@@ -63,6 +63,7 @@ def managed_view(live, ids):
         "view_id": live.get("view_id") or None,
         "inventory_id": live.get("inventory_id") or None,
         "environment_id": live.get("environment_id") or None,
+        "environment_ids": list(live.get("environment_ids") or []),  # Semaphore keeps the environment in BOTH fields
         "arguments": norm_args(live.get("arguments")),
         "description": norm_text(live.get("description")),
         "suppress_success_alerts": bool(live.get("suppress_success_alerts")),
@@ -81,6 +82,7 @@ def wanted_view(d, defaults, ids):
         "view_id": ids["views"].get(d["view"]),
         "inventory_id": ids["inventories"].get(d["inventory"]),
         "environment_id": ids["environments"].get(d["environment"]),
+        "environment_ids": [ids["environments"][d["environment"]]] if d["environment"] in ids["environments"] else [],
         "arguments": norm_args(d.get("arguments")),
         "description": norm_text(d.get("description")),
         "suppress_success_alerts": bool(d.get("suppress_success_alerts")),
@@ -120,7 +122,8 @@ def body_from(want, live=None):
     b = dict(live or {"app": "ansible", "repository_id": 1, "type": ""})
     b.update({
         "playbook": want["playbook"], "view_id": want["view_id"], "inventory_id": want["inventory_id"],
-        "environment_id": want["environment_id"], "arguments": want["arguments"], "description": want["description"] or "",
+        "environment_id": want["environment_id"], "environment_ids": want["environment_ids"],
+        "arguments": want["arguments"], "description": want["description"] or "",
         "suppress_success_alerts": want["suppress_success_alerts"],
         "allow_override_args_in_task": want["allow_override_args_in_task"],
         "allow_override_branch_in_task": want["allow_override_branch_in_task"],
