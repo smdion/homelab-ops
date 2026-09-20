@@ -73,6 +73,7 @@
     backup_name: "B2"
     backup_subtype: "Offsite"
     offsite_method: "restic"
+    _restic_backup_timeout: 14400  # seconds (4h); runs weekly
     # One read-only bind mount + one backup path per shared share (trailing space is harmless)
     _restic_mounts: "{% for s in backup_definitions.shares %}-v {{ backup_definitions.src_base_path }}{{ s }}:/data/{{ s }}:ro {% endfor %}"
     _restic_paths: "{% for s in backup_definitions.shares %}/data/{{ s }} {% endfor %}"
@@ -208,16 +209,23 @@
               when: _restic_check.rc != 0
               no_log: "{{ _no_log }}"
 
+            # The time limit is enforced by coreutils timeout, not by Ansible: Ansible's
+            # task timeout only kills the SSH-side docker client, leaving the restic
+            # container running (still holding the container name and uploading) with
+            # nothing watching it. timeout sends TERM to the docker client, which proxies
+            # it into the container so restic aborts cleanly and --rm removes it.
+            # Ansible's own timeout below is just a backstop above the inner limit.
             - name: Run Restic backup
               become: true
               ansible.builtin.command: >-
+                timeout --kill-after=120 {{ _restic_backup_timeout }}
                 {{ _restic_run }}
                 backup {{ _restic_paths }}
                 --json
                 {{ '--dry-run' if dry_run | default(false) | bool else '' }}
               environment: "{{ _restic_env }}"
               register: _restic_result
-              timeout: 14400
+              timeout: "{{ (_restic_backup_timeout | int) + 300 }}"
               no_log: "{{ _no_log }}"
 
             - name: Apply Restic retention policy
