@@ -293,3 +293,25 @@
           - "Files pushed:  {{ _pushed.results | selectattr('changed', 'defined') | selectattr('changed') | map(attribute='item.item.dest') | list | join(', ') or 'none' }}"
           - "rsyslog={{ _h.rsyslog }} udmp-monitor={{ _h.udmp_monitor }} beszel={{ _h.beszel }} BGW reachable={{ _h.bgw_reachable }}"
           - "BGW syslog packets in 15s: {{ _h.bgw_pkts_15s }}{{ '  ← none: check the BGW syslog target is ' + bgw_ct_bgw_ip.split('/')[0] if _h.bgw_pkts_15s | int == 0 else '' }}"
+
+# ═══════════════════════════════════════════════════════════════════
+# Monitoring — register / clean up in Beszel (best effort, see tasks/beszel_hook.yaml)
+# ═══════════════════════════════════════════════════════════════════
+- name: "Sync Beszel monitoring"
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/configs/beszel.yaml
+  vars:
+    playbook_name: "build_bgw_syslog.yaml"
+    beszel_hook_prune: false
+  tasks:
+    - name: Resolve Semaphore task URL for notifications
+      ansible.builtin.include_tasks: tasks/resolve_semaphore_task.yaml
+
+    - name: Register / clean up monitoring
+      ansible.builtin.include_tasks: tasks/beszel_hook.yaml

@@ -76,9 +76,16 @@
     BESZEL_PASSWORD: "{{ vault_homepage_beszel_password }}"
     BESZEL_WEBHOOK: "discord://{{ vault_discord_webhook_token }}@{{ vault_discord_webhook_id }}"
   register: _beszel_res
-  changed_when: (beszel_apply | default(false) | bool) and (_beszel_res.stdout | from_json).counts.values() | sum > 0
-  failed_when: _beszel_res.rc not in [0, 2]
+  changed_when: (beszel_apply | default(false) | bool) and _beszel_res.rc | default(1) == 0 and (_beszel_res.stdout | from_json).counts.values() | sum > 0
+  failed_when: false  # judged below, so the script's own error line (no secrets in it) can be shown despite no_log
   no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+
+- name: Fail with the sync's own error message
+  ansible.builtin.fail:
+    msg: >-
+      {{ (_beszel_res.stderr_lines | default([]) | select('match', '^ERROR') | list | first)
+         | default('Beszel sync failed (exit ' ~ _beszel_res.rc | default('?') ~ ')') }}
+  when: _beszel_res.rc | default(1) not in [0, 2]
 
 - name: Remove the temporary desired-state file
   ansible.builtin.file:

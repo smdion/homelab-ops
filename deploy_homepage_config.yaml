@@ -346,3 +346,25 @@
           ansible.builtin.fail:
             msg: "Homepage config deploy failed — see notification for details"
           when: deploy_failed
+
+# ═══════════════════════════════════════════════════════════════════
+# Monitoring — register / clean up in Beszel (best effort, see tasks/beszel_hook.yaml)
+# ═══════════════════════════════════════════════════════════════════
+- name: "Sync Beszel monitoring"
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/configs/beszel.yaml
+  vars:
+    playbook_name: "deploy_homepage_config.yaml"
+    beszel_hook_prune: false
+  tasks:
+    - name: Resolve Semaphore task URL for notifications
+      ansible.builtin.include_tasks: tasks/resolve_semaphore_task.yaml
+
+    - name: Register / clean up monitoring
+      ansible.builtin.include_tasks: tasks/beszel_hook.yaml

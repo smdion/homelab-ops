@@ -1,0 +1,44 @@
+---
+# Monitoring lifecycle hook — the last step of every build, deploy, retire and restore playbook.
+# Registers what the playbook created or moved in Beszel and (for retire playbooks) removes what it retired, by
+# running the same reconcile as deploy_beszel_monitoring.yaml (tasks/beszel_sync.yaml).
+#
+# BEST EFFORT, LOUDLY: a monitoring failure never fails the playbook that included it, but it always reaches
+# Discord so the drift is not silent. Skipped in dry-run / check mode.
+#
+# Included from a final `hosts: localhost` play (see the "Monitoring" play at the end of each playbook).
+# That play must load: vars/secrets.yaml, vm_definitions, host_definitions, vars/configs/beszel.yaml.
+#
+# Inputs:
+#   beszel_hook_prune  true for retire playbooks: also delete hub systems that match no definition (never one the
+#                      hub still reports "up" — an orphan that was only just retired is cleaned by the next run)
+# Note: a run limited with --limit that excludes localhost skips this hook; the scheduled drift check (Phase 3)
+# is the safety net for that case.
+
+- name: Sync Beszel monitoring (best effort)
+  when:
+    - not (dry_run | default(false) | bool)
+    - not ansible_check_mode
+  block:
+    - name: Reconcile Beszel with the definitions
+      ansible.builtin.include_tasks: beszel_sync.yaml
+      vars:
+        beszel_apply: true
+        beszel_prune: "{{ beszel_hook_prune | default(false) | bool }}"
+  rescue:
+    - name: Warn on Discord that the monitoring sync did not complete
+      ansible.builtin.include_tasks: notify.yaml
+      vars:
+        discord_name: "Monitoring"
+        discord_operation: "Beszel sync"
+        discord_status: "partial"
+        discord_detail: >-
+          Sync did not complete after {{ playbook_name | default('a playbook') }}:
+          {{ ansible_failed_result.msg | default('see the task log') }}
+        discord_color: "{{ discord_color_warning }}"
+        discord_url: "{{ semaphore_ext_url | default('') }}"
+        discord_author: "{{ controller_fqdn | default('controller') }}"
+      when: _is_semaphore | default(false)
+    - name: Note the failure in the log (the playbook itself continues)
+      ansible.builtin.debug:
+        msg: "Beszel sync failed — monitoring may be out of date: {{ ansible_failed_result.msg | default('unknown') }}"

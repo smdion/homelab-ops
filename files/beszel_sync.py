@@ -37,14 +37,14 @@ class Hub:
         self.url = url.rstrip("/")
         self.token = None
 
-    def call(self, method, path, body=None):
+    def call(self, method, path, body=None, timeout=20):
         req = urllib.request.Request(
             self.url + path, method=method,
             data=json.dumps(body).encode() if body is not None else None,
             headers={"Content-Type": "application/json", **({"Authorization": self.token} if self.token else {})},
         )
         try:
-            with urllib.request.urlopen(req, timeout=20) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 text = r.read().decode()
                 return r.status, (json.loads(text) if text else None)
         except urllib.error.HTTPError as e:
@@ -55,8 +55,9 @@ class Hub:
                 return e.code, text[:200]
 
     def login(self, user, password):
+        # generous timeout: the hub sends a "login alert" email on every login and waits ~15s for its SMTP relay
         status, res = self.call("POST", "/api/collections/users/auth-with-password",
-                                {"identity": user, "password": password})
+                                {"identity": user, "password": password}, timeout=90)
         if status != 200 or not isinstance(res, dict) or "token" not in res:
             raise RuntimeError(f"hub login failed (HTTP {status})")
         self.token = res["token"]

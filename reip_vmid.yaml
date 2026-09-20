@@ -52,10 +52,13 @@
       run_once: true
 
   tasks:
+    # delegate_to is not valid on an include itself (ansible-core 2.20 rejects it), so it goes on the enclosing block
     - name: Resolve PVE API endpoint
-      include_tasks: tasks/resolve_pve_api.yaml
-      vars:
-        _pve_target_node: "{{ pve_target_node | default('') }}"
+      block:
+        - name: Load the PVE API endpoint
+          ansible.builtin.include_tasks: tasks/resolve_pve_api.yaml
+          vars:
+            _pve_target_node: "{{ pve_target_node | default('') }}"
       run_once: true
       delegate_to: localhost
 
@@ -203,3 +206,25 @@
           {{ _vol_list | default([]) | length }} {{ 'LVM' if _is_lvm | bool else 'RBD' }} volume(s) renamed.
           Start with: qm start {{ new_vmid }}
       when: inventory_hostname.split('.')[0] == _target_node
+
+# ═══════════════════════════════════════════════════════════════════
+# Monitoring — register / clean up in Beszel (best effort, see tasks/beszel_hook.yaml)
+# ═══════════════════════════════════════════════════════════════════
+- name: "Sync Beszel monitoring"
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/configs/beszel.yaml
+  vars:
+    playbook_name: "reip_vmid.yaml"
+    beszel_hook_prune: true
+  tasks:
+    - name: Resolve Semaphore task URL for notifications
+      ansible.builtin.include_tasks: tasks/resolve_semaphore_task.yaml
+
+    - name: Register / clean up monitoring
+      ansible.builtin.include_tasks: tasks/beszel_hook.yaml
