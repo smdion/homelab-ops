@@ -92,9 +92,13 @@
       --label net.unraid.docker.shell=sh
     _is_docker_run: "{{ inventory_hostname in groups['docker_run'] | default([]) }}"
     _docker_labels: "{{ (_is_docker_run | bool) | ternary(_unraid_docker_labels, '') }}"
-    # Common docker run arguments shared across all restic commands
+    # Common docker run arguments shared across all restic commands.
+    # --hostname pins the snapshot host: without it every run gets the container's random
+    # ID as its host, restic groups snapshots by host+paths, so each snapshot sat alone in
+    # its own group and `forget --keep-*` never had anything to prune (and no parent
+    # snapshot was ever found). Do not remove.
     _restic_run: >-
-      docker run --rm --name restic
+      docker run --rm --name restic --hostname restic-offsite
       {{ _docker_labels }}
       {{ _restic_mounts }}
       -v {{ _cache_dir }}:/root/.cache/restic
