@@ -1,0 +1,91 @@
+---
+# Reconcile the Beszel hub with the definitions: systems, alerts and the Discord notification target.
+# Shared task — included by deploy_beszel_monitoring.yaml and (Phase 2b) by the build/deploy/retire playbooks.
+# Runs on the controller; it needs the hub API (WireGuard) and definitions loaded by the caller:
+#   vars_files: vars/secrets.yaml, vars/configs/proxmox.yaml?, vm_definitions, host_definitions, vars/configs/beszel.yaml
+#
+# Mode (all default false = REPORT ONLY, nothing is written):
+#   beszel_apply=true   create missing systems, fix drifted name/address, create/update alerts, set the webhook
+#   beszel_prune=true   with apply: also delete hub systems that match no definition (never one reported "up"
+#                       unless beszel_prune_up=true; refuses when the desired list is suspiciously small)
+#
+# Desired state: every vm_definitions/host_definitions entry whose `beszel.agent` is not `none`.
+#   name    beszel.name, else the Guacamole name, else the definition key
+#   address beszel.address, else vm_ip, else the first proxy upstream_ip
+#   alerts  beszel_alert_defaults merged with beszel.alerts (number = new threshold, false = remove that alert)
+
+- name: Render the desired Beszel systems from the definitions
+  ansible.builtin.set_fact:
+    _beszel_desired: >-
+      {%- set out = [] -%}
+      {%- for src in [vm_definitions, host_definitions] -%}
+      {%- for key, d in src.items() if d is mapping and (d.beszel | default({})).agent | default('none') != 'none' -%}
+      {%- set proxy = d.proxy | default([]) -%}
+      {%- set proxy = [proxy] if proxy is mapping else proxy -%}
+      {%- set upstream = proxy | selectattr('upstream_ip', 'defined') | map(attribute='upstream_ip') | list | first | default('', true) -%}
+      {%- set alerts = {} -%}
+      {%- for aname, aspec in beszel_alert_defaults.items() -%}
+      {%- set over = (d.beszel.alerts | default({})).get(aname, none) -%}
+      {%- if over is none -%}{%- set _ = alerts.update({aname: aspec}) -%}
+      {%- elif over is sameas false -%}{%- set _ = alerts.update({aname: false}) -%}
+      {%- else -%}{%- set _ = alerts.update({aname: {'value': over, 'min': aspec.min}}) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- set _ = out.append({
+            'key': key,
+            'name': d.beszel.name | default((d.guacamole | default({})).name | default(key, true), true),
+            'address': (d.beszel.address | default(d.vm_ip | default('', true) | string, true)) or upstream,
+            'port': beszel_agent_port,
+            'alerts': alerts}) -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {{ out | to_json }}
+
+- name: Assert every monitored definition resolved to an address
+  ansible.builtin.assert:
+    that: (_beszel_desired | from_json | selectattr('address', 'equalto', '') | list | length) == 0
+    fail_msg: >-
+      No address for: {{ _beszel_desired | from_json | selectattr('address', 'equalto', '') | map(attribute='key') | join(', ') }}
+      — set beszel.address on the definition.
+    quiet: true
+
+- name: Write the desired state for the sync script
+  ansible.builtin.tempfile:
+    state: file
+    suffix: .beszel.json
+  register: _beszel_file
+  changed_when: false
+
+- name: Save the desired state
+  ansible.builtin.copy:
+    content: "{{ _beszel_desired }}"
+    dest: "{{ _beszel_file.path }}"
+    mode: "0600"
+  changed_when: false
+
+- name: Reconcile the hub (report only unless beszel_apply is true)
+  ansible.builtin.command:
+    argv: >-
+      {{ ['python3', playbook_dir ~ '/files/beszel_sync.py',
+          '--hub-url', beszel_hub_url, '--desired', _beszel_file.path,
+          '--defaults', '{}'] + (['--apply'] if beszel_apply | default(false) | bool else [])
+         + (['--prune'] if beszel_prune | default(false) | bool else [])
+         + (['--prune-up'] if beszel_prune_up | default(false) | bool else []) }}
+  environment:
+    BESZEL_USER: "{{ vault_homepage_beszel_username }}"
+    BESZEL_PASSWORD: "{{ vault_homepage_beszel_password }}"
+    BESZEL_WEBHOOK: "discord://{{ vault_discord_webhook_token }}@{{ vault_discord_webhook_id }}"
+  register: _beszel_res
+  changed_when: (beszel_apply | default(false) | bool) and (_beszel_res.stdout | from_json).counts.values() | sum > 0
+  failed_when: _beszel_res.rc not in [0, 2]
+  no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+
+- name: Remove the temporary desired-state file
+  ansible.builtin.file:
+    path: "{{ _beszel_file.path }}"
+    state: absent
+  changed_when: false
+
+- name: Show the Beszel report
+  ansible.builtin.debug:
+    msg: "{{ _beszel_res.stderr_lines }}"

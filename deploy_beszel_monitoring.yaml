@@ -1,0 +1,34 @@
+---
+# Category: Deploy
+# Schedule: none
+# Make the Beszel hub match the definitions: monitored systems (created / renamed / re-addressed), default alerts,
+# and the Discord notification target. The hub keeps its own system list, so without this it drifts every time a host
+# is renamed, re-addressed, rebuilt or retired. Design and audit: homelab-docs tasks/beszel-iac.md.
+#
+# Runs on the controller; the hub API is reached over WireGuard. Safe by default — REPORT ONLY unless told otherwise.
+#
+# Usage:
+#   ansible-playbook deploy_beszel_monitoring.yaml                              # report drift, change nothing
+#   ansible-playbook deploy_beszel_monitoring.yaml -e beszel_apply=true         # create/rename/alerts/webhook
+#   ansible-playbook deploy_beszel_monitoring.yaml -e beszel_apply=true -e beszel_prune=true
+#                                                                               # also delete hub entries that match no definition
+#
+# Optional extra vars:
+#   beszel_apply=true     write changes (default: report only)
+#   beszel_prune=true     with apply: delete orphans (never one the hub reports "up" unless beszel_prune_up=true)
+#   debug_no_log=yes      show the sync command's raw output (NEVER in production — carries the hub login)
+#
+# Per-host settings live on the definition's `beszel:` block (agent, name, address, alerts); thresholds in
+# vars/configs/beszel.yaml.
+
+- name: Reconcile the Beszel hub with the definitions
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/configs/beszel.yaml
+  tasks:
+    - name: Reconcile monitored systems, alerts and the notification target
+      ansible.builtin.include_tasks: tasks/beszel_sync.yaml

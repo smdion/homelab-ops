@@ -198,7 +198,7 @@ vm_definitions:
   # iVentoy — PXE ISO boot server (build_iventoy.yaml), reached from netboot.xyz's
   # "Custom URL Menu". External DHCP mode only: it never answers DHCP on this LAN.
   iventoy:
-    beszel: { agent: binary }
+    beszel: { agent: binary, name: iVentoy }
     vm_id: 901
     vm_name: iventoy
     vm_mac: "02:00:00:00:03:85"         # static MAC — stable Unifi device identity; encodes VMID 901 (0x385)
@@ -225,7 +225,7 @@ vm_definitions:
   # Not provisioned via build_ubuntu.yaml (manually created in Proxmox).
   # vm_id + vnc_display are the minimum fields needed for VNC connection resolution.
   freshjams:
-    beszel: { agent: container }      # hand-managed container, not covered by update_systems (agent is 0.10.2)
+    beszel: { agent: container, name: Fresh-Jams }   # hand-managed container, not covered by update_systems (agent is 0.10.2); name = the hub's existing entry
     vm_id: 1212
     vm_hostname: "freshjams.{{ vault_vm_search_domain }}"
     vnc_display: 77

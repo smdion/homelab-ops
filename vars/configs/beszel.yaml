@@ -1,0 +1,18 @@
+---
+# Beszel monitoring — config for deploy_beszel_monitoring.yaml / tasks/beszel_sync.yaml.
+# Design and audit: homelab-docs tasks/beszel-iac.md. Per-host tuning lives on the definition, in its
+# `beszel:` block (name, address, alerts).
+
+# The hub runs on the VPS behind WireGuard; the controller (Semaphore on redemption) reaches its API here.
+beszel_hub_url: "http://10.253.100.1:8090"
+
+# Alerts every monitored system gets. value = threshold (percent); min = minutes it must persist. "Status"
+# fires when the agent is unreachable for `min` minutes (5 rides out reboots and backup stop/start windows).
+# Names are the hub's own (Status, CPU, Memory, Disk, Bandwidth, Temperature, LoadAvg1/5/15, GPU, Battery).
+# Override or disable per host in its definition, e.g.  beszel: { agent: binary, alerts: { CPU: 95, Disk: false } }
+# — a number replaces the threshold (keeping `min`), false removes that alert.
+beszel_alert_defaults:
+  Status: { value: 0, min: 5 }
+  CPU: { value: 90, min: 10 }
+  Memory: { value: 90, min: 10 }
+  Disk: { value: 85, min: 10 }

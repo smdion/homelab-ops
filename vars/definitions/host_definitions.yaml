@@ -29,7 +29,7 @@
 
 host_definitions:
   vps:
-    beszel: { agent: container }      # vpn stack (vpn_beszel_agent) + the hub itself
+    beszel: { agent: container, address: "127.0.0.1" }   # vpn stack (vpn_beszel_agent) + the hub itself; the agent shares the hub's WireGuard network namespace
     vm_hostname: "vps.{{ vault_domain_ext }}"
     stacks: [vpn]
     guacamole: { name: VPS, group: Docker }
@@ -491,7 +491,7 @@ host_definitions:
 
   # Proxmox Backup Server
   backup:
-    beszel: { agent: binary }
+    beszel: { agent: binary, name: PBS }
     vm_hostname: "backup.{{ vault_vm_search_domain }}"
     guacamole: { name: Backup, group: Proxmox }
     proxy:
@@ -691,9 +691,9 @@ host_definitions:
     # build_bgw_syslog.yaml, NOT apply_role: the CT has no ansible user, so that playbook also installs its Beszel
     # agent (via pct exec, from the same unit templates as tasks/beszel_agent_binary.yaml).
     vm_hostname: "bgw-syslog.{{ vault_vm_search_domain }}"
-    beszel: { agent: binary, address: "10.10.10.61" }   # address: no proxy/upstream entry to derive it from
+    beszel: { agent: binary, name: bgw-syslog, address: "10.10.10.61" }   # address: no proxy/upstream entry to derive it from
   pdm:
-    beszel: { agent: binary }
+    beszel: { agent: binary, name: PDM }
     vm_hostname: "pdm.{{ vault_vm_search_domain }}"
     proxy:
       - subdomain: pdm
