@@ -544,8 +544,25 @@ def _validate_template_name(name, view_id):
     return warnings
 
 
+def _refuse_template_write(action):
+    """Templates are IaC: vars/configs/semaphore_templates.yaml is the source, deploy_semaphore_templates.yaml applies it.
+    A template created/edited/deleted here is invisible to git, lost on a Semaphore rebuild, and flagged by maintain_health
+    CHECK 34. Refuse unless explicitly overridden (break-glass only — then put the same change in the registry)."""
+    if os.environ.get("SEMAPHORE_ALLOW_TEMPLATE_WRITE") == "1":
+        return
+    print(json.dumps({
+        "status": "error",
+        "error": f"refusing to {action} a template by hand: Semaphore templates are defined in git",
+        "how": "edit vars/configs/semaphore_templates.yaml, push to main, then run the Semaphore template "
+               "'Deploy — Semaphore [Templates]' (deploy_semaphore_templates.yaml -e semaphore_apply=true)",
+        "break_glass": "SEMAPHORE_ALLOW_TEMPLATE_WRITE=1 (and record the change in the registry afterwards)",
+    }, ensure_ascii=False))
+    sys.exit(1)
+
+
 def cmd_template_create(args, config):
     """Create a template."""
+    _refuse_template_write("create")
     base = f"/api/project/{args.project}/templates"
     payload = {
         "project_id": args.project,
@@ -575,6 +592,7 @@ def cmd_template_create(args, config):
 
 def cmd_template_update(args, config):
     """Update a template."""
+    _refuse_template_write("update")
     base = f"/api/project/{args.project}/templates/{args.template_id}"
     current = api_get(base, config)
     if args.name is not None:
@@ -603,6 +621,7 @@ def cmd_template_update(args, config):
 
 def cmd_template_delete(args, config):
     """Delete a template (requires --confirm)."""
+    _refuse_template_write("delete")
     if not args.confirm:
         base = f"/api/project/{args.project}/templates/{args.template_id}"
         t = api_get(base, config)

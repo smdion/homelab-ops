@@ -9,7 +9,7 @@
 #                      backup size anomaly, failed maintenance DB check,
 #                      stale maintenance check, MariaDB health, WAN connectivity,
 #                      appliance reachability, schedule coverage,
-#                      schedule drift, Beszel + Dozzle monitoring drift, UniFi device health
+#                      schedule drift, Beszel + Dozzle monitoring drift, Semaphore template drift, UniFi device health
 # Play 2 (SSH hosts):  Per-host system metrics — disk, memory, CPU, journal errors,
 #                      OOM kills, Docker health, Docker image updates, SMART disk health,
 #                      PVE cluster quorum, Ceph health, APT repo health (PVE only),
@@ -51,6 +51,7 @@
     - vars/definitions/host_definitions.yaml
     - vars/definitions/vip_definitions.yaml
     - vars/configs/beszel.yaml
+    - vars/configs/semaphore_templates.yaml
   vars:
     project_id: "{{ semaphore_project_id }}"
     task_count: 20
@@ -945,6 +946,64 @@
         - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 33 FAILED: Dozzle log-viewer drift check error — skipping"
+
+    # ── CHECK 34: Semaphore templates vs the git registry ─────────────────────────
+    # Templates are IaC (vars/configs/semaphore_templates.yaml). This alerts when the live project differs — a template
+    # created or edited by hand (UI, CLI, API), one missing, or a setting that drifted — i.e. whenever something bypassed
+    # the registry. Report only; deploy_semaphore_templates.yaml -e semaphore_apply=true fixes it (never delete by default).
+    - name: Check Semaphore templates against the registry
+      block:
+        - name: Compare live templates with the registry (report only)
+          ansible.builtin.include_tasks: tasks/semaphore_templates_sync.yaml
+          vars:
+            semaphore_apply: false
+
+        - name: Collect Semaphore template drift findings
+          ansible.builtin.set_fact:
+            _st_findings: >-
+              {%- set r = _semaphore_res.stdout | from_json -%}
+              {%- set out = [] -%}
+              {%- if r.details.extra -%}{%- set _ = out.append('Created outside IaC (not in the registry): ' ~ r.details.extra | join(', ')) -%}{%- endif -%}
+              {%- if r.details.missing -%}{%- set _ = out.append('In the registry, not live: ' ~ r.details.missing | join(', ')) -%}{%- endif -%}
+              {%- if r.details.changed -%}{%- set _ = out.append('Differs from the registry: ' ~ r.details.changed | join('; ')) -%}{%- endif -%}
+              {%- if r.details.duplicates -%}{%- set _ = out.append('Duplicate live names: ' ~ r.details.duplicates | join(', ')) -%}{%- endif -%}
+              {%- if r.details.problems -%}{%- set _ = out.append('Registry problems: ' ~ r.details.problems | join('; ')) -%}{%- endif -%}
+              {{ out | to_json }}
+
+        - name: Send alert for Semaphore template drift
+          include_tasks: tasks/notify.yaml
+          when: (_st_findings | from_json) | length > 0
+          vars:
+            discord_name: "Semaphore"
+            discord_operation: "Template Drift"
+            discord_status: "warning"
+            discord_detail: "{{ (_st_findings | from_json) | length }} finding(s) — live templates differ from the git registry"
+            discord_color: "{{ discord_color_warning }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Findings"
+                value: "{{ (_st_findings | from_json) | join('\n') | truncate(1000) }}"
+            discord_footer:
+              text: "Health Check"
+            discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+        - name: Record Semaphore template drift result
+          ansible.builtin.set_fact:
+            play1_health_results: >-
+              {{ play1_health_results + [{
+                'check_name': 'semaphore_templates',
+                'status': ('check_warning' if (_st_findings | from_json) | length > 0 else 'ok'),
+                'value': ((_st_findings | from_json) | length | string ~ ' finding(s)') if (_st_findings | from_json) | length > 0 else 'in sync',
+                'detail': (_st_findings | from_json) | join('; ') | truncate(500)
+              }] }}
+
+      rescue:
+        - name: Set maintenance failed (Semaphore template drift check error)
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+        - name: Log debug check results
+          ansible.builtin.debug:
+            msg: "CHECK 34 FAILED: Semaphore template drift check error — skipping"
 
     # ── CHECK 29: UniFi device health ──────────────────────────────────────────
     # Queries the UniFi Network API for adopted device status.
