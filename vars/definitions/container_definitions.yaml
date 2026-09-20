@@ -436,10 +436,7 @@ container_definitions:
         - "/var/run/docker.sock:/var/run/docker.sock"
   beszel:
     image: "henrygd/beszel"
-    tag: "0.20.0"
-    # Beszel hub and agents are pinned TOGETHER (beszel, beszel_agent, vpn_beszel_agent): bump all three in one
-    # commit, hub first. Mixed versions still work (the hub shows a yellow flag) but agents on :latest never
-    # updated, because deploy only pulls missing images. See homelab-docs tasks/beszel-iac.md.
+    tag: "latest"
     stack: vpn
     dashboard:
       group: Monitoring
@@ -478,10 +475,7 @@ container_definitions:
         start_period: "30s"
   beszel_agent:
     image: "henrygd/beszel-agent"
-    tag: "0.20.0"
-    # Beszel hub and agents are pinned TOGETHER (beszel, beszel_agent, vpn_beszel_agent): bump all three in one
-    # commit, hub first. Mixed versions still work (the hub shows a yellow flag) but agents on :latest never
-    # updated, because deploy only pulls missing images. See homelab-docs tasks/beszel-iac.md.
+    tag: "latest"
     stack: infra
     env:
       BESZEL_LISTEN: "45876"
@@ -1952,10 +1946,7 @@ container_definitions:
         start_period: "30s"
   vpn_beszel_agent:
     image: "henrygd/beszel-agent"
-    tag: "0.20.0"
-    # Beszel hub and agents are pinned TOGETHER (beszel, beszel_agent, vpn_beszel_agent): bump all three in one
-    # commit, hub first. Mixed versions still work (the hub shows a yellow flag) but agents on :latest never
-    # updated, because deploy only pulls missing images. See homelab-docs tasks/beszel-iac.md.
+    tag: "latest"
     stack: vpn
     env:
       BESZEL_LISTEN: "45876"
