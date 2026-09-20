@@ -148,7 +148,7 @@
         - name: Rsync share to Synology
           become: true
           ansible.builtin.shell: |
-            rsync -a --stats {{ backup_definitions.src_base_path }}{{ item }}/ "{{ _mount_point }}/{{ item }}/" --delete-after 2>&1
+            rsync -a --stats {% for e in backup_definitions.exclude | default([]) if e.startswith(item ~ '/') %}--exclude='/{{ e[(item | length) + 1:] }}/' {% endfor %}{{ backup_definitions.src_base_path }}{{ item }}/ "{{ _mount_point }}/{{ item }}/" --delete-after 2>&1
           loop: "{{ backup_definitions.shares }}"
           register: _rsync_results
           ignore_errors: true  # best-effort — individual share sync may fail; others continue

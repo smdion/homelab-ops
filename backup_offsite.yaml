@@ -18,6 +18,7 @@
 # be the unRAID box where those shares live.
 #   restic: one snapshot covering /data/<share> for each share (each mounted read-only)
 #   rclone: one sync per share into <bucket>/<share>/
+# backup_definitions.exclude (same file) is skipped by both methods.
 #
 # Prerequisites:
 #   restic: Docker installed on target host, B2 S3-compatible bucket,
@@ -77,6 +78,8 @@
     # One read-only bind mount + one backup path per shared share (trailing space is harmless)
     _restic_mounts: "{% for s in backup_definitions.shares %}-v {{ backup_definitions.src_base_path }}{{ s }}:/data/{{ s }}:ro {% endfor %}"
     _restic_paths: "{% for s in backup_definitions.shares %}/data/{{ s }} {% endfor %}"
+    # backup_definitions.exclude entries are share-relative (Backup/tmp) -> /data/Backup/tmp
+    _restic_excludes: "{% for e in backup_definitions.exclude | default([]) %}--exclude /data/{{ e }} {% endfor %}"
     _cache_dir: "{{ offsite_restic_cache_dir | default(restic_cache_dir | default('/opt/restic-cache')) }}"
     _restic_image: "restic/restic:latest"
     _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
@@ -225,6 +228,7 @@
                 timeout --kill-after=120 {{ _restic_backup_timeout }}
                 {{ _restic_run }}
                 backup {{ _restic_paths }}
+                {{ _restic_excludes }}
                 --json
                 {{ '--dry-run' if dry_run | default(false) | bool else '' }}
               environment: "{{ _restic_env }}"
@@ -276,6 +280,7 @@
                 rclone sync
                 {{ backup_definitions.src_base_path }}{{ item }}
                 :b2:{{ vault_b2_bucket_name }}/{{ item }}
+                {% for e in backup_definitions.exclude | default([]) if e.startswith(item ~ '/') %}--exclude /{{ e[(item | length) + 1:] }}/** {% endfor %}
                 --fast-list
                 --size-only
                 --transfers {{ b2_transfers | default(4) }}

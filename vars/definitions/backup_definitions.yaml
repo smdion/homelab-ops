@@ -7,6 +7,10 @@
 # Fields:
 #   src_base_path  — directory holding the user shares on the unRAID host (trailing slash)
 #   shares         — share names (directory names under src_base_path)
+#   exclude        — paths skipped by BOTH jobs, relative to src_base_path (so the first
+#                    component is the share name). Only list what must never be copied:
+#                    transient staging that other jobs fill and empty on a schedule, which
+#                    would otherwise be captured if a backup overlaps them.
 
 backup_definitions:
   src_base_path: "/mnt/user/"
@@ -16,3 +20,6 @@ backup_definitions:
     - Photography
     - Photos
     - FileRunData
+  exclude:
+    - Backup/tmp          # Verify jobs extract archives here (verify_backups.yaml)
+    - Backup/ansibletemp  # Docker Run appdata backup staging (docker_run.yaml backup_tmp_dir)
