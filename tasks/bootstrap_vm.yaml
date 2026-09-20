@@ -240,6 +240,15 @@
     label: "{{ item.port }}/{{ item.proto | default('tcp') }}"
   when: _vm.ufw_rules is defined
 
+- name: Allow the Beszel hub to reach this VM's monitoring agent
+  community.general.ufw:
+    rule: allow
+    port: "{{ beszel_agent_port }}"
+    proto: tcp
+    src: "{{ beszel_hub_source }}"
+    comment: "Beszel hub -> agent"
+  when: (_vm.beszel | default({})).agent | default('none') != 'none'
+
 - name: Allow NFS through UFW from export clients
   community.general.ufw:
     rule: allow

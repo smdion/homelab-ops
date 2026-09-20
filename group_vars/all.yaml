@@ -42,6 +42,11 @@ rsync_timeout: 300               # default for appdata/DB archive transfers
 # NFS standard port — used by bootstrap_vm, backup_offline, verify checks
 nfs_port: 2049
 
+# Beszel monitoring (see homelab-docs tasks/beszel-iac.md). The hub runs on the VPS and connects OUT to each
+# agent on this port; it arrives from its WireGuard address, so VM firewalls allow the port from that source only.
+beszel_agent_port: 45876
+beszel_hub_source: "10.253.100.1"
+
 # Restic offsite retention policy. The Backup share is mostly dated compressed archives
 # (~50 GiB/week of new, non-dedupable data), so each retained week costs ~50 GiB in B2.
 restic_keep_weekly: 4
