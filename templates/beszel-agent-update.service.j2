@@ -1,0 +1,12 @@
+[Unit]
+Description=Update beszel-agent if needed
+Wants=beszel-agent.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '/opt/beszel-agent/beszel-agent update | grep -q "Successfully updated" && (echo "Update found, restarting beszel-agent" && systemctl restart beszel-agent) || echo "No updates found"'
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

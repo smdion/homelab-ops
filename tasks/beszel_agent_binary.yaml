@@ -1,0 +1,77 @@
+---
+# Beszel monitoring agent as a systemd service, for hosts without Docker (PVE nodes, PBS, PDM, AMP,
+# iVentoy, ...). Same layout as the official install script, so it adopts the agents already running on
+# the PVE nodes without changing behavior: a `beszel` user, the binary in /opt/beszel-agent, a hardened
+# unit, and a daily self-update timer (the agent stays on the latest release by itself — deliberately
+# not version-pinned, see homelab-docs tasks/beszel-iac.md).
+#
+# Included by tasks/bootstrap_vm.yaml (VMs) and tasks/bootstrap_host.yaml (non-VM hosts) when the
+# definition has `beszel.agent: binary`. Expects:
+#   _beszel — the definition's `beszel:` dict (optional `extra_filesystems`, e.g. "sdb" or "sdb__Data")
+# Firewall (VMs only) is handled by bootstrap_vm's UFW layer, not here.
+# Idempotent: re-running changes nothing unless the unit templates or the vault key changed.
+
+- name: Ensure the beszel service user exists
+  ansible.builtin.user:
+    name: beszel
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Ensure the agent directory exists
+  ansible.builtin.file:
+    path: /opt/beszel-agent
+    state: directory
+    owner: beszel
+    group: beszel
+    mode: "0755"
+
+- name: Download the agent binary (only when absent — the update timer keeps it current afterwards)
+  ansible.builtin.unarchive:
+    src: "https://github.com/henrygd/beszel/releases/latest/download/beszel-agent_linux_{{ 'arm64' if ansible_architecture in ['aarch64', 'arm64'] else 'amd64' }}.tar.gz"
+    dest: /opt/beszel-agent
+    remote_src: true
+    owner: beszel
+    group: beszel
+    mode: "0755"
+    creates: /opt/beszel-agent/beszel-agent
+
+- name: Install the agent unit (carries the hub public key)
+  ansible.builtin.template:
+    src: beszel-agent.service.j2
+    dest: /etc/systemd/system/beszel-agent.service
+    mode: "0644"
+  register: _beszel_unit
+  no_log: true
+
+- name: Install the daily self-update units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - beszel-agent-update.service
+    - beszel-agent-update.timer
+  register: _beszel_update_units
+
+- name: Reload systemd when a unit changed
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: _beszel_unit.changed or (_beszel_update_units.changed | default(false))
+
+- name: Enable and start the agent (restart only if its unit changed)
+  ansible.builtin.systemd:
+    name: beszel-agent
+    enabled: true
+    state: "{{ 'restarted' if _beszel_unit.changed else 'started' }}"
+
+- name: Enable the daily update timer
+  ansible.builtin.systemd:
+    name: beszel-agent-update.timer
+    enabled: true
+    state: started
+
+- name: Wait for the agent to listen
+  ansible.builtin.wait_for:
+    port: "{{ beszel_agent_port }}"
+    timeout: 30

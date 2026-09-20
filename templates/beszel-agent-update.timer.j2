@@ -1,0 +1,10 @@
+[Unit]
+Description=Run beszel-agent update daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=4h
+
+[Install]
+WantedBy=timers.target

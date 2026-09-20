@@ -249,6 +249,12 @@
     comment: "Beszel hub -> agent"
   when: (_vm.beszel | default({})).agent | default('none') != 'none'
 
+- name: Install the Beszel monitoring agent (binary hosts)
+  ansible.builtin.include_tasks: beszel_agent_binary.yaml
+  vars:
+    _beszel: "{{ _vm.beszel | default({}) }}"
+  when: (_vm.beszel | default({})).agent | default('none') == 'binary'
+
 - name: Allow NFS through UFW from export clients
   community.general.ufw:
     rule: allow

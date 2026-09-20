@@ -80,3 +80,9 @@
   loop: "{{ _host.file_edits | default([]) }}"
   loop_control:
     label: "{{ item.path }}"
+
+- name: Install the Beszel monitoring agent (binary hosts)
+  ansible.builtin.include_tasks: beszel_agent_binary.yaml
+  vars:
+    _beszel: "{{ _host.beszel | default({}) }}"
+  when: (_host.beszel | default({})).agent | default('none') == 'binary'

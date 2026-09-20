@@ -101,6 +101,7 @@ vm_definitions:
           websocket: true
 
   amp:
+    beszel: { agent: binary }
     vm_id: 700
     vm_name: amp
     vm_mac: "02:00:00:00:07:00"       # static MAC — stable Unifi device identity across rebuilds
@@ -138,6 +139,7 @@ vm_definitions:
   # No stacks — basic VM (OS + Network layers only via apply_role).
   # Uses local hosted desktop pool addressing (vm_hosted_slot_base + offset 0).
   desktop:
+    beszel: { agent: none }      # often off on purpose
     vm_id: "{{ (vm_hosted_slot_base + 0) | int }}"
     vm_name: desktop
     vm_mac: "02:00:00:00:08:00"       # static MAC — stable Unifi device identity; encodes VMID 800
@@ -156,6 +158,7 @@ vm_definitions:
   # TronLabs — cloud-init provisioned graphical desktop on independence (local-lvm).
   # Public hosted network (VLAN 1682, 192.168.12.x). VMID 1214 = IP 192.168.12.14.
   tronlabs:
+    beszel: { agent: none }
     vm_id: 1214
     vm_name: tronlabs
     vm_mac: "02:00:00:00:04:be"       # static MAC — stable Unifi device identity; encodes VMID 1214 (0x04BE)
@@ -175,6 +178,7 @@ vm_definitions:
     guacamole: { name: TronLabs, group: Hosted Desktops, protocol: vnc, user_groups: [Guac-TronLabs] }
 
   sandbox:
+    beszel: { agent: none }      # often off on purpose
     vm_id: 900
     vm_name: sandbox
     vm_mac: "02:00:00:00:03:84"         # static MAC — stable Unifi device identity; encodes VMID 900 (0x384)
@@ -194,6 +198,7 @@ vm_definitions:
   # iVentoy — PXE ISO boot server (build_iventoy.yaml), reached from netboot.xyz's
   # "Custom URL Menu". External DHCP mode only: it never answers DHCP on this LAN.
   iventoy:
+    beszel: { agent: binary }
     vm_id: 901
     vm_name: iventoy
     vm_mac: "02:00:00:00:03:85"         # static MAC — stable Unifi device identity; encodes VMID 901 (0x385)
@@ -220,6 +225,7 @@ vm_definitions:
   # Not provisioned via build_ubuntu.yaml (manually created in Proxmox).
   # vm_id + vnc_display are the minimum fields needed for VNC connection resolution.
   freshjams:
+    beszel: { agent: container }      # hand-managed container, not covered by update_systems (agent is 0.10.2)
     vm_id: 1212
     vm_hostname: "freshjams.{{ vault_vm_search_domain }}"
     vnc_display: 77
@@ -249,6 +255,7 @@ vm_definitions:
           includes: [proxy]
 
   test-vm:
+    beszel: { agent: none }      # ephemeral, never registered
     vm_id: "{{ (vm_test_slot_base + (vm_index | default(0) | int)) | int }}"
     vm_mac: "02:00:00:00:13:{{ '%02d' | format(vm_index | default(0) | int) }}"
     vm_name: "test-vm{{ vm_index | default(0) | int }}"

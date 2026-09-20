@@ -29,6 +29,7 @@
 
 host_definitions:
   vps:
+    beszel: { agent: container }      # vpn stack (vpn_beszel_agent) + the hub itself
     vm_hostname: "vps.{{ vault_domain_ext }}"
     stacks: [vpn]
     guacamole: { name: VPS, group: Docker }
@@ -78,6 +79,7 @@ host_definitions:
 
   # unRAID servers (docker_run — no stacks, managed via docker_run inventory group)
   redemption:
+    beszel: { agent: container }      # unRAID dockerman container, kept current by update_systems
     vm_hostname: "redemption.{{ vault_vm_search_domain }}"
     guacamole: { name: Redemption, group: unRAID }
     # Containers unRAID runs here that have a web UI. unRAID manages them (they are not in
@@ -94,6 +96,7 @@ host_definitions:
       - semaphore
       - scrutiny
       - dozzle-agent
+      - beszel-agent
     proxy:
       - subdomain: redemption
         upstream_ip: "10.10.10.17"
@@ -299,6 +302,7 @@ host_definitions:
             includes: [proxy]
 
   liberty:
+    beszel: { agent: container }      # unRAID dockerman container, kept current by update_systems
     vm_hostname: "liberty.{{ vault_vm_search_domain }}"
     guacamole: { name: Liberty, group: unRAID }
     unraid_containers:          # see redemption
@@ -312,6 +316,7 @@ host_definitions:
       - transmission
       - scrutiny
       - dozzle-agent
+      - beszel-agent
     proxy:
       - subdomain: liberty
         upstream_ip: "10.10.10.18"
@@ -486,6 +491,7 @@ host_definitions:
 
   # Proxmox Backup Server
   backup:
+    beszel: { agent: binary }
     vm_hostname: "backup.{{ vault_vm_search_domain }}"
     guacamole: { name: Backup, group: Proxmox }
     proxy:
@@ -512,6 +518,7 @@ host_definitions:
 
   # PiKVM — IP-KVM appliance (read-only root filesystem)
   pikvm:
+    beszel: { agent: none }      # appliance, not monitored
     vm_hostname: "pikvm.{{ vault_vm_search_domain }}"
     guacamole: { name: PiKVM, group: Appliances }
     proxy:
@@ -533,6 +540,7 @@ host_definitions:
 
   # Synology NAS
   synology:
+    beszel: { agent: none }      # offline by design
     vm_hostname: "synology.{{ vault_vm_search_domain }}"
     guacamole: { name: Synology, group: NAS }
     proxy:
@@ -558,6 +566,7 @@ host_definitions:
 
   # --- Proxmox VE hypervisors ---
   homeone:
+    beszel: { agent: binary }
     vm_hostname: "homeone.{{ vault_vm_search_domain }}"
     guacamole: { name: HomeOne, group: Proxmox }
     proxy:
@@ -586,6 +595,7 @@ host_definitions:
           includes: [proxmox]
 
   defiance:
+    beszel: { agent: binary }
     vm_hostname: "defiance.{{ vault_vm_search_domain }}"
     guacamole: { name: Defiance, group: Proxmox }
     proxy:
@@ -614,6 +624,7 @@ host_definitions:
           includes: [proxmox]
 
   independence:
+    beszel: { agent: binary }
     vm_hostname: "independence.{{ vault_vm_search_domain }}"
     guacamole: { name: Independence, group: Proxmox }
     proxy:
@@ -642,6 +653,7 @@ host_definitions:
           includes: [proxmox]
 
   sentinel:
+    beszel: { agent: binary }
     vm_hostname: "sentinel.{{ vault_vm_search_domain }}"
     guacamole: { name: Sentinel, group: Proxmox }
     proxy:
@@ -675,6 +687,7 @@ host_definitions:
   # Proxmox Datacenter Manager — VM 602, central view over the PVE cluster, sentinel and PBS.
   # Installed from the Proxmox ISO (interactive), so it is not built by a playbook.
   pdm:
+    beszel: { agent: binary }
     vm_hostname: "pdm.{{ vault_vm_search_domain }}"
     proxy:
       - subdomain: pdm
@@ -703,6 +716,7 @@ host_definitions:
   # git history (this comment's commit) rather than re-guessing the config.
 
   plex_host:
+    beszel: { agent: none }      # container IP on liberty, not a host
     vm_hostname: "plex.{{ vault_vm_search_domain }}"
     proxy:
       subdomain: plex
@@ -747,6 +761,7 @@ host_definitions:
             - "proxy_pass_request_headers off"
 
   testunraid:
+    beszel: { agent: none }      # test rig
     vm_hostname: "testunraid.{{ vault_vm_search_domain }}"
     proxy:
       subdomain: testunraid
@@ -771,6 +786,7 @@ host_definitions:
             - "proxy_ssl_verify off"
 
   metube_host:
+    beszel: { agent: none }      # alias of liberty
     vm_hostname: "metube.{{ vault_vm_search_domain }}"
     proxy:
       subdomain: metube
@@ -791,6 +807,7 @@ host_definitions:
           websocket: true
 
   coffee_host:
+    beszel: { agent: none }      # ESP device
     vm_hostname: "coffee.{{ vault_vm_search_domain }}"
     proxy:
       subdomain: coffee
