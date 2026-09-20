@@ -1,0 +1,93 @@
+---
+# Remove leftover Ceph OSD systemd instances for OSDs that do NOT live on this node.
+#
+# Why: after an OSD is rebuilt or moved, its old `ceph-volume@lvm-<id>-<fsid>` boot-activation units stay enabled on
+# the node it used to run on. At every boot they try to activate that OSD locally, which enables and then fails
+# `ceph-osd@<id>` (no keyring / data here), leaving a permanent "1 failed service" on a healthy cluster (seen on
+# HomeOne, 2026-09-20: three stale osd.1 activations from the March OSD rebuild, while osd.1 really lives on
+# Independence). The other nodes each carry exactly one activation unit — the real one.
+#
+# Safe by construction — this only UNHOOKS boot activation, it never touches data, keys or a running daemon:
+#   * "local" OSDs come from `ceph-volume lvm list` (the LVM volumes actually present on this node);
+#   * a unit is stale only if its OSD id is not local, or it names an old fsid of a local id;
+#   * active (running) units are never touched;
+#   * it does nothing at all unless ceph-volume answers and reports at least one local OSD (a node that lists none
+#     is skipped rather than guessed at).
+# Runs its read-only discovery in check mode too, so a dry run reports what it would clean.
+# Idempotent: a second run finds nothing to do.
+
+- name: Check whether this node has the Ceph volume tool
+  ansible.builtin.stat:
+    path: /usr/sbin/ceph-volume
+  register: _ceph_volume_bin
+
+- name: Clean up stale Ceph OSD units
+  when: _ceph_volume_bin.stat.exists
+  block:
+    - name: List the OSDs that really live on this node
+      ansible.builtin.command: ceph-volume lvm list --format json
+      register: _ceph_lvm
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Work out the local OSD ids and fsids
+      ansible.builtin.set_fact:
+        _ceph_local: >-
+          {%- set ids = [] -%}{%- set fsids = [] -%}
+          {%- if _ceph_lvm.rc == 0 and _ceph_lvm.stdout | trim | length > 0 -%}
+          {%- for osd_id, vols in (_ceph_lvm.stdout | from_json).items() -%}
+          {%- set _ = ids.append(osd_id | string) -%}
+          {%- for v in vols -%}{%- set _ = fsids.append(v.tags['ceph.osd_fsid']) -%}{%- endfor -%}
+          {%- endfor -%}
+          {%- endif -%}
+          {{ {'ids': ids, 'fsids': fsids} | to_json }}
+
+    - name: List the Ceph OSD units systemd knows about (loaded or enabled)
+      ansible.builtin.shell: |
+        set -o pipefail
+        { systemctl list-units --all --plain --no-legend 'ceph-osd@*' 'ceph-volume@*' | awk '{print $1}'
+          find /etc/systemd/system /run/systemd/system -maxdepth 2 \( -name 'ceph-osd@*.service' -o -name 'ceph-volume@*.service' \) -printf '%f\n' 2>/dev/null
+        } | sort -u
+      args:
+        executable: /bin/bash
+      register: _ceph_units
+      changed_when: false
+      check_mode: false
+
+    - name: Pick the stale units
+      ansible.builtin.set_fact:
+        _ceph_stale: >-
+          {%- set local = _ceph_local | from_json -%}
+          {%- set out = [] -%}
+          {%- if local.ids | length > 0 -%}
+          {%- for u in _ceph_units.stdout_lines -%}
+          {%- set osd = u | regex_search('^ceph-osd@([0-9]+)\.service$', '\1') -%}
+          {%- set vol = u | regex_search('^ceph-volume@lvm-([0-9]+)-([0-9a-f-]+)\.service$', '\1', '\2') -%}
+          {%- if osd and (osd[0] not in local.ids) -%}{%- set _ = out.append(u) -%}
+          {%- elif vol and ((vol[0] not in local.ids) or (vol[1] not in local.fsids)) -%}{%- set _ = out.append(u) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {%- endif -%}
+          {{ out | to_json }}
+
+    - name: Say what was found
+      ansible.builtin.debug:
+        msg: >-
+          Local OSD(s): {{ (_ceph_local | from_json).ids | join(', ') or 'none (skipping)' }}.
+          Stale unit(s): {{ (_ceph_stale | from_json) | join(', ') or 'none' }}.
+
+    - name: Unhook the stale units (skips anything running)
+      ansible.builtin.shell: |
+        for u in {{ (_ceph_stale | from_json) | map('quote') | join(' ') }}; do
+          if [ "$(systemctl is-active "$u" 2>/dev/null)" = active ]; then echo "skip-active $u"; continue; fi
+          systemctl disable "$u" >/dev/null 2>&1
+          systemctl disable --runtime "$u" >/dev/null 2>&1
+          systemctl reset-failed "$u" >/dev/null 2>&1
+          echo "cleaned $u"
+        done
+      args:
+        executable: /bin/bash
+      register: _ceph_clean
+      changed_when: "'cleaned ' in _ceph_clean.stdout"
+      when: (_ceph_stale | from_json) | length > 0
