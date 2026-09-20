@@ -30,7 +30,9 @@
 - name: Work out the desired agent list
   ansible.builtin.set_fact:
     _dz_hub: "{{ _dz_hubs[0] }}"
-    _dz_desired: "{{ dozzle_remote_agent_env.split(',') | select | list | sort }}"
+    # keep the rendered order (definition-key order): it is what deploy_stacks writes, so a fix here never causes a
+    # second, order-only recreate on the next deploy. Comparisons below are order-independent.
+    _dz_desired: "{{ dozzle_remote_agent_env.split(',') | select | list }}"
 
 - name: Read the hub container's live configuration
   ansible.builtin.command: docker inspect dozzle
@@ -96,7 +98,7 @@
       changed_when: false
       until: >-
         ((_dz_after.stdout | from_json)[0].Config.Env | select('match', '^DOZZLE_REMOTE_AGENT=') | list | first
-         | default('DOZZLE_REMOTE_AGENT=')).split('=', 1)[1].split(',') | select | list | sort == _dz_desired
+         | default('DOZZLE_REMOTE_AGENT=')).split('=', 1)[1].split(',') | select | list | sort == (_dz_desired | sort)
       retries: 6
       delay: 5
 
