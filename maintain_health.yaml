@@ -9,7 +9,7 @@
 #                      backup size anomaly, failed maintenance DB check,
 #                      stale maintenance check, MariaDB health, WAN connectivity,
 #                      appliance reachability, schedule coverage,
-#                      schedule drift, Beszel monitoring drift, UniFi device health
+#                      schedule drift, Beszel + Dozzle monitoring drift, UniFi device health
 # Play 2 (SSH hosts):  Per-host system metrics — disk, memory, CPU, journal errors,
 #                      OOM kills, Docker health, Docker image updates, SMART disk health,
 #                      PVE cluster quorum, Ceph health, APT repo health (PVE only),
@@ -49,6 +49,7 @@
     - vars/configs/schedule_baseline.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
+    - vars/definitions/vip_definitions.yaml
     - vars/configs/beszel.yaml
   vars:
     project_id: "{{ semaphore_project_id }}"
@@ -888,6 +889,62 @@
         - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 32 FAILED: Beszel monitoring drift check error — skipping"
+
+    # ── CHECK 33: Dozzle log-viewer drift ─────────────────────────────────────────
+    # Mirror of CHECK 32 for Dozzle. The hub (apps) lists its agents in an environment variable, so a Docker host
+    # added, renamed or retired without touching it silently disappears from the log viewer. Compares the hub's live
+    # agent list with the `dozzle:` blocks in the definitions and probes each agent from the hub host. Report only —
+    # the build/deploy hooks (tasks/monitoring_hook.yaml) and deploy_dozzle_hub.yaml -e dozzle_apply=true fix it.
+    - name: Check Dozzle log-viewer drift
+      block:
+        - name: Compare the Dozzle hub with the definitions (report only)
+          ansible.builtin.include_tasks: tasks/dozzle_sync.yaml
+          vars:
+            dozzle_apply: false
+
+        - name: Collect Dozzle drift findings
+          ansible.builtin.set_fact:
+            _dz_findings: >-
+              {%- set out = [] -%}
+              {%- if _dozzle_result.missing -%}{%- set _ = out.append('Missing from the hub: ' ~ _dozzle_result.missing | join(', ')) -%}{%- endif -%}
+              {%- if _dozzle_result.extra -%}{%- set _ = out.append('On the hub, no definition: ' ~ _dozzle_result.extra | join(', ')) -%}{%- endif -%}
+              {%- if _dozzle_result.unreachable -%}{%- set _ = out.append('Agent not answering from the hub: ' ~ _dozzle_result.unreachable | join(', ')) -%}{%- endif -%}
+              {{ out | to_json }}
+
+        - name: Send alert for Dozzle drift
+          include_tasks: tasks/notify.yaml
+          when: (_dz_findings | from_json) | length > 0
+          vars:
+            discord_name: "Monitoring"
+            discord_operation: "Dozzle Drift"
+            discord_status: "warning"
+            discord_detail: "{{ (_dz_findings | from_json) | length }} finding(s) — the log viewer differs from the definitions"
+            discord_color: "{{ discord_color_warning }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Findings"
+                value: "{{ (_dz_findings | from_json) | join('\n') }}"
+            discord_footer:
+              text: "Health Check"
+            discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+        - name: Record Dozzle drift result
+          ansible.builtin.set_fact:
+            play1_health_results: >-
+              {{ play1_health_results + [{
+                'check_name': 'dozzle_agents',
+                'status': ('check_warning' if (_dz_findings | from_json) | length > 0 else 'ok'),
+                'value': ((_dz_findings | from_json) | length | string ~ ' finding(s)') if (_dz_findings | from_json) | length > 0 else 'in sync',
+                'detail': (_dz_findings | from_json) | join('; ')
+              }] }}
+
+      rescue:
+        - name: Set maintenance failed (Dozzle drift check error)
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+        - name: Log debug check results
+          ansible.builtin.debug:
+            msg: "CHECK 33 FAILED: Dozzle log-viewer drift check error — skipping"
 
     # ── CHECK 29: UniFi device health ──────────────────────────────────────────
     # Queries the UniFi Network API for adopted device status.
