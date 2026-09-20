@@ -42,9 +42,10 @@ rsync_timeout: 300               # default for appdata/DB archive transfers
 # NFS standard port — used by bootstrap_vm, backup_offline, verify checks
 nfs_port: 2049
 
-# Restic offsite retention policy
-restic_keep_weekly: 8
-restic_keep_monthly: 6
+# Restic offsite retention policy. The Backup share is mostly dated compressed archives
+# (~50 GiB/week of new, non-dedupable data), so each retained week costs ~50 GiB in B2.
+restic_keep_weekly: 4
+restic_keep_monthly: 3
 
 # Discord embed colors (decimal integers)
 discord_color_success: 32768
