@@ -42,7 +42,7 @@ schedule_baseline:
   - template_name: "Backup — unRAID [Offline]"
     cron_expression: "0 5 * * 3"
   - template_name: "Backup — B2 [Offsite]"
-    cron_expression: "30 7 * * 0"
+    cron_expression: "30 4 * * 0"
   - template_name: "Maintain — Ansible [Health]"
     cron_expression: "0 8 * * 0"
   - template_name: "Maintain — CrowdSec Bouncer [Restart]"
