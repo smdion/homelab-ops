@@ -30,6 +30,7 @@
     - vars/configs/bgw_syslog.yaml
   vars:
     _stage: /root/bgw-syslog-staging
+    _beszel: {}                          # no extra_filesystems; the unit templates read this
     _net0: "name=eth0,bridge=vmbr0,hwaddr={{ bgw_ct_mgmt_mac }},ip={{ bgw_ct_mgmt_ip }},gw={{ bgw_ct_mgmt_gw }}"
     _net1: "name=eth1,bridge={{ bgw_bridge }},hwaddr={{ bgw_ct_bgw_mac }},ip={{ bgw_ct_bgw_ip }}"
     # name = staged filename; src = template (entries without src are staged separately)
@@ -40,6 +41,10 @@
       - { name: poll.sh, src: poll.sh.j2, dest: /opt/udmp-monitor/poll.sh, mode: "0755", service: udmp-monitor }
       - { name: udmp-monitor.service, src: udmp-monitor.service.j2, dest: /etc/systemd/system/udmp-monitor.service, mode: "0644", service: udmp-monitor }
       - { name: udmp_pass, dest: /opt/udmp-monitor/.udmp_pass, mode: "0600", service: udmp-monitor }
+      # Beszel monitoring agent — same unit templates as tasks/beszel_agent_binary.yaml (units carry the hub key)
+      - { name: beszel-agent.service, src: ../beszel-agent.service.j2, dest: /etc/systemd/system/beszel-agent.service, mode: "0644", service: beszel-agent }
+      - { name: beszel-agent-update.service, src: ../beszel-agent-update.service.j2, dest: /etc/systemd/system/beszel-agent-update.service, mode: "0644", service: "" }
+      - { name: beszel-agent-update.timer, src: ../beszel-agent-update.timer.j2, dest: /etc/systemd/system/beszel-agent-update.timer, mode: "0644", service: "" }
 
   tasks:
     # === Host bridge onto the BGW LAN side ===
@@ -162,6 +167,17 @@
       register: _apt
       changed_when: "'installed:' in _apt.stdout"
 
+    - name: Install the Beszel agent binary in the CT (only when absent; the update timer keeps it current)
+      ansible.builtin.shell: |
+        pct exec {{ bgw_ct_vmid }} -- bash -c '
+          id beszel >/dev/null 2>&1 || useradd --system --shell /usr/sbin/nologin --no-create-home beszel
+          mkdir -p /opt/beszel-agent
+          [ -x /opt/beszel-agent/beszel-agent ] && echo present && exit 0
+          curl -fsSL https://github.com/henrygd/beszel/releases/latest/download/beszel-agent_linux_amd64.tar.gz | tar -xz -C /opt/beszel-agent
+          chown -R beszel:beszel /opt/beszel-agent && echo installed'
+      register: _beszel_bin
+      changed_when: "'installed' in _beszel_bin.stdout"
+
     - name: Ensure CT directories exist
       ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- mkdir -p /opt/udmp-monitor /var/log/bgw /var/log/udmp
       changed_when: false
@@ -228,7 +244,7 @@
       when: _units_changed | bool
 
     - name: Enable services in the CT
-      ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- systemctl enable rsyslog udmp-monitor
+      ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- systemctl enable rsyslog udmp-monitor beszel-agent beszel-agent-update.timer
       register: _enable
       changed_when: "'Created symlink' in _enable.stderr"
 
@@ -237,7 +253,7 @@
       loop: "{{ _restart }}"
 
     - name: Ensure services are running
-      ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- systemctl start rsyslog udmp-monitor
+      ansible.builtin.command: pct exec {{ bgw_ct_vmid }} -- systemctl start rsyslog udmp-monitor beszel-agent beszel-agent-update.timer
       changed_when: false
 
     # === Verify ===
@@ -246,6 +262,7 @@
         pct exec {{ bgw_ct_vmid }} -- bash -c '
           echo "rsyslog=$(systemctl is-active rsyslog)"
           echo "udmp_monitor=$(systemctl is-active udmp-monitor)"
+          echo "beszel=$(systemctl is-active beszel-agent)"
           echo "udp514=$(ss -uln | grep -c ":514 ")"
           ping -c2 -W2 -I eth1 {{ bgw_source_ip }} >/dev/null 2>&1 && echo "bgw_reachable=yes" || echo "bgw_reachable=no"
           echo "bgw_pkts_15s=$(timeout 15 tcpdump -ni eth1 "udp port 514 and src {{ bgw_source_ip }}" 2>/dev/null | wc -l)"'
@@ -261,6 +278,7 @@
         that:
           - _h.rsyslog == 'active'
           - _h.udmp_monitor == 'active'
+          - _h.beszel == 'active'
           - _h.udp514 | int > 0
           - _h.bgw_reachable == 'yes'
         fail_msg: "Collector unhealthy: {{ _h }}"
@@ -273,5 +291,5 @@
           - "Bridge:        {{ bgw_bridge }} ← {{ bgw_bridge_port }}{{ ' (applied)' if _bridge_cfg.changed else '' }}"
           - "CT:            {{ 'created' if _ct.rc != 0 else 'existing' }}, {{ _start.stdout_lines | last }}{{ ', nesting enabled' if _nesting.changed else '' }}"
           - "Files pushed:  {{ _pushed.results | selectattr('changed', 'defined') | selectattr('changed') | map(attribute='item.item.dest') | list | join(', ') or 'none' }}"
-          - "rsyslog={{ _h.rsyslog }} udmp-monitor={{ _h.udmp_monitor }} BGW reachable={{ _h.bgw_reachable }}"
+          - "rsyslog={{ _h.rsyslog }} udmp-monitor={{ _h.udmp_monitor }} beszel={{ _h.beszel }} BGW reachable={{ _h.bgw_reachable }}"
           - "BGW syslog packets in 15s: {{ _h.bgw_pkts_15s }}{{ '  ← none: check the BGW syslog target is ' + bgw_ct_bgw_ip.split('/')[0] if _h.bgw_pkts_15s | int == 0 else '' }}"

@@ -21,7 +21,7 @@ bgw_ct_bgw_ip: "192.168.1.50/24"                   # the BGW sends syslog here (
 # Pinned MACs — the BGW and UniFi know the CT by MAC; keep it stable across rebuilds
 bgw_ct_mgmt_mac: "BC:24:11:3D:84:1B"
 bgw_ct_bgw_mac: "BC:24:11:C0:F0:17"
-bgw_ct_packages: [rsyslog, logrotate, cron, tcpdump, sshpass, wireguard-tools, iputils-ping]
+bgw_ct_packages: [rsyslog, logrotate, cron, tcpdump, sshpass, wireguard-tools, iputils-ping, curl]
 
 # ── Host bridge onto the BGW LAN side ──
 bgw_bridge: "vmbr_bgw"
