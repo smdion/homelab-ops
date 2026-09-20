@@ -27,7 +27,7 @@
   ansible.builtin.command:
     argv: >-
       {{ ['python3', playbook_dir ~ '/files/semaphore_templates_sync.py',
-          '--url', vault_semaphore_host_url, '--desired', _semaphore_file.path]
+          '--url', vault_semaphore_host_url, '--desired', _semaphore_file.path, '--repo-root', playbook_dir]
          + (['--apply'] if semaphore_apply | default(false) | bool else [])
          + (['--prune'] if semaphore_prune | default(false) | bool else []) }}
   environment:

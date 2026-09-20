@@ -8,7 +8,8 @@
 #
 #   CREATE   in the registry, not live
 #   UPDATE   live but a managed field differs (playbook, view, inventory, environment, arguments, description,
-#            alert/override flags, debug, limit, vault attached)
+#            alert/override flags, debug, limit, vault attached). The description is DERIVED from the playbook header
+#            (an explicit `description:` in the registry overrides it)
 #   EXTRA    live but not in the registry — i.e. created outside IaC ("bypassed"). Reported; never deleted unless --prune
 #
 # Schedules are managed the same way: a template's `schedule: [{cron, name}]` in the registry is the ONLY set of
@@ -25,6 +26,7 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -78,8 +80,33 @@ def managed_view(live, ids):
     }
 
 
-def wanted_view(d, defaults, ids):
-    """The registry entry resolved to the same shape (names -> ids)."""
+def derive_descriptions(repo_root):
+    """playbook filename -> template description, derived from the playbook's header comment exactly as
+    scripts/extract_extra_vars.py parses it: one-line summary + 'Required: ...' / 'Optional: ...' extra vars.
+    (docs' generate_docs.py used to push this text into Semaphore itself, behind the registry's back — descriptions are
+    derived data, so the registry no longer stores them and that push is gone.)"""
+    script = os.path.join(repo_root, "scripts", "extract_extra_vars.py")
+    out = subprocess.run([sys.executable, script, "--format", "json"], capture_output=True, text=True, cwd=repo_root)
+    if out.returncode != 0:
+        raise RuntimeError(f"extract_extra_vars.py failed: {out.stderr.strip()[-200:]}")
+    result = {}
+    for pb in json.loads(out.stdout):
+        if pb.get("deprecated"):
+            continue
+        parts = [pb["description"]] if pb.get("description") else []
+        req = [v["name"] for v in pb.get("required_vars", [])]
+        opt = [v["name"] for v in pb.get("optional_vars", [])]
+        var_parts = ([f"Required: {', '.join(req)}"] if req else []) + ([f"Optional: {', '.join(opt)}"] if opt else [])
+        if var_parts:
+            parts.append(" · ".join(var_parts))
+        if parts:
+            result[pb["playbook"]] = "\n".join(parts)
+    return result
+
+
+def wanted_view(d, defaults, ids, derived=None):
+    """The registry entry resolved to the same shape (names -> ids). `derived` = playbook -> header-derived description;
+    an explicit `description:` in the registry entry overrides it."""
     return {
         "playbook": d["playbook"],
         "view_id": ids["views"].get(d["view"]),
@@ -87,7 +114,7 @@ def wanted_view(d, defaults, ids):
         "environment_id": ids["environments"].get(d["environment"]),
         "environment_ids": [ids["environments"][d["environment"]]] if d["environment"] in ids["environments"] else [],
         "arguments": norm_args(d.get("arguments")),
-        "description": norm_text(d.get("description")),
+        "description": norm_text(d.get("description") or (derived or {}).get(d["playbook"])),
         "suppress_success_alerts": bool(d.get("suppress_success_alerts")),
         "allow_override_args_in_task": bool(defaults.get("allow_override_args_in_task", True)),
         "allow_override_branch_in_task": bool(defaults.get("allow_override_branch_in_task", True)),
@@ -97,14 +124,14 @@ def wanted_view(d, defaults, ids):
     }
 
 
-def plan(desired, defaults, live_by_name, ids):
+def plan(desired, defaults, live_by_name, ids, derived=None):
     """Pure function: compare the registry with the live templates. Returns action lists (no I/O)."""
     creates, updates, problems = [], [], []
     seen = set()
     for d in desired:
         name = d["name"]
         seen.add(name)
-        want = wanted_view(d, defaults, ids)
+        want = wanted_view(d, defaults, ids, derived)
         for k, label in (("view_id", "view"), ("inventory_id", "inventory"), ("environment_id", "environment")):
             if want[k] is None:
                 problems.append(f"{name}: unknown {label} {d[label]!r}")
@@ -180,6 +207,7 @@ def main():
     ap.add_argument("--url", required=True)
     ap.add_argument("--desired", required=True)
     ap.add_argument("--project", type=int, default=1)
+    ap.add_argument("--repo-root", default=os.getcwd(), help="repo checkout (for the playbook headers descriptions derive from)")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--prune", action="store_true")
     args = ap.parse_args()
@@ -214,7 +242,12 @@ def main():
     names = [t["name"] for t in live_full]
     dups = sorted({n for n in names if names.count(n) > 1})
     live_by_name = {t["name"]: t for t in live_full}
-    p = plan(desired, defaults, live_by_name, ids)
+    try:
+        derived = derive_descriptions(args.repo_root)
+    except (RuntimeError, OSError, ValueError) as e:
+        say(f"ERROR: {e}")
+        return 1
+    p = plan(desired, defaults, live_by_name, ids, derived)
     sp = plan_schedules(desired, live_sched, {n: t["id"] for n, t in live_by_name.items()})
 
     say(f"semaphore: {len(live_full)} live template(s), {len(desired)} in the registry")
