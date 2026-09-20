@@ -59,27 +59,29 @@ stack_definitions:
       dev: [agent]
     env_extra: |-
       ## Dozzle — profiles select agent vs hub per host role
-      ## Hub runs on apps (central log viewer); agents run on core + dev.
-      ## DOZZLE_REMOTE_AGENT uses peer VIPs — stable across VM reprovisions.
+      ## Hub/agent role per host comes from its `dozzle:` block in vm_definitions/host_definitions.
+      ## DOZZLE_REMOTE_AGENT is generated from those blocks (VIPs for VM roles — stable across reprovisions).
       DOZZLE_LEVEL=
       DOZZLE_REMOTE_AGENT=
       DOZZLE_HOSTNAME=
       {% set _role = host_roles.get(inventory_hostname, '') -%}
-      {% if _role == 'apps' -%}
+      {% set _dz = ((all_definitions.get(_role, {})).dozzle | default({})) -%}
+      {% if _dz.role | default('') == 'hub' -%}
       COMPOSE_PROFILES=hub
       DOZZLE_LEVEL={{ docker_dozzle_level }}
       {% if _role_injected | default(false) -%}
       {% set _subnet = ansible_facts.default_ipv4.address.rsplit('.', 1)[0] -%}
       DOZZLE_REMOTE_AGENT={{ _subnet }}.{{ docker_test_vip_offsets['core'] }}:7007,{{ _subnet }}.{{ docker_test_vip_offsets['dev'] }}:7007
       {% else -%}
-      {# core/dev use keepalived Docker VIPs (stable across VM reprovisions). liberty +
-         redemption are bare-metal unRAID with stable LAN IPs (no VIP). vps's agent is the
-         vpn_dozzle_agent running in the wireguard netns — reachable at the WG server IP
-         10.253.100.1:7007 via the UDM WG client (routes 10.0.0.0/8 into the tunnel). All
-         already run a dozzle-agent on :7007; the hub reaches each of these directly. #}
-      DOZZLE_REMOTE_AGENT={{ vault_core_vip }}:7007,{{ vault_dev_vip }}:7007,10.10.10.18:7007,10.10.10.17:7007,10.253.100.1:7007
+      {# The agent list is generated from the `dozzle:` blocks in vm_definitions / host_definitions
+         (dozzle_remote_agent_env in vm_definitions.yaml): VM roles use their keepalived VIP (stable
+         across reprovisions), unRAID hosts their LAN IP, and vps the WG server IP 10.253.100.1 (its
+         agent is vpn_dozzle_agent inside the wireguard netns, reached via the UDM WG client). #}
+      DOZZLE_REMOTE_AGENT={{ dozzle_remote_agent_env }}
       {% endif -%}
-      DOZZLE_HOSTNAME=Apps
+      DOZZLE_HOSTNAME={{ _dz.name | default(_role | title) }}
+      {% elif _dz.role | default('agent') == 'none' -%}
+      COMPOSE_PROFILES=
       {% else -%}
       COMPOSE_PROFILES=agent
       {% endif -%}

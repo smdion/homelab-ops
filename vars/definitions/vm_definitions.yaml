@@ -19,6 +19,7 @@
 # Resulting IPs: <prefix><offset+vm_index>  (e.g. 192.168.13.30 .. 192.168.13.39)
 vm_definitions:
   core:
+    dozzle: { role: agent }            # log-viewer agent (infra stack); the hub on apps lists it — see dozzle_remote_agent_env
     vm_id: 400
     vm_name: core
     vm_mac: "02:00:00:00:04:00"       # static MAC — stable Unifi device identity across rebuilds
@@ -37,6 +38,7 @@ vm_definitions:
     guacamole: { name: Core, group: Docker }
 
   apps:
+    dozzle: { role: hub, name: Apps }  # the central Dozzle log viewer (infra stack, profile hub); reads its own docker socket
     vm_id: 401
     vm_name: apps
     vm_mac: "02:00:00:00:04:01"       # static MAC — stable Unifi device identity across rebuilds
@@ -56,6 +58,7 @@ vm_definitions:
     guacamole: { name: Apps, group: Docker }
 
   dev:
+    dozzle: { role: agent }
     vm_id: 402
     vm_name: dev
     vm_mac: "02:00:00:00:04:02"       # static MAC — stable Unifi device identity across rebuilds
@@ -225,6 +228,7 @@ vm_definitions:
   # Not provisioned via build_ubuntu.yaml (manually created in Proxmox).
   # vm_id + vnc_display are the minimum fields needed for VNC connection resolution.
   freshjams:
+    dozzle: { role: none }             # hand-managed Docker host outside IaC for now (see homelab-docs tasks/freshjams-iac.md)
     beszel: { agent: container, name: Fresh-Jams }   # hand-managed container, not covered by update_systems (agent is 0.10.2); name = the hub's existing entry
     vm_id: 1212
     vm_hostname: "freshjams.{{ vault_vm_search_domain }}"
@@ -378,3 +382,23 @@ host_roles: >-
 all_definitions: >-
   {{ vm_definitions
      | combine(host_definitions | default({})) }}
+
+# ── Dozzle (central log viewer) ──────────────────────────────────────────────────────────────
+# Every Docker host declares `dozzle: { role: hub | agent | none [, address, name] }`. The hub (apps) lists every
+# agent in DOZZLE_REMOTE_AGENT, generated below — so a new Docker host is picked up by adding its block, never by
+# editing a string. Address: dozzle.address, else the role's keepalived VIP (stable across reprovisions), else the
+# host's proxy upstream_ip (unRAID). Sorted by definition key so the value is stable between renders.
+# Needs vip_definitions loaded (deploy_stacks does); the docker-host coverage rule is in scripts/check_dozzle_coverage.py.
+dozzle_agent_port: 7007
+
+# Comma-joined "address:port" list, e.g. "10.10.10.50:7007,10.10.10.52:7007,..." (empty string when no agents)
+dozzle_remote_agent_env: >-
+  {%- set out = [] -%}
+  {%- for e in (all_definitions | dict2items | sort(attribute='key')) if e.value is mapping and (e.value.dozzle | default({})).role | default('none') == 'agent' -%}
+  {%- set vip = ((vip_definitions | default({})).get(e.key, {})).vip | default('', true) -%}
+  {%- set proxy = e.value.proxy | default([]) -%}
+  {%- set proxy = [proxy] if proxy is mapping else proxy -%}
+  {%- set up = proxy | selectattr('upstream_ip', 'defined') | map(attribute='upstream_ip') | list | first | default('', true) -%}
+  {%- set _ = out.append(((e.value.dozzle.address | default('', true)) or vip or up) ~ ':' ~ dozzle_agent_port) -%}
+  {%- endfor -%}
+  {{ out | join(',') }}

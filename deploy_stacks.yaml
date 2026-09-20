@@ -83,6 +83,16 @@
           which is not a valid key in stack_roles.
           Valid roles: {{ stack_roles.keys() | list | join(', ') }}
 
+    - name: Assert the Docker host declares its Dozzle (log viewer) role
+      ansible.builtin.assert:
+        that:
+          - (all_definitions[host_roles[inventory_hostname]].dozzle | default({})).role | default('') in ['hub', 'agent', 'none']
+        fail_msg: >-
+          {{ host_roles[inventory_hostname] }} runs Docker stacks but has no `dozzle: {role: hub|agent|none}` block in
+          vm_definitions / host_definitions. Add one — `agent` for a normal Docker host (the hub on apps then lists it
+          automatically), `none` to opt out with a comment saying why.
+      when: not (_role_injected | default(false))
+
     - name: Assert host has stack assignments
       ansible.builtin.assert:
         that: inventory_hostname in stack_assignments
@@ -207,9 +217,9 @@
           when: deploy_failed
 
 # ═══════════════════════════════════════════════════════════════════
-# Monitoring — register / clean up in Beszel (best effort, see tasks/beszel_hook.yaml)
+# Monitoring — register / clean up in Beszel + Dozzle (best effort, see tasks/monitoring_hook.yaml)
 # ═══════════════════════════════════════════════════════════════════
-- name: "Sync Beszel monitoring"
+- name: "Sync monitoring (Beszel + Dozzle)"
   hosts: localhost
   gather_facts: true
   gather_subset: ['!all', 'date_time']
@@ -217,6 +227,7 @@
     - vars/secrets.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
+    - vars/definitions/vip_definitions.yaml
     - vars/configs/beszel.yaml
   vars:
     playbook_name: "deploy_stacks.yaml"
@@ -226,4 +237,4 @@
       ansible.builtin.include_tasks: tasks/resolve_semaphore_task.yaml
 
     - name: Register / clean up monitoring
-      ansible.builtin.include_tasks: tasks/beszel_hook.yaml
+      ansible.builtin.include_tasks: tasks/monitoring_hook.yaml

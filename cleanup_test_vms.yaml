@@ -75,9 +75,9 @@
         msg: "Removed {{ _test_vms | length }} test VM(s)"
 
 # ═══════════════════════════════════════════════════════════════════
-# Monitoring — register / clean up in Beszel (best effort, see tasks/beszel_hook.yaml)
+# Monitoring — register / clean up in Beszel + Dozzle (best effort, see tasks/monitoring_hook.yaml)
 # ═══════════════════════════════════════════════════════════════════
-- name: "Sync Beszel monitoring"
+- name: "Sync monitoring (Beszel + Dozzle)"
   hosts: localhost
   gather_facts: true
   gather_subset: ['!all', 'date_time']
@@ -85,6 +85,7 @@
     - vars/secrets.yaml
     - vars/definitions/vm_definitions.yaml
     - vars/definitions/host_definitions.yaml
+    - vars/definitions/vip_definitions.yaml
     - vars/configs/beszel.yaml
   vars:
     playbook_name: "cleanup_test_vms.yaml"
@@ -94,4 +95,4 @@
       ansible.builtin.include_tasks: tasks/resolve_semaphore_task.yaml
 
     - name: Register / clean up monitoring
-      ansible.builtin.include_tasks: tasks/beszel_hook.yaml
+      ansible.builtin.include_tasks: tasks/monitoring_hook.yaml

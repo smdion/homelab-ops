@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
-"""Fail if a build/deploy/retire/restore playbook is missing the Beszel monitoring hook.
+"""Fail if a build/deploy/retire/restore playbook is missing the monitoring hook (Beszel + Dozzle).
 
-Every playbook that creates, changes, retires or restores a host must end with the "Sync Beszel monitoring" play
-(tasks/beszel_hook.yaml), so monitoring is registered and cleaned up as part of the same run. See
+Every playbook that creates, changes, retires or restores a host must end with the "Sync monitoring" play
+(tasks/monitoring_hook.yaml), so monitoring is registered and cleaned up as part of the same run. See
 homelab-docs tasks/beszel-iac.md (Phase 2b). A new build_*/deploy_* playbook is covered automatically by the
 glob below; anything else that touches hosts goes in EXTRA. Opting out needs a reason in EXEMPT.
 
-Usage: python3 scripts/check_beszel_hooks.py     (exit 1 and a list when something is missing)
+Usage: python3 scripts/check_monitoring_hooks.py     (exit 1 and a list when something is missing)
 """
 import glob
 import os
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HOOK = "tasks/beszel_hook.yaml"
+HOOK = "tasks/monitoring_hook.yaml"
 GLOBS = ["build_*.yaml", "deploy_*.yaml"]
 EXTRA = ["bootstrap_amp", "apply_role", "dr_rebuild", "reip_vmid", "cleanup_test_vms", "purge_ceph",
          "restore_hosts", "restore_app", "restore_databases", "restore_amp"]
 EXEMPT = {
-    "deploy_beszel_monitoring": "it IS the sync (tasks/beszel_sync.yaml); hooking it would run the sync twice",
+    "deploy_beszel_monitoring": "it IS the Beszel sync (tasks/beszel_sync.yaml); hooking it would run the sync twice",
+    "deploy_dozzle_hub": "it IS the Dozzle sync (tasks/dozzle_sync.yaml); hooking it would run the sync twice",
 }
 
 
@@ -34,7 +35,7 @@ def main():
         print(f"missing {HOOK}")
         return 1
     if missing:
-        print("playbooks without the Beszel monitoring hook (append the 'Sync Beszel monitoring' play):")
+        print("playbooks without the Beszel monitoring hook (append the 'Sync monitoring' play):")
         for n in missing:
             print(f"  {n}.yaml")
         return 1

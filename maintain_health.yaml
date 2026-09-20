@@ -829,7 +829,7 @@
 
     # ── CHECK 32: Beszel monitoring drift ─────────────────────────────────────────
     # The hub's system list is UI-managed, so it drifts when hosts are renamed, added or retired. The build/deploy
-    # playbooks re-sync it as changes happen (tasks/beszel_hook.yaml); this is the safety net for anything changed
+    # playbooks re-sync it as changes happen (tasks/monitoring_hook.yaml); this is the safety net for anything changed
     # outside them. Report only — nothing is written. Flags: a defined host missing from the hub, a hub entry that
     # matches no definition, name/address drift, missing or changed alerts, no Discord target, a matched system down
     # for beszel_down_alert_hours, and an agent beszel_agent_max_minor_lag or more minor releases behind the hub.

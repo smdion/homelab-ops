@@ -1,0 +1,114 @@
+---
+# Reconcile the Dozzle hub with the definitions: which agents it lists, and whether they answer.
+# Mirror of tasks/beszel_sync.yaml for the log viewer. Shared task — included by deploy_dozzle_hub.yaml, the
+# monitoring hook (tasks/monitoring_hook.yaml) and maintain_health CHECK 33.
+#
+# Desired state: every definition with `dozzle: { role: agent }` (vm_definitions / host_definitions), as
+# `address:7007` — dozzle_remote_agent_env in vm_definitions.yaml. Live state: DOZZLE_REMOTE_AGENT on the hub
+# container (the `dozzle: { role: hub }` host, apps). Dozzle has no API to add an agent, so the list is environment
+# on the hub; fixing drift edits the hub's own .env line and recreates ONLY that container (the same value a normal
+# deploy_stacks would render, so the next deploy changes nothing).
+#
+# Needs in the calling play: vars_files vars/secrets.yaml, vm_definitions, host_definitions, vip_definitions.
+# Mode (default false = REPORT ONLY, nothing written):
+#   dozzle_apply=true   add missing / remove extra agents on the hub and recreate the hub container
+# Sets `_dozzle_result` = {hub, desired, live, missing, extra, unreachable, applied}.
+# The hub host is reached with delegate_to, so the run needs SSH access to it (the ansible user, as elsewhere).
+
+- name: Find the Dozzle hub host
+  ansible.builtin.set_fact:
+    _dz_hubs: >-
+      {{ all_definitions | dict2items | selectattr('value.dozzle', 'defined')
+         | selectattr('value.dozzle.role', 'equalto', 'hub') | map(attribute='value.vm_hostname') | list }}
+
+- name: Assert there is exactly one Dozzle hub
+  ansible.builtin.assert:
+    that: _dz_hubs | length == 1
+    fail_msg: "Expected exactly one dozzle role: hub in the definitions, found {{ _dz_hubs }}"
+    quiet: true
+
+- name: Work out the desired agent list
+  ansible.builtin.set_fact:
+    _dz_hub: "{{ _dz_hubs[0] }}"
+    _dz_desired: "{{ dozzle_remote_agent_env.split(',') | select | list | sort }}"
+
+- name: Read the hub container's live configuration
+  ansible.builtin.command: docker inspect dozzle
+  delegate_to: "{{ _dz_hub }}"
+  become: true
+  register: _dz_inspect
+  changed_when: false
+  check_mode: false
+
+- name: Read the live agent list
+  ansible.builtin.set_fact:
+    _dz_live: >-
+      {{ ((_dz_inspect.stdout | from_json)[0].Config.Env | select('match', '^DOZZLE_REMOTE_AGENT=')
+          | list | first | default('DOZZLE_REMOTE_AGENT=')).split('=', 1)[1].split(',') | select | list | sort }}
+
+- name: Probe each desired agent from the hub host
+  ansible.builtin.shell: |
+    timeout 3 bash -c 'echo > /dev/tcp/{{ item.split(":")[0] }}/{{ item.split(":")[1] }}' >/dev/null 2>&1 && echo up || echo down
+  args:
+    executable: /bin/bash
+  delegate_to: "{{ _dz_hub }}"
+  loop: "{{ _dz_desired }}"
+  register: _dz_probe
+  changed_when: false
+  check_mode: false
+
+- name: Compare desired and live
+  ansible.builtin.set_fact:
+    _dozzle_result:
+      hub: "{{ _dz_hub }}"
+      desired: "{{ _dz_desired }}"
+      live: "{{ _dz_live }}"
+      missing: "{{ _dz_desired | difference(_dz_live) }}"
+      extra: "{{ _dz_live | difference(_dz_desired) }}"
+      unreachable: "{{ _dz_probe.results | selectattr('stdout', 'equalto', 'down') | map(attribute='item') | list }}"
+      applied: false
+
+- name: Fix the hub's agent list (edit its .env, recreate only the hub container)
+  when:
+    - dozzle_apply | default(false) | bool
+    - not ansible_check_mode
+    - _dozzle_result.missing | length > 0 or _dozzle_result.extra | length > 0
+  delegate_to: "{{ _dz_hub }}"
+  become: true
+  block:
+    - name: Set DOZZLE_REMOTE_AGENT in the hub's .env (replaces the last occurrence; the empty default above it stays)
+      ansible.builtin.lineinfile:
+        path: /opt/stacks/infra/.env
+        regexp: '^DOZZLE_REMOTE_AGENT='
+        line: "DOZZLE_REMOTE_AGENT={{ _dz_desired | join(',') }}"
+      no_log: true
+
+    - name: Recreate the Dozzle hub container with the new list
+      ansible.builtin.command: docker compose up -d dozzle
+      args:
+        chdir: /opt/stacks/infra
+      register: _dz_up
+      changed_when: "'Recreate' in _dz_up.stderr or 'Started' in _dz_up.stderr"
+
+    - name: Confirm the hub now lists exactly the desired agents
+      ansible.builtin.command: docker inspect dozzle
+      register: _dz_after
+      changed_when: false
+      until: >-
+        ((_dz_after.stdout | from_json)[0].Config.Env | select('match', '^DOZZLE_REMOTE_AGENT=') | list | first
+         | default('DOZZLE_REMOTE_AGENT=')).split('=', 1)[1].split(',') | select | list | sort == _dz_desired
+      retries: 6
+      delay: 5
+
+    - name: Record that the hub was fixed
+      ansible.builtin.set_fact:
+        _dozzle_result: "{{ _dozzle_result | combine({'applied': true}) }}"
+
+- name: Show the Dozzle report
+  ansible.builtin.debug:
+    msg:
+      - "hub {{ _dozzle_result.hub }}: {{ _dozzle_result.live | length }} agent(s) listed, {{ _dozzle_result.desired | length }} defined"
+      - "missing from hub: {{ _dozzle_result.missing | join(', ') or 'none' }}"
+      - "extra on hub (no definition): {{ _dozzle_result.extra | join(', ') or 'none' }}"
+      - "unreachable from hub: {{ _dozzle_result.unreachable | join(', ') or 'none' }}"
+      - "{{ 'fixed and hub recreated' if _dozzle_result.applied else 'report only — nothing changed' }}"

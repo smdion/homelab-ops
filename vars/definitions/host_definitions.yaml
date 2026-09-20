@@ -29,6 +29,7 @@
 
 host_definitions:
   vps:
+    dozzle: { role: agent, address: "10.253.100.1" }   # vpn_dozzle_agent runs in the wireguard netns: reached at the WG server IP via the UDM WG client
     beszel: { agent: container, address: "127.0.0.1" }   # vpn stack (vpn_beszel_agent) + the hub itself; the agent shares the hub's WireGuard network namespace
     vm_hostname: "vps.{{ vault_domain_ext }}"
     stacks: [vpn]
@@ -79,6 +80,7 @@ host_definitions:
 
   # unRAID servers (docker_run — no stacks, managed via docker_run inventory group)
   redemption:
+    dozzle: { role: agent }            # unRAID dockerman container, kept current by update_systems
     beszel: { agent: container }      # unRAID dockerman container, kept current by update_systems
     vm_hostname: "redemption.{{ vault_vm_search_domain }}"
     guacamole: { name: Redemption, group: unRAID }
@@ -302,6 +304,7 @@ host_definitions:
             includes: [proxy]
 
   liberty:
+    dozzle: { role: agent }            # unRAID dockerman container, kept current by update_systems
     beszel: { agent: container }      # unRAID dockerman container, kept current by update_systems
     vm_hostname: "liberty.{{ vault_vm_search_domain }}"
     guacamole: { name: Liberty, group: unRAID }

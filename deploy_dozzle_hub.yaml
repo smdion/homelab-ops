@@ -1,0 +1,27 @@
+---
+# Category: Deploy
+# Schedule: none
+# Make the Dozzle (log viewer) hub match the definitions: every Docker host that declares `dozzle: { role: agent }`
+# must be in the hub's agent list, and nothing else. Dozzle has no API for this — the list is environment on the hub —
+# so this edits the hub's own .env line and recreates only the hub container. Mirror of deploy_beszel_monitoring.yaml.
+# Design: homelab-docs tasks/dozzle-iac.md.
+#
+# Safe by default — REPORT ONLY unless told otherwise. Needs SSH to the hub host (apps) as the ansible user.
+#
+# Usage:
+#   ansible-playbook deploy_dozzle_hub.yaml                          # report drift, change nothing
+#   ansible-playbook deploy_dozzle_hub.yaml -e dozzle_apply=true     # fix the hub's agent list
+#
+# Per-host settings live on the definition's `dozzle:` block (role: hub|agent|none, address, name).
+
+- name: Reconcile the Dozzle hub with the definitions
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/vip_definitions.yaml
+  tasks:
+    - name: Reconcile the hub's agent list
+      ansible.builtin.include_tasks: tasks/dozzle_sync.yaml
