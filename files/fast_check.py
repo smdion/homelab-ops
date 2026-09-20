@@ -45,6 +45,11 @@
 #      failed/interrupted download and re-queued (bounded by MAX_REDISPATCH,
 #      then a one-shot Discord alert). This is the only retry path — "Download
 #      — Videos" itself carries no schedule/backstop.
+#      Members-only videos (yt-dlp availability "subscriber_only", visible in the flat
+#      listing) are skipped: without a channel membership they can never download, and
+#      each one used to sit in the dispatched set and alert. A channel_list line opts a
+#      channel back in with an inline tag, e.g. "<url> #nickname #allow-members" (see
+#      MEMBERS_OK_TAG) for channels whose membership the logged-in account really holds.
 #   7. A channel's very first pass freezes its current enumeration as a baseline
 #      and queues nothing, so opting a channel in doesn't trigger a backlog
 #      download (the old scheduled scan is the backstop for anything older, for
@@ -101,6 +106,9 @@ DOWNLOADS_ROOT = "/downloads"  # matches the metube container's own /downloads m
 # rounding, a few seconds of stream start-up lag) without masking a real
 # multi-hour truncation like the one that motivated this check.
 DURATION_MISMATCH_THRESHOLD = 0.85
+
+# Inline channel_list tag that exempts a channel from the members-only skip.
+MEMBERS_OK_TAG = "#allow-members"
 
 MIN_HEIGHT = 1080
 BACKOFF_SECONDS = [900, 1800, 3600, 7200, 14400, 28800]  # 15m,30m,1h,2h,4h,8h
@@ -198,6 +206,25 @@ def parse_channel_urls(channel_list_path, section):
     return urls
 
 
+def channels_allowing_members(channel_list_path, section):
+    """URLs in the given section whose line carries the MEMBERS_OK_TAG annotation."""
+    allowed, current_section = set(), None
+    try:
+        with open(channel_list_path) as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return allowed
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            current_section = stripped.lstrip("#").strip().lower()
+        elif current_section == section and stripped.startswith("http"):
+            url, _, note = stripped.partition("#")
+            if MEMBERS_OK_TAG in ("#" + note).lower().replace("# ", "#").split():
+                allowed.add(url.strip())
+    return allowed
+
+
 def read_download_archive(archive_path, extractor_label):
     """Return the set of video IDs yt-dlp has already downloaded for this
     platform's extractor (archive lines are "<extractor> <id>")."""
@@ -219,24 +246,27 @@ def _probe_args(probe_config):
     return ["--config-location", probe_config] if os.path.isfile(probe_config) else []
 
 
-def list_channel_videos(url, probe_config, timeout=60):
+def list_channel_videos(url, probe_config, allow_members=False, timeout=60):
     """Enumerate a channel's videos via yt-dlp itself (--flat-playlist), so
     --playlist-end/--dateafter/etc from probe_config apply exactly as they
     would for the real download — nothing here re-decides scope on its own.
     Site detection is yt-dlp's own, from the URL — no platform-specific code
-    path needed here. Returns list of (video_id, video_url)."""
+    path needed here. Returns list of (video_id, video_url). Members-only videos (flat-listing
+    availability "subscriber_only") are dropped unless allow_members."""
     proc = subprocess.run(
         ["yt-dlp", *_probe_args(probe_config), "--flat-playlist", "--skip-download",
-         "--print", "%(id)s %(webpage_url)s", url],
+         "--print", "%(id)s %(availability)s %(webpage_url)s", url],
         capture_output=True, text=True, timeout=timeout,
     )
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or "yt-dlp enumeration failed").strip().splitlines()[-1:] or "yt-dlp enumeration failed")
     out = []
     for line in proc.stdout.strip().splitlines():
-        parts = line.split(maxsplit=1)
-        if len(parts) == 2:
-            out.append((parts[0], parts[1]))
+        parts = line.split(maxsplit=2)
+        if len(parts) == 3:
+            if parts[1] == "subscriber_only" and not allow_members:
+                continue
+            out.append((parts[0], parts[2]))
     return out
 
 
@@ -473,10 +503,11 @@ def main():
     urls = parse_channel_urls(args.channel_list, platform_cfg["section"])
     log(f"{len(urls)} {args.platform} channel(s) in {args.channel_list}")
 
+    members_ok = channels_allowing_members(args.channel_list, platform_cfg["section"])
     new_count = 0
     for url in urls:
         try:
-            entries = list_channel_videos(url, args.probe_config)
+            entries = list_channel_videos(url, args.probe_config, allow_members=url in members_ok)
         except Exception as e:  # noqa: BLE001 — one bad channel must not stop the run
             log(f"enumeration failed for {url}: {e}")
             continue
