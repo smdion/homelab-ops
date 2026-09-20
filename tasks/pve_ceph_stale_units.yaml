@@ -62,10 +62,10 @@
           {%- set out = [] -%}
           {%- if local.ids | length > 0 -%}
           {%- for u in _ceph_units.stdout_lines -%}
-          {%- set osd = u | regex_search('^ceph-osd@([0-9]+)\.service$', '\1') -%}
-          {%- set vol = u | regex_search('^ceph-volume@lvm-([0-9]+)-([0-9a-f-]+)\.service$', '\1', '\2') -%}
-          {%- if osd and (osd[0] not in local.ids) -%}{%- set _ = out.append(u) -%}
-          {%- elif vol and ((vol[0] not in local.ids) or (vol[1] not in local.fsids)) -%}{%- set _ = out.append(u) -%}
+          {%- set osd = u | regex_findall('^ceph-osd@([0-9]+)[.]service$') -%}
+          {%- set vol = u | regex_findall('^ceph-volume@lvm-([0-9]+)-([0-9a-f-]+)[.]service$') -%}
+          {%- if osd | length > 0 and osd[0] not in local.ids -%}{%- set _ = out.append(u) -%}
+          {%- elif vol | length > 0 and (vol[0][0] not in local.ids or vol[0][1] not in local.fsids) -%}{%- set _ = out.append(u) -%}
           {%- endif -%}
           {%- endfor -%}
           {%- endif -%}
