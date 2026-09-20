@@ -17,7 +17,7 @@ maintenance, deployment, and provisioning — orchestrated via
 | **Verify** | Restores each database to a temp instance and validates config archives |
 | **Restore** | Safety-gated database and appdata restore with pre-restore snapshots |
 | **Rollback** | Revert Docker containers to previous image versions |
-| **Health** | 32 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific |
+| **Health** | 33 scheduled checks — disk, memory, CPU, Docker, SSL, ZFS, BTRFS, SMART, NTP, DNS, plus platform-specific |
 | **Updates** | OS package and Docker container updates with version tracking |
 | **Maintenance** | Docker pruning, cache clearing, Semaphore cleanup, service restarts |
 | **Deploy** | Docker stacks from Git — `.env` templating, compose validation, dependency-ordered start |
@@ -103,6 +103,7 @@ for platforms you don't have are automatically skipped.
 | `schedule_coverage` | localhost | Templates missing active Semaphore schedules |
 | `unifi_device_health` | localhost | UniFi device status (disconnected/upgradable) via API |
 | `beszel_monitoring` | localhost | Beszel hub vs the definitions: missing / orphaned / renamed systems, alerts, long-down systems, far-behind agents |
+| `dozzle_agents` | localhost | Dozzle log-viewer hub vs the definitions: agents missing from / extra on the hub, agents not answering from the hub |
 | `host_reachable` | Aggregated | Detects hosts unreachable during SSH checks |
 <!-- END AUTO-GENERATED: readme-health-checks -->
 
