@@ -23,8 +23,10 @@
 # document on stdout. Exit 0 = in sync (or fully applied), 2 = drift found (report mode), 1 = error.
 
 import argparse
+import datetime
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -117,11 +119,45 @@ def plan(desired, systems, alerts, defaults):
             "alert_creates": alert_creates, "alert_updates": alert_updates}
 
 
+def parse_version(v):
+    """'0.20.0' / 'v0.19.3' -> (0, 20, 0); anything unparseable -> None."""
+    nums = re.findall(r"\d+", v or "")
+    return tuple(int(n) for n in nums[:3]) if len(nums) >= 2 else None
+
+
+def health(systems, orphan_ids, hub_version, now, down_hours, max_minor_lag):
+    """Pure function: systems that have been down too long, and agents far behind the hub.
+
+    Only systems that match a definition are judged (orphans are reported as orphans already). An agent one release
+    behind is NOT flagged — the weekly update job covers that window; a lag of `max_minor_lag` minor versions (or
+    any major difference) means something outside the update job is holding it back."""
+    down, outdated = [], []
+    hv = parse_version(hub_version)
+    for s in systems:
+        if s["id"] in orphan_ids:
+            continue
+        if s["status"] == "down":
+            try:
+                seen = datetime.datetime.fromisoformat(s["updated"].replace("Z", "+00:00"))
+                hours = (now - seen).total_seconds() / 3600
+            except (KeyError, ValueError):
+                continue
+            if hours >= down_hours:
+                down.append({"name": s["name"], "host": s["host"], "hours": int(hours)})
+        elif s["status"] == "up" and hv:
+            av = parse_version((s.get("info") or {}).get("v"))
+            if av and (hv[0] != av[0] or hv[1] - av[1] >= max_minor_lag):
+                outdated.append({"name": s["name"], "version": (s.get("info") or {}).get("v"), "hub": hub_version})
+    return down, outdated
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hub-url", required=True)
     ap.add_argument("--desired", required=True)
     ap.add_argument("--defaults", default="{}", help="JSON of default alerts, e.g. '{\"CPU\":{\"value\":90,\"min\":10}}'")
+    ap.add_argument("--down-hours", type=float, default=24, help="flag a matched system down at least this long")
+    ap.add_argument("--max-minor-lag", type=int, default=2, help="flag an agent this many minor versions behind the hub")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--prune", action="store_true")
     ap.add_argument("--prune-up", action="store_true", help="allow pruning a system the hub currently reports up")
@@ -139,6 +175,10 @@ def main():
         return 1
 
     p = plan(desired, systems, alerts, defaults)
+    st, key = hub.call("GET", "/api/beszel/getkey")
+    hub_version = key.get("v", "") if st == 200 and isinstance(key, dict) else ""
+    down, outdated = health(systems, {o["id"] for o in p["orphans"]}, hub_version,
+                            datetime.datetime.now(datetime.timezone.utc), args.down_hours, args.max_minor_lag)
     webhook = os.environ.get("BESZEL_WEBHOOK", "")
     hooks = settings["settings"].get("webhooks", [])
     webhook_missing = bool(webhook) and webhook not in hooks
@@ -159,11 +199,19 @@ def main():
         say(f"  ALERT~  {a['system_name']:14} {a['name']} {a['from']} -> {a['to']}")
     if webhook_missing:
         say("  WEBHOOK notification target missing")
+    for d in down:
+        say(f"  DOWN    {d['name']:14} {d['host']:16} down for {d['hours']}h")
+    for o in outdated:
+        say(f"  OLD     {o['name']:14} agent {o['version']} (hub {o['hub']})")
 
     drift = bool(p["creates"] or p["updates"] or p["orphans"] or p["alert_creates"] or p["alert_updates"]
                  or webhook_missing)
     result = {"drift": drift, "applied": False, "pruned": [], "errors": [],
-              "counts": {k: len(v) for k, v in p.items()}, "webhook_missing": webhook_missing}
+              "counts": {k: len(v) for k, v in p.items()}, "webhook_missing": webhook_missing,
+              "details": {"missing": [d["name"] for d in p["creates"]],
+                          "changed": [f"{u['hub']['name']} -> {u['desired']['name']}" for u in p["updates"]],
+                          "orphans": [f"{o['name']} ({o['host']})" for o in p["orphans"]]},
+              "health": {"hub_version": hub_version, "down": down, "outdated": outdated}}
 
     if args.apply:
         if args.prune and len(desired) < MIN_DESIRED:

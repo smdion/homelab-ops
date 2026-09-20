@@ -68,7 +68,9 @@
     argv: >-
       {{ ['python3', playbook_dir ~ '/files/beszel_sync.py',
           '--hub-url', beszel_hub_url, '--desired', _beszel_file.path,
-          '--defaults', '{}'] + (['--apply'] if beszel_apply | default(false) | bool else [])
+          '--defaults', '{}',
+          '--down-hours', beszel_down_alert_hours | default(24) | string,
+          '--max-minor-lag', beszel_agent_max_minor_lag | default(2) | string] + (['--apply'] if beszel_apply | default(false) | bool else [])
          + (['--prune'] if beszel_prune | default(false) | bool else [])
          + (['--prune-up'] if beszel_prune_up | default(false) | bool else []) }}
   environment:

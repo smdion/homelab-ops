@@ -9,7 +9,7 @@
 #                      backup size anomaly, failed maintenance DB check,
 #                      stale maintenance check, MariaDB health, WAN connectivity,
 #                      appliance reachability, schedule coverage,
-#                      schedule drift, UniFi device health
+#                      schedule drift, Beszel monitoring drift, UniFi device health
 # Play 2 (SSH hosts):  Per-host system metrics — disk, memory, CPU, journal errors,
 #                      OOM kills, Docker health, Docker image updates, SMART disk health,
 #                      PVE cluster quorum, Ceph health, APT repo health (PVE only),
@@ -47,6 +47,9 @@
     - vars/secrets.yaml
     - vars/configs/semaphore_check.yaml
     - vars/configs/schedule_baseline.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/configs/beszel.yaml
   vars:
     project_id: "{{ semaphore_project_id }}"
     task_count: 20
@@ -823,6 +826,68 @@
         - name: Log debug check results
           ansible.builtin.debug:
             msg: "CHECK 28b FAILED: Schedule drift check error — skipping"
+
+    # ── CHECK 32: Beszel monitoring drift ─────────────────────────────────────────
+    # The hub's system list is UI-managed, so it drifts when hosts are renamed, added or retired. The build/deploy
+    # playbooks re-sync it as changes happen (tasks/beszel_hook.yaml); this is the safety net for anything changed
+    # outside them. Report only — nothing is written. Flags: a defined host missing from the hub, a hub entry that
+    # matches no definition, name/address drift, missing or changed alerts, no Discord target, a matched system down
+    # for beszel_down_alert_hours, and an agent beszel_agent_max_minor_lag or more minor releases behind the hub.
+    - name: Check Beszel monitoring drift
+      block:
+        - name: Compare the Beszel hub with the definitions (report only)
+          ansible.builtin.include_tasks: tasks/beszel_sync.yaml
+          vars:
+            beszel_apply: false
+
+        - name: Collect Beszel drift findings
+          ansible.builtin.set_fact:
+            _bz_findings: >-
+              {%- set r = _beszel_res.stdout | from_json -%}
+              {%- set out = [] -%}
+              {%- if r.details.missing -%}{%- set _ = out.append('Missing from hub: ' ~ r.details.missing | join(', ')) -%}{%- endif -%}
+              {%- if r.details.changed -%}{%- set _ = out.append('Wrong name/address: ' ~ r.details.changed | join(', ')) -%}{%- endif -%}
+              {%- if r.details.orphans -%}{%- set _ = out.append('In hub, no definition: ' ~ r.details.orphans | join(', ')) -%}{%- endif -%}
+              {%- if r.counts.alert_creates or r.counts.alert_updates -%}{%- set _ = out.append('Alerts to fix: ' ~ (r.counts.alert_creates + r.counts.alert_updates) | string) -%}{%- endif -%}
+              {%- if r.webhook_missing -%}{%- set _ = out.append('Hub has no Discord notification target') -%}{%- endif -%}
+              {%- for d in r.health.down -%}{%- set _ = out.append('Down ' ~ d.hours ~ 'h: ' ~ d.name) -%}{%- endfor -%}
+              {%- for o in r.health.outdated -%}{%- set _ = out.append('Old agent: ' ~ o.name ~ ' ' ~ o.version ~ ' (hub ' ~ o.hub ~ ')') -%}{%- endfor -%}
+              {{ out | to_json }}
+
+        - name: Send alert for Beszel monitoring drift
+          include_tasks: tasks/notify.yaml
+          when: (_bz_findings | from_json) | length > 0
+          vars:
+            discord_name: "Monitoring"
+            discord_operation: "Beszel Drift"
+            discord_status: "warning"
+            discord_detail: "{{ (_bz_findings | from_json) | length }} finding(s) — the hub differs from the definitions"
+            discord_color: "{{ discord_color_warning }}"
+            discord_author: "{{ controller_fqdn }}"
+            discord_fields:
+              - name: "Findings"
+                value: "{{ (_bz_findings | from_json) | join('\n') }}"
+            discord_footer:
+              text: "Health Check"
+            discord_timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+
+        - name: Record Beszel drift result
+          ansible.builtin.set_fact:
+            play1_health_results: >-
+              {{ play1_health_results + [{
+                'check_name': 'beszel_monitoring',
+                'status': ('check_warning' if (_bz_findings | from_json) | length > 0 else 'ok'),
+                'value': ((_bz_findings | from_json) | length | string ~ ' finding(s)') if (_bz_findings | from_json) | length > 0 else 'in sync',
+                'detail': (_bz_findings | from_json) | join('; ')
+              }] }}
+
+      rescue:
+        - name: Set maintenance failed (Beszel drift check error)
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+        - name: Log debug check results
+          ansible.builtin.debug:
+            msg: "CHECK 32 FAILED: Beszel monitoring drift check error — skipping"
 
     # ── CHECK 29: UniFi device health ──────────────────────────────────────────
     # Queries the UniFi Network API for adopted device status.
