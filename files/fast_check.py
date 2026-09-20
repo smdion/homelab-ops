@@ -276,10 +276,12 @@ def find_downloaded_file(video_id):
     suffix can shift slightly for a live capture between dispatch and finish —
     seen in practice), so search by the " - v<id>.<ext>" suffix MeTube always
     appends instead of trusting that field verbatim."""
-    suffix = f" - v{video_id}."
+    # Twitch VOD ids carry a "v" in yt-dlp's filename (" - v<id>."); YouTube ids do not
+    # (" - <id>."). Matching only the Twitch form meant no YouTube file was ever found.
+    suffixes = (f" - v{video_id}.", f" - {video_id}.")
     for root, _dirs, files in os.walk(DOWNLOADS_ROOT):
         for name in files:
-            if suffix in name:
+            if any(suffix in name for suffix in suffixes):
                 return os.path.join(root, name)
     return None
 
@@ -316,8 +318,14 @@ def duration_check(video_id, url, probe_config):
         return "unresolved"  # source hasn't concluded yet — nothing final to compare
     path = find_downloaded_file(video_id)
     if not path:
-        log(f"duration-check: no on-disk file found for {video_id} ({url})")
-        return "unresolved"
+        # The caller only asks once the video is in the download archive, which yt-dlp writes
+        # after a successful download. So an archived video with no file on disk was
+        # downloaded and has since been removed (the Tautulli watched-cleanup deletes
+        # watched files) — there is nothing left to verify. Reporting "unresolved" here made
+        # the reconciler re-queue it 3x and then alert that a successful download had failed.
+        log(f"duration-check: {video_id} is archived but its file is gone (watched-cleanup?) "
+            f"— nothing to verify ({url})")
+        return "ok"
     try:
         file_duration = get_file_duration(path)
     except Exception as e:  # noqa: BLE001
