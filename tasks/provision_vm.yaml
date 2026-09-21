@@ -165,6 +165,7 @@
         vmid: "{{ _vm.vm_id }}"
         name: "{{ _vm.vm_name }}"
         cores: "{{ _vm.vm_cores }}"
+        sockets: "{{ _vm.vm_sockets | default(1) }}"
         memory: "{{ _vm.vm_memory_mb }}"
         agent: "enabled=1"
         ciuser: "{{ vm_user }}"

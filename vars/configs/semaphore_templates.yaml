@@ -657,6 +657,11 @@ semaphore_templates:
     view: Maintenance
     inventory: ansible-user-ssh
     environment: maintain_pve
+  - name: "Maintain — VM [Hardware]"
+    playbook: maintain_vm_hardware.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: maintain_pve
   - name: "Maintain — PVE [Re-IP VMID]"
     playbook: reip_vmid.yaml
     view: Maintenance

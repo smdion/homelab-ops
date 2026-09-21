@@ -1,0 +1,249 @@
+---
+# Category: Maintain
+# Schedule: none
+# Make existing cluster VMs match the hardware in vars/definitions/vm_definitions.yaml: vm_cores, vm_sockets (default 1)
+# and vm_memory_mb. Report-only by default (prints drift, changes nothing). Runs through the Proxmox API.
+#
+# A changed value is written to the VM config as a PENDING change; the guest only sees it after a restart. With
+# hw_restart the running VM is restarted through the API `status/reboot` call (graceful shutdown, then start; applies
+# pending changes) and the play waits until the pending change is gone. HA-managed VMs stay HA resources throughout.
+#
+# Optional extra vars:
+#   hw_vm_names=amp,core   — vm_definitions keys to process (comma list or YAML list). Required with hw_apply.
+#   hw_apply=true          — write drifted values to the VM config (pending until restart)
+#   hw_restart=true        — with hw_apply: also restart running VMs that have a pending hardware change
+#
+# Usage:
+#   ansible-playbook maintain_vm_hardware.yaml                                        # report drift for every cluster VM
+#   ansible-playbook maintain_vm_hardware.yaml -e hw_vm_names=amp -e hw_apply=true     # write, restart later
+#   ansible-playbook maintain_vm_hardware.yaml -e hw_vm_names=amp -e hw_apply=true -e hw_restart=true
+#
+# Required: vars/definitions/vm_definitions.yaml (vm_id, vm_cores, vm_memory_mb per VM)
+
+- name: Maintain VM hardware from definitions
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/pve_definitions.yaml
+    - vars/configs/semaphore_check.yaml
+  vars:
+    hw_apply: false
+    hw_restart: false
+    hw_vm_names: []
+    maintenance_name: "VM Hardware"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Maintenance"
+    maintenance_url: ""
+    maintenance_description: "Make existing VM cores/sockets/memory match vm_definitions"
+    _hw_hw_keys: [cores, sockets, memory]
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "maintain_vm_hardware.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
+    - name: Resolve PVE API endpoint
+      include_tasks: tasks/resolve_pve_api.yaml
+      vars:
+        _pve_target_node: ""
+
+    - name: Set API base and auth header
+      ansible.builtin.set_fact:
+        _api_base: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json"
+        _api_auth: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+
+    - block:
+        - name: Normalise the VM name filter
+          ansible.builtin.set_fact:
+            _hw_names: "{{ (hw_vm_names.split(',') if hw_vm_names is string else hw_vm_names) | map('trim') | reject('equalto', '') | list }}"
+
+        - name: Refuse to write without an explicit VM list
+          ansible.builtin.assert:
+            that: _hw_names | length > 0
+            fail_msg: "hw_apply needs hw_vm_names (e.g. -e hw_vm_names=amp) so a run never touches every VM"
+            quiet: true
+          when: hw_apply | bool
+
+        - name: Get cluster VMs
+          ansible.builtin.uri:
+            url: "{{ _api_base }}/cluster/resources?type=vm"
+            method: GET
+            headers:
+              Authorization: "{{ _api_auth }}"
+            validate_certs: false
+          register: _hw_cluster
+          check_mode: false
+          no_log: "{{ _no_log }}"
+
+        # Only VMs that both are defined here and exist in the cluster (standalone nodes are not in this API).
+        - name: Select target VMs
+          ansible.builtin.set_fact:
+            _hw_targets: >-
+              {%- set out = [] -%}
+              {%- for name, d in vm_definitions.items() -%}
+                {%- if (_hw_names | length == 0 or name in _hw_names) and d.vm_id is defined and d.vm_cores is defined -%}
+                  {%- for r in _hw_cluster.json.data if (r.vmid | string) == (d.vm_id | string) -%}
+                    {%- set _ = out.append({'name': name, 'vmid': r.vmid, 'node': r.node, 'status': r.status,
+                          'want': {'cores': d.vm_cores | int, 'sockets': d.vm_sockets | default(1) | int, 'memory': d.vm_memory_mb | int}}) -%}
+                  {%- endfor -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {{ out | to_json }}
+
+        - name: Normalise the target list
+          ansible.builtin.set_fact:
+            _hw_targets: "{{ _hw_targets if _hw_targets is not string else _hw_targets | from_json }}"
+
+        - name: Build the config/pending read list
+          ansible.builtin.set_fact:
+            _hw_reads_loop: >-
+              {%- set out = [] -%}
+              {%- for t in _hw_targets -%}
+                {%- for w in ['config', 'pending'] -%}
+                  {%- set _ = out.append(t | combine({'what': w})) -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {{ out | to_json }}
+
+        - name: Read each VM's config and pending changes
+          ansible.builtin.uri:
+            url: "{{ _api_base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/{{ item.what }}"
+            method: GET
+            headers:
+              Authorization: "{{ _api_auth }}"
+            validate_certs: false
+          register: _hw_reads
+          check_mode: false
+          loop: "{{ _hw_reads_loop if _hw_reads_loop is not string else _hw_reads_loop | from_json }}"
+          loop_control:
+            label: "{{ item.vmid }} {{ item.what }}"
+          no_log: "{{ _no_log }}"
+
+        - name: Compute drift and pending state
+          ansible.builtin.set_fact:
+            _hw_plan: >-
+              {%- set out = [] -%}
+              {%- for t in _hw_targets -%}
+                {%- set cfg = (_hw_reads.results | selectattr('item.vmid', 'equalto', t.vmid) | selectattr('item.what', 'equalto', 'config') | first).json.data -%}
+                {%- set pend = (_hw_reads.results | selectattr('item.vmid', 'equalto', t.vmid) | selectattr('item.what', 'equalto', 'pending') | first).json.data -%}
+                {%- set cur = {'cores': cfg.cores | default(1) | int, 'sockets': cfg.sockets | default(1) | int, 'memory': cfg.memory | default(0) | int} -%}
+                {%- set diff = {} -%}
+                {%- for k, v in t.want.items() -%}
+                  {%- if cur[k] != v -%}{%- set _ = diff.update({k: v}) -%}{%- endif -%}
+                {%- endfor -%}
+                {%- set pending_keys = [] -%}
+                {%- for it in pend if it.key in _hw_hw_keys and it.pending is defined -%}{%- set _ = pending_keys.append(it.key) -%}{%- endfor -%}
+                {%- set _ = out.append(t | combine({'cur': cur, 'diff': diff, 'pending': pending_keys})) -%}
+              {%- endfor -%}
+              {{ out | to_json }}
+
+        - name: Normalise the plan
+          ansible.builtin.set_fact:
+            _hw_plan: "{{ _hw_plan if _hw_plan is not string else _hw_plan | from_json }}"
+
+        - name: List the running VMs that need a restart to pick up a hardware change
+          ansible.builtin.set_fact:
+            _hw_restart_list: "{{ _hw_plan | selectattr('status', 'equalto', 'running') | selectattr('diff') | list + _hw_plan | selectattr('status', 'equalto', 'running') | rejectattr('diff') | selectattr('pending') | list }}"
+
+        - name: Report
+          ansible.builtin.debug:
+            msg: |
+              === VM HARDWARE — definitions vs live ({{ 'APPLY' if hw_apply | bool else 'report only' }}{{ ', restart' if hw_restart | bool else '' }}) ===
+              {{ '%-6s %-12s %-8s %-9s %-26s %s' | format('VMID', 'Name', 'Node', 'Status', 'Live (cores x sockets, MB)', 'Drift / pending') }}
+              {% for p in _hw_plan %}
+              {{ '%-6s %-12s %-8s %-9s %-26s %s' | format(p.vmid, p.name, p.node, p.status, p.cur.cores ~ ' x ' ~ p.cur.sockets ~ ', ' ~ p.cur.memory,
+                   ('DRIFT -> ' ~ p.diff if p.diff else 'ok') ~ ('; PENDING restart: ' ~ p.pending | join(',') if p.pending else '')) }}
+              {% endfor %}
+              {% if not (hw_apply | bool) %}
+              Report only — nothing written (re-run with -e hw_vm_names=<name> -e hw_apply=true [-e hw_restart=true]).
+              {% endif %}
+
+        - name: Write drifted hardware to the VM config (pending until restart)
+          ansible.builtin.uri:
+            url: "{{ _api_base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+            method: PUT
+            headers:
+              Authorization: "{{ _api_auth }}"
+            body_format: form-urlencoded
+            body: "{{ item.diff }}"
+            validate_certs: false
+          loop: "{{ _hw_plan | selectattr('diff') | list }}"
+          loop_control:
+            label: "{{ item.vmid }} {{ item.name }} {{ item.diff }}"
+          when: hw_apply | bool
+          no_log: "{{ _no_log }}"
+
+        - name: Restart running VMs that have a hardware change to apply (graceful, applies pending)
+          ansible.builtin.uri:
+            url: "{{ _api_base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/status/reboot"
+            method: POST
+            headers:
+              Authorization: "{{ _api_auth }}"
+            validate_certs: false
+          loop: "{{ _hw_restart_list }}"
+          loop_control:
+            label: "{{ item.vmid }} {{ item.name }}"
+          when: (hw_apply | bool) and (hw_restart | bool)
+          no_log: "{{ _no_log }}"
+
+        - name: Wait for the restarted VMs to be running with no pending hardware change
+          ansible.builtin.uri:
+            url: "{{ _api_base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/pending"
+            method: GET
+            headers:
+              Authorization: "{{ _api_auth }}"
+            validate_certs: false
+          register: _hw_wait
+          until: >-
+            _hw_wait.json.data | selectattr('key', 'in', _hw_hw_keys) | selectattr('pending', 'defined') | list | length == 0
+          retries: 60
+          delay: 5
+          loop: "{{ _hw_restart_list }}"
+          loop_control:
+            label: "{{ item.vmid }} {{ item.name }}"
+          when: (hw_apply | bool) and (hw_restart | bool)
+          no_log: "{{ _no_log }}"
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send alert on failure
+          include_tasks: tasks/notify.yaml
+          when: maintenance_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Maintenance"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          when: hw_apply | bool
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ controller_fqdn }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+        - name: Fail play if maintenance failed
+          ansible.builtin.fail:
+            msg: "VM hardware maintenance failed — see notification for details"
+          when: maintenance_failed

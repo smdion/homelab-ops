@@ -11,6 +11,7 @@
 # Hostnames are derived: <role>.{{ vault_vm_search_domain }}. Per-VM secrets from vault:
 #   vault_vm_<role>_ip        — static IP for cloud-init network config
 #   vault_vm_<role>_node      — PVE node to place this VM on
+# Hardware (vm_cores, optional vm_sockets, vm_memory_mb) on an EXISTING VM is reconciled by maintain_vm_hardware.yaml.
 #
 # test-vm uses a dedicated IP range to avoid updating secrets per build.
 # Pass vm_index=0..vm_test_slot_count-1 (default 0) to select a slot:
@@ -110,7 +111,8 @@ vm_definitions:
     vm_mac: "02:00:00:00:07:00"       # static MAC — stable Unifi device identity across rebuilds
     vm_hostname: "amp.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_amp_ip | default('') }}"
-    vm_cores: 4
+    vm_cores: 8
+    vm_sockets: 1                      # optional (default 1); sockets x cores = vCPUs. Applied by maintain_vm_hardware.yaml / provision_vm.yaml
     vm_memory_mb: 16384
     vm_disk_gb: 128
     pve_target_node: "{{ vault_vm_amp_node | default('') }}"
