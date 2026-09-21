@@ -9,13 +9,14 @@
 #   state     started (default) | stopped | disabled | ignored
 #   optional: max_relocate, max_restart, failback (use 0/1), auto-rebalance (0/1, PVE 9.2+: exclude from the balancer)
 #   Only guests on shared (Ceph) storage with no passthrough/local ISO qualify (see review_pve.yaml "HA READINESS").
-#   Not listed on purpose: 1212 freshjams (no changes until the owner says), 1214 tronlabs (being deleted), template 9000.
+#   Not listed on purpose: 1214 tronlabs (being deleted), template 9000.
 ha_resources:
   - { vmid: 602, name: pdm, state: started }   # pilot guest (2026-09-21)
   - { vmid: 400, name: core, state: started }
   - { vmid: 401, name: apps, state: started }
   - { vmid: 402, name: dev, state: started }    # the Claude/dev session host: an HA restart or migration drops the session
   - { vmid: 700, name: amp, state: started }
+  - { vmid: 1212, name: freshjams, state: started }   # added 2026-09-21 at the owner's request (it was stopped by a defiance reboot while non-HA)
 
 # Cluster options (datacenter.cfg). Keys listed here are enforced; keys not listed are left as they are.
 ha_options:
