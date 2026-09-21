@@ -351,7 +351,7 @@
           {% set ns = namespace(b=[], disks=[]) %}
           {% for k, v in c.items() %}
           {% if k is match('^(scsi|virtio|sata|ide|efidisk|tpmstate)[0-9]*$') %}
-          {% set st = (v | string).split(':')[0] %}
+          {% set st = (v | string).split(',')[0].split(':')[0] %}
           {% set ns.disks = ns.disks + [k ~ '=' ~ st] %}
           {% if 'media=cdrom' in (v | string) %}
           {% if st != 'none' %}{% set ns.b = ns.b + [k ~ ' ISO/CD on ' ~ st] %}{% endif %}
