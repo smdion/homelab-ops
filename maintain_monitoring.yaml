@@ -36,6 +36,7 @@
           vars:
             beszel_apply: true
             beszel_prune: false
+            beszel_oidc_resync: true   # the SSO client secret is write-only, so the weekly run re-sends it (rotation self-heals)
       rescue:
         - name: Remember the Beszel failure
           ansible.builtin.set_fact:

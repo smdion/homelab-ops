@@ -6,6 +6,7 @@
 #
 # Mode (all default false = REPORT ONLY, nothing is written):
 #   beszel_apply=true   create missing systems, fix drifted name/address, create/update alerts, set the webhook
+#   beszel_oidc_resync=true  with apply: re-send the SSO provider incl. its write-only client secret (after rotating the vault value)
 #   beszel_prune=true   with apply: also delete hub systems that match no definition (never one reported "up"
 #                       unless beszel_prune_up=true; refuses when the desired list is suspiciously small)
 #
@@ -75,6 +76,7 @@
           '--max-minor-lag', beszel_agent_max_minor_lag | default(2) | string] + (['--apply'] if beszel_apply | default(false) | bool else [])
          + (['--prune'] if beszel_prune | default(false) | bool else [])
          + (['--prune-up'] if beszel_prune_up | default(false) | bool else [])
+         + (['--oidc-resync'] if beszel_oidc_resync | default(false) | bool else [])
          + (['--oidc-base', 'https://auth.' ~ vault_domain_ext ~ '/application/o', '--oidc-name', beszel_oidc_name | default('Authentik')]
             if (vault_docker_beszel_oidc_client_id | default('')) | length > 0 else []) }}
   environment:

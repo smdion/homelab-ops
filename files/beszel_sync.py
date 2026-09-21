@@ -164,7 +164,10 @@ def health(systems, orphan_ids, hub_version, now, down_hours, max_minor_lag):
     return down, outdated
 
 
-OIDC_KEYS = ("displayName", "clientId", "clientSecret", "authURL", "tokenURL", "userInfoURL")
+# The client secret is WRITE-ONLY in PocketBase (reads return it empty, even to a superuser), so it cannot be compared:
+# drift is judged on the visible fields, and the secret is (re)sent whenever anything differs or --oidc-resync is given
+# (weekly self-heal, and after rotating the vault value: run the sync with beszel_oidc_resync=true).
+OIDC_KEYS = ("displayName", "clientId", "authURL", "tokenURL", "userInfoURL")
 
 
 def oidc_spec(base, display_name, client_id, client_secret):
@@ -209,6 +212,8 @@ def main():
     ap.add_argument("--max-minor-lag", type=int, default=2, help="flag an agent this many minor versions behind the hub")
     ap.add_argument("--oidc-base", default="", help="Authentik .../application/o base URL; enables the SSO provider step")
     ap.add_argument("--oidc-name", default="Authentik", help="button label shown on the hub's login page")
+    ap.add_argument("--oidc-resync", action="store_true",
+                    help="with --apply, re-send the OIDC provider (incl. the write-only secret) even when nothing visible differs")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--prune", action="store_true")
     ap.add_argument("--prune-up", action="store_true", help="allow pruning a system the hub currently reports up")
@@ -341,7 +346,7 @@ def main():
             if st != 200:
                 result["errors"].append(f"webhook: HTTP {st}")
         # 5. SSO provider (superuser session; writes only the collection's oauth2 block)
-        if oidc_problems and su_hub is not None:
+        if (oidc_problems or args.oidc_resync) and su_hub is not None and oidc_new is not None:
             st, res = su_hub.call("PATCH", "/api/collections/users", {"oauth2": oidc_new})
             if st != 200:
                 result["errors"].append(f"SSO provider: HTTP {st} {res if isinstance(res, str) else res.get('message', '')}")
