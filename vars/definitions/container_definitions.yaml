@@ -256,7 +256,7 @@ container_definitions:
         start_period: "15s"
   authentik:
     image: "ghcr.io/goauthentik/server"
-    tag: "2026.8.2"
+    tag: "2026.8.3"
     stack: auth
     dashboard:
       group: Security
