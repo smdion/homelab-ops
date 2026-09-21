@@ -13,15 +13,19 @@
 #   config_file                             — vars/configs/ file to load (defaults to hosts_variable)
 #   update_scope=os|docker|software|plugin  — override auto-detected scope (auto-derived from config_file)
 #   force_reboot=true                       — reboot even hosts with update_auto_reboot: false (standalone Proxmox, PDM);
-#                                             run with --limit <host> when you pick the moment
+#                                             run for one host when you pick the moment (see below)
 #
 # Hosts with update_auto_reboot: false (group_vars: pve_standalone, pdm) get their packages upgraded but are NOT
 # rebooted — a Discord "reboot pending" alert is sent on every run until the reboot happens.
+# Reboot-needed = /var/run/reboot-required exists, or (standalone/PDM only) a newer kernel than the running one is installed.
+#
+# Semaphore templates do not accept a per-run Limit, so pass it as task args (they replace the template args):
+#   task run <id> --extra-args '["-e","hosts_variable=proxmox","-e","force_reboot=true","--limit","sentinel"]'
 #
 # Usage:
 #   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu -e config_file=ubuntu_os
 #   ansible-playbook update_systems.yaml -e hosts_variable=proxmox
-#   ansible-playbook update_systems.yaml -e hosts_variable=proxmox --limit sentinel -e force_reboot=true
+#   ansible-playbook update_systems.yaml -e hosts_variable=proxmox -e force_reboot=true --limit sentinel
 #   ansible-playbook update_systems.yaml -e hosts_variable=docker_stacks
 #   ansible-playbook update_systems.yaml -e hosts_variable=amp
 #   ansible-playbook update_systems.yaml -e hosts_variable=unraid -e config_file=unraid_plugins
