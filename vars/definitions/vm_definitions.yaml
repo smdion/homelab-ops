@@ -66,7 +66,8 @@ vm_definitions:
     beszel: { agent: container }       # infra-stack beszel-agent; UFW opens the agent port to the hub (bootstrap_vm)
     vm_hostname: "dev.{{ vault_vm_search_domain }}"
     vm_ip: "{{ vault_vm_dev_ip | default('') }}"
-    vm_cores: 4
+    vm_cores: 2
+    vm_sockets: 2                      # as running: 2 sockets x 2 cores = 4 vCPUs (owner confirmed 2026-09-21)
     vm_memory_mb: 16384
     vm_disk_gb: 64
     pve_target_node: "{{ vault_vm_dev_node | default('') }}"
