@@ -25,4 +25,4 @@ ha_options:
 ha_crs:
   ha: static                                     # already set on the cluster
   ha-rebalance-on-start: 1                       # already set on the cluster
-  # Planned after the pilot (decision D1 = auto-rebalance): ha-auto-rebalance: 1, plus threshold/hold-duration/margin.
+  ha-auto-rebalance: 1                           # decision D1 (2026-09-21): load-driven placement; defaults for threshold (30), hold-duration (3), margin (10)
