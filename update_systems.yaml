@@ -17,7 +17,8 @@
 #
 # Hosts with update_auto_reboot: false (group_vars: pve_standalone, pdm) get their packages upgraded but are NOT
 # rebooted — a Discord "reboot pending" alert is sent on every run until the reboot happens.
-# Reboot-needed = /var/run/reboot-required exists, or (standalone/PDM only) a newer kernel than the running one is installed.
+# Reboot-needed = /var/run/reboot-required exists, or a newer kernel than the running one is installed (all Proxmox hosts).
+# Cluster nodes reboot one at a time: HA node-maintenance, Ceph flags, then a wait for HA services to settle; a failure stops the rest.
 #
 # Semaphore templates do not accept a per-run Limit, so pass it as task args (they replace the template args):
 #   task run <id> --extra-args '["-e","hosts_variable=proxmox","-e","force_reboot=true","--limit","sentinel"]'
@@ -161,6 +162,14 @@
         docker_update_results: []
         plugin_update_results: []
 
+    - name: Stop before rebooting another cluster node if an earlier one failed
+      ansible.builtin.fail:
+        msg: "An earlier cluster node failed its update (HA settle / reboot); not touching {{ inventory_hostname }} until that is resolved"
+      when:
+        - _version_scope == 'os'
+        - inventory_hostname in groups['pve'] | default([])
+        - groups['pve'] | map('extract', hostvars, 'update_failed') | select('defined') | select | list | length > 0
+
     - block:
         - name: Get previous version from DB
           vars:
@@ -257,8 +266,9 @@
             - inventory_hostname in groups["ubuntu"] or _is_pve_node | bool or inventory_hostname in groups["pbs"] or inventory_hostname in groups["pdm"] | default([])
           changed_when: false
 
-        # Proxmox does not reliably create /var/run/reboot-required for kernel updates, so on the hosts that do not
-        # auto-reboot compare the running kernel with the newest installed one instead.
+        # Proxmox does not reliably create /var/run/reboot-required for kernel updates (homeone ran 203 days without an
+        # automatic reboot because of that), so on every Proxmox host also compare the running kernel with the newest
+        # installed one.
         - name: Check whether a newer kernel than the running one is installed
           ansible.builtin.shell: |
             latest=$(ls /boot/vmlinuz-* 2>/dev/null | sed 's|/boot/vmlinuz-||' | sort -V | tail -1)
@@ -268,7 +278,7 @@
           check_mode: false
           when:
             - _version_scope == 'os'
-            - inventory_hostname in groups["pve_standalone"] | default([]) or inventory_hostname in groups["pdm"] | default([])
+            - inventory_hostname in groups["proxmox"] | default([])
 
         - name: Set reboot-needed flag
           ansible.builtin.set_fact:
@@ -282,7 +292,8 @@
           when:
             - _version_scope == 'os'
             - inventory_hostname in groups['pve'] | default([])
-            - _reboot_required_file.stat.exists | default(false)
+            - _reboot_needed | default(false) | bool
+            - _auto_reboot | bool
 
         - name: Wait for HA guests to migrate off this node
           ansible.builtin.shell: |
@@ -382,6 +393,27 @@
 
         - name: Disable PVE node maintenance mode
           ansible.builtin.shell: ha-manager crm-command node-maintenance disable {{ ansible_facts.hostname }}
+          become: true
+          when:
+            - _version_scope == 'os'
+            - inventory_hostname in groups['pve'] | default([])
+            - _pve_maint_enabled is defined
+            - not (_pve_maint_enabled is skipped)
+
+        # Native HA returns the guests it moved (and the CRS balancer may place them elsewhere afterwards), so the check
+        # is "every HA service that should be started is started", not "back on the same node". A timeout fails this
+        # node, which stops the remaining cluster nodes (see the guard at the top of the play) before any further reboot.
+        - name: Wait for HA services to settle after the reboot
+          ansible.builtin.shell: |
+            for i in $(seq 1 60); do
+              bad=$(pvesh get /cluster/ha/status/current --output-format json | python3 -c 'import sys,json; print(",".join(s["sid"]+"="+s.get("state","?") for s in json.load(sys.stdin) if s.get("type")=="service" and s.get("request_state","started")=="started" and s.get("state")!="started"))')
+              [ -z "$bad" ] && echo "HA_SETTLED" && exit 0
+              sleep 10
+            done
+            echo "TIMEOUT: $bad"
+            exit 1
+          register: _ha_settle
+          changed_when: false
           become: true
           when:
             - _version_scope == 'os'
