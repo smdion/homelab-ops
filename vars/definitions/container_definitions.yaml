@@ -2009,45 +2009,6 @@ container_definitions:
       volumes:
         - "/var/run/docker.sock:/var/run/docker.sock:ro"
       command: agent
-  xbackbone:
-    image: "lscr.io/linuxserver/xbackbone"
-    tag: "latest"
-    stack: apps
-    dashboard:
-      group: Sharing
-      name: xBackbone
-      icon: xbackbone.png
-      description: image hosting
-    proxy:
-      subdomain: img
-      aliases: [images, image, i]
-      auth: false
-      locations:
-        - path: /
-          port: 8444
-          proto: https
-          auth: false
-          includes: [proxy]
-          add_headers:
-            Strict-Transport-Security: '"max-age=15768000; includeSubDomains; preload;"'
-          headers:
-            X-Content-Type-Options: "nosniff"
-            X-Frame-Options: '"SAMEORIGIN"'
-          directives:
-            - "proxy_max_temp_file_size 5096m"
-    compose:
-      base: baseuid
-      ports: ["8088:80", "8444:443"]
-      labels:
-        homelab.backup.paths: "/opt/xbackbone"
-      volumes:
-        - "${APPSDIR}/xbackbone:/config"
-      healthcheck:
-        test: ["CMD-SHELL", "curl -fs http://localhost:80 || exit 1"]
-        interval: "30s"
-        timeout: "10s"
-        retries: 3
-        start_period: "30s"
   zigbee2mqtt:
     image: "koenkk/zigbee2mqtt"
     tag: "latest"

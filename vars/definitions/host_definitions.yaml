@@ -92,6 +92,7 @@ host_definitions:
     unraid_containers:
       - immich
       - pingvin-share
+      - Zipline
       - FileRun
       - OnlyOfficeDocumentServer
       - binhex-urbackup
@@ -223,6 +224,29 @@ host_definitions:
             port: 3000
             auth: true
             includes: [proxy]
+      - subdomain: img
+        # Zipline (manual unRAID container "Zipline", host 8092 -> container 3000) — replaced xBackbone here
+        # (2026-09-21). Own login, so no Authentik; public like xBackbone was.
+        aliases: [images, image, i]
+        upstream_ip: "10.10.10.17"
+        auth: false
+        dashboard:
+          group: Sharing
+          name: Zipline
+          icon: zipline.png
+          description: image hosting
+        locations:
+          - path: /
+            port: 8092
+            auth: false
+            includes: [proxy]
+            add_headers:
+              Strict-Transport-Security: '"max-age=15768000; includeSubDomains; preload;"'
+            headers:
+              X-Content-Type-Options: "nosniff"
+              X-Frame-Options: '"SAMEORIGIN"'
+            directives:
+              - "proxy_max_temp_file_size 5096m"
       - subdomain: office
         # ONLYOFFICE Document Server (manual unRAID container, host 9980 -> container 80)
         # — document editor for FileRun. External + no Authentik: the browser loads the

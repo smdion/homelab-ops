@@ -94,7 +94,7 @@ app_definitions:
     db_config: db_primary_postgres
     db_host: "{{ vault_db_host_primary }}"
     db_names: [zipline]
-    containers: [zipline]   # unRAID container name — adjust if the app is deployed under a different name
+    containers: [Zipline]   # unRAID container name (case-sensitive)
   immich:
     db_stack: databases
     db_config: db_secondary_postgres
