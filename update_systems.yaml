@@ -363,15 +363,18 @@
                 value: "update_systems.yaml --limit {{ inventory_hostname }} -e force_reboot=true"
                 inline: false
 
-        - name: Wait for Ceph health to recover after PVE reboot
+        # Order matters: the noout/nobackfill/norebalance flags themselves keep Ceph at HEALTH_WARN, so they must be
+        # unset BEFORE waiting for HEALTH_OK (waiting first can never succeed). Wait for the OSDs to be back first, so
+        # noout is not lifted while an OSD is still starting.
+        - name: Wait for the node's OSDs to be back up and in
           ansible.builtin.shell: |
             for i in $(seq 1 30); do
-              ceph health 2>/dev/null | grep -qE "^HEALTH_OK" && echo "HEALTH_OK" && exit 0
+              ceph osd stat --format json | python3 -c 'import sys,json; d=json.load(sys.stdin); d=d.get("osdmap",d); sys.exit(0 if d["num_up_osds"]==d["num_osds"] and d["num_in_osds"]==d["num_osds"] else 1)' && echo "OSDS_UP" && exit 0
               sleep 10
             done
-            echo "TIMEOUT: $(ceph health 2>/dev/null)"
+            echo "TIMEOUT: $(ceph osd stat 2>/dev/null)"
             exit 1
-          register: _ceph_post_reboot
+          register: _ceph_osds_up
           changed_when: false
           become: true
           when:
@@ -383,6 +386,24 @@
 
         - name: Unset Ceph maintenance flags after PVE reboot
           ansible.builtin.shell: ceph osd unset noout; ceph osd unset nobackfill; ceph osd unset norebalance
+          become: true
+          when:
+            - _version_scope == 'os'
+            - inventory_hostname in groups['pve'] | default([])
+            - _ceph_noout_set is defined
+            - not (_ceph_noout_set is skipped)
+            - _ceph_available.rc | default(1) == 0
+
+        - name: Wait for Ceph health to recover after PVE reboot
+          ansible.builtin.shell: |
+            for i in $(seq 1 60); do
+              ceph health 2>/dev/null | grep -qE "^HEALTH_OK" && echo "HEALTH_OK" && exit 0
+              sleep 10
+            done
+            echo "TIMEOUT: $(ceph health 2>/dev/null)"
+            exit 1
+          register: _ceph_post_reboot
+          changed_when: false
           become: true
           when:
             - _version_scope == 'os'
