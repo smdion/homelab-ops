@@ -1,0 +1,48 @@
+---
+# Category: Utilities
+# Schedule: none
+# Read-only: was a given video downloaded by MeTube / yt-dlp? Looks the id up in yt-dlp's download archive, in the
+# download directory (file names carry the id) and in recent MeTube container logs, and lists the newest archive entries.
+# Changes nothing and sends no notifications.
+#
+# Required extra vars:
+#   video_id=<digits or id>   — the platform id, e.g. the number at the end of a Twitch /videos/ URL
+#
+# Usage:
+#   ansible-playbook review_downloads.yaml -e video_id=2880022731
+
+- name: Review whether a video was downloaded
+  hosts: docker_run
+  gather_facts: false
+  become: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/download_base.yaml
+  tasks:
+    - name: Assert the video id looks sane
+      ansible.builtin.assert:
+        that: video_id is defined and (video_id | string) is match('^[A-Za-z0-9_-]{4,40}$')
+        fail_msg: "pass -e video_id=<id> (letters, digits, _ or - only)"
+        quiet: true
+
+    - name: Look the video up
+      ansible.builtin.shell: |
+        ID='{{ video_id }}'
+        echo "== archive entries containing the id ({{ ytdlp_archive }})"
+        docker exec {{ metube_container }} sh -c "grep -n -- \"$ID\" {{ ytdlp_archive }} 2>&1" || echo "(none)"
+        echo "== archive: total entries / newest 5"
+        docker exec {{ metube_container }} sh -c "wc -l < {{ ytdlp_archive }}; tail -5 {{ ytdlp_archive }}" 2>&1
+        echo "== files under /downloads whose name contains the id"
+        docker exec {{ metube_container }} sh -c "find /downloads -name \"*$ID*\" -printf '%TY-%Tm-%Td %TH:%TM  %s bytes  %p\n' 2>/dev/null | head -10" || true
+        echo "== MeTube log lines (last 72h) mentioning the id"
+        docker logs --since 72h {{ metube_container }} 2>&1 | grep -F -- "$ID" | tail -15 || echo "(none)"
+        echo "== archive file modified"
+        docker exec {{ metube_container }} sh -c "ls -l --time-style=long-iso {{ ytdlp_archive }}" 2>&1
+      register: _dl_lookup
+      changed_when: false
+      check_mode: false
+      failed_when: false  # read-only probe — a missing path must not hide the rest
+
+    - name: Show the result
+      ansible.builtin.debug:
+        msg: "{{ _dl_lookup.stdout_lines }}"

@@ -701,6 +701,11 @@ semaphore_templates:
     view: Maintenance
     inventory: ansible-user-ssh
     environment: amp
+  - name: "Review — Downloads [Video]"
+    playbook: review_downloads.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
   - name: "Review — Proxmox [Cluster+PBS]"
     playbook: review_pve.yaml
     view: Maintenance
