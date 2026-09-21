@@ -1,0 +1,216 @@
+---
+# Category: Maintain
+# Schedule: none
+# Make the Proxmox cluster's HA configuration match vars/definitions/ha_definitions.yaml: HA resources
+# (guests that migrate away and back when their node reboots) and the cluster HA/CRS options in datacenter.cfg.
+# Report-only by default (prints what would change); it never touches anything unless told to.
+# Runs pvesh on one cluster node over SSH.
+#
+# Optional extra vars:
+#   ha_apply=true   — create/update HA resources and set the ha/crs options
+#   ha_prune=true   — with ha_apply, also remove HA resources that are not in the definitions
+#
+# Usage:
+#   ansible-playbook maintain_pve_ha.yaml                                   # report only
+#   ansible-playbook maintain_pve_ha.yaml -e ha_apply=true
+#   ansible-playbook maintain_pve_ha.yaml -e ha_apply=true -e ha_prune=true
+#
+# Required: vars/definitions/ha_definitions.yaml
+
+- name: Maintain Proxmox HA configuration
+  hosts: "pve"
+  become: true
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/proxmox.yaml
+    - vars/definitions/ha_definitions.yaml
+  vars:
+    ha_apply: false
+    ha_prune: false
+    maintenance_name: "Proxmox HA"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Maintenance"
+    maintenance_url: ""
+    maintenance_description: "Make cluster HA resources and HA/CRS options match ha_definitions.yaml"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "maintain_pve_ha.yaml"
+
+  tasks:
+    - name: Initialize maintenance state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+
+    - block:
+        - name: Read HA resources, cluster options and guests
+          ansible.builtin.command: "pvesh get {{ item.path }} --output-format json"
+          register: _ha_reads
+          changed_when: false
+          check_mode: false
+          run_once: true
+          loop:
+            - { key: resources, path: /cluster/ha/resources }
+            - { key: options, path: /cluster/options }
+            - { key: guests, path: "/cluster/resources --type vm" }
+          loop_control:
+            label: "{{ item.key }}"
+
+        - name: Parse current state
+          ansible.builtin.set_fact:
+            _ha_current: "{{ dict(_ha_reads.results | map(attribute='item.key') | zip(_ha_reads.results | map(attribute='stdout') | map('from_json'))) }}"
+          run_once: true
+
+        - name: Index current HA resources and guests
+          ansible.builtin.set_fact:
+            _ha_cur_res: "{{ dict(_ha_current.resources | map(attribute='sid') | zip(_ha_current.resources)) }}"
+            _ha_guest_ids: "{{ _ha_current.guests | selectattr('vmid', 'defined') | map(attribute='vmid') | map('string') | list }}"
+          run_once: true
+
+        - name: Assert every defined guest exists in the cluster
+          ansible.builtin.assert:
+            that: (item.vmid | string) in _ha_guest_ids
+            fail_msg: "ha_definitions.yaml lists vmid {{ item.vmid }} but no such guest exists in the cluster"
+            quiet: true
+          loop: "{{ ha_resources }}"
+          loop_control:
+            label: "{{ item.vmid }}"
+          run_once: true
+
+        # Plan: create (not in cluster), set (differs), ok, delete (in cluster but not defined; acted on only with ha_prune).
+        - name: Compute the HA resource plan
+          ansible.builtin.set_fact:
+            _ha_plan_raw: >-
+              {%- set out = [] -%}
+              {%- set wanted_sids = [] -%}
+              {%- for r in ha_resources -%}
+                {%- set sid = 'vm:' ~ r.vmid -%}
+                {%- set _ = wanted_sids.append(sid) -%}
+                {%- set want = {'state': r.state | default('started')} -%}
+                {%- for k in ['max_relocate', 'max_restart', 'failback', 'auto-rebalance'] -%}
+                  {%- if r[k] is defined -%}{%- set _ = want.update({k: r[k]}) -%}{%- endif -%}
+                {%- endfor -%}
+                {%- set cur = _ha_cur_res.get(sid) -%}
+                {%- if cur is none -%}
+                  {%- set _ = out.append({'sid': sid, 'name': r.name | default(''), 'action': 'create', 'changes': want}) -%}
+                {%- else -%}
+                  {%- set diff = {} -%}
+                  {%- for k, v in want.items() -%}
+                    {%- if (cur.get(k) | string) != (v | string) -%}{%- set _ = diff.update({k: v}) -%}{%- endif -%}
+                  {%- endfor -%}
+                  {%- set _ = out.append({'sid': sid, 'name': r.name | default(''), 'action': ('set' if diff else 'ok'), 'changes': diff}) -%}
+                {%- endif -%}
+              {%- endfor -%}
+              {%- for sid in _ha_cur_res.keys() | sort -%}
+                {%- if sid not in wanted_sids -%}{%- set _ = out.append({'sid': sid, 'name': '', 'action': 'delete', 'changes': {}}) -%}{%- endif -%}
+              {%- endfor -%}
+              {{ out | to_json }}
+          run_once: true
+
+        # datacenter.cfg property strings are replaced whole, so merge the wanted keys over the current ones.
+        - name: Compute the ha/crs option plan
+          ansible.builtin.set_fact:
+            _ha_plan: "{{ _ha_plan_raw if _ha_plan_raw is not string else _ha_plan_raw | from_json }}"
+            _ha_opt_new: "{{ (_ha_current.options.ha | default({})) | combine(ha_options) }}"
+            _ha_crs_new: "{{ (_ha_current.options.crs | default({})) | combine(ha_crs) }}"
+          run_once: true
+
+        - name: Detect ha/crs option drift
+          ansible.builtin.set_fact:
+            _ha_ha_changed: "{{ (_ha_opt_new | to_json(sort_keys=True)) != ((_ha_current.options.ha | default({})) | to_json(sort_keys=True)) }}"
+            _ha_crs_changed: "{{ (_ha_crs_new | to_json(sort_keys=True)) != ((_ha_current.options.crs | default({})) | to_json(sort_keys=True)) }}"
+          run_once: true
+
+        - name: Report
+          ansible.builtin.debug:
+            msg: |
+              === PROXMOX HA — desired vs actual ({{ 'APPLY' if ha_apply | bool else 'report only' }}) ===
+              {% for p in _ha_plan %}
+              {{ '%-8s %-14s %-8s %s' | format(p.sid, p.name, p.action | upper, p.changes if p.changes else '') }}
+              {% endfor %}
+              datacenter.cfg ha : {{ 'DRIFT -> ' ~ _ha_opt_new if _ha_ha_changed | bool else 'ok (' ~ (_ha_current.options.ha | default({})) ~ ')' }}
+              datacenter.cfg crs: {{ 'DRIFT -> ' ~ _ha_crs_new if _ha_crs_changed | bool else 'ok (' ~ (_ha_current.options.crs | default({})) ~ ')' }}
+              {% if not (ha_apply | bool) %}
+              Report only — nothing written (re-run with -e ha_apply=true; -e ha_prune=true also removes DELETE rows).
+              {% endif %}
+          run_once: true
+
+        - name: Create HA resources
+          ansible.builtin.command:
+            argv: >-
+              {{ ['pvesh', 'create', '/cluster/ha/resources', '--sid', item.sid]
+                 + (item.changes | dict2items | map(attribute='key') | map('regex_replace', '^', '--') | zip(item.changes | dict2items | map(attribute='value') | map('string')) | map('list') | sum(start=[])) }}
+          loop: "{{ _ha_plan | selectattr('action', 'equalto', 'create') | list }}"
+          loop_control:
+            label: "{{ item.sid }}"
+          when: ha_apply | bool
+          run_once: true
+
+        - name: Update drifted HA resources
+          ansible.builtin.command:
+            argv: >-
+              {{ ['pvesh', 'set', '/cluster/ha/resources/' ~ item.sid]
+                 + (item.changes | dict2items | map(attribute='key') | map('regex_replace', '^', '--') | zip(item.changes | dict2items | map(attribute='value') | map('string')) | map('list') | sum(start=[])) }}
+          loop: "{{ _ha_plan | selectattr('action', 'equalto', 'set') | list }}"
+          loop_control:
+            label: "{{ item.sid }}"
+          when: ha_apply | bool
+          run_once: true
+
+        - name: Remove HA resources not in the definitions
+          ansible.builtin.command:
+            argv: ['pvesh', 'delete', '/cluster/ha/resources/{{ item.sid }}']
+          loop: "{{ _ha_plan | selectattr('action', 'equalto', 'delete') | list }}"
+          loop_control:
+            label: "{{ item.sid }}"
+          when: (ha_apply | bool) and (ha_prune | bool)
+          run_once: true
+
+        - name: Set datacenter.cfg ha options
+          ansible.builtin.command:
+            argv: ['pvesh', 'set', '/cluster/options', '--ha', "{% for k, v in _ha_opt_new.items() %}{{ k }}={{ v }}{{ ',' if not loop.last }}{% endfor %}"]
+          when: (ha_apply | bool) and (_ha_ha_changed | bool)
+          run_once: true
+
+        - name: Set datacenter.cfg crs options
+          ansible.builtin.command:
+            argv: ['pvesh', 'set', '/cluster/options', '--crs', "{% for k, v in _ha_crs_new.items() %}{{ k }}={{ v }}{{ ',' if not loop.last }}{% endfor %}"]
+          when: (ha_apply | bool) and (_ha_crs_changed | bool)
+          run_once: true
+
+      rescue:
+        - name: Set maintenance failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send alert on failure
+          include_tasks: tasks/notify.yaml
+          when: maintenance_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Maintenance"
+            discord_status: "failed"
+            discord_detail: "check Semaphore logs"
+            discord_color: "{{ discord_color_failure }}"
+            discord_url: "{{ maintenance_url }}"
+
+        - name: Log maintenance to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          when: ha_apply | bool
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ inventory_hostname }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+        - name: Fail play if maintenance failed
+          ansible.builtin.fail:
+            msg: "Proxmox HA maintenance failed — see notification for details"
+          when: maintenance_failed

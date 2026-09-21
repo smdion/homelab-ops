@@ -652,6 +652,11 @@ semaphore_templates:
     environment: maintain_pve
     suppress_success_alerts: true
     schedule: [{ cron: "0 2 * * 0", name: "Weekly Sunday 2AM" }]
+  - name: "Maintain — PVE [HA]"
+    playbook: maintain_pve_ha.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: maintain_pve
   - name: "Maintain — PVE [Re-IP VMID]"
     playbook: reip_vmid.yaml
     view: Maintenance

@@ -1,0 +1,23 @@
+---
+# Proxmox HA definitions — what maintain_pve_ha.yaml makes the cluster match (HA resources + cluster HA/CRS options).
+# HA config lives in /etc/pve (cluster-replicated), so this file is its only record in git.
+# Plan: homelab-docs tasks/pve-ha-balance.md
+#
+# ha_resources — one entry per guest that HA should manage (a reboot of its node then migrates it away and back).
+#   vmid      required
+#   name      informational (shown in reports)
+#   state     started (default) | stopped | disabled | ignored
+#   optional: max_relocate, max_restart, failback (use 0/1), auto-rebalance (0/1, PVE 9.2+: exclude from the balancer)
+#   Only guests on shared (Ceph) storage with no passthrough/local ISO qualify (see review_pve.yaml "HA READINESS").
+#   Not listed on purpose: 1212 freshjams (no changes until the owner says), 1214 tronlabs (being deleted), template 9000.
+ha_resources:
+  - { vmid: 602, name: pdm, state: started }   # pilot guest; core/apps/dev/amp follow once the pilot is verified
+
+# Cluster options (datacenter.cfg). Keys listed here are enforced; keys not listed are left as they are.
+ha_options:
+  shutdown_policy: migrate                       # already set on the cluster
+
+ha_crs:
+  ha: static                                     # already set on the cluster
+  ha-rebalance-on-start: 1                       # already set on the cluster
+  # Planned after the pilot (decision D1 = auto-rebalance): ha-auto-rebalance: 1, plus threshold/hold-duration/margin.
