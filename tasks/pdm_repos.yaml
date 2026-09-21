@@ -1,0 +1,35 @@
+---
+# Proxmox Datacenter Manager APT repositories — disable the paid pdm-enterprise repo (returns 401 without a
+# subscription, which breaks `apt update` and therefore update_systems.yaml) and enable pdm-no-subscription.
+#
+# Required variables:
+#   pve_debian_release  — Debian release codename (e.g. trixie)
+#
+# Included by: maintain_pve.yaml (PDM host only)
+
+- name: Check for the PDM enterprise repo file
+  ansible.builtin.stat:
+    path: /etc/apt/sources.list.d/pdm-enterprise.sources
+  register: _pdm_enterprise
+
+- name: Disable the PDM enterprise repo
+  ansible.builtin.lineinfile:
+    path: /etc/apt/sources.list.d/pdm-enterprise.sources
+    regexp: '^Enabled:'
+    line: "Enabled: false"
+    insertafter: '^Components:'
+    state: present
+  when: _pdm_enterprise.stat.exists
+
+- name: Ensure the PDM no-subscription repo
+  ansible.builtin.copy:
+    content: |
+      Types: deb
+      URIs: http://download.proxmox.com/debian/pdm
+      Suites: {{ pve_debian_release }}
+      Components: pdm-no-subscription
+      Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+    dest: /etc/apt/sources.list.d/pdm-no-subscription.sources
+    owner: root
+    group: root
+    mode: "0644"

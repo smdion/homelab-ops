@@ -3,7 +3,7 @@
 # Idempotent Proxmox node configuration — run after bare-metal reinstall or new node join.
 # Targets all proxmox hosts (cluster PVE, PBS, and standalone PVE nodes).
 # Ensures OS-level settings not managed by PVE cluster replication are in expected state:
-# APT repos (enterprise disabled, no-subscription active, nag removed — PVE nodes only),
+# APT repos (enterprise disabled, no-subscription active, nag removed — PVE nodes; PDM gets its no-subscription repo),
 # keepalived VIP (clustered PVE nodes only), ansible user SSH key, SSH hardening.
 #
 # Firewall rules and storage config are stored in /etc/pve/ (cluster-replicated via Corosync)
@@ -51,6 +51,11 @@
         - name: Enforce no-subscription APT repos
           include_tasks: tasks/pve_repos.yaml
           when: inventory_hostname in groups["pve"] or inventory_hostname in (groups["pve_standalone"] | default([]))
+
+        # === PDM APT repos (Datacenter Manager only — no-subscription instead of the paid enterprise repo) ===
+        - name: Enforce PDM no-subscription APT repo
+          include_tasks: tasks/pdm_repos.yaml
+          when: inventory_hostname in (groups["pdm"] | default([]))
 
         # === Keepalived VIP (PVE nodes only — not needed on PBS) ===
         - name: Install keepalived

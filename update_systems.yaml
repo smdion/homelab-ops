@@ -12,11 +12,16 @@
 # Optional extra vars:
 #   config_file                             — vars/configs/ file to load (defaults to hosts_variable)
 #   update_scope=os|docker|software|plugin  — override auto-detected scope (auto-derived from config_file)
+#   force_reboot=true                       — reboot even hosts with update_auto_reboot: false (standalone Proxmox, PDM);
+#                                             run with --limit <host> when you pick the moment
 #
-# Schedule-exempt: Standalone
+# Hosts with update_auto_reboot: false (group_vars: pve_standalone, pdm) get their packages upgraded but are NOT
+# rebooted — a Discord "reboot pending" alert is sent on every run until the reboot happens.
 #
 # Usage:
 #   ansible-playbook update_systems.yaml -e hosts_variable=ubuntu -e config_file=ubuntu_os
+#   ansible-playbook update_systems.yaml -e hosts_variable=proxmox
+#   ansible-playbook update_systems.yaml -e hosts_variable=proxmox --limit sentinel -e force_reboot=true
 #   ansible-playbook update_systems.yaml -e hosts_variable=docker_stacks
 #   ansible-playbook update_systems.yaml -e hosts_variable=amp
 #   ansible-playbook update_systems.yaml -e hosts_variable=unraid -e config_file=unraid_plugins
@@ -40,6 +45,7 @@
            else 'docker' if config_file in ['docker_stacks', 'docker_run']
            else 'os'
          ) }}
+    _auto_reboot: "{{ force_reboot | default(false) | bool or update_auto_reboot | default(true) | bool }}"
     _is_pve_node: "{{ inventory_hostname in groups['pve'] | default([]) or inventory_hostname in groups['pve_standalone'] | default([]) }}"
     _os_version_commands:
       pikvm:          "pacman -Q | grep 'kvmd ' | cut -c 6-"
@@ -47,6 +53,7 @@
       pve:            "pveversion | awk -F'/' '{print $2}'"
       pve_standalone: "pveversion | awk -F'/' '{print $2}'"
       pbs:            "dpkg-query -W -f='${Version}' proxmox-backup-server"
+      pdm:            "dpkg-query -W -f='${Version}' proxmox-datacenter-manager 2>/dev/null || echo unknown"
     _sw_version_commands:
       amp:    "ampinstmgr -version | sed -n 's/.*\\(v[0-9]\\+\\.[0-9]\\+\\.[0-9]\\+\\).*/\\1/p'"
   hosts: "{{ hosts_variable }}"
@@ -211,13 +218,14 @@
           become: true
           ansible.builtin.apt:
             update_cache: true
-            upgrade: "{{ 'full' if (_is_pve_node | bool or inventory_hostname in groups['pbs']) else 'yes' }}"
+            upgrade: "{{ 'full' if (_is_pve_node | bool or inventory_hostname in groups['pbs'] or inventory_hostname in groups['pdm'] | default([])) else 'yes' }}"
           when:
             - _version_scope == 'os'
             - >-
               inventory_hostname in groups["ubuntu"] or
               _is_pve_node | bool or
-              inventory_hostname in groups["pbs"]
+              inventory_hostname in groups["pbs"] or
+              inventory_hostname in groups["pdm"] | default([])
 
         # Old proxmox-kernel-* packages left as 'rc' after upgrades pile up in
         # /usr/lib/modules (~1G each) and previously filled the PBS host's
@@ -233,7 +241,8 @@
             - >-
               inventory_hostname in groups["ubuntu"] or
               _is_pve_node | bool or
-              inventory_hostname in groups["pbs"]
+              inventory_hostname in groups["pbs"] or
+              inventory_hostname in groups["pdm"] | default([])
 
         - name: Check if a reboot is required
           ansible.builtin.stat:
@@ -241,8 +250,26 @@
           register: _reboot_required_file
           when:
             - _version_scope == 'os'
-            - inventory_hostname in groups["ubuntu"] or _is_pve_node | bool or inventory_hostname in groups["pbs"]
+            - inventory_hostname in groups["ubuntu"] or _is_pve_node | bool or inventory_hostname in groups["pbs"] or inventory_hostname in groups["pdm"] | default([])
           changed_when: false
+
+        # Proxmox does not reliably create /var/run/reboot-required for kernel updates, so on the hosts that do not
+        # auto-reboot compare the running kernel with the newest installed one instead.
+        - name: Check whether a newer kernel than the running one is installed
+          ansible.builtin.shell: |
+            latest=$(ls /boot/vmlinuz-* 2>/dev/null | sed 's|/boot/vmlinuz-||' | sort -V | tail -1)
+            [ -n "$latest" ] && [ "$latest" != "$(uname -r)" ] && echo "$(uname -r) -> $latest" || true
+          register: _kernel_stale
+          changed_when: false
+          check_mode: false
+          when:
+            - _version_scope == 'os'
+            - inventory_hostname in groups["pve_standalone"] | default([]) or inventory_hostname in groups["pdm"] | default([])
+
+        - name: Set reboot-needed flag
+          ansible.builtin.set_fact:
+            _reboot_needed: "{{ (_reboot_required_file.stat.exists | default(false)) or (_kernel_stale.stdout | default('') | trim | length > 0) }}"
+          when: _version_scope == 'os'
 
         - name: Enable PVE node maintenance mode (HA migration)
           ansible.builtin.shell: ha-manager crm-command node-maintenance enable {{ ansible_facts.hostname }}
@@ -295,9 +322,31 @@
           become: true
           when:
             - _version_scope == 'os'
+            - _auto_reboot | bool
             - >-
-              (_reboot_required_file.stat.exists | default(false)) or
+              (_reboot_needed | default(false) | bool) or
               (inventory_hostname in groups["pikvm"] and _pikvm_update_result.rc | default(0) == 100)
+
+        - name: Alert that a reboot is pending (auto-reboot disabled for this host)
+          include_tasks: tasks/notify.yaml
+          when:
+            - _version_scope == 'os'
+            - not (_auto_reboot | bool)
+            - _reboot_needed | default(false) | bool
+          vars:
+            discord_name: "{{ update_name }}"
+            discord_operation: "Update"
+            discord_status: "partial"
+            discord_detail: "reboot pending on {{ inventory_hostname }}"
+            discord_color: "{{ discord_color_warning }}"
+            discord_url: "{{ backup_url }}"
+            discord_fields:
+              - name: "Reboot"
+                value: "{{ (_kernel_stale.stdout | default('') | trim) or 'required by package updates' }}"
+                inline: true
+              - name: "Run"
+                value: "update_systems.yaml --limit {{ inventory_hostname }} -e force_reboot=true"
+                inline: false
 
         - name: Wait for Ceph health to recover after PVE reboot
           ansible.builtin.shell: |

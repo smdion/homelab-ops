@@ -558,21 +558,14 @@ semaphore_templates:
     arguments: "[\"-e hosts_variable=pikvm\"]"
     suppress_success_alerts: true
     schedule: [{ cron: "0 3 * * 4", name: "Weekly Thursday 3AM" }]
-  - name: "Update — Proxmox [Appliance]"
+  - name: "Update — Proxmox [All]"
     playbook: update_systems.yaml
     view: Updates
     inventory: ansible-user-ssh
     environment: proxmox
-    arguments: "[\"-e hosts_variable=pve:pbs\"]"
+    arguments: "[\"-e hosts_variable=proxmox\"]"
     suppress_success_alerts: true
     schedule: [{ cron: "0 3 * * 1", name: "Weekly Monday 3AM" }]
-  - name: "Update — Proxmox [Standalone]"
-    playbook: update_systems.yaml
-    view: Updates
-    inventory: ansible-user-ssh
-    environment: proxmox
-    arguments: "[\"-e hosts_variable=pve_standalone\"]"
-    suppress_success_alerts: true
   - name: "Update — Ubuntu [OS]"
     playbook: update_systems.yaml
     view: Updates

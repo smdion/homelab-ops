@@ -1,0 +1,4 @@
+---
+# Proxmox hosts that must not reboot unattended: update_systems.yaml upgrades them but only alerts "reboot pending".
+# Reboot on demand: update_systems.yaml --limit <host> -e force_reboot=true
+update_auto_reboot: false
