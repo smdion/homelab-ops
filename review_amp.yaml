@@ -1,0 +1,34 @@
+---
+# Category: Utilities
+# Schedule: none
+# Read-only look at the AMP game-server VM's runtime state: memory (free/available/cache), the biggest processes by
+# resident memory (names only — no command lines, which can carry credentials), AMP instance status, load and failed units.
+# Changes nothing, sends no notifications, writes nothing. For diagnosing memory/CPU questions from the controller.
+#
+# Usage:
+#   ansible-playbook review_amp.yaml
+
+- name: Review AMP runtime
+  hosts: amp
+  gather_facts: false
+  vars_files:
+    - vars/secrets.yaml
+  tasks:
+    - name: Collect runtime facts
+      ansible.builtin.shell: |
+        echo "== uptime / load"; uptime
+        echo "== cpus"; nproc
+        echo "== memory (MiB)"; free -m
+        echo "== meminfo (kB)"; grep -E '^(MemTotal|MemFree|MemAvailable|Buffers|Cached|Slab|Shmem|SwapTotal|SwapFree|AnonPages|Dirty):' /proc/meminfo
+        echo "== top processes by RSS (pid rss_kb %mem elapsed name)"; ps -eo pid,rss,pmem,etime,comm --sort=-rss | head -15
+        echo "== AMP instances"; sudo -u amp ampinstmgr -l 2>&1 | head -40
+        echo "== failed units"; systemctl list-units --state=failed --no-legend 2>&1 | head -10
+        echo "== recent OOM / kernel memory messages"; (journalctl -k --since "-6 hours" --no-pager 2>/dev/null | grep -i -E 'oom|out of memory|killed process' | tail -5) || true
+      register: _amp_runtime
+      changed_when: false
+      check_mode: false
+      failed_when: false  # read-only probe — a missing tool must not hide the rest
+
+    - name: Show AMP runtime
+      ansible.builtin.debug:
+        msg: "{{ _amp_runtime.stdout_lines }}"

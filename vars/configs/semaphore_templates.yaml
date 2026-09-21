@@ -696,6 +696,11 @@ semaphore_templates:
     inventory: ansible-user-ssh
     environment: maintain_pve
     arguments: "[\"-e\", \"confirm=yes\"]"
+  - name: "Review — AMP [Runtime]"
+    playbook: review_amp.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: amp
   - name: "Review — Proxmox [Cluster+PBS]"
     playbook: review_pve.yaml
     view: Maintenance
