@@ -366,6 +366,24 @@
           {% endif %}
           {% endfor %}
 
+    # ===== GUEST CONFIG (read-only: what is actually configured on each running guest) =====
+    # Allow-listed keys only — no cloud-init secrets (cipassword, sshkeys, ciuser) and no search domain.
+    - name: Display guest configuration
+      ansible.builtin.debug:
+        msg: |
+          === GUEST CONFIG (running guests) ===
+          {% for r in _guest_configs.results | default([]) if r is not failed %}
+          {{ r.item.vmid }} {{ r.item.name | default('') }} @ {{ r.item.node }}
+          {% for k in ['cores', 'sockets', 'memory', 'balloon', 'cpu', 'numa', 'machine', 'bios', 'ostype', 'agent', 'boot', 'onboot', 'startup', 'tags', 'protection', 'args', 'vga', 'scsihw', 'net0', 'net1', 'ipconfig0', 'ipconfig1'] %}
+          {% if r.json.data[k] is defined %}
+            {{ k }} = {{ r.json.data[k] }}
+          {% endif %}
+          {% endfor %}
+          {% for k, v in (r.json.data | dict2items | sort(attribute='key') | map(attribute='key') | zip(r.json.data | dict2items | sort(attribute='key') | map(attribute='value'))) if k is match('^(scsi|virtio|sata|ide|efidisk|tpmstate)[0-9]*$') %}
+            {{ k }} = {{ v }}
+          {% endfor %}
+          {% endfor %}
+
     # ===== REPLICATION STATUS =====
     - name: Get replication status
       ansible.builtin.uri:
