@@ -179,6 +179,58 @@
               Report only — nothing written (re-run with -e hw_vm_names=<name> -e hw_apply=true [-e hw_restart=true]).
               {% endif %}
 
+        # ── Disk flags (thin-provisioning reclaim) — report only ──
+        - name: Compute disk flag drift
+          ansible.builtin.set_fact:
+            _hw_disks: >-
+              {%- set out = [] -%}
+              {%- for t in _hw_targets -%}
+                {%- set cfg = (_hw_reads.results | selectattr('item.vmid', 'equalto', t.vmid) | selectattr('item.what', 'equalto', 'config') | first).json.data -%}
+                {%- for k, v in cfg.items() if k is match('^(scsi|virtio|sata|ide)[0-9]+$') and 'media=cdrom' not in (v | string) -%}
+                  {%- set opts = {} -%}
+                  {%- for kv in (v | string).split(',')[1:] if '=' in kv -%}{%- set _ = opts.update({kv.split('=')[0]: kv.split('=')[1]}) -%}{%- endfor -%}
+                  {%- set missing = [] -%}
+                  {%- for fk, fv in pve_disk_flags.items() if (opts.get(fk) | string) != (fv | string) -%}{%- set _ = missing.append(fk ~ '=' ~ fv) -%}{%- endfor -%}
+                  {%- set _ = out.append({'vmid': t.vmid, 'name': t.name, 'disk': k, 'volume': (v | string).split(',')[0], 'missing': missing}) -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {{ out | to_json }}
+
+        - name: Normalise the disk list
+          ansible.builtin.set_fact:
+            _hw_disks: "{{ _hw_disks if _hw_disks is not string else _hw_disks | from_json }}"
+
+        - name: Get provisioned/used size of each disk image (best effort)
+          ansible.builtin.uri:
+            url: "{{ _api_base }}/nodes/{{ item.node }}/storage/{{ pve_storage }}/content?vmid={{ item.vmid }}"
+            method: GET
+            headers:
+              Authorization: "{{ _api_auth }}"
+            validate_certs: false
+          register: _hw_content
+          check_mode: false
+          ignore_errors: true  # observational — storage content listing needs Datastore.Audit
+          loop: "{{ _hw_targets }}"
+          loop_control:
+            label: "{{ item.vmid }} {{ item.name }}"
+          no_log: "{{ _no_log }}"
+
+        - name: Report disk flags
+          ansible.builtin.debug:
+            msg: |
+              === DISK FLAGS — want {{ pve_disk_flags }} on every disk (report only; applied on the next VM restart) ===
+              {{ '%-6s %-12s %-8s %-46s %s' | format('VMID', 'Name', 'Disk', 'Volume', 'Missing') }}
+              {% for d in _hw_disks %}
+              {{ '%-6s %-12s %-8s %-46s %s' | format(d.vmid, d.name, d.disk, d.volume, d.missing | join(', ') if d.missing else 'ok') }}
+              {% endfor %}
+
+              Image size (provisioned / used, where the storage reports it):
+              {% for r in _hw_content.results | default([]) if r is not failed %}
+              {% for c in r.json.data | default([]) if c.format is defined %}
+                {{ '%-6s %-12s %-40s provisioned %6.1f GB   used %s' | format(r.item.vmid, r.item.name, c.volid, (c.size | default(0) | float) / 1073741824, ((c.used | float / 1073741824) | round(1) ~ ' GB') if c.used is defined else 'n/a (storage does not report it)') }}
+              {% endfor %}
+              {% endfor %}
+
         - name: Write drifted hardware to the VM config (pending until restart)
           ansible.builtin.uri:
             url: "{{ _api_base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"

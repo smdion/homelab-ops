@@ -75,3 +75,10 @@ pve_pool_test: "test"                    # test VMs (VLAN 1683 / 192.168.13.x)
 # VMIDs to exclude from the production pool even if they match the no-VLAN rule.
 # Use this for VMs that sit on the default VLAN but should not be backed up via PBS pool jobs.
 pve_pool_exclude_vmids: []
+
+# Disk flags every VM disk should carry (checked by maintain_vm_hardware.yaml, report-only until adopted).
+# discard=on lets a guest's fstrim/TRIM return freed blocks to thin storage (Ceph RBD, LVM-thin) — without it thin
+# images only ever grow; ssd=1 marks the disk as an SSD so guests schedule TRIM. Applied on the next VM restart.
+pve_disk_flags:
+  discard: "on"
+  ssd: "1"
