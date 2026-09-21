@@ -306,7 +306,7 @@
       ignore_errors: true  # observational — read-only HA-readiness probe
       no_log: "{{ _no_log }}"
 
-    # Only running guests are HA candidates here: stopped guests and templates are skipped by design.
+    # Only running guests are HA candidates here: stopped guests and templates (which never run) are skipped by design.
     - name: Get config of each running guest
       ansible.builtin.uri:
         url: "{{ _api_base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
@@ -319,7 +319,7 @@
         {{ _cluster_resources.json.data
            | selectattr('type', 'equalto', 'qemu')
            | selectattr('status', 'equalto', 'running')
-           | rejectattr('template', 'defined') | sort(attribute='vmid') | list }}
+           | sort(attribute='vmid') | list }}
       loop_control:
         label: "{{ item.vmid }} {{ item.name | default('') }}"
       check_mode: false
