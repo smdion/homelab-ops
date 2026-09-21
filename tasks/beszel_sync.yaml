@@ -77,6 +77,7 @@
          + (['--prune'] if beszel_prune | default(false) | bool else [])
          + (['--prune-up'] if beszel_prune_up | default(false) | bool else [])
          + (['--oidc-resync'] if beszel_oidc_resync | default(false) | bool else [])
+         + (beszel_trusted_proxy_headers | default([]) | map('regex_replace', '^', '--trusted-proxy-header=') | list)
          + (['--oidc-base', 'https://auth.' ~ vault_domain_ext ~ '/application/o', '--oidc-name', beszel_oidc_name | default('Authentik')]
             if (vault_docker_beszel_oidc_client_id | default('')) | length > 0 else []) }}
   environment:

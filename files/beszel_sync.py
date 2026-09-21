@@ -203,6 +203,19 @@ def plan_oidc(current, spec):
     return problems, new
 
 
+def plan_trusted_proxy(current, headers):
+    """Pure function: compare the hub's trustedProxy setting with the wanted header list.
+
+    useLeftmostIP stays False on purpose: with SWAG's real-ip handling the rightmost address in X-Forwarded-For is the real client
+    even if the caller supplied a fake one in front. Returns (problems, new_block)."""
+    problems = []
+    if list(current.get("headers") or []) != list(headers):
+        problems.append("trusted proxy headers differ")
+    if bool(current.get("useLeftmostIP")):
+        problems.append("useLeftmostIP should be off")
+    return problems, {"headers": list(headers), "useLeftmostIP": False}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hub-url", required=True)
@@ -212,6 +225,8 @@ def main():
     ap.add_argument("--max-minor-lag", type=int, default=2, help="flag an agent this many minor versions behind the hub")
     ap.add_argument("--oidc-base", default="", help="Authentik .../application/o base URL; enables the SSO provider step")
     ap.add_argument("--oidc-name", default="Authentik", help="button label shown on the hub's login page")
+    ap.add_argument("--trusted-proxy-header", action="append", default=[],
+                    help="header(s) the hub trusts for the client IP (e.g. X-Forwarded-For); repeatable")
     ap.add_argument("--oidc-resync", action="store_true",
                     help="with --apply, re-send the OIDC provider (incl. the write-only secret) even when nothing visible differs")
     ap.add_argument("--apply", action="store_true")
@@ -240,16 +255,24 @@ def main():
     webhook_missing = bool(webhook) and webhook not in hooks
 
     oidc_problems, oidc_new, su_hub = [], None, None
-    if args.oidc_base and os.environ.get("BESZEL_OIDC_CLIENT_ID") and os.environ.get("BESZEL_OIDC_CLIENT_SECRET"):
-        try:
+    tp_problems, tp_new = [], None
+    oidc_wanted = bool(args.oidc_base and os.environ.get("BESZEL_OIDC_CLIENT_ID") and os.environ.get("BESZEL_OIDC_CLIENT_SECRET"))
+    if oidc_wanted or args.trusted_proxy_header:
+        try:  # both settings live in the hub's PocketBase configuration, which needs a superuser session
             su_hub = Hub(args.hub_url)
             su_hub.login_superuser(os.environ["BESZEL_USER"], os.environ["BESZEL_PASSWORD"])
-            status, users_coll = su_hub.call("GET", "/api/collections/users")
-            if status != 200 or not isinstance(users_coll, dict):
-                raise RuntimeError(f"reading the users collection failed (HTTP {status})")
-            spec = oidc_spec(args.oidc_base, args.oidc_name, os.environ["BESZEL_OIDC_CLIENT_ID"],
-                             os.environ["BESZEL_OIDC_CLIENT_SECRET"])
-            oidc_problems, oidc_new = plan_oidc(users_coll.get("oauth2") or {}, spec)
+            if oidc_wanted:
+                status, users_coll = su_hub.call("GET", "/api/collections/users")
+                if status != 200 or not isinstance(users_coll, dict):
+                    raise RuntimeError(f"reading the users collection failed (HTTP {status})")
+                spec = oidc_spec(args.oidc_base, args.oidc_name, os.environ["BESZEL_OIDC_CLIENT_ID"],
+                                 os.environ["BESZEL_OIDC_CLIENT_SECRET"])
+                oidc_problems, oidc_new = plan_oidc(users_coll.get("oauth2") or {}, spec)
+            if args.trusted_proxy_header:
+                status, hub_settings = su_hub.call("GET", "/api/settings")
+                if status != 200 or not isinstance(hub_settings, dict):
+                    raise RuntimeError(f"reading the hub settings failed (HTTP {status})")
+                tp_problems, tp_new = plan_trusted_proxy(hub_settings.get("trustedProxy") or {}, args.trusted_proxy_header)
         except (RuntimeError, OSError) as e:
             print(f"ERROR: {e}", file=sys.stderr)
             return 1
@@ -272,16 +295,18 @@ def main():
         say("  WEBHOOK notification target missing")
     for pr in oidc_problems:
         say(f"  SSO     {pr}")
+    for pr in tp_problems:
+        say(f"  PROXY   {pr}")
     for d in down:
         say(f"  DOWN    {d['name']:14} {d['host']:16} down for {d['hours']}h")
     for o in outdated:
         say(f"  OLD     {o['name']:14} agent {o['version']} (hub {o['hub']})")
 
     drift = bool(p["creates"] or p["updates"] or p["orphans"] or p["alert_creates"] or p["alert_updates"]
-                 or webhook_missing or oidc_problems)
+                 or webhook_missing or oidc_problems or tp_problems)
     result = {"drift": drift, "applied": False, "pruned": [], "errors": [],
               "counts": {k: len(v) for k, v in p.items()}, "webhook_missing": webhook_missing,
-              "oidc": oidc_problems,
+              "oidc": oidc_problems, "trusted_proxy": tp_problems,
               "details": {"missing": [d["name"] for d in p["creates"]],
                           "changed": [f"{u['hub']['name']} -> {u['desired']['name']}" for u in p["updates"]],
                           "orphans": [f"{o['name']} ({o['host']})" for o in p["orphans"]]},
@@ -350,6 +375,11 @@ def main():
             st, res = su_hub.call("PATCH", "/api/collections/users", {"oauth2": oidc_new})
             if st != 200:
                 result["errors"].append(f"SSO provider: HTTP {st} {res if isinstance(res, str) else res.get('message', '')}")
+        # 6. trusted proxy header (client IP in logs/alerts)
+        if tp_problems and su_hub is not None and tp_new is not None:
+            st, res = su_hub.call("PATCH", "/api/settings", {"trustedProxy": tp_new})
+            if st != 200:
+                result["errors"].append(f"trusted proxy: HTTP {st} {res if isinstance(res, str) else res.get('message', '')}")
         result["applied"] = True
         if result["errors"]:
             for e in result["errors"]:

@@ -27,3 +27,8 @@ beszel_agent_max_minor_lag: 2
 # SSO: label of the Authentik login button on the hub's login page (the provider itself is reconciled from
 # vault_docker_beszel_oidc_client_id / _secret by tasks/beszel_sync.yaml).
 beszel_oidc_name: "Authentik"
+
+# Headers the hub trusts for the real client IP (its PocketBase trustedProxy setting, reconciled by beszel_sync). SWAG sends
+# X-Forwarded-For (see the beszel proxy definition); without this the hub logs the connection's source (WireGuard's UDM address).
+beszel_trusted_proxy_headers:
+  - X-Forwarded-For

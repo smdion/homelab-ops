@@ -464,7 +464,10 @@ container_definitions:
         - path: /
           port: 8090
           auth: true
-          includes: []
+          # proxy.conf carries X-Forwarded-For / Host / Upgrade. Without it the hub only saw the connection's source — WireGuard's
+          # 10.253.100.4 (the UDM) — so login alerts and its logs showed that instead of the real client. SWAG already resolves
+          # the real client (set_real_ip_from the VPS NPM); the hub trusts the header via beszel_sync (trustedProxy).
+          includes: [proxy]
     compose:
       base: baseenv
       network_mode: "service:wireguard"
