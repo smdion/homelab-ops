@@ -29,3 +29,4 @@ db_container_deps:
   radarr-main: []
   sonarr-log: []
   sonarr-main: []
+  zipline: []   # app runs on unRAID redemption (cross-host)

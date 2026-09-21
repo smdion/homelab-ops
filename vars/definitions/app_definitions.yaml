@@ -87,6 +87,14 @@ app_definitions:
     db_host: "{{ vault_db_host_primary }}"
     db_names: [filerun]
     containers: [filerun]
+  zipline:
+    # Container is hand-managed on unRAID redemption (unRAID Apps); DB lives on core postgres.
+    # DB + role created by hand 2026-09-21; role password is vault_zipline_db_password.
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_host: "{{ vault_db_host_primary }}"
+    db_names: [zipline]
+    containers: [zipline]   # unRAID container name — adjust if the app is deployed under a different name
   immich:
     db_stack: databases
     db_config: db_secondary_postgres
