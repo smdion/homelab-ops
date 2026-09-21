@@ -161,28 +161,6 @@ vm_definitions:
     install_desktop: true
     guacamole: { name: Desktop, group: Hosted Desktops, protocol: vnc }
 
-  # TronLabs — cloud-init provisioned graphical desktop on independence (local-lvm).
-  # Public hosted network (VLAN 1682, 192.168.12.x). VMID 1214 = IP 192.168.12.14.
-  tronlabs:
-    beszel: { agent: none }
-    vm_id: 1214
-    vm_name: tronlabs
-    vm_mac: "02:00:00:00:04:be"       # static MAC — stable Unifi device identity; encodes VMID 1214 (0x04BE)
-    vm_hostname: "tronlabs.{{ vault_vm_search_domain }}"
-    vm_ip: "{{ vault_tronlabs_ip }}"
-    vm_gateway: "192.168.12.1"        # public hosted VLAN gateway (overrides global vm_gateway)
-    vm_cores: 8
-    vm_memory_mb: 32768
-    vm_disk_gb: 100
-    pve_storage: "local-lvm"          # independence local storage — not replicated CEPH
-    pve_target_node: "{{ vault_tronlabs_node | default('independence') }}"
-    vm_vlan_tag: 1682
-    deploy_ssh_key: true
-    install_docker: false
-    install_desktop: true
-    vnc_display: 81                    # display :81 = port 5981
-    guacamole: { name: TronLabs, group: Hosted Desktops, protocol: vnc, user_groups: [Guac-TronLabs] }
-
   sandbox:
     beszel: { agent: none }      # often off on purpose
     vm_id: 900

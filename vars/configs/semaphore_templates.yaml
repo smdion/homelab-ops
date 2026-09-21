@@ -110,12 +110,6 @@ semaphore_templates:
     inventory: ansible-user-ssh
     environment: blank   # was unset in Semaphore (hand-made template)
     arguments: "[\"-e\", \"vm_name=sandbox\", \"-e\", \"debug_no_log=yes\"]"
-  - name: "Build — Ubuntu [TronLabs]"
-    playbook: build_ubuntu.yaml
-    view: Deploy
-    inventory: ansible-user-ssh
-    environment: blank   # was unset in Semaphore (hand-made template)
-    arguments: "[\"-e\",\"vm_name=tronlabs\",\"-e debug_no_log=yes\"]"
   - name: "Build — Ubuntu [VM]"
     playbook: build_ubuntu.yaml
     view: Deploy

@@ -9,7 +9,7 @@
 #   state     started (default) | stopped | disabled | ignored
 #   optional: max_relocate, max_restart, failback (use 0/1), auto-rebalance (0/1, PVE 9.2+: exclude from the balancer)
 #   Only guests on shared (Ceph) storage with no passthrough/local ISO qualify (see review_pve.yaml "HA READINESS").
-#   Not listed on purpose: 1214 tronlabs (being deleted), template 9000.
+#   Not listed on purpose: template 9000 (templates cannot be HA).
 ha_resources:
   - { vmid: 602, name: pdm, state: started }   # pilot guest (2026-09-21)
   - { vmid: 400, name: core, state: started }

@@ -10,7 +10,7 @@
 # that checklist at the end (a run cannot edit its own definition).
 #
 # Required extra vars:
-#   vm_name                — key in vm_definitions (e.g. tronlabs)
+#   vm_name                — key in vm_definitions (e.g. myvm)
 #
 # Optional extra vars:
 #   retire_apply=true      — perform the removal (needs confirm=yes)
@@ -19,9 +19,9 @@
 #   retire_force=yes       — allow retiring a VM that runs Docker stacks (refused by default)
 #
 # Usage:
-#   ansible-playbook retire_vm.yaml -e vm_name=tronlabs                                            # report only
-#   ansible-playbook retire_vm.yaml -e vm_name=tronlabs -e retire_apply=true -e confirm=yes
-#   ansible-playbook retire_vm.yaml -e vm_name=tronlabs -e retire_apply=true -e confirm=yes -e retire_backups=delete
+#   ansible-playbook retire_vm.yaml -e vm_name=myvm                                            # report only
+#   ansible-playbook retire_vm.yaml -e vm_name=myvm -e retire_apply=true -e confirm=yes
+#   ansible-playbook retire_vm.yaml -e vm_name=myvm -e retire_apply=true -e confirm=yes -e retire_backups=delete
 
 - name: Retire a VM
   hosts: localhost
