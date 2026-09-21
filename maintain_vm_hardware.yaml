@@ -18,7 +18,8 @@
 #   ansible-playbook maintain_vm_hardware.yaml -e hw_vm_names=amp -e hw_apply=true     # write, restart later
 #   ansible-playbook maintain_vm_hardware.yaml -e hw_vm_names=amp -e hw_apply=true -e hw_restart=true
 #
-# Required: vars/definitions/vm_definitions.yaml (vm_id, vm_cores, vm_memory_mb per VM)
+# Required: vars/definitions/vm_definitions.yaml (vm_id, vm_cores, vm_memory_mb per VM) and/or a `vm_hardware:` block on a
+# host_definitions entry (vmid, cores, sockets, memory_mb) for VMs that are hosts, such as PDM.
 
 - name: Maintain VM hardware from definitions
   hosts: localhost
@@ -28,6 +29,7 @@
     - vars/secrets.yaml
     - vars/configs/proxmox.yaml
     - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
     - vars/definitions/pve_definitions.yaml
     - vars/configs/semaphore_check.yaml
   vars:
@@ -86,18 +88,26 @@
           check_mode: false
           no_log: "{{ _no_log }}"
 
-        # Only VMs that both are defined here and exist in the cluster (standalone nodes are not in this API).
+        # Candidates come from vm_definitions (vm_id + vm_cores [+ vm_sockets, vm_memory_mb]) and from host_definitions entries
+        # that carry a `vm_hardware: { vmid, cores, sockets, memory_mb }` block (VMs that are hosts, e.g. PDM — they must NOT get a
+        # top-level vm_id, which apply_role reads as "this role is a provisioned VM"). Only VMs that also exist in the cluster are
+        # kept (standalone nodes are not in this API).
         - name: Select target VMs
           ansible.builtin.set_fact:
             _hw_targets: >-
+              {%- set cands = [] -%}
+              {%- for name, d in vm_definitions.items() if d is mapping and d.vm_id is defined and d.vm_cores is defined -%}
+                {%- set _ = cands.append({'name': name, 'vmid': d.vm_id, 'cores': d.vm_cores, 'sockets': d.vm_sockets | default(1), 'memory': d.vm_memory_mb}) -%}
+              {%- endfor -%}
+              {%- for name, d in host_definitions.items() if d is mapping and d.vm_hardware is defined -%}
+                {%- set _ = cands.append({'name': name, 'vmid': d.vm_hardware.vmid, 'cores': d.vm_hardware.cores, 'sockets': d.vm_hardware.sockets | default(1), 'memory': d.vm_hardware.memory_mb}) -%}
+              {%- endfor -%}
               {%- set out = [] -%}
-              {%- for name, d in vm_definitions.items() -%}
-                {%- if (_hw_names | length == 0 or name in _hw_names) and d.vm_id is defined and d.vm_cores is defined -%}
-                  {%- for r in _hw_cluster.json.data if (r.vmid | string) == (d.vm_id | string) -%}
-                    {%- set _ = out.append({'name': name, 'vmid': r.vmid, 'node': r.node, 'status': r.status,
-                          'want': {'cores': d.vm_cores | int, 'sockets': d.vm_sockets | default(1) | int, 'memory': d.vm_memory_mb | int}}) -%}
-                  {%- endfor -%}
-                {%- endif -%}
+              {%- for c in cands if _hw_names | length == 0 or c.name in _hw_names -%}
+                {%- for r in _hw_cluster.json.data if (r.vmid | string) == (c.vmid | string) -%}
+                  {%- set _ = out.append({'name': c.name, 'vmid': r.vmid, 'node': r.node, 'status': r.status,
+                        'want': {'cores': c.cores | int, 'sockets': c.sockets | int, 'memory': c.memory | int}}) -%}
+                {%- endfor -%}
               {%- endfor -%}
               {{ out | to_json }}
 

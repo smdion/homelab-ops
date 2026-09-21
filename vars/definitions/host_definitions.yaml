@@ -698,6 +698,9 @@ host_definitions:
   pdm:
     beszel: { agent: binary, name: PDM }
     vm_hostname: "pdm.{{ vault_vm_search_domain }}"
+    # Recorded from the running VM 602 on 2026-09-21 (installed from the PDM ISO, not cloud-init). A `vm_hardware` block, not vm_id:
+    # apply_role treats a top-level vm_id as "provisioned VM role". Reconciled by maintain_vm_hardware.yaml.
+    vm_hardware: { vmid: 602, cores: 2, sockets: 2, memory_mb: 4096 }
     proxy:
       - subdomain: pdm
         upstream_ip: "10.10.10.62"

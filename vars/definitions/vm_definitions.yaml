@@ -234,6 +234,14 @@ vm_definitions:
     beszel: { agent: container, name: Fresh-Jams }   # hand-managed container, not covered by update_systems (agent is 0.10.2); name = the hub's existing entry
     vm_id: 1212
     vm_hostname: "freshjams.{{ vault_vm_search_domain }}"
+    # Hardware recorded from the running VM on 2026-09-21 (hand-built, NOT cloud-init). Used by maintain_vm_hardware.yaml.
+    # Do not run build_ubuntu against it: provisioning would rewrite cloud-init/network on a hand-managed VM.
+    vm_cores: 1
+    vm_sockets: 4                      # as running (4 sockets x 1 core = 4 vCPUs)
+    vm_memory_mb: 12288
+    vm_disk_gb: 32
+    vm_mac: "BC:24:11:87:7A:87"        # auto-generated MAC, as running
+    vm_vlan_tag: 1682                  # public hosted VLAN
     vnc_display: 77
     guacamole:
       name: FreshJams
