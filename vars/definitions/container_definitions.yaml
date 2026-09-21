@@ -799,6 +799,13 @@ container_definitions:
       RELAYHOST_USERNAME: "{{ vault_docker_email_username }}"
       RELAYHOST_PASSWORD: "{{ vault_docker_email_password }}"
       ALLOWED_SENDER_DOMAINS: "{{ vault_domain_ext }}"
+      # Do NOT offer STARTTLS to clients. The image's default inbound certificate is Debian's self-signed
+      # "CN=localhost", so any client that upgrades and verifies (the Beszel hub does) rejects it; clients that do not
+      # verify (Immich) never noticed. This relay is unauthenticated and reachable only from our own networks
+      # (mynetworks: RFC1918 — LAN, and the VPS over WireGuard), so plaintext SMTP inside them is acceptable. The hop
+      # to Gmail stays encrypted (smtp_tls_security_level=may, relayhost :587). The image applies any POSTFIX_<param>
+      # variable with `postconf -e`. To get verified TLS instead, see homelab-docs infrastructure/mail-relay.md.
+      POSTFIX_smtpd_tls_security_level: "none"
     compose:
       base: base
       # infra stack runs on core, apps, and dev -- one central relay only, same
@@ -810,6 +817,7 @@ container_definitions:
         RELAYHOST_USERNAME: "${RELAYHOST_USERNAME}"
         RELAYHOST_PASSWORD: "${RELAYHOST_PASSWORD}"
         ALLOWED_SENDER_DOMAINS: "${ALLOWED_SENDER_DOMAINS}"
+        POSTFIX_smtpd_tls_security_level: "${POSTFIX_smtpd_tls_security_level}"
       profiles: ["hub"]
       healthcheck:
         test: ["CMD", "nc", "-z", "localhost", "25"]
