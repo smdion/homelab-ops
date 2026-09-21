@@ -285,6 +285,20 @@
             _reboot_needed: "{{ (_reboot_required_file.stat.exists | default(false)) or (_kernel_stale.stdout | default('') | trim | length > 0) }}"
           when: _version_scope == 'os'
 
+        - name: Record the HA services currently on this node
+          ansible.builtin.shell: >-
+            pvesh get /cluster/ha/status/current --output-format json |
+            python3 -c 'import sys,json; print(" ".join(s["sid"] for s in json.load(sys.stdin) if s.get("type")=="service" and s.get("node")=="{{ ansible_facts.hostname }}"))'
+          register: _ha_home
+          changed_when: false
+          check_mode: false
+          become: true
+          when:
+            - _version_scope == 'os'
+            - inventory_hostname in groups['pve'] | default([])
+            - _reboot_needed | default(false) | bool
+            - _auto_reboot | bool
+
         - name: Enable PVE node maintenance mode (HA migration)
           ansible.builtin.shell: ha-manager crm-command node-maintenance enable {{ ansible_facts.hostname }}
           become: true
@@ -421,13 +435,27 @@
             - _pve_maint_enabled is defined
             - not (_pve_maint_enabled is skipped)
 
-        # Native HA returns the guests it moved (and the CRS balancer may place them elsewhere afterwards), so the check
-        # is "every HA service that should be started is started", not "back on the same node". A timeout fails this
-        # node, which stops the remaining cluster nodes (see the guard at the top of the play) before any further reboot.
+        # Native HA moves the guests back once maintenance mode ends. Right after `node-maintenance disable` every service
+        # still reports "started" on the node it was parked on (the CRM has not begun moving it home yet), so a plain
+        # "all started" check passes too early. Require that the services recorded on this node before the reboot are
+        # started AND back on it. A timeout fails this node, which stops the remaining cluster nodes (guard at the top of
+        # the play) before any further reboot.
         - name: Wait for HA services to settle after the reboot
           ansible.builtin.shell: |
+            home="{{ _ha_home.stdout | default('') | trim }}"
             for i in $(seq 1 60); do
-              bad=$(pvesh get /cluster/ha/status/current --output-format json | python3 -c 'import sys,json; print(",".join(s["sid"]+"="+s.get("state","?") for s in json.load(sys.stdin) if s.get("type")=="service" and s.get("request_state","started")=="started" and s.get("state")!="started"))')
+              bad=$(HOME_SIDS="$home" pvesh get /cluster/ha/status/current --output-format json | python3 -c '
+            import sys, json, os
+            home = os.environ.get("HOME_SIDS", "").split()
+            bad = []
+            for s in json.load(sys.stdin):
+                if s.get("type") != "service" or s.get("request_state", "started") != "started":
+                    continue
+                if s.get("state") != "started":
+                    bad.append(s["sid"] + "=" + s.get("state", "?"))
+                elif s["sid"] in home and s.get("node") != "{{ ansible_facts.hostname }}":
+                    bad.append(s["sid"] + "@" + s.get("node", "?"))
+            print(",".join(bad))')
               [ -z "$bad" ] && echo "HA_SETTLED" && exit 0
               sleep 10
             done
