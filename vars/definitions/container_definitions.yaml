@@ -52,6 +52,8 @@
 #     security_opt   — list of security options
 #     shm_size       — shared memory size (e.g., "2g")
 #     network_aliases — list of network aliases on the default network
+#     extra_hosts    — list of "hostname:ip" entries for the container's /etc/hosts. NOTE: containers that join another
+#                      container's network (network_mode: service:X) share X's hosts file, so it is declared on X, not on them
 #
 # Pinned file fetch (optional — used by tasks/deploy_single_stack.yaml before compose up):
 #   fetch_files    — list of files the image does not ship; each fetched with get_url
@@ -1944,6 +1946,13 @@ container_definitions:
       # something only discoverable via `docker inspect`. Recreation is a no-op for
       # networking since the IP doesn't actually change.
       static_ip: "172.21.0.2"
+      # The Beszel hub (and NPM, the agents...) run INSIDE this container's network (network_mode: service:wireguard) and
+      # share its hosts file. Everything reaches Authentik by its domain name, and that name resolves publicly to THIS VPS —
+      # which a container cannot reach by looping back through its own host's public IP (Docker does not hairpin it), so the hub's
+      # SSO token exchange to https://auth.<domain>/application/o/token/ timed out. Mapping the name to 127.0.0.1 sends it to NPM,
+      # which shares this namespace and proxies to SWAG / Authentik exactly like a browser request does.
+      extra_hosts:
+        - "auth.{{ vault_domain_ext }}:127.0.0.1"
       labels:
         homelab.backup.paths: "/opt/wireguard"
       environment:

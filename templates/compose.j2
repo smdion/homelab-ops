@@ -114,6 +114,12 @@ services:
       - {{ port }}
 {% endfor %}
 {% endif %}
+{% if c.extra_hosts | default([]) | length > 0 %}
+    extra_hosts:
+{% for h in c.extra_hosts %}
+      - "{{ h }}"
+{% endfor %}
+{% endif %}
 {% if c.volumes | default([]) | length > 0 %}
     volumes:
 {% for vol in c.volumes %}
