@@ -99,6 +99,11 @@ semaphore_templates:
     inventory: ansible-user-ssh
     environment: blank
     arguments: "[\"-e\", \"vm_name=iventoy\"]"
+  - name: "Build — VM [Retire]"
+    playbook: retire_vm.yaml
+    view: Deploy
+    inventory: ansible-user-ssh
+    environment: blank
   - name: "Build — Ubuntu [Sandbox]"
     playbook: build_ubuntu.yaml
     view: Deploy                          # was unset in Semaphore (hand-made template)

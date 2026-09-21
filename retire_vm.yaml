@@ -1,0 +1,315 @@
+---
+# Category: Build & Provision
+# Schedule: none
+# Retire a VM that build_ubuntu.yaml provisioned, undoing everything the build created OUTSIDE the guest:
+#   * its HA resource (if any), then the VM itself (stop + delete, purged from HA/backup/replication jobs)
+#   * its Guacamole connection and the Guacamole user groups only it referenced
+#   * its PBS backups (only with retire_backups=delete — recovery data is kept by default)
+# Report-only by default: prints exactly what exists and what would be removed. Nothing is changed without both
+# retire_apply=true and confirm=yes. The definition, registry template, vault keys and docs live in git/vault: the play prints
+# that checklist at the end (a run cannot edit its own definition).
+#
+# Required extra vars:
+#   vm_name                — key in vm_definitions (e.g. tronlabs)
+#
+# Optional extra vars:
+#   retire_apply=true      — perform the removal (needs confirm=yes)
+#   confirm=yes            — safety gate for retire_apply
+#   retire_backups=delete  — also delete the VM's PBS backups (default: keep)
+#   retire_force=yes       — allow retiring a VM that runs Docker stacks (refused by default)
+#
+# Usage:
+#   ansible-playbook retire_vm.yaml -e vm_name=tronlabs                                            # report only
+#   ansible-playbook retire_vm.yaml -e vm_name=tronlabs -e retire_apply=true -e confirm=yes
+#   ansible-playbook retire_vm.yaml -e vm_name=tronlabs -e retire_apply=true -e confirm=yes -e retire_backups=delete
+
+- name: Retire a VM
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/pve_definitions.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/container_definitions.yaml
+    - vars/configs/proxmox.yaml
+    - vars/configs/guacamole.yaml
+    - vars/configs/semaphore_check.yaml
+  vars:
+    retire_apply: false
+    retire_backups: keep
+    maintenance_name: "VM Retire"
+    maintenance_type: "Appliances"
+    maintenance_subtype: "Maintenance"
+    maintenance_url: ""
+    _guac_host: "{{ vm_definitions.apps.vm_hostname }}"
+    _guac_db_user: "{{ guacamole_db_user }}"
+    _guac_db_name: "{{ guacamole_db_name }}"
+    _guac_container: "{{ guacamole_container }}"
+
+  pre_tasks:
+    - name: Run standard pre-flight assertions
+      include_tasks: tasks/pre_task_assertions.yaml
+      vars:
+        pre_playbook: "retire_vm.yaml"
+        pre_hostname: "{{ controller_fqdn }}"
+
+    - name: Resolve PVE API endpoint
+      include_tasks: tasks/resolve_pve_api.yaml
+      vars:
+        _pve_target_node: ""
+
+  tasks:
+    - name: Initialize state
+      ansible.builtin.set_fact:
+        maintenance_failed: false
+        _retired: []
+
+    - block:
+        - name: Assert the request is valid
+          ansible.builtin.assert:
+            that:
+              - vm_name is defined
+              - vm_name in vm_definitions
+              - vm_definitions[vm_name].vm_id is defined
+              - (vm_definitions[vm_name].stacks | default([])) | length == 0 or (retire_force | default('')) == 'yes'
+              - not (retire_apply | bool) or (confirm | default('')) == 'yes'
+            fail_msg: >-
+              vm_name must be a vm_definitions key with a vm_id; VMs that run Docker stacks need -e retire_force=yes;
+              retire_apply=true needs -e confirm=yes.
+            quiet: true
+
+        - name: Set the VM facts
+          ansible.builtin.set_fact:
+            _vm: "{{ vm_definitions[vm_name] }}"
+            _api_base: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json"
+            _api_auth: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
+
+        - name: Get cluster VMs, HA resources and storages
+          ansible.builtin.uri:
+            url: "{{ _api_base }}{{ item.path }}"
+            method: GET
+            headers:
+              Authorization: "{{ _api_auth }}"
+            validate_certs: false
+          register: _reads
+          check_mode: false
+          loop:
+            - { key: vms, path: "/cluster/resources?type=vm" }
+            - { key: ha, path: "/cluster/ha/resources" }
+            - { key: storage, path: "/storage" }
+            - { key: nodes, path: "/nodes" }
+          loop_control:
+            label: "{{ item.key }}"
+          no_log: "{{ _no_log }}"
+
+        - name: Index what exists
+          ansible.builtin.set_fact:
+            _cluster_vm: "{{ _reads.results[0].json.data | selectattr('vmid', 'equalto', _vm.vm_id | int) | list | first | default({}) }}"
+            _ha_entry: "{{ _reads.results[1].json.data | default([]) | selectattr('sid', 'equalto', 'vm:' ~ _vm.vm_id) | list | first | default({}) }}"
+            _pbs_storages: "{{ _reads.results[2].json.data | selectattr('type', 'equalto', 'pbs') | map(attribute='storage') | list }}"
+            _online_node: "{{ (_reads.results[3].json.data | selectattr('status', 'equalto', 'online') | list | first).node }}"
+
+        # ── PBS backups of this VMID (read-only listing; deletion only with retire_backups=delete) ──
+        - name: List PBS backups of the VM
+          ansible.builtin.uri:
+            url: "{{ _api_base }}/nodes/{{ _online_node }}/storage/{{ item }}/content?vmid={{ _vm.vm_id }}"
+            method: GET
+            headers:
+              Authorization: "{{ _api_auth }}"
+            validate_certs: false
+          register: _backups
+          check_mode: false
+          loop: "{{ _pbs_storages }}"
+          no_log: "{{ _no_log }}"
+
+        - name: Flatten the backup list
+          ansible.builtin.set_fact:
+            _backup_list: >-
+              {%- set out = [] -%}
+              {%- for r in _backups.results -%}
+                {%- for b in r.json.data | default([]) -%}
+                  {%- set _ = out.append({'storage': r.item, 'volid': b.volid, 'ctime': b.ctime | default(0)}) -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {{ out | to_json }}
+
+        - name: Normalise the backup list
+          ansible.builtin.set_fact:
+            _backup_list: "{{ _backup_list if _backup_list is not string else _backup_list | from_json }}"
+
+        # ── Guacamole: connection + user groups only this VM references ──
+        - name: Work out the Guacamole cleanup
+          ansible.builtin.set_fact:
+            _guac: "{{ _vm.guacamole | default({}) }}"
+            _guac_other_groups: >-
+              {%- set used = [] -%}
+              {%- for src in [vm_definitions, host_definitions, container_definitions | default({})] -%}
+                {%- for k, d in src.items() if k != vm_name and d is mapping and d.guacamole is defined -%}
+                  {%- for g in d.guacamole.user_groups | default([]) -%}{%- set _ = used.append(g) -%}{%- endfor -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {%- for c in guacamole_extra_connections | default([]) -%}
+                {%- for g in c.user_groups | default([]) -%}{%- set _ = used.append(g) -%}{%- endfor -%}
+              {%- endfor -%}
+              {{ used | to_json }}
+
+        - name: Normalise the used-group list
+          ansible.builtin.set_fact:
+            _guac_other_groups: "{{ _guac_other_groups if _guac_other_groups is not string else _guac_other_groups | from_json }}"
+
+        - name: Assert Guacamole names are safe to put in SQL
+          ansible.builtin.assert:
+            that: "(item | string) is match('^[A-Za-z0-9 _.-]+$')"
+            quiet: true
+          loop: "{{ ([_guac.name | default('x'), _guac.group | default('x')] + (_guac.user_groups | default([]))) }}"
+
+        - name: Set the Guacamole removal lists
+          ansible.builtin.set_fact:
+            _guac_groups_to_remove: "{{ (_guac.user_groups | default([])) | difference(_guac_other_groups) | difference(guacamole_admin_groups) }}"
+
+        - name: Add Guacamole host to in-memory inventory
+          ansible.builtin.add_host:
+            name: guac_target
+            ansible_host: "{{ _guac_host }}"
+            ansible_user: ansible
+            ansible_become: true
+          when: _guac.name is defined
+
+        - name: Look up the Guacamole connection
+          ansible.builtin.shell: >-
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} -t -A
+            -c "SELECT c.connection_id FROM guacamole_connection c
+                JOIN guacamole_connection_group g ON c.parent_id = g.connection_group_id
+                WHERE c.connection_name = '{{ _guac.name }}' AND g.connection_group_name = '{{ _guac.group | default('') }}'"
+          delegate_to: guac_target
+          register: _guac_conn
+          changed_when: false
+          check_mode: false
+          when: _guac.name is defined
+
+        - name: Report
+          ansible.builtin.debug:
+            msg: |
+              === RETIRE {{ vm_name }} (VMID {{ _vm.vm_id }}) — {{ 'APPLY' if retire_apply | bool else 'report only' }} ===
+              VM             : {{ ('exists on ' ~ _cluster_vm.node ~ ' (' ~ _cluster_vm.status ~ ')') if _cluster_vm else 'not in the cluster (already gone)' }}
+              HA resource    : {{ ('vm:' ~ _vm.vm_id ~ ' state ' ~ _ha_entry.state | default('?') ~ ' -> will be removed first') if _ha_entry else 'none' }}
+              PBS backups    : {{ _backup_list | length }} found{{ ' -> ' ~ ('WILL BE DELETED' if retire_backups == 'delete' else 'kept (use -e retire_backups=delete to remove)') if _backup_list | length > 0 else '' }}
+              Guacamole      : {{ ('connection "' ~ _guac.name ~ '" (group ' ~ _guac.group | default('-') ~ ') id ' ~ (_guac_conn.stdout | default('') | trim or 'not found')) if _guac.name is defined else 'no connection defined' }}
+              Guac user groups removed (only this VM used them): {{ _guac_groups_to_remove | default([]) }}
+              Guac user groups kept (still referenced elsewhere/admin): {{ (_guac.user_groups | default([])) | difference(_guac_groups_to_remove | default([])) }}
+              {% if not (retire_apply | bool) %}
+              Report only — nothing changed (re-run with -e retire_apply=true -e confirm=yes).
+              {% endif %}
+
+        # ── Apply ──
+        - name: Remove the HA resource and destroy the VM
+          include_tasks: tasks/destroy_vm.yaml
+          vars:
+            _destroy_vmid: "{{ _vm.vm_id }}"
+            _destroy_node: "{{ _cluster_vm.node }}"
+            _destroy_name: "{{ vm_name }}"
+          when: (retire_apply | bool) and _cluster_vm | length > 0
+
+        - name: Delete the VM's PBS backups
+          ansible.builtin.uri:
+            url: "{{ _api_base }}/nodes/{{ _online_node }}/storage/{{ item.storage }}/content/{{ item.volid | urlencode }}"
+            method: DELETE
+            headers:
+              Authorization: "{{ _api_auth }}"
+            validate_certs: false
+          loop: "{{ _backup_list }}"
+          loop_control:
+            label: "{{ item.volid }}"
+          when: (retire_apply | bool) and retire_backups == 'delete'
+          no_log: "{{ _no_log }}"
+
+        - name: Delete the Guacamole connection
+          ansible.builtin.shell: |
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
+            DELETE FROM guacamole_connection_parameter WHERE connection_id = {{ _guac_conn.stdout | trim }};
+            DELETE FROM guacamole_connection WHERE connection_id = {{ _guac_conn.stdout | trim }};
+            ENDSQL
+          delegate_to: guac_target
+          when:
+            - retire_apply | bool
+            - _guac.name is defined
+            - _guac_conn.stdout | default('') | trim | length > 0
+
+        - name: Delete the Guacamole user groups only this VM used
+          ansible.builtin.shell: |
+            docker exec -i {{ _guac_container }} psql -U {{ _guac_db_user }} -d {{ _guac_db_name }} <<'ENDSQL'
+            DELETE FROM guacamole_entity WHERE name = '{{ item }}' AND type = 'USER_GROUP';
+            ENDSQL
+          delegate_to: guac_target
+          loop: "{{ _guac_groups_to_remove }}"
+          when:
+            - retire_apply | bool
+            - _guac.name is defined
+
+        - name: Checklist for what a run cannot remove
+          ansible.builtin.debug:
+            msg: |
+              Still to do for {{ vm_name }} (repo/vault/outside the repo):
+                * remove the {{ vm_name }} entry from vars/definitions/vm_definitions.yaml (and any ha_definitions / registry template)
+                * remove its Semaphore template from vars/configs/semaphore_templates.yaml, then run Deploy — Semaphore [Templates] with semaphore_prune=true
+                * remove vault keys vault_{{ vm_name }}_* from vars/secrets.yaml (ansible-vault edit)
+                * regenerate docs; check UniFi (fixed IP / client for MAC {{ _vm.vm_mac | default('-') }}), DNS and the Authentik group(s) by hand
+                * PBS backups: {{ 'deleted' if (retire_apply | bool and retire_backups == 'delete') else 'still present' }}
+
+      rescue:
+        - name: Set failed
+          ansible.builtin.set_fact:
+            maintenance_failed: true
+
+      always:
+        - name: Send notification
+          include_tasks: tasks/notify.yaml
+          when: (retire_apply | bool) or maintenance_failed
+          vars:
+            discord_name: "{{ maintenance_name }}"
+            discord_operation: "Retire"
+            discord_status: "{{ 'failed' if maintenance_failed else 'successful' }}"
+            discord_detail: "{{ vm_name | default('?') }}"
+            discord_color: "{{ discord_color_failure if maintenance_failed else discord_color_success }}"
+            discord_url: "{{ maintenance_url }}"
+
+        - name: Log to MariaDB
+          include_tasks: tasks/log_mariadb.yaml
+          when: retire_apply | bool
+          vars:
+            log_table: maintenance
+            log_application: "{{ maintenance_name }}"
+            log_hostname: "{{ vm_name | default('?') }}"
+            log_type: "{{ maintenance_type }}"
+            log_subtype: "{{ maintenance_subtype }}"
+            log_status: "{{ 'failed' if maintenance_failed else 'success' }}"
+
+        - name: Fail play if retire failed
+          ansible.builtin.fail:
+            msg: "VM retire failed — see notification for details"
+          when: maintenance_failed
+
+# ═══════════════════════════════════════════════════════════════════
+# Monitoring — register / clean up in Beszel + Dozzle (best effort, see tasks/monitoring_hook.yaml)
+# ═══════════════════════════════════════════════════════════════════
+- name: "Sync monitoring (Beszel + Dozzle)"
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/definitions/vip_definitions.yaml
+    - vars/configs/beszel.yaml
+  vars:
+    playbook_name: "retire_vm.yaml"
+    beszel_hook_prune: true
+  tasks:
+    - name: Resolve Semaphore task URL for notifications
+      ansible.builtin.include_tasks: tasks/resolve_semaphore_task.yaml
+
+    - name: Register / clean up monitoring
+      ansible.builtin.include_tasks: tasks/monitoring_hook.yaml

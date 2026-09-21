@@ -1,5 +1,5 @@
 ---
-# Destroy a VM on Proxmox: stop → pause → delete.
+# Destroy a VM on Proxmox: drop its HA resource → stop → pause → delete (purged from HA/backup/replication jobs).
 # Reusable task — called from build_ubuntu, bootstrap_amp, verify_isolation,
 # cleanup_test_vms, and any future playbook that needs to remove a VM.
 #
@@ -10,6 +10,36 @@
 #
 # Requires in scope:
 #   _pve — dict from resolve_pve_api.yaml (api_host, api_user, api_token_id, api_token_secret, template_node)
+#   pve_api_port — from vars/configs/proxmox.yaml
+
+- name: Look up HA resources
+  ansible.builtin.uri:
+    url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/ha/resources"
+    method: GET
+    headers:
+      Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
+    validate_certs: false
+  register: _destroy_ha_resources
+  failed_when: false  # best-effort probe — standalone nodes have no cluster HA API
+  no_log: "{{ _no_log }}"
+
+# An HA resource would restart the guest we are about to stop (and dangle after the delete), so drop it first.
+- name: Remove HA resource for {{ _destroy_name | default('VM') }} (VMID {{ _destroy_vmid }})
+  ansible.builtin.uri:
+    url: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json/cluster/ha/resources/vm:{{ _destroy_vmid }}"
+    method: DELETE
+    headers:
+      Authorization: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
+    validate_certs: false
+  when: >-
+    (_destroy_ha_resources.json.data | default([])) | selectattr('sid', 'equalto', 'vm:' ~ _destroy_vmid) | list | length > 0
+  no_log: "{{ _no_log }}"
+
+- name: Wait for HA to release the guest
+  ansible.builtin.pause:
+    seconds: 15
+  when: >-
+    (_destroy_ha_resources.json.data | default([])) | selectattr('sid', 'equalto', 'vm:' ~ _destroy_vmid) | list | length > 0
 
 - name: Stop {{ _destroy_name | default('VM') }} (VMID {{ _destroy_vmid }})
   community.proxmox.proxmox_kvm:
@@ -39,4 +69,5 @@
     node: "{{ _destroy_node }}"
     vmid: "{{ _destroy_vmid }}"
     state: absent
+    purge: true
   no_log: "{{ _no_log }}"

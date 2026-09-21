@@ -15,7 +15,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = "tasks/monitoring_hook.yaml"
 GLOBS = ["build_*.yaml", "deploy_*.yaml"]
-EXTRA = ["bootstrap_amp", "apply_role", "dr_rebuild", "reip_vmid", "cleanup_test_vms", "purge_ceph",
+EXTRA = ["bootstrap_amp", "apply_role", "dr_rebuild", "reip_vmid", "retire_vm", "cleanup_test_vms", "purge_ceph",
          "restore_hosts", "restore_app", "restore_databases", "restore_amp"]
 EXEMPT = {
     "deploy_beszel_monitoring": "it IS the Beszel sync (tasks/beszel_sync.yaml); hooking it would run the sync twice",
