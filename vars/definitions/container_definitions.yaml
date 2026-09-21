@@ -438,6 +438,14 @@ container_definitions:
     image: "henrygd/beszel"
     tag: "latest"
     stack: vpn
+    env:
+      # SSO (Authentik OIDC — see homelab-docs tasks/beszel-iac.md "SSO"). The OIDC provider itself lives in the hub's
+      # own settings and is reconciled by tasks/beszel_sync.yaml from vault_docker_beszel_oidc_client_*.
+      # USER_CREATION lets a first SSO login create the user; SHARE_ALL_SYSTEMS makes every user see every system (systems are
+      # otherwise assigned per user, so a new SSO user would see nothing). Password login stays ON on purpose: the reconcile,
+      # the Homepage widget and API clients use it. Restrict WHO may sign in with an access policy on the Authentik application.
+      BESZEL_HUB_USER_CREATION: "true"
+      BESZEL_HUB_SHARE_ALL_SYSTEMS: "true"
     dashboard:
       group: Monitoring
       name: Beszel
@@ -459,6 +467,9 @@ container_definitions:
       base: baseenv
       network_mode: "service:wireguard"
       depends_on: ["wireguard"]
+      environment:
+        USER_CREATION: "${BESZEL_HUB_USER_CREATION}"
+        SHARE_ALL_SYSTEMS: "${BESZEL_HUB_SHARE_ALL_SYSTEMS}"
       labels:
         homelab.backup.paths: "/opt/beszel"
         homelab.health_timeout: "90"

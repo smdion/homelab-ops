@@ -18,6 +18,11 @@
 #   --prune          ALSO delete hub systems that match no definition. Never deletes a system that is currently
 #                    "up" unless --prune-up is also given, and aborts if the desired list looks too small.
 #
+# SSO: with --oidc-base and BESZEL_OIDC_CLIENT_ID / BESZEL_OIDC_CLIENT_SECRET set, the hub's `users` collection gets an OIDC
+# provider (named "oidc", shown as --oidc-name) pointing at that Authentik application, and OAuth2 login is enabled.
+# Writing collection settings needs a PocketBase superuser — the hub's admin login is one, so the same credentials are used
+# to authenticate against the _superusers collection for this step only. Other providers in the list are left alone.
+#
 # Credentials come from the environment (never argv): BESZEL_USER, BESZEL_PASSWORD; optional BESZEL_WEBHOOK
 # (a shoutrrr URL) is added to the hub's notification targets. Output: a human report on stderr and one JSON
 # document on stdout. Exit 0 = in sync (or fully applied), 2 = drift found (report mode), 1 = error.
@@ -64,6 +69,14 @@ class Hub:
             raise RuntimeError(f"hub login failed (HTTP {status})")
         self.token = res["token"]
         return res["record"]["id"]
+
+    def login_superuser(self, user, password):
+        """Authenticate against the PocketBase superusers collection (needed to read/write collection settings)."""
+        status, res = self.call("POST", "/api/collections/_superusers/auth-with-password",
+                                {"identity": user, "password": password}, timeout=90)
+        if status != 200 or not isinstance(res, dict) or "token" not in res:
+            raise RuntimeError(f"hub superuser login failed (HTTP {status}) — SSO settings need a superuser")
+        self.token = res["token"]
 
     def list(self, collection):
         status, res = self.call("GET", f"/api/collections/{collection}/records?perPage=500")
@@ -151,6 +164,42 @@ def health(systems, orphan_ids, hub_version, now, down_hours, max_minor_lag):
     return down, outdated
 
 
+OIDC_KEYS = ("displayName", "clientId", "clientSecret", "authURL", "tokenURL", "userInfoURL")
+
+
+def oidc_spec(base, display_name, client_id, client_secret):
+    """The provider entry for the users collection. `base` is Authentik's .../application/o (no trailing slash); the
+    authorize/token/userinfo endpoints are global in Authentik, only the issuer/discovery URL is per application."""
+    base = base.rstrip("/")
+    return {"name": "oidc", "displayName": display_name, "clientId": client_id, "clientSecret": client_secret,
+            "authURL": f"{base}/authorize/", "tokenURL": f"{base}/token/", "userInfoURL": f"{base}/userinfo/",
+            "pkce": True}
+
+
+def plan_oidc(current, spec):
+    """Pure function: compare the users collection's oauth2 block with the wanted provider.
+
+    Returns (problems, new_oauth2): `problems` names what differs (never values — the secret must not reach a log);
+    `new_oauth2` is the block to write: OAuth2 enabled, our provider replaced in place (or appended), every other provider
+    and mappedFields untouched."""
+    providers = list(current.get("providers") or [])
+    have = next((x for x in providers if x.get("name") == spec["name"]), None)
+    problems = []
+    if not current.get("enabled"):
+        problems.append("OAuth2 login is disabled")
+    if have is None:
+        problems.append("OIDC provider missing")
+    else:
+        problems += [f"{k} differs" for k in OIDC_KEYS if have.get(k) != spec[k]]
+        if bool(have.get("pkce")) != spec["pkce"]:
+            problems.append("pkce differs")
+    new = dict(current)
+    new["enabled"] = True
+    new["providers"] = ([spec if x.get("name") == spec["name"] else x for x in providers] if have is not None
+                        else providers + [spec])
+    return problems, new
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hub-url", required=True)
@@ -158,6 +207,8 @@ def main():
     ap.add_argument("--defaults", default="{}", help="JSON of default alerts, e.g. '{\"CPU\":{\"value\":90,\"min\":10}}'")
     ap.add_argument("--down-hours", type=float, default=24, help="flag a matched system down at least this long")
     ap.add_argument("--max-minor-lag", type=int, default=2, help="flag an agent this many minor versions behind the hub")
+    ap.add_argument("--oidc-base", default="", help="Authentik .../application/o base URL; enables the SSO provider step")
+    ap.add_argument("--oidc-name", default="Authentik", help="button label shown on the hub's login page")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--prune", action="store_true")
     ap.add_argument("--prune-up", action="store_true", help="allow pruning a system the hub currently reports up")
@@ -183,6 +234,21 @@ def main():
     hooks = settings["settings"].get("webhooks", [])
     webhook_missing = bool(webhook) and webhook not in hooks
 
+    oidc_problems, oidc_new, su_hub = [], None, None
+    if args.oidc_base and os.environ.get("BESZEL_OIDC_CLIENT_ID") and os.environ.get("BESZEL_OIDC_CLIENT_SECRET"):
+        try:
+            su_hub = Hub(args.hub_url)
+            su_hub.login_superuser(os.environ["BESZEL_USER"], os.environ["BESZEL_PASSWORD"])
+            status, users_coll = su_hub.call("GET", "/api/collections/users")
+            if status != 200 or not isinstance(users_coll, dict):
+                raise RuntimeError(f"reading the users collection failed (HTTP {status})")
+            spec = oidc_spec(args.oidc_base, args.oidc_name, os.environ["BESZEL_OIDC_CLIENT_ID"],
+                             os.environ["BESZEL_OIDC_CLIENT_SECRET"])
+            oidc_problems, oidc_new = plan_oidc(users_coll.get("oauth2") or {}, spec)
+        except (RuntimeError, OSError) as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            return 1
+
     def say(msg):
         print(msg, file=sys.stderr)
 
@@ -199,15 +265,18 @@ def main():
         say(f"  ALERT~  {a['system_name']:14} {a['name']} {a['from']} -> {a['to']}")
     if webhook_missing:
         say("  WEBHOOK notification target missing")
+    for pr in oidc_problems:
+        say(f"  SSO     {pr}")
     for d in down:
         say(f"  DOWN    {d['name']:14} {d['host']:16} down for {d['hours']}h")
     for o in outdated:
         say(f"  OLD     {o['name']:14} agent {o['version']} (hub {o['hub']})")
 
     drift = bool(p["creates"] or p["updates"] or p["orphans"] or p["alert_creates"] or p["alert_updates"]
-                 or webhook_missing)
+                 or webhook_missing or oidc_problems)
     result = {"drift": drift, "applied": False, "pruned": [], "errors": [],
               "counts": {k: len(v) for k, v in p.items()}, "webhook_missing": webhook_missing,
+              "oidc": oidc_problems,
               "details": {"missing": [d["name"] for d in p["creates"]],
                           "changed": [f"{u['hub']['name']} -> {u['desired']['name']}" for u in p["updates"]],
                           "orphans": [f"{o['name']} ({o['host']})" for o in p["orphans"]]},
@@ -271,6 +340,11 @@ def main():
             st, res = hub.call("PATCH", f"/api/collections/user_settings/records/{settings['id']}", {"settings": new})
             if st != 200:
                 result["errors"].append(f"webhook: HTTP {st}")
+        # 5. SSO provider (superuser session; writes only the collection's oauth2 block)
+        if oidc_problems and su_hub is not None:
+            st, res = su_hub.call("PATCH", "/api/collections/users", {"oauth2": oidc_new})
+            if st != 200:
+                result["errors"].append(f"SSO provider: HTTP {st} {res if isinstance(res, str) else res.get('message', '')}")
         result["applied"] = True
         if result["errors"]:
             for e in result["errors"]:

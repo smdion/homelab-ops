@@ -23,3 +23,7 @@ beszel_down_alert_hours: 24
 # ... and an agent this many minor releases behind the hub is flagged. 1 is deliberately NOT flagged: update_systems
 # refreshes latest weekly, so a one-release lag right after a hub release is normal.
 beszel_agent_max_minor_lag: 2
+
+# SSO: label of the Authentik login button on the hub's login page (the provider itself is reconciled from
+# vault_docker_beszel_oidc_client_id / _secret by tasks/beszel_sync.yaml).
+beszel_oidc_name: "Authentik"
