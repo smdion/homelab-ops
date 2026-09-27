@@ -2,8 +2,9 @@
     Source: deploy_swag_configs.yaml. Do not edit manually — changes are overwritten
     on next deploy (edit templates/swag_default.conf.j2 instead).
 
-    Handles any request whose Host header doesn't match a known subdomain (the bare
-    domain, typos, or internet-wide vulnerability scanners probing IPs directly).
+    Handles any request whose Host header doesn't match a known subdomain (typos, or
+    internet-wide vulnerability scanners probing IPs directly). The bare domain and www
+    are served by the landing page vhost (swag_landing.conf.j2), not this one.
     Bounces unmatched requests to a ~214MB video (a bot tarpit, backed by the
     `rickroll` container on port 7344) as a deterrent.
 

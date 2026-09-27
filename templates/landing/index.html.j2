@@ -1,0 +1,55 @@
+{#- Landing page for the bare/www external domain. Deployed to SWAG by deploy_swag_configs.yaml.
+    The domain comes from the vault (never literal in this repo). The contact address is written
+    reversed into data-m and assembled by mail.js, so scrapers reading the HTML don't find it. -#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sean Dion</title>
+<meta name="description" content="Sean Dion, Senior Infrastructure Administrator.">
+<meta name="color-scheme" content="light dark">
+<link rel="preload" href="fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<script src="mail.js" defer></script>
+</head>
+<body>
+<main class="page">
+  <section class="intro" aria-labelledby="name">
+    <div class="portrait">
+      <img src="sean.jpg" srcset="sean-480.jpg 480w, sean.jpg 800w" sizes="(max-width: 680px) 240px, 300px" alt="Portrait of Sean Dion" width="800" height="1000">
+    </div>
+
+    <div class="who">
+      <h1 id="name">Sean Dion</h1>
+      <p class="role">Senior Infrastructure Administrator</p>
+      <p class="bio">I keep infrastructure reliable and automate the work that shouldn't need a person: provisioning, patching, backups and monitoring.</p>
+      <p class="bio">Outside work I run a homelab that is built and maintained entirely as code.</p>
+
+      <ul class="links">
+        <li><a href="https://www.linkedin.com/in/smdion/" rel="me noopener"><span class="label">LinkedIn</span><span class="handle">in/smdion</span></a></li>
+        <li><a class="js-mail" data-m="{{ vault_domain_ext | reverse }}|em" href="#"><span class="label">Email</span><span class="handle">me [at] {{ vault_domain_ext | replace('.', ' [dot] ') }}</span></a></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="lab" aria-labelledby="lab-h">
+    <h2 id="lab-h">The homelab</h2>
+    <p>A self-hosted lab of virtualization hosts, storage and networking, run entirely as code. Every change goes through version control and an automated pipeline, so any machine can be rebuilt from scratch. It's where I try things before I'd trust them anywhere else.</p>
+    <div class="plate" role="group" aria-label="Homelab at a glance">
+      <i class="screw" aria-hidden="true"></i>
+      <ul class="specs">
+        <li><i class="led" aria-hidden="true"></i><span>config:</span><b>code</b></li>
+        <li><i class="led" aria-hidden="true"></i><span>deploys:</span><b>automated</b></li>
+        <li><i class="led" aria-hidden="true"></i><span>rebuild:</span><b>from scratch</b></li>
+      </ul>
+      <i class="screw" aria-hidden="true"></i>
+    </div>
+  </section>
+
+  <footer>
+    <span>&copy; 2026 Sean Dion</span>
+  </footer>
+</main>
+</body>
+</html>
