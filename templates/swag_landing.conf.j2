@@ -6,8 +6,25 @@
     domain used to fall through to the catch-all tarpit in swag_default.conf.j2; it now
     301s to www, and every other unmatched Host still gets the tarpit.
 
-    All add_header lines sit at server level and the asset location uses `expires`
-    (not add_header), because an add_header inside a location drops every inherited one. -#}
+    Security headers are emitted inside every location on purpose: an add_header in a
+    location drops every inherited one, which is the only way to keep SWAG's own
+    ssl.conf headers (X-Frame-Options SAMEORIGIN, a looser CSP) from being sent
+    alongside these as conflicting duplicates. -#}
+{% set _landing_headers = [
+  'Content-Security-Policy "default-src \'none\'; img-src \'self\'; style-src \'self\'; font-src \'self\'; script-src \'self\'; base-uri \'none\'; form-action \'none\'; frame-ancestors \'none\'"',
+  'Strict-Transport-Security "max-age=31536000"',
+  'X-Content-Type-Options "nosniff"',
+  'X-Frame-Options "DENY"',
+  'Referrer-Policy "no-referrer"',
+  'Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"',
+  'Cross-Origin-Opener-Policy "same-origin"',
+  'Cross-Origin-Resource-Policy "same-origin"',
+] %}
+{% macro landing_headers() %}
+{% for h in _landing_headers %}
+        add_header {{ h }} always;
+{% endfor %}
+{% endmacro %}
 ## Managed by homelab-ops (deploy_swag_configs.yaml) — see templates/swag_landing.conf.j2
 
 server {
@@ -36,27 +53,18 @@ server {
     charset utf-8;
     server_tokens off;
 
-    add_header Content-Security-Policy "default-src 'none'; img-src 'self'; style-src 'self'; font-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
-    add_header Strict-Transport-Security "max-age=31536000" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "DENY" always;
-    add_header Referrer-Policy "no-referrer" always;
-    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
-    add_header Cross-Origin-Opener-Policy "same-origin" always;
-    add_header Cross-Origin-Resource-Policy "same-origin" always;
-
     # Static page: GET (and HEAD, which GET implies) only.
     location / {
         limit_except GET { deny all; }
         try_files $uri $uri/ =404;
-    }
+{{ landing_headers() }}    }
 
     location ~* \.(?:woff2|jpg|css|js)$ {
         limit_except GET { deny all; }
         expires 7d;
-    }
+{{ landing_headers() }}    }
 
     location ~ /\. {
         deny all;
-    }
+{{ landing_headers() }}    }
 }
