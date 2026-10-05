@@ -40,6 +40,11 @@ app_definitions:
     db_stack: databases
     db_config: db_primary_postgres
     db_names: [jellyseerr]
+  airtrail:
+    stack: apps
+    db_stack: databases
+    db_config: db_primary_postgres
+    db_names: [airtrail]
   mealie:
     stack: apps
     db_stack: databases

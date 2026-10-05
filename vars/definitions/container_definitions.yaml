@@ -508,6 +508,37 @@ container_definitions:
       volumes:
         - "${APPSDIR}/beszel_socket:/beszel_socket"
         - "/var/run/docker.sock:/var/run/docker.sock:ro"
+  airtrail:
+    image: "ghcr.io/johanohly/airtrail"
+    tag: "latest"
+    stack: apps
+    dashboard:
+      group: Home
+      name: AirTrail
+      icon: airtrail.png
+      description: flight tracker
+    env:
+      AIRTRAIL_DB_URL: "postgresql://{{ docker_postgres_user }}:{{ vault_docker_postgres_password }}@{{ vault_db_host_primary }}:5432/airtrail"
+    compose:
+      base: base
+      ports: ["3005:3000"]
+      labels:
+        homelab.proxy.subdomain: "flights"
+        homelab.proxy.auth: "false"      # own login (first registered user becomes admin)
+        homelab.proxy.external: "true"
+        homelab.restore.app: "airtrail"
+        homelab.restore.db_config: "db_primary_postgres"
+        homelab.restore.db_names: "airtrail"
+        homelab.restore.health_url: "http://localhost:3005/"
+      environment:
+        DB_URL: "${AIRTRAIL_DB_URL}"
+        ORIGIN: "https://flights.{{ vault_domain_ext }}"
+      healthcheck:
+        test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/', r => r.statusCode < 400 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))\""]
+        interval: "30s"
+        timeout: "10s"
+        retries: 3
+        start_period: "60s"
   birdnet_go:
     image: "ghcr.io/tphakala/birdnet-go"
     tag: "nightly"
