@@ -509,7 +509,7 @@ container_definitions:
         - "${APPSDIR}/beszel_socket:/beszel_socket"
         - "/var/run/docker.sock:/var/run/docker.sock:ro"
   airtrail:
-    image: "ghcr.io/johanohly/airtrail"
+    image: "johly/airtrail"
     tag: "latest"
     stack: apps
     dashboard:
@@ -533,6 +533,10 @@ container_definitions:
       environment:
         DB_URL: "${AIRTRAIL_DB_URL}"
         ORIGIN: "https://flights.{{ vault_domain_ext }}"
+        ADDRESS_HEADER: "X-Forwarded-For"
+        UPLOAD_LOCATION: "/app/uploads"
+      volumes:
+        - "${APPSDIR}/airtrail/uploads:/app/uploads"
       healthcheck:
         test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/', r => r.statusCode < 400 ? process.exit(0) : process.exit(1)).on('error', () => process.exit(1))\""]
         interval: "30s"
