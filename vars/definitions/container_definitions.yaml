@@ -519,6 +519,7 @@ container_definitions:
       description: flight tracker
     env:
       AIRTRAIL_DB_URL: "postgresql://{{ docker_postgres_user }}:{{ vault_docker_postgres_password }}@{{ vault_db_host_primary }}:5432/airtrail"
+      AIRTRAIL_AERODATABOX_KEY: "{{ vault_airtrail_aerodatabox_key }}"
     compose:
       base: base
       ports: ["3005:3000"]
@@ -532,6 +533,7 @@ container_definitions:
         homelab.restore.health_url: "http://localhost:3005/"
       environment:
         DB_URL: "${AIRTRAIL_DB_URL}"
+        INTEGRATIONS_AERO_DATA_BOX_KEY: "${AIRTRAIL_AERODATABOX_KEY}"   # RapidAPI key (default endpoint); locks the admin UI field
         ORIGIN: "https://flights.{{ vault_domain_ext }}"
         ADDRESS_HEADER: "X-Forwarded-For"
         UPLOAD_LOCATION: "/app/uploads"
