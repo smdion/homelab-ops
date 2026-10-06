@@ -1753,7 +1753,8 @@ container_definitions:
         homelab.proxy.subdomain: "piawg"
         homelab.proxy.external: "false"
       healthcheck:
-        test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:80 || exit 1"]
+        # Image has no wget/curl (only python3) — a wget probe always fails and autoheal restart-loops it
+        test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:80/', timeout=5)"]
         interval: "30s"
         timeout: "10s"
         retries: 3
