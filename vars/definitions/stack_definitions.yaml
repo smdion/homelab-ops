@@ -45,6 +45,10 @@ stack_definitions:
       - apps
       - dev
       - vps
+      # Ledgr's /app/data (its automatic pre-upgrade backups) — a named volume
+      # inherits the image's ownership of that directory (non-root uid 1001).
+      - ledgr_data
+      - ledgrdemo_data
   infra:
     description: "Core infrastructure — Docker proxy, monitoring agents, log aggregation"
     generate_compose: true

@@ -1395,6 +1395,11 @@ container_definitions:
         homelab.restore.db_config: "db_primary_postgres"
         homelab.restore.db_names: "ledgr"
         homelab.restore.health_url: "http://localhost:3000/"
+      # Persistent /app/data: Ledgr writes its automatic pre-upgrade backup
+      # here before a migration (otherwise it lands in tmpfs /tmp and is lost
+      # on recreate).
+      volumes:
+        - "ledgr_data:/app/data"
       environment:
         DATABASE_URL: "${LEDGR_DATABASE_URL}"
         NEXTAUTH_URL: "${LEDGR_NEXTAUTH_URL}"
@@ -1432,6 +1437,8 @@ container_definitions:
       labels:
         homelab.proxy.subdomain: "ledgrdemo"
         homelab.proxy.auth: "false"
+      volumes:
+        - "ledgrdemo_data:/app/data"
       environment:
         DATABASE_URL: "${LEDGRDEMO_DATABASE_URL}"
         NEXTAUTH_URL: "${LEDGRDEMO_NEXTAUTH_URL}"
