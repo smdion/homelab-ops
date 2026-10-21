@@ -155,12 +155,15 @@ ytdlp_retries: 10
 # HLS segment downloader — ffmpeg's demuxer ignores init-segment order; stream copy, no transcode.
 ytdlp_hls_downloader: "ffmpeg"
 
-# ffmpeg has no I/O timeout by default (yt-dlp's --retries/--fragment-retries do not
-# reach it), so a silently dead CDN connection hangs it forever. rw_timeout (seconds
-# here, microseconds to ffmpeg) turns that into a read error; seg_max_retry then
-# re-fetches the segment instead of skipping it. The stall watchdog
-# (ytdlp_stall_minutes) is the backstop if ffmpeg still wedges.
-ytdlp_ffmpeg_rw_timeout: 60
+# ffmpeg equivalent of --abort-on-unavailable-fragments (yt-dlp's own flag, like
+# --retries/--fragment-retries, never reaches the ffmpeg downloader). yt-dlp runs
+# ffmpeg through files/ffmpeg_strict.py (deployed to this dir as ffmpeg + ffprobe),
+# which fails the download when ffmpeg logs that it skipped data, so the video is not
+# archived and retries next run. seg_max_retry first re-fetches a segment that fails
+# to open. Deliberately NO -rw_timeout: hls.c ends a segment silently on a mid-read
+# error, so a timeout would turn a hang into an unlogged hole; a hang is left to the
+# stall watchdog (ytdlp_stall_minutes), which fails it cleanly instead.
+ytdlp_ffmpeg_location: "{{ metube_scripts_dir }}/ffmpeg"
 ytdlp_ffmpeg_seg_max_retry: 10
 
 # Discord notification URLs — used by download_videos.yaml

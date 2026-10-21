@@ -114,6 +114,27 @@
         dest: "{{ metube_config_host_dir }}/scripts/metube_status.py"
         mode: "0755"
 
+    # Strict ffmpeg wrapper for the HLS downloader: fails a download when ffmpeg skips
+    # data instead of letting yt-dlp archive a file with a hole (see the script header).
+    # One file under both names — yt-dlp's --ffmpeg-location expects ffmpeg and ffprobe
+    # side by side, and the script execs the real ffprobe when called by that name.
+    - name: Create strict ffmpeg wrapper directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ metube_config_host_dir }}/scripts/ffmpeg"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy strict ffmpeg wrapper (as ffmpeg and ffprobe)
+      become: true
+      ansible.builtin.copy:
+        src: files/ffmpeg_strict.py
+        dest: "{{ metube_config_host_dir }}/scripts/ffmpeg/{{ item }}"
+        mode: "0755"
+      loop:
+        - ffmpeg
+        - ffprobe
+
     # Connection settings for the helper: holds the MQTT password, so 0600 and owned by
     # the container user (99:100) — same pattern as fast_check's alert_webhook.
     - name: Render tracker MQTT connection settings
@@ -304,6 +325,8 @@
     # then fails that one item, which is NOT archived, and carries on with the rest
     # of the batch), otherwise yt-dlp itself (the wrapper records the failure and
     # re-triggers the sweep as usual). SIGKILL because the hung ffmpeg ignored TERM.
+    # yt-dlp's child is the ffmpeg_strict wrapper; the real ffmpeg dies with it
+    # (PR_SET_PDEATHSIG).
     # Touching the state file restarts the stall clock so a trigger landing while
     # yt-dlp extracts the next item does not kill it again.
     - name: Kill the stalled download (no progress in {{ ytdlp_stall_minutes }} min)
