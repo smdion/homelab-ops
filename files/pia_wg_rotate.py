@@ -174,7 +174,9 @@ def apply_to_unifi(cfg, tunnel, conf_text, peer_ip, filename):
 
 def get_token(cfg):
     body = urllib.parse.urlencode({"username": cfg["pia_user"], "password": cfg["pia_pass"]}).encode()
-    req = urllib.request.Request(PIA_TOKEN_URL, data=body, method="POST")
+    # PIA's CDN answers 403 to urllib's default "Python-urllib" User-Agent.
+    req = urllib.request.Request(PIA_TOKEN_URL, data=body, method="POST",
+                                 headers={"User-Agent": "pia_wg_rotate"})
     with urllib.request.urlopen(req, timeout=20) as resp:
         return json.loads(resp.read().decode())["token"]
 
