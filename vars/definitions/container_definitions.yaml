@@ -448,6 +448,8 @@ container_definitions:
       # the Homepage widget and API clients use it. Restrict WHO may sign in with an access policy on the Authentik application.
       BESZEL_HUB_USER_CREATION: "true"
       BESZEL_HUB_SHARE_ALL_SYSTEMS: "true"
+      # Base URL for links in alert notifications (Discord/email); unset, the hub links to http://localhost:8090.
+      BESZEL_HUB_APP_URL: "https://monitor.{{ vault_domain_ext }}"
     dashboard:
       group: Monitoring
       name: Beszel
@@ -475,6 +477,7 @@ container_definitions:
       environment:
         USER_CREATION: "${BESZEL_HUB_USER_CREATION}"
         SHARE_ALL_SYSTEMS: "${BESZEL_HUB_SHARE_ALL_SYSTEMS}"
+        APP_URL: "${BESZEL_HUB_APP_URL}"
       labels:
         homelab.backup.paths: "/opt/beszel"
         homelab.health_timeout: "90"
