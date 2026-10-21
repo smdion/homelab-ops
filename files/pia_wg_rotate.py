@@ -40,6 +40,7 @@ Usage:
 """
 
 import argparse
+import ipaddress
 import json
 import os
 import random
@@ -161,6 +162,20 @@ def current_endpoint_ip(cfg, tunnel):
     return m.group(1) if m else None
 
 
+def lan_subnets(cfg):
+    """Every non-VPN UniFi network; a tunnel address inside one would break routing to it."""
+    conf = http_json(f"{cfg['unifi_url']}/proxy/network/api/s/default/rest/networkconf",
+                     headers=unifi_headers(cfg), insecure=True)
+    nets = []
+    for n in conf["data"]:
+        if n.get("purpose") != "vpn-client" and n.get("ip_subnet"):
+            try:
+                nets.append(ipaddress.ip_network(n["ip_subnet"], strict=False))
+            except ValueError:
+                pass
+    return nets
+
+
 def apply_to_unifi(cfg, tunnel, conf_text, peer_ip, filename):
     url = netconf_url(cfg, tunnel)
     current = http_json(url, headers=unifi_headers(cfg), insecure=True)["data"][0]
@@ -275,6 +290,7 @@ def rotate(cfg, tunnel, reason, dry_run=False):
         order.append(current_ip)
 
     token = get_token(cfg)
+    lans = lan_subnets(cfg)
     for ip in order[:MAX_SERVERS_PER_ROTATION]:
         cn = servers[ip]
         try:
@@ -282,6 +298,10 @@ def rotate(cfg, tunnel, reason, dry_run=False):
             reg = add_key(token, ip, cn, pub)
         except Exception as exc:
             log(f"{name}: {ip} ({cn}) addKey failed: {exc}")
+            continue
+        clash = next((n for n in lans if ipaddress.ip_address(reg["peer_ip"]) in n), None)
+        if clash:
+            log(f"{name}: {ip} assigned {reg['peer_ip']}, inside LAN {clash}; skipping")
             continue
         conf = build_conf(priv, reg, region_id)
         if dry_run:
