@@ -61,6 +61,9 @@
 {% if ytdlp_hls_downloader | default('ffmpeg') | length > 0 %}
 --downloader "m3u8:{{ ytdlp_hls_downloader | default('ffmpeg') }}"
 --downloader-args "ffmpeg:-nostats -loglevel warning"
+# Fail (not skip) on lost segments + retry segment opens — see download_base.yaml.
+--ffmpeg-location {{ ytdlp_ffmpeg_location }}
+--downloader-args "ffmpeg_i:-seg_max_retry {{ ytdlp_ffmpeg_seg_max_retry | default(10) }}"
 {% endif %}
 
 # Filters
