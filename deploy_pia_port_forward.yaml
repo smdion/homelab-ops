@@ -22,6 +22,12 @@
 # and therefore cannot reach the LAN-side controller at all. Transmission's
 # own process/entrypoint is never touched.
 #
+# TUNNEL ROTATION: the same User Scripts tick first runs files/pia_wg_rotate.py, which probes
+# each PIA WireGuard tunnel in pia_wg_tunnels with real traffic and, after ~45 min down,
+# registers a fresh key on another server of the same region (PIA addKey) and writes the new
+# config into the UniFi VPN client — the automated form of the piawg web UI + manual upload.
+# Force one by hand: python3 .../scripts/pia_wg_rotate.py --force "PIAVPN - SWE" [--dry-run]
+#
 # THE 15-MINUTE SCHEDULE IS NOT OPTIONAL. This playbook intentionally does
 # NOT set the cron schedule — User Scripts regenerates schedule.json from its
 # own GUI backend, and writing it from Ansible risks state the plugin ignores.
@@ -56,6 +62,20 @@
     # rotated port take effect on both.
     pia_network_id: "6aa3200a8c980caea5209483"      # VPN Client for Transmission's PIA tunnel (name changes with region)
     unifi_port_group_id: "6aa324de8c980caea520966e"  # "Port - PIA Forwarded"
+    # PIA WireGuard tunnels that pia_wg_rotate.py replaces with a fresh config when they stop
+    # carrying traffic (network_id = the VPN client's legacy networkconf id). Each probe sends
+    # real traffic through the tunnel, matching the UniFi policy route that uses it:
+    #   SWE: "HomeLab VPN" sends all of VLAN 1681 (transmission) through it
+    #   LAS: "VPN Websites" sends these tracker domains from the LAN VLANs through it
+    pia_wg_tunnels:
+      - name: "PIAVPN - SWE"
+        network_id: "{{ pia_network_id }}"
+        region: sweden
+        probe: { via: container, container: transmission, urls: ["https://1.1.1.1/", "https://www.google.com/generate_204"] }
+      - name: "PIAVPN - LAS"
+        network_id: "672d7b046dc4bf40e767562e"
+        region: us_las_vegas
+        probe: { via: host, urls: ["https://www.torrentleech.org/", "https://iptorrents.com/"] }
 
   tasks:
     # Owned by 99:100 (the container user on liberty) so the state/log files
@@ -84,6 +104,13 @@
         dest: "{{ transmission_appdata_dir }}/scripts/pia_port_forward.py"
         mode: "0755"
 
+    - name: Deploy pia_wg_rotate.py
+      become: true
+      ansible.builtin.copy:
+        src: files/pia_wg_rotate.py
+        dest: "{{ transmission_appdata_dir }}/scripts/pia_wg_rotate.py"
+        mode: "0755"
+
     # PIA's port-forward endpoint presents a self-signed cert that only
     # validates against their own CA. Shipping it here (inside the appdata
     # bind mount, so the container sees it at /config/pia_pf/) lets the
@@ -97,7 +124,7 @@
         owner: "99"
         group: "100"
 
-    # 0600: holds the PIA account password and the UniFi API key.
+    # 0600: holds the PIA account password, the UniFi API key and the Discord webhook.
     - name: Render pia_port_forward config
       become: true
       ansible.builtin.copy:
@@ -115,6 +142,10 @@
           unifi_port_group_id: "{{ unifi_port_group_id }}"
           pia_network_id: "{{ pia_network_id }}"
           transmission_rpc_url: "http://192.168.11.18:9091/transmission/rpc"
+          wg_tunnels: "{{ pia_wg_tunnels }}"
+          host_name: "{{ inventory_hostname }}"
+          discord_webhook_id: "{{ vault_discord_webhook_id }}"
+          discord_webhook_token: "{{ vault_discord_webhook_token }}"
       no_log: true
 
     - name: Ensure User Scripts entry directory exists
@@ -140,6 +171,8 @@
       ansible.builtin.copy:
         content: |
           #!/bin/bash
+          # Tunnel first: a rotation changes the endpoint, which pia_port_forward.py then follows.
+          python3 {{ transmission_appdata_dir }}/scripts/pia_wg_rotate.py
           python3 {{ transmission_appdata_dir }}/scripts/pia_port_forward.py
           echo "--- recent history (last 200 lines) ---"
           tail -n 200 {{ pia_pf_dir }}/pia_pf.log 2>/dev/null
