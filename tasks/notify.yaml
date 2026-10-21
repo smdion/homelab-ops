@@ -88,6 +88,9 @@
   retries: 3
   delay: 5
   until: _discord_result is succeeded
+  # Send from the controller, like the Apprise tasks below — an alert about an unreachable host
+  # (failed reboot, dead SSH) must not depend on reaching that host.
+  delegate_to: localhost
   failed_when: false  # notification-guard — notification task; failure must not block playbook
   when:
     - not ansible_check_mode
