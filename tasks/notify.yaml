@@ -53,7 +53,7 @@
 - name: Send Discord notification
   community.general.discord:
     username: "{{ discord_username | default('Ansible Bot') }}"
-    avatar_url: "{{ discord_avatar | default('https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png') }}"
+    avatar_url: "{{ discord_avatar | default(discord_icon_default) }}"
     webhook_id: "{{ vault_discord_webhook_id }}"
     webhook_token: "{{ vault_discord_webhook_token }}"
     embeds:
@@ -69,10 +69,10 @@
             'timestamp': discord_timestamp | default(ansible_facts.date_time.iso8601),
             'author':
               {'name': discord_author | default(inventory_hostname),
-               'icon_url': discord_author_icon | default('https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png')}
+               'icon_url': discord_author_icon | default(discord_icon_default)}
               | combine({'url': discord_author_url} if discord_author_url | default('') | length > 0 else {}),
             'thumbnail': {
-              'url': discord_thumbnail | default('https://craftassets.unraid.net/uploads/discord/notify-normal.png')
+              'url': discord_thumbnail | default(discord_thumbnail_default)
             }
           }
           | combine(

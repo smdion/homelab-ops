@@ -56,3 +56,7 @@ restic_keep_monthly: 3
 discord_color_success: 32768
 discord_color_failure: 16711680
 discord_color_warning: 16753920
+# Discord embed images — the bot avatar / author icon and the thumbnail every alert carries
+# (tasks/notify.yaml, and scripts that post on their own, e.g. files/pia_wg_rotate.py)
+discord_icon_default: "https://raw.githubusercontent.com/imagegenius/templates/main/unraid/img/semaphore.png"
+discord_thumbnail_default: "https://craftassets.unraid.net/uploads/discord/notify-normal.png"

@@ -254,20 +254,31 @@ def build_conf(priv, reg, region_id):
 
 # ── Notifications ────────────────────────────────────────────────────────────
 
-def notify(cfg, title, description, color, fields):
-    if not cfg.get("discord_webhook_id"):
+def notify(cfg, status, detail, fields):
+    """
+    Post an embed shaped like tasks/notify.yaml's, so this alert looks like every other
+    Ansible alert: "{name} {operation}" title, "Status — detail" description, host as
+    author. Colors and images come from group_vars via config.json "discord".
+    fields: (name, value, inline) tuples.
+    """
+    style = cfg.get("discord") or {}
+    if not style.get("webhook_id"):
         return
-    url = f"https://discord.com/api/webhooks/{cfg['discord_webhook_id']}/{cfg['discord_webhook_token']}"
+    icon = style.get("icon", "")
     embed = {
-        "title": title, "description": description, "color": color,
-        "author": {"name": cfg.get("host_name", "liberty")},
-        "fields": [{"name": k, "value": v, "inline": True} for k, v in fields],
+        "title": "PIA VPN Rotation",
+        "description": f"{status.capitalize()} — {detail}",
+        "color": int(style["color_success"] if status == "successful" else style["color_failure"]),
+        "fields": [{"name": n, "value": v, "inline": i} for n, v, i in fields],
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "author": {"name": style.get("author", "liberty"), "icon_url": icon},
+        "thumbnail": {"url": style.get("thumbnail", "")},
     }
+    url = f"https://discord.com/api/webhooks/{style['webhook_id']}/{style['webhook_token']}"
+    payload = {"username": "Ansible Bot", "avatar_url": icon, "embeds": [embed]}
     try:
-        req = urllib.request.Request(url, data=json.dumps({"username": "Ansible Bot", "embeds": [embed]}).encode(),
-                                     headers={"Content-Type": "application/json", "User-Agent": "pia_wg_rotate"},
-                                     method="POST")
+        req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "User-Agent": "pia_wg_rotate"})
         urllib.request.urlopen(req, timeout=15).read()
     except Exception as exc:
         log(f"WARNING: Discord notification failed: {exc}")
@@ -314,12 +325,20 @@ def rotate(cfg, tunnel, reason, dry_run=False):
             time.sleep(SETTLE_SECONDS)
             if probe(tunnel):
                 log(f"{name}: tunnel carries traffic via {reg['server_ip']}")
-                notify(cfg, f"PIA VPN — {name}", f"Rotated — {reason}", 0x2ECC71,
-                       [("Old server", current_ip or "unknown"), ("New server", f"{reg['server_ip']} ({cn})")])
+                notify(cfg, "successful", name, [
+                    ("✅ Tunnel", name, True),
+                    ("Old server", current_ip or "unknown", True),
+                    ("New server", f"{reg['server_ip']} ({cn})", True),
+                    ("Detail", f"Rotated: {reason}", False),
+                ])
                 return reg["server_ip"]
         log(f"{name}: {reg['server_ip']} applied but the probe still fails; trying the next server")
-    notify(cfg, f"PIA VPN — {name}", f"Failed — rotation found no working server ({reason})", 0xE74C3C,
-           [("Region", region_id), ("Tried", ", ".join(order[:MAX_SERVERS_PER_ROTATION]))])
+    notify(cfg, "failed", name, [
+        ("❌ Tunnel", name, True),
+        ("Region", region_id, True),
+        ("Tried", ", ".join(order[:MAX_SERVERS_PER_ROTATION]), True),
+        ("Detail", f"No server carried traffic ({reason}); fall back to piawg by hand", False),
+    ])
     return None
 
 

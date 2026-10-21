@@ -143,9 +143,15 @@
           pia_network_id: "{{ pia_network_id }}"
           transmission_rpc_url: "http://192.168.11.18:9091/transmission/rpc"
           wg_tunnels: "{{ pia_wg_tunnels }}"
-          host_name: "{{ inventory_hostname }}"
-          discord_webhook_id: "{{ vault_discord_webhook_id }}"
-          discord_webhook_token: "{{ vault_discord_webhook_token }}"
+          # Same embed style as tasks/notify.yaml (colors + images from group_vars/all.yaml).
+          discord:
+            webhook_id: "{{ vault_discord_webhook_id }}"
+            webhook_token: "{{ vault_discord_webhook_token }}"
+            author: "{{ inventory_hostname }}"
+            icon: "{{ discord_icon_default }}"
+            thumbnail: "{{ discord_thumbnail_default }}"
+            color_success: "{{ discord_color_success }}"
+            color_failure: "{{ discord_color_failure }}"
       no_log: true
 
     - name: Ensure User Scripts entry directory exists
