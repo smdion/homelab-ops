@@ -21,6 +21,16 @@ ytdlp_status_file: "/tmp/ytdlp_status_{{ config_name }}"
 # (alive = a download is in flight). Doubles as the source for the HA tracker.
 ytdlp_state_file: "/tmp/ytdlp_state_{{ config_name }}"
 
+# Stall watchdog. A live PID alone cannot tell a running download from a hung one:
+# on 2026-10-20 ffmpeg stopped mid-Twitch-VOD (no I/O, parked in a futex) and the
+# guard read "running" for ~20h, so every trigger bailed and the whole queue sat
+# behind it with no alert. The guard now also requires progress: something under
+# the temp path (or the state file itself) modified within this many minutes. A
+# download in flight writes its .part continuously; extraction between batch
+# items takes minutes, so 60 leaves wide margin. Stalled = kill the stuck leaf
+# process (ffmpeg if present, else yt-dlp), alert, and let the wrapper finish.
+ytdlp_stall_minutes: 60
+
 # One-shot sentinel (metube host /run) recording that an "unexpected down" alert
 # has already been sent for the current outage, so a sustained outage alerts once
 # instead of every scheduled run. Cleared automatically once the container is back
@@ -144,6 +154,14 @@ ytdlp_retries: 10
 # ffmpeg override to Twitch only) if it ever regresses a YouTube download.
 # HLS segment downloader — ffmpeg's demuxer ignores init-segment order; stream copy, no transcode.
 ytdlp_hls_downloader: "ffmpeg"
+
+# ffmpeg has no I/O timeout by default (yt-dlp's --retries/--fragment-retries do not
+# reach it), so a silently dead CDN connection hangs it forever. rw_timeout (seconds
+# here, microseconds to ffmpeg) turns that into a read error; seg_max_retry then
+# re-fetches the segment instead of skipping it. The stall watchdog
+# (ytdlp_stall_minutes) is the backstop if ffmpeg still wedges.
+ytdlp_ffmpeg_rw_timeout: 60
+ytdlp_ffmpeg_seg_max_retry: 10
 
 # Discord notification URLs — used by download_videos.yaml
 metube_avatar: "https://github.com/alexta69/metube/blob/master/ui/src/assets/icons/android-chrome-384x384.png?raw=true"

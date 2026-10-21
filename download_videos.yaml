@@ -164,7 +164,11 @@
     # `docker exec` against a stopped container exits non-zero and used to fail the
     # whole play (firing a false Discord alert). When the container is not running we
     # emit "down" and bail cleanly, exactly like the in-progress case.
-    # Output: "running <start-epoch>", "idle", or "down".
+    #
+    # A live PID is not proof of progress (a hung ffmpeg wedged the queue for ~20h on
+    # 2026-10-20), so a running download is also tagged "stalled" when neither the
+    # state file nor anything under the temp path changed in ytdlp_stall_minutes.
+    # Output: "running <start-epoch>" (+ " stalled"), "idle", or "down".
     - name: Check container state and whether a yt-dlp download is already running
       become: true
       ansible.builtin.shell: >
@@ -173,7 +177,9 @@
         else docker exec {{ metube_container }} sh -c
         'p=$(cat {{ ytdlp_state_file }} 2>/dev/null);
         if [ -n "$p" ] && [ -d /proc/$p ];
-        then echo "running $(stat -c %Y {{ ytdlp_state_file }} 2>/dev/null)";
+        then echo "running $(stat -c %Y {{ ytdlp_state_file }} 2>/dev/null)$(
+        [ -n "$(find {{ ytdlp_state_file }} {{ ytdlp_temp_path }} -mmin -{{ ytdlp_stall_minutes | int }} -print -quit 2>/dev/null)" ]
+        || echo " stalled")";
         else echo idle; fi';
         fi
       register: _ytdlp_running
@@ -292,6 +298,51 @@
         state: absent
       changed_when: false
       when: _ytdlp_running.stdout is not search('down')
+
+    # == Stall handling: unwedge a download that stopped making progress =========
+    # Kill only the stuck leaf: ffmpeg when the wrapper's yt-dlp has a child (yt-dlp
+    # then fails that one item, which is NOT archived, and carries on with the rest
+    # of the batch), otherwise yt-dlp itself (the wrapper records the failure and
+    # re-triggers the sweep as usual). SIGKILL because the hung ffmpeg ignored TERM.
+    # Touching the state file restarts the stall clock so a trigger landing while
+    # yt-dlp extracts the next item does not kill it again.
+    - name: Kill the stalled download (no progress in {{ ytdlp_stall_minutes }} min)
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - "{{ metube_container }}"
+          - sh
+          - -c
+          - >-
+            w=$(cat {{ ytdlp_state_file }});
+            kids() { for d in /proc/[0-9]*; do
+            [ "$(awk '/^PPid:/{print $2}' $d/status 2>/dev/null)" = "$1" ] && echo ${d#/proc/}; done; };
+            for y in $(kids "$w"); do f=$(kids "$y");
+            if [ -n "$f" ]; then kill -9 $f && echo "killed ffmpeg $f";
+            else kill -9 $y && echo "killed yt-dlp $y"; fi; done;
+            touch {{ ytdlp_state_file }}
+      register: _stall_kill
+      changed_when: _stall_kill.stdout is search('killed')
+      failed_when: false
+      when: _ytdlp_running.stdout is search('stalled')
+
+    - name: Alert — download stalled and was killed
+      include_tasks: tasks/notify.yaml
+      when: _ytdlp_running.stdout is search('stalled')
+      vars:
+        discord_name: "MeTube"
+        discord_operation: "Download"
+        discord_status: "failed"
+        discord_detail: >-
+          No download progress in {{ ytdlp_stall_minutes }} min;
+          {{ _stall_kill.stdout_lines | default([]) | join(', ') | default('nothing to kill', true) }}
+        discord_color: "{{ discord_color_failure }}"
+        discord_url: "{{ backup_url }}"
+        discord_fields:
+          - name: "Config"
+            value: "{{ config_name }}"
 
     - name: End play early — a download is in progress or the container is down
       ansible.builtin.meta: end_play
