@@ -190,7 +190,7 @@ Key pages:
 - [Database schema](https://homelab-docs/database/schema/) — `ansible_logging` tables
 - [Extra vars](https://homelab-docs/playbooks/extra-vars/) — full reference for all `-e` variables
 - [Backup & restore](https://homelab-docs/runbooks/backup-restore/) — operational procedures
-- [Notifications](https://homelab-docs/architecture/notifications/) — Discord, Apprise, Uptime Kuma
+- [Notifications](https://homelab-docs/architecture/notifications/) — alert paths: Discord, Grafana, Beszel, Apprise
 
 ## License
 

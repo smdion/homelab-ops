@@ -3,7 +3,7 @@
 # Schedule: none
 # Make the Beszel hub match the definitions: monitored systems (created / renamed / re-addressed), default alerts,
 # and the Discord notification target. The hub keeps its own system list, so without this it drifts every time a host
-# is renamed, re-addressed, rebuilt or retired. Design and audit: homelab-docs tasks/beszel-iac.md.
+# is renamed, re-addressed, rebuilt or retired. How it works: homelab-docs infrastructure/monitoring.md.
 #
 # Runs on the controller; the hub API is reached over WireGuard. Safe by default — REPORT ONLY unless told otherwise.
 #

@@ -18,6 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VIEWS = {"Backups", "Updates", "Maintenance", "Downloads", "Verify", "Restore", "Deploy", "Setup"}
 EXEMPT = {
     "test_restore.yaml": "deprecated — replaced by build_ubuntu.yaml -e role= (see its header)",
+    "purge_ceph.yaml": "destroys all Ceph storage, which every cluster guest now lives on — CLI only, never a one-click template",
 }
 
 

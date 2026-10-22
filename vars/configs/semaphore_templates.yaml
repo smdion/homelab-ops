@@ -690,12 +690,6 @@ semaphore_templates:
     inventory: unifi_network
     environment: unifi_network
     schedule: [{ cron: "0 1 * * *", name: "Daily 1AM" }]
-  - name: "Purge — Ceph [PVE]"
-    playbook: purge_ceph.yaml
-    view: Maintenance
-    inventory: ansible-user-ssh
-    environment: maintain_pve
-    arguments: "[\"-e\", \"confirm=yes\"]"
   - name: "Review — Proxmox [Cluster+PBS]"
     playbook: review_pve.yaml
     view: Maintenance
