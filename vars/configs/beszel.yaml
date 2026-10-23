@@ -54,8 +54,9 @@ beszel_network_monitors:
   vps:        # VPS NPM -> WireGuard -> SWAG -> Authentik. auth.<domain> resolves to 127.0.0.1 inside the wireguard
               # netns (extra_hosts); any other public name would hairpin to the VPS's own IP and always fail here.
     - { protocol: http, target: "https://auth.{{ vault_domain_ext }}/-/health/live/" }
-  apps:       # the databases most apps services depend on (core VIP), and the public path from outside:
-              # public DNS -> VPS -> WireGuard -> SWAG (www is SWAG's own static page, so only the chain is tested)
+  apps:       # the databases most apps services depend on (core VIP), and SWAG itself + its certificate: internal DNS
+              # sends www straight to SWAG (its own static page), so this checks SWAG, not the public chain (the VPS
+              # probe above does that)
     - { protocol: http, target: "https://www.{{ vault_domain_ext }}/" }
     - { protocol: tcp, target: "{{ vault_core_vip }}", port: 5432 }
     - { protocol: tcp, target: "{{ vault_core_vip }}", port: 3306 }
