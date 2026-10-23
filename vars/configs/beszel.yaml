@@ -43,3 +43,24 @@ beszel_oidc_name: "Authentik"
 # X-Forwarded-For (see the beszel proxy definition); without this the hub logs the connection's source (WireGuard's UDM address).
 beszel_trusted_proxy_headers:
   - X-Forwarded-For
+# Network monitors — probes the agent on a system runs against a target (ICMP / TCP / HTTP / DNS), keyed by the
+# definition key of the system that probes. Reconciled by beszel_sync (created / updated; extras on the hub are
+# reported and only deleted with beszel_prune). Every system with a monitor also gets the NetworkMonitorLoss alert
+# below (loss over the last hour above `value` percent). HTTP: a status >= 400 counts as loss; https targets also
+# carry the certificate's expiry. Targets must use vault vars — this repo is public.
+beszel_network_monitor_interval: 60      # seconds between probes (hub range 1-3600)
+beszel_network_monitor_loss: { value: 5, min: 0 }   # the hub stores min=0 for this alert (it judges the last hour itself)
+beszel_network_monitors:
+  vps:        # VPS NPM -> WireGuard -> SWAG -> Authentik. auth.<domain> resolves to 127.0.0.1 inside the wireguard
+              # netns (extra_hosts); any other public name would hairpin to the VPS's own IP and always fail here.
+    - { protocol: http, target: "https://auth.{{ vault_domain_ext }}/-/health/live/" }
+  apps:       # the databases most apps services depend on (core VIP), and the public path from outside:
+              # public DNS -> VPS -> WireGuard -> SWAG (www is SWAG's own static page, so only the chain is tested)
+    - { protocol: http, target: "https://www.{{ vault_domain_ext }}/" }
+    - { protocol: tcp, target: "{{ vault_core_vip }}", port: 5432 }
+    - { protocol: tcp, target: "{{ vault_core_vip }}", port: 3306 }
+  core:       # WAN from inside, and the mail relay Authentik sends through
+    - { protocol: icmp, target: "1.1.1.1" }
+    - { protocol: tcp, target: "{{ vault_apps_vip }}", port: 2525 }
+  liberty:    # the Semaphore API the MeTube download trigger calls
+    - { protocol: http, target: "{{ vault_semaphore_host_url }}/api/ping" }

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 # beszel_sync — make the Beszel hub's systems, alerts and notification target match the definitions.
 # Run on the controller (needs the hub API, which the Semaphore host can reach over WireGuard) by
-# tasks/beszel_sync.yaml. See homelab-docs tasks/beszel-iac.md for the design.
+# tasks/beszel_sync.yaml. See homelab-docs infrastructure/monitoring.md for the design.
 #
 # The hub keeps its system list in its own database, so hardware renames and rebuilds never reach it. This
 # reconciles it from a "desired" list rendered from vm_definitions/host_definitions:
 #
-#   desired.json  [{"key","name","address","port","alerts": {"CPU": {"value":90,"min":10}, ...} | null}, ...]
+#   desired.json  [{"key","name","address","port","alerts": {"CPU": {"value":90,"min":10}, ...} | null,
+#                   "monitors": [{"protocol","target","port","interval"}, ...]}, ...]
+#
+# Network monitors are matched per system by (protocol, target, port): missing ones are created, a changed interval
+# or a disabled monitor is fixed, and monitors on the hub that match no definition are reported (deleted only with
+# --prune). Monitors on systems that are not in the desired list are left alone.
 #
 # Matching is by ADDRESS only (the identity that survives renames — a hub entry called "HomeOne" that points at
 # the unRAID box IS the unRAID box). Names are never used to match: the hub's old "AMP" was really the Synology,
@@ -132,6 +137,37 @@ def plan(desired, systems, alerts, defaults):
             "alert_creates": alert_creates, "alert_updates": alert_updates}
 
 
+def plan_monitors(desired, systems, monitors):
+    """Pure function: compare the desired network monitors with the hub's. Matching is per matched system by
+    (protocol, target, port). Returns creates, updates (interval/enabled drift) and extras (hub monitors on a
+    managed system that no definition asks for)."""
+    by_host = {s["host"]: s for s in systems}
+    hub_by_sys = {}
+    for m in monitors:
+        hub_by_sys.setdefault(m["system"], []).append(m)
+    creates, updates, extras = [], [], []
+    for d in desired:
+        sysrec = by_host.get(d["address"])
+        if sysrec is None:
+            continue  # the system itself is a create; its monitors follow on the next run
+        have = {(m["protocol"], m["target"], int(m.get("port") or 0)): m for m in hub_by_sys.get(sysrec["id"], [])}
+        want_keys = set()
+        for w in d.get("monitors") or []:
+            k = (w["protocol"], w["target"], int(w.get("port") or 0))
+            want_keys.add(k)
+            m = have.get(k)
+            if m is None:
+                creates.append({"system_name": d["name"], "system_id": sysrec["id"], **w})
+            elif int(m.get("interval") or 0) != int(w["interval"]) or not m.get("enabled", True):
+                updates.append({"system_name": d["name"], "id": m["id"], "target": w["target"],
+                                "interval": int(w["interval"])})
+        for k, m in have.items():
+            if k not in want_keys:
+                extras.append({"system_name": d["name"], "id": m["id"], "protocol": m["protocol"],
+                               "target": m["target"], "port": int(m.get("port") or 0)})
+    return {"monitor_creates": creates, "monitor_updates": updates, "monitor_extras": extras}
+
+
 def parse_version(v):
     """'0.20.0' / 'v0.19.3' -> (0, 20, 0); anything unparseable -> None."""
     nums = re.findall(r"\d+", v or "")
@@ -240,12 +276,14 @@ def main():
     try:
         uid = hub.login(os.environ["BESZEL_USER"], os.environ["BESZEL_PASSWORD"])
         systems, alerts = hub.list("systems"), hub.list("alerts")
+        monitors = hub.list("network_monitors")
         settings = hub.list("user_settings")[0]
     except (KeyError, RuntimeError, OSError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 
     p = plan(desired, systems, alerts, defaults)
+    p.update(plan_monitors(desired, systems, monitors))
     st, key = hub.call("GET", "/api/beszel/getkey")
     hub_version = key.get("v", "") if st == 200 and isinstance(key, dict) else ""
     down, outdated = health(systems, {o["id"] for o in p["orphans"]}, hub_version,
@@ -291,6 +329,12 @@ def main():
         say(f"  ALERT+  {a['system_name']:14} {a['name']} value={a['value']} min={a['min']}")
     for a in p["alert_updates"]:
         say(f"  ALERT~  {a['system_name']:14} {a['name']} {a['from']} -> {a['to']}")
+    for m in p["monitor_creates"]:
+        say(f"  PROBE+  {m['system_name']:14} {m['protocol']} {m['target']}" + (f":{m['port']}" if m["port"] else ""))
+    for m in p["monitor_updates"]:
+        say(f"  PROBE~  {m['system_name']:14} {m['target']} interval={m['interval']} enabled")
+    for m in p["monitor_extras"]:
+        say(f"  PROBE?  {m['system_name']:14} {m['protocol']} {m['target']} (matches no definition)")
     if webhook_missing:
         say("  WEBHOOK notification target missing")
     for pr in oidc_problems:
@@ -303,6 +347,7 @@ def main():
         say(f"  OLD     {o['name']:14} agent {o['version']} (hub {o['hub']})")
 
     drift = bool(p["creates"] or p["updates"] or p["orphans"] or p["alert_creates"] or p["alert_updates"]
+                 or p["monitor_creates"] or p["monitor_updates"] or p["monitor_extras"]
                  or webhook_missing or oidc_problems or tp_problems)
     result = {"drift": drift, "applied": False, "pruned": [], "errors": [],
               "counts": {k: len(v) for k, v in p.items()}, "webhook_missing": webhook_missing,
@@ -363,6 +408,23 @@ def main():
                                {"value": a["to"][0], "min": a["to"][1]})
             if st != 200:
                 result["errors"].append(f"alert update {a['system_name']}/{a['name']}: HTTP {st} {res}")
+        # 3b. network monitors (after systems, so a just-created system's monitors wait for the next run)
+        for m in p["monitor_creates"]:
+            body = {"system": m["system_id"], "protocol": m["protocol"], "target": m["target"],
+                    "port": m["port"], "interval": m["interval"], "enabled": True}
+            st, res = hub.call("POST", "/api/collections/network_monitors/records", body)
+            if st != 200:
+                result["errors"].append(f"monitor {m['system_name']}/{m['target']}: HTTP {st} {res}")
+        for m in p["monitor_updates"]:
+            st, res = hub.call("PATCH", f"/api/collections/network_monitors/records/{m['id']}",
+                               {"interval": m["interval"], "enabled": True})
+            if st != 200:
+                result["errors"].append(f"monitor update {m['system_name']}/{m['target']}: HTTP {st} {res}")
+        if args.prune:
+            for m in p["monitor_extras"]:
+                st, _ = hub.call("DELETE", f"/api/collections/network_monitors/records/{m['id']}")
+                if st != 204:
+                    result["errors"].append(f"monitor delete {m['system_name']}/{m['target']}: HTTP {st}")
         # 4. notification target (read-modify-write the whole settings object; never touches other keys)
         if webhook_missing:
             new = dict(settings["settings"])

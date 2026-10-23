@@ -3,7 +3,7 @@
 
 Every playbook that creates, changes, retires or restores a host must end with the "Sync monitoring" play
 (tasks/monitoring_hook.yaml), so monitoring is registered and cleaned up as part of the same run. See
-homelab-docs tasks/beszel-iac.md (Phase 2b). A new build_*/deploy_* playbook is covered automatically by the
+homelab-docs infrastructure/monitoring.md. A new build_*/deploy_* playbook is covered automatically by the
 glob below; anything else that touches hosts goes in EXTRA. Opting out needs a reason in EXEMPT.
 
 Usage: python3 scripts/check_monitoring_hooks.py     (exit 1 and a list when something is missing)

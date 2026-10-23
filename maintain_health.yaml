@@ -2536,19 +2536,18 @@
         log_subtype: "{{ maintenance_subtype }}"
         log_status: "{{ 'failed' if maintenance_failed else ('partial' if maintenance_partial | default(false) else 'success') }}"
 
-    # ── DEAD MAN'S SWITCH — Uptime Kuma push heartbeat ──────────────────────────
-    # If this playbook fails to complete (crashes, hangs, scheduler dies), Uptime Kuma
-    # will detect the missing heartbeat and alert independently of notifications.
-    - name: Send heartbeat to Uptime Kuma
+    # ── DEAD MAN'S SWITCH — Healthchecks.io ping ────────────────────────────────
+    # If this playbook stops completing (crash, hang, Semaphore or its schedule dead), the missing ping makes
+    # Healthchecks.io alert from outside the homelab. A failed run pings /fail so it alerts at once.
+    - name: Ping the health-check dead man's switch
       ansible.builtin.uri:
-        url: "{{ vault_uptime_kuma_push_url }}"
+        url: "{{ vault_healthchecks_maintain_health_url }}{{ '/fail' if maintenance_failed else '' }}"
         method: GET
         status_code: 200
         timeout: 10
       when:
         - not ansible_check_mode
-        - vault_uptime_kuma_push_url is defined
-        - not maintenance_failed
+        - (vault_healthchecks_maintain_health_url | default('')) | length > 0
       failed_when: false  # notification-guard — heartbeat failure must not block playbook
 
     - name: Fail play if health check failed

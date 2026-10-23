@@ -1,0 +1,13 @@
+---
+# Container watcher — config for maintain_containers.yaml (template "Maintain — Containers [Watch]", every 10 min).
+# Alerts on Discord when a container that SHOULD be running is missing or not running, and again when it recovers.
+# What should run is derived, not listed: compose services with restart always/unless-stopped (as rendered for that
+# host, so inactive profiles are excluded), plus unRAID hosts' unraid_containers and any container there with restart
+# always/unless-stopped. How it works: homelab-docs infrastructure/monitoring.md.
+
+# Consecutive runs a problem must be seen on before it alerts (2 = ~10-20 min). Keeps a deploy or an update that
+# recreates a container mid-probe from paging.
+container_watch_confirm_runs: 2
+
+# Containers never reported: "<container>" (any host) or "<host>/<container>" (inventory short name). Give a reason.
+container_watch_exclude: []

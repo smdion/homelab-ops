@@ -1,0 +1,265 @@
+---
+# Category: Maintain
+# Alert when a container that should be running is missing or not running — and again when it recovers.
+# What should run is derived from what each host was deployed with: compose services with restart always /
+# unless-stopped as rendered on that host (`docker compose config`, so inactive profiles drop out), and on unRAID the
+# host's unraid_containers plus any container with restart always / unless-stopped. Beszel only alerts on UNHEALTHY
+# containers; this covers stopped, crashed and removed ones (maintain_health CHECK 14 is the twice-daily backstop).
+#
+# Each run probes every Docker host over SSH (a few seconds), skips hosts carrying a fresh docker maintenance flag
+# (backups, restores, rollbacks set it via tasks/docker_stop.yaml) and unreachable hosts (Beszel's Status alert covers
+# those), then files/container_watch.py compares against the container_watch table: a problem alerts after
+# container_watch_confirm_runs consecutive sightings, once, and a recovery alerts once. Successful runs are pruned from
+# Semaphore's task history by maintain_semaphore.yaml like the download runs; no playbook_runs row is written (every
+# 10 minutes would flood it).
+#
+# Schedule: every 10 minutes — defined in vars/configs/semaphore_templates.yaml.
+# Config: vars/configs/container_watch.yaml (confirm runs, exclusions).
+#
+# Usage:
+#   ansible-playbook maintain_containers.yaml                 # probe, alert on changes
+#   ansible-playbook maintain_containers.yaml -e skip_db=yes  # probe and report only (no state, no alerts)
+
+- name: Probe what runs on each Docker host
+  hosts: docker
+  gather_facts: false
+  become: true
+  ignore_unreachable: true
+  vars_files:
+    - vars/secrets.yaml
+    - vars/definitions/vm_definitions.yaml
+    - vars/definitions/host_definitions.yaml
+    - vars/configs/docker_stacks.yaml
+  tasks:
+    - name: Check for an intentional docker maintenance window
+      ansible.builtin.shell: |
+        f="{{ docker_maintenance_flag }}"
+        if [ -f "$f" ] && [ $(( $(date +%s) - $(stat -c %Y "$f") )) -le {{ docker_maintenance_flag_max_age }} ]; then
+          echo maintenance
+        fi
+      register: _cw_flag
+      changed_when: false
+      check_mode: false
+
+    - name: Stop probing an unreachable host (Beszel's Status alert covers it)
+      ansible.builtin.meta: end_host
+      when: _cw_flag.unreachable | default(false)
+
+    - name: List all containers with their state
+      ansible.builtin.shell: docker ps -a --format {% raw %}'{{json .}}'{% endraw %}
+      register: _cw_ps
+      changed_when: false
+      check_mode: false
+      when: _cw_flag.stdout | trim != 'maintenance'
+
+    - name: Read container restart policies
+      ansible.builtin.shell: >-
+        docker ps -aq | xargs -r docker inspect --format {% raw %}'{{.Name}}={{.HostConfig.RestartPolicy.Name}}'{% endraw %}
+        | sed 's#^/##'
+      register: _cw_restart
+      changed_when: false
+      check_mode: false
+      when: _cw_flag.stdout | trim != 'maintenance'
+
+    - name: Render each stack's services as deployed
+      ansible.builtin.command: docker compose config --format json
+      args:
+        chdir: "{{ stacks_base_path }}/{{ item }}"
+      loop: "{{ stack_assignments[inventory_hostname] | default([]) }}"
+      register: _cw_stacks
+      changed_when: false
+      failed_when: false  # a stack that does not render is reported as "unreadable" below, not a run failure
+      check_mode: false
+      when:
+        - _cw_flag.stdout | trim != 'maintenance'
+        - inventory_hostname in groups['docker_stacks'] | default([])
+
+    - name: Collect this host's probe
+      ansible.builtin.set_fact:
+        _cw_host:
+          skip: "{{ 'maintenance' if _cw_flag.stdout | trim == 'maintenance' else '' }}"
+          ps: "{{ (_cw_ps.stdout_lines | default([])) | map('from_json') | list }}"
+          restart: >-
+            {{ dict((_cw_restart.stdout_lines | default([])) | select('search', '=')
+                    | map('split', '=', 1) | list) }}
+          stacks: >-
+            {{ dict((_cw_stacks.results | default([])) | selectattr('item', 'defined') | map(attribute='item')
+                    | zip((_cw_stacks.results | default([])) | selectattr('item', 'defined')
+                          | map(attribute='stdout', default='') | map('default', 'null', true)
+                          | map('regex_replace', '^\s*$', 'null') | map('from_json'))) }}
+          declared: "{{ (host_definitions[inventory_hostname.split('.')[0]] | default({})).unraid_containers | default([]) }}"
+          unreadable: >-
+            {{ (_cw_stacks.results | default([])) | selectattr('rc', 'defined') | rejectattr('rc', 'equalto', 0)
+               | map(attribute='item') | list }}
+
+- name: Compare with the last run and alert on changes
+  hosts: localhost
+  gather_facts: true
+  gather_subset: ['!all', 'date_time']   # tasks/notify.yaml stamps the embed with ansible_facts.date_time
+  vars_files:
+    - vars/secrets.yaml
+    - vars/configs/semaphore_check.yaml
+    - vars/configs/container_watch.yaml
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    _no_log: "{{ not (debug_no_log | default(false) | bool) and (ansible_verbosity | default(0) | int < 3) }}"
+    _cw_db: &cw_db
+      login_host: "{{ vault_logging_db_host }}"
+      login_port: "{{ vault_logging_db_port }}"
+      login_user: "{{ vault_logging_db_user }}"
+      login_password: "{{ vault_logging_db_password }}"
+      login_db: "{{ vault_logging_db_name }}"
+  tasks:
+    - name: Resolve Semaphore task URL for notifications
+      ansible.builtin.include_tasks: tasks/resolve_semaphore_task.yaml
+
+    - name: Read the previous run's state
+      ansible.mysql.mysql_query:
+        <<: *cw_db
+        query: "SELECT hostname, container, problem, seen_count, notified FROM container_watch"
+      register: _cw_prev
+      no_log: "{{ _no_log }}"
+      when: not (skip_db | default(false) | bool)
+
+    - name: Assemble the probe results
+      ansible.builtin.set_fact:
+        _cw_input:
+          confirm_runs: "{{ container_watch_confirm_runs | int }}"
+          exclude: "{{ container_watch_exclude | default([]) }}"
+          state: "{{ (_cw_prev.query_result | default([[]]))[0] }}"
+          hosts: >-
+            {%- set out = {} -%}
+            {%- for h in groups['docker'] | default([]) -%}
+            {%- set key = h.split('.')[0] -%}
+            {%- if hostvars[h]._cw_host is defined -%}
+            {%- set _ = out.update({key: hostvars[h]._cw_host}) -%}
+            {%- else -%}
+            {%- set _ = out.update({key: {'skip': 'unreachable'}}) -%}
+            {%- endif -%}
+            {%- endfor -%}
+            {{ out }}
+
+    - name: Write the comparison input
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .containers.json
+      register: _cw_file
+      changed_when: false
+
+    - name: Save the comparison input
+      ansible.builtin.copy:
+        content: "{{ _cw_input | to_json }}"
+        dest: "{{ _cw_file.path }}"
+        mode: "0600"
+      changed_when: false
+
+    - name: Compare against the last run
+      ansible.builtin.command:
+        argv: [python3, "{{ playbook_dir }}/files/container_watch.py", --input, "{{ _cw_file.path }}"]
+      register: _cw_out
+      changed_when: false
+      check_mode: false
+
+    - name: Remove the comparison input
+      ansible.builtin.file:
+        path: "{{ _cw_file.path }}"
+        state: absent
+      changed_when: false
+
+    - name: Parse the result
+      ansible.builtin.set_fact:
+        _cw: "{{ _cw_out.stdout | from_json }}"
+        _cw_unreadable: >-
+          {{ groups['docker'] | default([]) | map('extract', hostvars, '_cw_host') | select('defined')
+             | map(attribute='unreadable') | flatten }}
+
+    - name: Show what is not running
+      ansible.builtin.debug:
+        msg:
+          - "checked (expected/running): {{ _cw.counts | dict2items | map(attribute='key') | zip(_cw.counts | dict2items | map(attribute='value') | map(attribute='expected'), _cw.counts | dict2items | map(attribute='value') | map(attribute='running')) | map('join', '/') | join(', ') }}"
+          - "skipped: {{ _cw.skipped }}"
+          - "not running: {{ _cw.state | map(attribute='hostname') | zip(_cw.state | map(attribute='container'), _cw.state | map(attribute='problem')) | map('join', '/') | list }}"
+          - "new: {{ _cw.new | length }}, recovered: {{ _cw.recovered | length }}"
+
+    - name: Save the state for the checked hosts
+      when: not (skip_db | default(false) | bool) and not ansible_check_mode
+      block:
+        - name: Upsert current problems
+          ansible.mysql.mysql_query:
+            <<: *cw_db
+            query: >-
+              INSERT INTO container_watch (hostname, container, problem, seen_count, notified, first_seen, last_seen)
+              VALUES (%s, %s, %s, %s, %s, UTC_TIMESTAMP(), UTC_TIMESTAMP())
+              ON DUPLICATE KEY UPDATE problem = VALUES(problem), seen_count = VALUES(seen_count),
+                notified = VALUES(notified), last_seen = UTC_TIMESTAMP()
+            positional_args: ["{{ item.hostname }}", "{{ item.container }}", "{{ item.problem }}",
+                              "{{ item.seen_count }}", "{{ item.notified }}"]
+          loop: "{{ _cw.state }}"
+          loop_control:
+            label: "{{ item.hostname }}/{{ item.container }}"
+          no_log: "{{ _no_log }}"
+
+        - name: Clear rows of containers that are running again
+          ansible.mysql.mysql_query:
+            <<: *cw_db
+            query: >-
+              DELETE FROM container_watch WHERE hostname = %s
+              {% if _cw.state | selectattr('hostname', 'equalto', item) | list | length > 0 %}
+              AND container NOT IN ({{ (_cw.state | selectattr('hostname', 'equalto', item) | list | length * ['%s']) | join(', ') }})
+              {% endif %}
+            positional_args: >-
+              {{ [item] + (_cw.state | selectattr('hostname', 'equalto', item) | map(attribute='container') | list) }}
+          loop: "{{ _cw.checked }}"
+          no_log: "{{ _no_log }}"
+
+    - name: Build the alert fields (one per host)
+      ansible.builtin.set_fact:
+        _cw_fields_new: >-
+          {%- set f = [] -%}
+          {%- for h, items in _cw.new | groupby('hostname') -%}
+          {%- set _ = f.append({'name': '❌ ' ~ h, 'value': items | map(attribute='container')
+                | zip(items | map(attribute='problem')) | map('join', ' — ') | join('\n'), 'inline': false}) -%}
+          {%- endfor -%}
+          {{ f }}
+        _cw_fields_rec: >-
+          {%- set f = [] -%}
+          {%- for h, items in _cw.recovered | groupby('hostname') -%}
+          {%- set _ = f.append({'name': '✅ ' ~ h, 'value': items | map(attribute='container') | join('\n'),
+                'inline': false}) -%}
+          {%- endfor -%}
+          {{ f }}
+
+    - name: Alert on containers that are not running
+      ansible.builtin.include_tasks: tasks/notify.yaml
+      vars:
+        discord_name: "Containers"
+        discord_operation: "Watch"
+        discord_status: "failed"
+        discord_detail: "{{ _cw.new | length }} not running"
+        discord_color: "{{ discord_color_failure }}"
+        discord_url: "{{ semaphore_ext_url | default('') }}"
+        discord_author: "{{ controller_fqdn }}"
+        discord_fields: "{{ _cw_fields_new }}"
+      when:
+        - _cw.new | length > 0
+        - not (skip_db | default(false) | bool)
+
+    - name: Report containers that are running again
+      ansible.builtin.include_tasks: tasks/notify.yaml
+      vars:
+        discord_name: "Containers"
+        discord_operation: "Watch"
+        discord_status: "successful"
+        discord_detail: "{{ _cw.recovered | length }} running again"
+        discord_color: "{{ discord_color_success }}"
+        discord_url: "{{ semaphore_ext_url | default('') }}"
+        discord_author: "{{ controller_fqdn }}"
+        discord_fields: "{{ _cw_fields_rec }}"
+      when:
+        - _cw.recovered | length > 0
+        - not (skip_db | default(false) | bool)
+
+    - name: Warn about stacks that could not be rendered
+      ansible.builtin.debug:
+        msg: "could not render (docker compose config failed): {{ _cw_unreadable | join(', ') }}"
+      when: _cw_unreadable | length > 0

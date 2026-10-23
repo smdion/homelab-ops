@@ -276,7 +276,7 @@ vm_definitions:
 #       src: "192.0.2.0/24"             # optional, restrict to source CIDR
 #       comment: "Web UI"               # optional
 #
-#   beszel:                              # Monitoring (Beszel) — see homelab-docs tasks/beszel-iac.md
+#   beszel:                              # Monitoring (Beszel) — see homelab-docs infrastructure/monitoring.md
 #     agent: container                   # container | binary | none. Anything but none => bootstrap_vm opens
 #                                        # beszel_agent_port in UFW, restricted to beszel_hub_source
 

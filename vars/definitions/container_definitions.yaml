@@ -441,7 +441,7 @@ container_definitions:
     tag: "latest"
     stack: vpn
     env:
-      # SSO (Authentik OIDC — see homelab-docs tasks/beszel-iac.md "SSO"). The OIDC provider itself lives in the hub's
+      # SSO (Authentik OIDC — see homelab-docs infrastructure/monitoring.md). The OIDC provider itself lives in the hub's
       # own settings and is reconciled by tasks/beszel_sync.yaml from vault_docker_beszel_oidc_client_*.
       # USER_CREATION lets a first SSO login create the user; SHARE_ALL_SYSTEMS makes every user see every system (systems are
       # otherwise assigned per user, so a new SSO user would see nothing). Password login stays ON on purpose: the reconcile,
@@ -450,6 +450,9 @@ container_definitions:
       BESZEL_HUB_SHARE_ALL_SYSTEMS: "true"
       # Base URL for links in alert notifications (Discord/email); unset, the hub links to http://localhost:8090.
       BESZEL_HUB_APP_URL: "https://monitor.{{ vault_domain_ext }}"
+      # Dead man's switch: the hub POSTs a status summary to this Healthchecks.io check every 60 s, so a dead VPS, hub or
+      # tunnel is noticed from outside. Empty = disabled.
+      BESZEL_HUB_HEARTBEAT_URL: "{{ vault_beszel_heartbeat_url | default('') }}"
     dashboard:
       group: Monitoring
       name: Beszel
@@ -478,6 +481,7 @@ container_definitions:
         USER_CREATION: "${BESZEL_HUB_USER_CREATION}"
         SHARE_ALL_SYSTEMS: "${BESZEL_HUB_SHARE_ALL_SYSTEMS}"
         APP_URL: "${BESZEL_HUB_APP_URL}"
+        HEARTBEAT_URL: "${BESZEL_HUB_HEARTBEAT_URL}"
       labels:
         homelab.backup.paths: "/opt/beszel"
         homelab.health_timeout: "90"

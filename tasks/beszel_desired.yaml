@@ -1,13 +1,15 @@
 ---
 # Render the desired Beszel systems from vm_definitions + host_definitions into the fact `_beszel_desired`
-# (a JSON string: [{key, name, address, port, alerts}, ...]). Shared by tasks/beszel_sync.yaml (the reconcile) and
+# (a JSON string: [{key, name, address, port, alerts, monitors}, ...]). Shared by tasks/beszel_sync.yaml (the reconcile) and
 # tasks/beszel_quiet.yaml (quiet windows), so both resolve a host to the same hub address.
 # Needs loaded: vm_definitions, host_definitions, beszel_alert_defaults (vars/configs/beszel.yaml), beszel_agent_port.
 #
 # Desired state: every definition whose `beszel.agent` is not `none`.
 #   name    beszel.name, else the Guacamole name, else the definition key
 #   address beszel.address, else vm_ip, else the first proxy upstream_ip
-#   alerts  beszel_alert_defaults merged with beszel.alerts (number = new threshold, false = remove that alert)
+#   alerts  beszel_alert_defaults merged with beszel.alerts (number = new threshold, false = remove that alert),
+#           plus NetworkMonitorLoss when the system has monitors
+#   monitors beszel_network_monitors[key] (protocol, target, port, interval)
 
 - name: Render the desired Beszel systems from the definitions
   ansible.builtin.set_fact:
@@ -26,12 +28,21 @@
       {%- else -%}{%- set _ = alerts.update({aname: {'value': over, 'min': aspec.min}}) -%}
       {%- endif -%}
       {%- endfor -%}
+      {%- set monitors = [] -%}
+      {%- for m in (beszel_network_monitors | default({})).get(key, []) -%}
+      {%- set _ = monitors.append({'protocol': m.protocol, 'target': m.target, 'port': m.port | default(0) | int,
+            'interval': m.interval | default(beszel_network_monitor_interval | default(60)) | int}) -%}
+      {%- endfor -%}
+      {%- if monitors | length > 0 and (d.beszel.alerts | default({})).get('NetworkMonitorLoss', none) is not sameas false -%}
+      {%- set _ = alerts.update({'NetworkMonitorLoss': beszel_network_monitor_loss | default({'value': 5, 'min': 0})}) -%}
+      {%- endif -%}
       {%- set _ = out.append({
             'key': key,
             'name': d.beszel.name | default((d.guacamole | default({})).name | default(key, true), true),
             'address': (d.beszel.address | default(d.vm_ip | default('', true) | string, true)) or upstream,
             'port': beszel_agent_port,
-            'alerts': alerts}) -%}
+            'alerts': alerts,
+            'monitors': monitors}) -%}
       {%- endfor -%}
       {%- endfor -%}
       {{ out | to_json }}

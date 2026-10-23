@@ -49,7 +49,7 @@
             query: "DELETE FROM task WHERE status IN ('stopped', 'error')"
           no_log: "{{ _no_log }}"
 
-        - name: Delete old successful download tasks from Semaphore DB
+        - name: Delete old successful download and container-watch tasks from Semaphore DB
           vars:
             ansible_python_interpreter: "{{ ansible_playbook_python }}"
           become: false
@@ -64,7 +64,7 @@
             query: >-
               DELETE t FROM task t
               INNER JOIN project__template pt ON t.template_id = pt.id AND pt.project_id = %s
-              WHERE pt.name LIKE 'Download %%'
+              WHERE (pt.name LIKE 'Download %%' OR pt.name = 'Maintain — Containers [Watch]')
               AND t.status = 'success'
               AND t.created < UTC_TIMESTAMP() - INTERVAL %s DAY
             positional_args:

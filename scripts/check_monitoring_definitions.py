@@ -15,7 +15,7 @@ appear in either. Rules:
     * exactly one hub, and it runs the infra stack.
 
 Usage: python3 scripts/check_monitoring_definitions.py     (exit 1 with a list when something is wrong)
-See homelab-docs tasks/beszel-iac.md and tasks/dozzle-iac.md.
+See homelab-docs infrastructure/monitoring.md.
 """
 import os
 import sys

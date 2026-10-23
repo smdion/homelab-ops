@@ -11,7 +11,7 @@
 # maintain_health CHECK 32 / 33 alert on drift twice daily.
 # Deleting stale Beszel systems is NOT done here — that stays an explicit `beszel_prune=true` run.
 #
-# Design: homelab-docs tasks/beszel-iac.md, tasks/dozzle-iac.md
+# How it works: homelab-docs infrastructure/monitoring.md
 
 - name: Sync Beszel and Dozzle with the definitions
   hosts: localhost

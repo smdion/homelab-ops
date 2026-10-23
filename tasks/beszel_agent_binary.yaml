@@ -3,7 +3,7 @@
 # iVentoy, ...). Same layout as the official install script, so it adopts the agents already running on
 # the PVE nodes without changing behavior: a `beszel` user, the binary in /opt/beszel-agent, a hardened
 # unit, and a daily self-update timer (the agent stays on the latest release by itself — deliberately
-# not version-pinned, see homelab-docs tasks/beszel-iac.md).
+# not version-pinned, see homelab-docs infrastructure/monitoring.md).
 #
 # Included by tasks/bootstrap_vm.yaml (VMs) and tasks/bootstrap_host.yaml (non-VM hosts) when the
 # definition has `beszel.agent: binary`. Expects:

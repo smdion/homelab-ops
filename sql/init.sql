@@ -178,3 +178,17 @@ CREATE TABLE IF NOT EXISTS image_updates (
   INDEX idx_available (update_available),
   UNIQUE INDEX idx_host_container (hostname, container)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Container watcher state (maintain_containers.yaml): one row per container that should be running but is not, so a
+-- problem alerts once (after container_watch_confirm_runs consecutive sightings) and again when it recovers.
+CREATE TABLE IF NOT EXISTS container_watch (
+  id          INT AUTO_INCREMENT PRIMARY KEY,
+  hostname    VARCHAR(255) NOT NULL,
+  container   VARCHAR(255) NOT NULL,
+  problem     VARCHAR(50)  NOT NULL,
+  seen_count  INT NOT NULL DEFAULT 1,
+  notified    BOOLEAN NOT NULL DEFAULT FALSE,
+  first_seen  DATETIME NOT NULL,
+  last_seen   DATETIME NOT NULL,
+  UNIQUE INDEX idx_host_container (hostname, container)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

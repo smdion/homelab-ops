@@ -593,6 +593,12 @@ semaphore_templates:
     inventory: ansible-user-ssh
     environment: blank
     schedule: [{ cron: "0 8 * * 0", name: "Weekly Sunday 08:00" }]
+  - name: "Maintain — Containers [Watch]"
+    playbook: maintain_containers.yaml
+    view: Maintenance
+    inventory: ansible-user-ssh
+    environment: blank
+    schedule: [{ cron: "*/10 * * * *", name: "Every 10 minutes" }]
   - name: "Maintain — CrowdSec Bouncer [Restart]"
     playbook: maintain_crowdsec_bouncer.yaml
     view: Maintenance
