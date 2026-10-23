@@ -6,11 +6,16 @@ backup_name: "Docker"
 backup_description: "Automatic Docker Backup"
 backup_subtype: "Appdata"
 
-# Containers to keep running during backup (never stopped/started)
+# Containers to keep running during backup (never stopped/started). The monitoring agents stay up so a
+# backup does not show the whole host as down in Beszel (it did, every Sunday ~03:06 on liberty) and keeps
+# its logs visible in Dozzle; their appdata is a few KB of keys, so a live copy is consistent enough.
+# Matched as a case-insensitive regex alternation by tasks/docker_stop.yaml.
 backup_exclude_containers:
   - ansible
   - semaphore
   - mariadb
+  - beszel-agent
+  - dozzle-agent
 
 # Update vars
 update_name: "Docker"

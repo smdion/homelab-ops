@@ -18,31 +18,7 @@
 #   (button label beszel_oidc_name, default Authentik).
 
 - name: Render the desired Beszel systems from the definitions
-  ansible.builtin.set_fact:
-    _beszel_desired: >-
-      {%- set out = [] -%}
-      {%- for src in [vm_definitions, host_definitions] -%}
-      {%- for key, d in src.items() if d is mapping and (d.beszel | default({})).agent | default('none') != 'none' -%}
-      {%- set proxy = d.proxy | default([]) -%}
-      {%- set proxy = [proxy] if proxy is mapping else proxy -%}
-      {%- set upstream = proxy | selectattr('upstream_ip', 'defined') | map(attribute='upstream_ip') | list | first | default('', true) -%}
-      {%- set alerts = {} -%}
-      {%- for aname, aspec in beszel_alert_defaults.items() -%}
-      {%- set over = (d.beszel.alerts | default({})).get(aname, none) -%}
-      {%- if over is none -%}{%- set _ = alerts.update({aname: aspec}) -%}
-      {%- elif over is sameas false -%}{%- set _ = alerts.update({aname: false}) -%}
-      {%- else -%}{%- set _ = alerts.update({aname: {'value': over, 'min': aspec.min}}) -%}
-      {%- endif -%}
-      {%- endfor -%}
-      {%- set _ = out.append({
-            'key': key,
-            'name': d.beszel.name | default((d.guacamole | default({})).name | default(key, true), true),
-            'address': (d.beszel.address | default(d.vm_ip | default('', true) | string, true)) or upstream,
-            'port': beszel_agent_port,
-            'alerts': alerts}) -%}
-      {%- endfor -%}
-      {%- endfor -%}
-      {{ out | to_json }}
+  ansible.builtin.include_tasks: tasks/beszel_desired.yaml
 
 - name: Assert every monitored definition resolved to an address
   ansible.builtin.assert:

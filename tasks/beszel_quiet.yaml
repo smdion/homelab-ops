@@ -1,0 +1,58 @@
+---
+# Open or close a one-time Beszel quiet window for the current host, around downtime a playbook causes on purpose
+# (update_systems reboots). Beszel drops alerts inside a window, so keep it to the run: open right before the
+# reboot, close once the host (and on cluster nodes its HA guests) is back. A run that dies in between leaves the
+# window to expire after beszel_quiet_minutes. Best effort: a failure only warns, it never stops the playbook.
+#
+# Required vars:
+#   beszel_quiet_action   — open | close
+# Optional vars:
+#   beszel_quiet_minutes  — window length for open (default 30)
+#   beszel_quiet_key      — definition key of the host (default: the short inventory hostname)
+# Needs loaded by the caller: vars/secrets.yaml, vm_definitions, host_definitions. Runs on the controller.
+
+- name: Load the Beszel settings for the quiet window
+  ansible.builtin.include_vars: vars/configs/beszel.yaml
+  delegate_to: localhost
+  when: not ansible_check_mode
+
+- name: Resolve this host's Beszel address
+  ansible.builtin.include_tasks: tasks/beszel_desired.yaml
+  when: not ansible_check_mode
+
+- name: Find the host in the desired Beszel systems
+  ansible.builtin.set_fact:
+    _beszel_quiet_addr: >-
+      {{ (_beszel_desired | from_json | selectattr('key', 'equalto', beszel_quiet_key | default(inventory_hostname.split('.')[0]))
+          | map(attribute='address') | list | first) | default('') }}
+  when: not ansible_check_mode
+
+- name: "{{ beszel_quiet_action | capitalize }} the Beszel quiet window"
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ playbook_dir }}/files/beszel_quiet.py"
+      - --hub-url
+      - "{{ beszel_hub_url }}"
+      - --action
+      - "{{ beszel_quiet_action }}"
+      - --minutes
+      - "{{ beszel_quiet_minutes | default(30) | string }}"
+      - --address
+      - "{{ _beszel_quiet_addr }}"
+  environment:
+    BESZEL_USER: "{{ vault_homepage_beszel_username }}"
+    BESZEL_PASSWORD: "{{ vault_homepage_beszel_password }}"
+  delegate_to: localhost
+  register: _beszel_quiet_res
+  changed_when: _beszel_quiet_res.rc == 0
+  failed_when: false  # best effort — quiet windows must never block an update or reboot
+  no_log: "{{ not (debug_no_log | default(false) | bool) }}"
+  when:
+    - not ansible_check_mode
+    - _beszel_quiet_addr | length > 0
+
+- name: Show the quiet window result
+  ansible.builtin.debug:
+    msg: "{{ _beszel_quiet_res.stderr_lines | default(['skipped: host is not monitored by Beszel']) }}"
+  when: not ansible_check_mode

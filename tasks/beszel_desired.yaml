@@ -1,0 +1,37 @@
+---
+# Render the desired Beszel systems from vm_definitions + host_definitions into the fact `_beszel_desired`
+# (a JSON string: [{key, name, address, port, alerts}, ...]). Shared by tasks/beszel_sync.yaml (the reconcile) and
+# tasks/beszel_quiet.yaml (quiet windows), so both resolve a host to the same hub address.
+# Needs loaded: vm_definitions, host_definitions, beszel_alert_defaults (vars/configs/beszel.yaml), beszel_agent_port.
+#
+# Desired state: every definition whose `beszel.agent` is not `none`.
+#   name    beszel.name, else the Guacamole name, else the definition key
+#   address beszel.address, else vm_ip, else the first proxy upstream_ip
+#   alerts  beszel_alert_defaults merged with beszel.alerts (number = new threshold, false = remove that alert)
+
+- name: Render the desired Beszel systems from the definitions
+  ansible.builtin.set_fact:
+    _beszel_desired: >-
+      {%- set out = [] -%}
+      {%- for src in [vm_definitions, host_definitions] -%}
+      {%- for key, d in src.items() if d is mapping and (d.beszel | default({})).agent | default('none') != 'none' -%}
+      {%- set proxy = d.proxy | default([]) -%}
+      {%- set proxy = [proxy] if proxy is mapping else proxy -%}
+      {%- set upstream = proxy | selectattr('upstream_ip', 'defined') | map(attribute='upstream_ip') | list | first | default('', true) -%}
+      {%- set alerts = {} -%}
+      {%- for aname, aspec in beszel_alert_defaults.items() -%}
+      {%- set over = (d.beszel.alerts | default({})).get(aname, none) -%}
+      {%- if over is none -%}{%- set _ = alerts.update({aname: aspec}) -%}
+      {%- elif over is sameas false -%}{%- set _ = alerts.update({aname: false}) -%}
+      {%- else -%}{%- set _ = alerts.update({aname: {'value': over, 'min': aspec.min}}) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {%- set _ = out.append({
+            'key': key,
+            'name': d.beszel.name | default((d.guacamole | default({})).name | default(key, true), true),
+            'address': (d.beszel.address | default(d.vm_ip | default('', true) | string, true)) or upstream,
+            'port': beszel_agent_port,
+            'alerts': alerts}) -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {{ out | to_json }}

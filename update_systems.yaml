@@ -346,6 +346,18 @@
             - _pve_maint_enabled is not skipped
             - _ceph_available.rc | default(1) == 0
 
+        # Planned downtime must not page: a one-time Beszel quiet window covers this host's reboot (and on cluster
+        # nodes the HA settle), closed again below. It expires by itself if the run dies in between.
+        - name: Open a Beszel quiet window for the reboot
+          ansible.builtin.include_tasks: tasks/beszel_quiet.yaml
+          vars:
+            beszel_quiet_action: open
+            beszel_quiet_minutes: 45
+          when:
+            - _version_scope == 'os'
+            - _auto_reboot | bool
+            - _reboot_needed | default(false) | bool
+
         - name: Reboot machines that require
           ansible.builtin.reboot:
           become: true
@@ -469,6 +481,15 @@
             - inventory_hostname in groups['pve'] | default([])
             - _pve_maint_enabled is defined
             - not (_pve_maint_enabled is skipped)
+
+        - name: Close the Beszel quiet window after the reboot
+          ansible.builtin.include_tasks: tasks/beszel_quiet.yaml
+          vars:
+            beszel_quiet_action: close
+          when:
+            - _version_scope == 'os'
+            - _auto_reboot | bool
+            - _reboot_needed | default(false) | bool
 
         - name: Update AMP
           become: true

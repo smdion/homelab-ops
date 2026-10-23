@@ -81,7 +81,10 @@ host_definitions:
   # unRAID servers (docker_run — no stacks, managed via docker_run inventory group)
   redemption:
     dozzle: { role: agent }            # unRAID dockerman container, kept current by update_systems
-    beszel: { agent: container }      # unRAID dockerman container, kept current by update_systems
+    # Temperature off: the board's nct6798 auxtin0/auxtin3 inputs read a constant 86/80 C (unconnected
+    # aux sensors; the CPU itself is ~56). The agent is a hand-managed unRAID container, so SENSORS can't
+    # filter them from IaC. Drive temps are covered by maintain_health CHECK 15 and Scrutiny.
+    beszel: { agent: container, alerts: { Temperature: false } }   # unRAID dockerman container, kept current by update_systems
     vm_hostname: "redemption.{{ vault_vm_search_domain }}"
     guacamole: { name: Redemption, group: unRAID }
     # Containers unRAID runs here that have a web UI. unRAID manages them (they are not in

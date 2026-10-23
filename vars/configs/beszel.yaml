@@ -1,6 +1,6 @@
 ---
 # Beszel monitoring — config for deploy_beszel_monitoring.yaml / tasks/beszel_sync.yaml.
-# Design and audit: homelab-docs tasks/beszel-iac.md. Per-host tuning lives on the definition, in its
+# How it works: homelab-docs infrastructure/monitoring.md. Per-host tuning lives on the definition, in its
 # `beszel:` block (name, address, alerts).
 
 # The hub runs on the VPS behind WireGuard; the controller (Semaphore on redemption) reaches its API here.
@@ -8,7 +8,8 @@ beszel_hub_url: "http://10.253.100.1:8090"
 
 # Alerts every monitored system gets. value = threshold (percent); min = minutes it must persist. "Status"
 # fires when the agent is unreachable for `min` minutes (5 rides out reboots and backup stop/start windows).
-# Names are the hub's own (Status, CPU, Memory, Disk, Bandwidth, Temperature, LoadAvg1/5/15, GPU, Battery).
+# Names are the hub's own (Status, CPU, Memory, Disk, Bandwidth, Temperature, LoadAvg1/5/15, GPU, Battery,
+# ContainerHealth, SystemdFailed, CPUIOWait, CPUSteal, NetworkMonitorLoss).
 # Override or disable per host in its definition, e.g.  beszel: { agent: binary, alerts: { CPU: 95, Disk: false } }
 # — a number replaces the threshold (keeping `min`), false removes that alert.
 beszel_alert_defaults:
@@ -16,6 +17,16 @@ beszel_alert_defaults:
   CPU: { value: 90, min: 10 }
   Memory: { value: 90, min: 10 }
   Disk: { value: 85, min: 10 }
+  # A container whose health check reports unhealthy (not stopped ones; the container watcher covers those).
+  # value is unused by the hub; min = minutes it must stay unhealthy (autoheal usually fixes it within one).
+  ContainerHealth: { value: 0, min: 5 }
+  # Any failed systemd unit. Only binary-agent hosts report systemd; the hub ignores min for this alert.
+  SystemdFailed: { value: 0, min: 10 }
+  # CPU I/O wait / steal percent. Baseline 2026-10-22: iowait peaked at 11.5% (PBS), steal at 1%.
+  CPUIOWait: { value: 25, min: 10 }
+  CPUSteal: { value: 10, min: 10 }
+  # Highest sensor, Celsius. The Ryzen mini PCs run ~80 under load (Tjmax 105).
+  Temperature: { value: 90, min: 10 }
 
 # Drift check thresholds (maintain_health CHECK 32, and the report from deploy_beszel_monitoring):
 # a matched system down at least this many hours is flagged (the hub's own Status alert covers the first minutes) ...
