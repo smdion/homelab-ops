@@ -104,8 +104,9 @@ container_definitions:
     # Bump this only after confirming actual_http_api has (or doesn't
     # need) a matching update — don't let this drift ahead of the wrapper
     # again.
+    # Bumped to 26.10.0 together with actual_http_api (2026-10-24); versions must match.
     image: "actualbudget/actual-server"
-    tag: "26.8.1"
+    tag: "26.10.0"
     stack: apps
     dashboard:
       group: Finance
@@ -198,8 +199,9 @@ container_definitions:
     # a genuinely newer, verified-compatible pair is available (it does
     # not track rolling tags) — bump both together only after live-testing
     # with the CORRECT groupId identifier, per the diagnosis note above.
+    # Bumped to 26.10.0 together with actual_budget (2026-10-24); versions must match.
     image: "jhonderson/actual-http-api"
-    tag: "26.8.1"
+    tag: "26.10.0"
     stack: apps
     env:
       ACTUAL_HTTP_API_SERVER_URL: "http://actual-budget:5006/"
