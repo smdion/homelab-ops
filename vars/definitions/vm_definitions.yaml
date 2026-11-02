@@ -226,6 +226,43 @@ vm_definitions:
     install_desktop: false
     node_version: "26.12.1"            # match personalfinance/Dockerfile FROM node:<version>
     pnpm_version: "10.32.1"            # match personalfinance/package.json packageManager
+    # Performance baseline: Playwright 1.64 Chromium's Ubuntu 24.04 libraries and fonts, and PostgreSQL 16 binaries
+    # (matches compose postgres:16). The script runs its own throwaway server, so the system cluster stays off.
+    extra_apt_packages:
+      - libasound2t64
+      - libatk-bridge2.0-0t64
+      - libatk1.0-0t64
+      - libatspi2.0-0t64
+      - libcairo2
+      - libcups2t64
+      - libdbus-1-3
+      - libdrm2
+      - libgbm1
+      - libglib2.0-0t64
+      - libnspr4
+      - libnss3
+      - libpango-1.0-0
+      - libx11-6
+      - libxcb1
+      - libxcomposite1
+      - libxdamage1
+      - libxext6
+      - libxfixes3
+      - libxkbcommon0
+      - libxrandr2
+      - fonts-liberation
+      - fonts-noto-color-emoji
+      - fonts-unifont
+      - fonts-ipafont-gothic
+      - fonts-wqy-zenhei
+      - fonts-tlwg-loma-otf
+      - fonts-freefont-ttf
+      - libfontconfig1
+      - libfreetype6
+      - xfonts-scalable
+      - xfonts-cyrillic
+      - postgresql-16
+    disabled_services: [postgresql, postgresql@16-main]
 
   # Hosted desktop VMs — VNC-only access through Guacamole + Authentik groups.
   # Not provisioned via build_ubuntu.yaml (manually created in Proxmox).

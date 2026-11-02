@@ -6,7 +6,8 @@
 #   vm_user   — user account for group membership
 # Optional:
 #   _vm              — dict from vm_definitions; enables NFS mounts and UFW rules
-#                      when _vm.nfs_mounts or _vm.ufw_rules are defined
+#                      when _vm.nfs_mounts or _vm.ufw_rules are defined; installs
+#                      _vm.extra_apt_packages and stops/disables _vm.disabled_services
 #   _install_docker  — install Docker + keepalived (default: true)
 
 - name: Wait for cloud-init to finish
@@ -120,7 +121,7 @@
         remote_src: true
         creates: "/opt/node-v{{ _vm.node_version }}-linux-x64/bin/node"
 
-    - name: Link node, npm, npx and corepack into /usr/local/bin
+    - name: Link node, npm and npx into /usr/local/bin
       ansible.builtin.file:
         src: "/opt/node-v{{ _vm.node_version }}-linux-x64/bin/{{ item }}"
         dest: "/usr/local/bin/{{ item }}"
@@ -141,6 +142,21 @@
       register: _pnpm_install
       changed_when: "'installed' in _pnpm_install.stdout"
       when: _vm.pnpm_version is defined
+
+- name: Install extra apt packages (VMs with extra_apt_packages set, e.g. ledgr-test)
+  ansible.builtin.apt:
+    name: "{{ _vm.extra_apt_packages }}"
+    state: present
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  when: _vm.extra_apt_packages is defined
+
+- name: Stop and disable services a package starts but the VM must not run
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop: "{{ _vm.disabled_services | default([]) }}"
 
 - name: Configure Docker and VIPs
   when: _install_docker | default(true) | bool
