@@ -169,7 +169,7 @@ vm_definitions:
     vm_hostname: "sandbox.{{ vault_vm_search_domain }}"
     vm_ip: "10.10.10.90"               # management VLAN — derived from VMID scheme (900 → .90)
     vm_cores: 4
-    vm_memory_mb: 8192
+    vm_memory_mb: 4096                 # was 8192; 4 GB to make room for ledgr-test on Sentinel (12 GB host)
     vm_disk_gb: 30
     pve_storage: "local-lvm"           # sentinel local storage — not replicated
     pve_target_node: "sentinel"
@@ -204,6 +204,28 @@ vm_definitions:
       - { port: "10809", proto: "tcp", src: "{{ vault_prod_lan_subnet }}", comment: "iVentoy NBD" }
       - { port: "12049", proto: "tcp", src: "{{ vault_prod_lan_subnet }}", comment: "iVentoy NFS" }
       - { port: "10445", proto: "tcp", src: "{{ vault_prod_lan_subnet }}", comment: "iVentoy SMB" }
+
+  # ledgr-test — Ledgr test runner (full test suites, mutation audits, the performance
+  # baseline), so heavy runs stay off dev, which also runs prod Ledgr. No desktop, no Docker,
+  # no secrets: the repo and its private .scratch docs are synced from dev. Disposable —
+  # rebuild from this definition. Node pinned to the Ledgr Dockerfile, pnpm to package.json.
+  ledgr-test:
+    beszel: { agent: none }
+    vm_id: 902
+    vm_name: ledgr-test
+    vm_mac: "02:00:00:00:03:86"         # static MAC — stable Unifi device identity; encodes VMID 902 (0x386)
+    vm_hostname: "ledgr-test.{{ vault_vm_search_domain }}"
+    vm_ip: "10.10.10.92"               # Sentinel host VMs (.9x) — derived from VMID scheme (902 → .92)
+    vm_cores: 8
+    vm_memory_mb: 6144
+    vm_disk_gb: 40                     # a few repo clones with node_modules (~2–3 GB each)
+    pve_storage: "local-lvm"           # sentinel local storage — not replicated
+    pve_target_node: "sentinel"
+    deploy_ssh_key: true
+    install_docker: false
+    install_desktop: false
+    node_version: "26.12.1"            # match personalfinance/Dockerfile FROM node:<version>
+    pnpm_version: "10.32.1"            # match personalfinance/package.json packageManager
 
   # Hosted desktop VMs — VNC-only access through Guacamole + Authentik groups.
   # Not provisioned via build_ubuntu.yaml (manually created in Proxmox).

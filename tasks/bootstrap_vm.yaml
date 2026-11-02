@@ -94,6 +94,51 @@
         state: present
       become_user: "{{ vm_user }}"
 
+- name: Install Node.js and pnpm (VMs with node_version set, e.g. ledgr-test)
+  when: _vm.node_version is defined
+  block:
+    - name: Install build tools for native npm modules
+      ansible.builtin.apt:
+        name:
+          - git
+          - xz-utils
+          - build-essential
+          - python3
+        state: present
+
+    - name: Download the pinned Node.js release, checked against nodejs.org SHASUMS256
+      ansible.builtin.get_url:
+        url: "https://nodejs.org/dist/v{{ _vm.node_version }}/node-v{{ _vm.node_version }}-linux-x64.tar.xz"
+        dest: "/tmp/node-v{{ _vm.node_version }}-linux-x64.tar.xz"
+        checksum: "sha256:https://nodejs.org/dist/v{{ _vm.node_version }}/SHASUMS256.txt"
+        mode: "0644"
+
+    - name: Unpack Node.js into /opt
+      ansible.builtin.unarchive:
+        src: "/tmp/node-v{{ _vm.node_version }}-linux-x64.tar.xz"
+        dest: /opt
+        remote_src: true
+        creates: "/opt/node-v{{ _vm.node_version }}-linux-x64/bin/node"
+
+    - name: Link node, npm, npx and corepack into /usr/local/bin
+      ansible.builtin.file:
+        src: "/opt/node-v{{ _vm.node_version }}-linux-x64/bin/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        state: link
+        force: true
+      loop: [node, npm, npx, corepack]
+
+    - name: Enable corepack shims (pnpm)
+      ansible.builtin.command: corepack enable --install-directory /usr/local/bin
+      args:
+        creates: /usr/local/bin/pnpm
+
+    - name: Activate the pinned pnpm for the VM user
+      ansible.builtin.command: "corepack prepare pnpm@{{ _vm.pnpm_version }} --activate"
+      become_user: "{{ vm_user }}"
+      changed_when: false
+      when: _vm.pnpm_version is defined
+
 - name: Configure Docker and VIPs
   when: _install_docker | default(true) | bool
   block:
