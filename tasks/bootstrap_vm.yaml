@@ -126,17 +126,20 @@
         dest: "/usr/local/bin/{{ item }}"
         state: link
         force: true
-      loop: [node, npm, npx, corepack]
+      loop: [node, npm, npx]
 
-    - name: Enable corepack shims (pnpm)
-      ansible.builtin.command: corepack enable --install-directory /usr/local/bin
-      args:
-        creates: /usr/local/bin/pnpm
-
-    - name: Activate the pinned pnpm for the VM user
-      ansible.builtin.command: "corepack prepare pnpm@{{ _vm.pnpm_version }} --activate"
-      become_user: "{{ vm_user }}"
-      changed_when: false
+    # Node 25+ no longer bundles corepack, so pnpm comes from npm, pinned.
+    - name: Install the pinned pnpm globally
+      ansible.builtin.shell: |
+        set -eu
+        if [ "$(/usr/local/bin/pnpm --version 2>/dev/null || true)" = "{{ _vm.pnpm_version }}" ]; then
+          echo unchanged
+        else
+          /usr/local/bin/npm install --global --prefix /usr/local "pnpm@{{ _vm.pnpm_version }}"
+          echo installed
+        fi
+      register: _pnpm_install
+      changed_when: "'installed' in _pnpm_install.stdout"
       when: _vm.pnpm_version is defined
 
 - name: Configure Docker and VIPs
