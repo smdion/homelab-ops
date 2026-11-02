@@ -91,6 +91,7 @@
   # Send from the controller, like the Apprise tasks below — an alert about an unreachable host
   # (failed reboot, dead SSH) must not depend on reaching that host.
   delegate_to: localhost
+  become: false                 # runs on the Semaphore runner, which has no sudo; a become play (build_ubuntu Play 2) would fail here
   failed_when: false  # notification-guard — notification task; failure must not block playbook
   when:
     - not ansible_check_mode
@@ -121,6 +122,7 @@
       - "{{ _apprise_body }}"
       - "{{ vault_apprise_urls }}"
   delegate_to: localhost
+  become: false                 # runs on the Semaphore runner, which has no sudo; a become play (build_ubuntu Play 2) would fail here
   failed_when: false  # notification-guard — notification task; failure must not block playbook
   when:
     - not ansible_check_mode
@@ -154,6 +156,7 @@
       type: "{{ _apprise_type }}"
     status_code: [200]
   delegate_to: localhost
+  become: false                 # runs on the Semaphore runner, which has no sudo; a become play (build_ubuntu Play 2) would fail here
   failed_when: false  # notification-guard — notification task; failure must not block playbook
   when:
     - not ansible_check_mode
