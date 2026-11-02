@@ -4,6 +4,9 @@
 # Make existing cluster VMs match the hardware in vars/definitions/vm_definitions.yaml: vm_cores, vm_sockets (default 1)
 # and vm_memory_mb. Report-only by default (prints drift, changes nothing). Runs through the Proxmox API.
 #
+# Covers cluster VMs and VMs on standalone nodes (pve_definitions standalone: true, e.g. Sentinel): a vm_definitions entry
+# whose pve_target_node is a standalone node is read and changed through that node's own API.
+#
 # A changed value is written to the VM config as a PENDING change; the guest only sees it after a restart. With
 # hw_restart the running VM is restarted through the API `status/reboot` call (graceful shutdown, then start; applies
 # pending changes) and the play waits until the pending change is gone. HA-managed VMs stay HA resources throughout.
@@ -55,10 +58,23 @@
       vars:
         _pve_target_node: ""
 
-    - name: Set API base and auth header
+    # One API per endpoint: 'cluster' (shared VIP) plus every standalone node, keyed by node name.
+    - name: Set API base and auth header per endpoint
       ansible.builtin.set_fact:
-        _api_base: "https://{{ _pve.api_host }}:{{ pve_api_port }}/api2/json"
-        _api_auth: "PVEAPIToken={{ _pve.api_user }}!{{ _pve.api_token_id }}={{ _pve.api_token_secret }}"
+        _hw_apis: >-
+          {%- set out = {'cluster': {'base': 'https://' ~ _pve.api_host ~ ':' ~ pve_api_port ~ '/api2/json',
+                                     'auth': 'PVEAPIToken=' ~ _pve.api_user ~ '!' ~ _pve.api_token_id ~ '=' ~ _pve.api_token_secret}} -%}
+          {%- for n, d in pve_definitions.items() if d is mapping and d.standalone | default(false) | bool -%}
+            {%- set _ = out.update({n: {'base': 'https://' ~ d.api_host ~ ':' ~ pve_api_port ~ '/api2/json',
+                                        'auth': 'PVEAPIToken=' ~ d.api_user ~ '!' ~ d.api_token_id ~ '=' ~ d.api_token_secret}}) -%}
+          {%- endfor -%}
+          {{ out | to_json }}
+      no_log: "{{ _no_log }}"
+
+    - name: Normalise the endpoint map
+      ansible.builtin.set_fact:
+        _hw_apis: "{{ _hw_apis if _hw_apis is not string else _hw_apis | from_json }}"
+      no_log: "{{ _no_log }}"
 
   tasks:
     - name: Initialize maintenance state
@@ -77,35 +93,38 @@
             quiet: true
           when: hw_apply | bool
 
-        - name: Get cluster VMs
+        - name: Get VMs from the cluster and each standalone node
           ansible.builtin.uri:
-            url: "{{ _api_base }}/cluster/resources?type=vm"
+            url: "{{ _hw_apis[item].base }}/cluster/resources?type=vm"
             method: GET
             headers:
-              Authorization: "{{ _api_auth }}"
+              Authorization: "{{ _hw_apis[item].auth }}"
             validate_certs: false
           register: _hw_cluster
           check_mode: false
+          loop: "{{ _hw_apis.keys() | list }}"
           no_log: "{{ _no_log }}"
 
         # Candidates come from vm_definitions (vm_id + vm_cores [+ vm_sockets, vm_memory_mb]) and from host_definitions entries
         # that carry a `vm_hardware: { vmid, cores, sockets, memory_mb }` block (VMs that are hosts, e.g. PDM — they must NOT get a
         # top-level vm_id, which apply_role reads as "this role is a provisioned VM"). Only VMs that also exist in the cluster are
-        # kept (standalone nodes are not in this API).
+        # kept. Each candidate is looked up on one endpoint only: its standalone pve_target_node, else the cluster.
         - name: Select target VMs
           ansible.builtin.set_fact:
             _hw_targets: >-
               {%- set cands = [] -%}
               {%- for name, d in vm_definitions.items() if d is mapping and d.vm_id is defined and d.vm_cores is defined -%}
-                {%- set _ = cands.append({'name': name, 'vmid': d.vm_id, 'cores': d.vm_cores, 'sockets': d.vm_sockets | default(1), 'memory': d.vm_memory_mb}) -%}
+                {%- set api = d.pve_target_node if (d.pve_target_node | default('')) in _hw_apis and d.pve_target_node != 'cluster' else 'cluster' -%}
+                {%- set _ = cands.append({'name': name, 'api': api, 'vmid': d.vm_id, 'cores': d.vm_cores, 'sockets': d.vm_sockets | default(1), 'memory': d.vm_memory_mb}) -%}
               {%- endfor -%}
               {%- for name, d in host_definitions.items() if d is mapping and d.vm_hardware is defined -%}
-                {%- set _ = cands.append({'name': name, 'vmid': d.vm_hardware.vmid, 'cores': d.vm_hardware.cores, 'sockets': d.vm_hardware.sockets | default(1), 'memory': d.vm_hardware.memory_mb}) -%}
+                {%- set _ = cands.append({'name': name, 'api': 'cluster', 'vmid': d.vm_hardware.vmid, 'cores': d.vm_hardware.cores, 'sockets': d.vm_hardware.sockets | default(1), 'memory': d.vm_hardware.memory_mb}) -%}
               {%- endfor -%}
               {%- set out = [] -%}
               {%- for c in cands if _hw_names | length == 0 or c.name in _hw_names -%}
-                {%- for r in _hw_cluster.json.data if (r.vmid | string) == (c.vmid | string) -%}
-                  {%- set _ = out.append({'name': c.name, 'vmid': r.vmid, 'node': r.node, 'status': r.status,
+                {%- set res = (_hw_cluster.results | selectattr('item', 'equalto', c.api) | first).json.data -%}
+                {%- for r in res if (r.vmid | string) == (c.vmid | string) -%}
+                  {%- set _ = out.append({'name': c.name, 'api': c.api, 'vmid': r.vmid, 'node': r.node, 'status': r.status,
                         'want': {'cores': c.cores | int, 'sockets': c.sockets | int, 'memory': c.memory | int}}) -%}
                 {%- endfor -%}
               {%- endfor -%}
@@ -128,10 +147,10 @@
 
         - name: Read each VM's config and pending changes
           ansible.builtin.uri:
-            url: "{{ _api_base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/{{ item.what }}"
+            url: "{{ _hw_apis[item.api].base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/{{ item.what }}"
             method: GET
             headers:
-              Authorization: "{{ _api_auth }}"
+              Authorization: "{{ _hw_apis[item.api].auth }}"
             validate_certs: false
           register: _hw_reads
           check_mode: false
@@ -202,10 +221,10 @@
 
         - name: Get provisioned/used size of each disk image (best effort)
           ansible.builtin.uri:
-            url: "{{ _api_base }}/nodes/{{ item.node }}/storage/{{ pve_storage }}/content?vmid={{ item.vmid }}"
+            url: "{{ _hw_apis[item.api].base }}/nodes/{{ item.node }}/storage/{{ pve_definitions[item.api].storage | default(pve_storage) if item.api != 'cluster' else pve_storage }}/content?vmid={{ item.vmid }}"
             method: GET
             headers:
-              Authorization: "{{ _api_auth }}"
+              Authorization: "{{ _hw_apis[item.api].auth }}"
             validate_certs: false
           register: _hw_content
           check_mode: false
@@ -233,10 +252,10 @@
 
         - name: Write drifted hardware to the VM config (pending until restart)
           ansible.builtin.uri:
-            url: "{{ _api_base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+            url: "{{ _hw_apis[item.api].base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
             method: PUT
             headers:
-              Authorization: "{{ _api_auth }}"
+              Authorization: "{{ _hw_apis[item.api].auth }}"
             body_format: form-urlencoded
             body: "{{ item.diff }}"
             validate_certs: false
@@ -248,10 +267,10 @@
 
         - name: Restart running VMs that have a hardware change to apply (graceful, applies pending)
           ansible.builtin.uri:
-            url: "{{ _api_base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/status/reboot"
+            url: "{{ _hw_apis[item.api].base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/status/reboot"
             method: POST
             headers:
-              Authorization: "{{ _api_auth }}"
+              Authorization: "{{ _hw_apis[item.api].auth }}"
             validate_certs: false
           loop: "{{ _hw_restart_list }}"
           loop_control:
@@ -261,10 +280,10 @@
 
         - name: Wait for the restarted VMs to be running with no pending hardware change
           ansible.builtin.uri:
-            url: "{{ _api_base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/pending"
+            url: "{{ _hw_apis[item.api].base }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/pending"
             method: GET
             headers:
-              Authorization: "{{ _api_auth }}"
+              Authorization: "{{ _hw_apis[item.api].auth }}"
             validate_certs: false
           register: _hw_wait
           until: >-
