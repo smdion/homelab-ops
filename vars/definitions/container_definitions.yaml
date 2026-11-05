@@ -1385,6 +1385,9 @@ container_definitions:
       # feature was YNAB-only — but the value is a generic 32-byte base64
       # key used for all budget API credential encryption.
       LEDGR_ENCRYPTION_KEY: "{{ vault_docker_ledgr_ynab_encryption_key }}"
+      # The Actual budget host Ledgr may call (its URL check refuses private and
+      # single-label addresses otherwise); host only, from the domain in vault.
+      LEDGR_ALLOWED_ACTUAL_HOSTS: "budget.{{ vault_domain_ext }}"
     compose:
       base: base
       ports: ["3000:3000"]
@@ -1412,6 +1415,7 @@ container_definitions:
         AUTH_TRUST_HOST: "true"
         CRON_SECRET: "${LEDGR_CRON_SECRET}"
         ENCRYPTION_KEY: "${LEDGR_ENCRYPTION_KEY}"
+        ALLOWED_ACTUAL_HOSTS: "${LEDGR_ALLOWED_ACTUAL_HOSTS}"
         AUTH_AUTHENTIK_ISSUER: "${LEDGR_AUTH_AUTHENTIK_ISSUER}"
         AUTH_AUTHENTIK_ID: "${LEDGR_AUTH_AUTHENTIK_ID}"
         AUTH_AUTHENTIK_SECRET: "${LEDGR_AUTH_AUTHENTIK_SECRET}"
