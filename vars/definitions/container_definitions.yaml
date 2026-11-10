@@ -1432,6 +1432,8 @@ container_definitions:
       LEDGRDEMO_NEXTAUTH_SECRET: "{{ vault_docker_ledgr_nextauth_secret }}"
       LEDGRDEMO_NEXTAUTH_URL: "https://ledgrdemo.{{ vault_domain_ext }}"
       LEDGRDEMO_CRON_SECRET: "{{ vault_docker_ledgr_cron_secret }}"
+      # Its own key, never prod's: Ledgr encrypts stored credentials with it
+      LEDGRDEMO_ENCRYPTION_KEY: "{{ vault_docker_ledgrdemo_encryption_key }}"
     compose:
       base: base
       ports: ["3004:3000"]
@@ -1450,6 +1452,7 @@ container_definitions:
         NEXTAUTH_SECRET: "${LEDGRDEMO_NEXTAUTH_SECRET}"
         AUTH_TRUST_HOST: "true"
         CRON_SECRET: "${LEDGRDEMO_CRON_SECRET}"
+        ENCRYPTION_KEY: "${LEDGRDEMO_ENCRYPTION_KEY}"
         DEMO_ONLY: "true"
       healthcheck:
         test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/api/health || exit 1"]
