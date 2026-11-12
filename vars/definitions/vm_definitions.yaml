@@ -218,7 +218,7 @@ vm_definitions:
     vm_hostname: "ledgr-test.{{ vault_vm_search_domain }}"
     vm_ip: "10.10.10.92"               # Sentinel host VMs (.9x) — derived from VMID scheme (902 → .92)
     vm_cores: 8
-    vm_memory_mb: 6144
+    vm_memory_mb: 12288                # owner 2026-11-12: matches the running VM (12 GB); 3 parallel test slots
     vm_cpu_type: host                  # Proxmox default (kvm64) lacks SSE4.2/AVX: vite 8 native binaries (rolldown, lightningcss, oxc) die with SIGILL
     vm_disk_gb: 40                     # a few repo clones with node_modules (~2–3 GB each)
     pve_storage: "local-lvm"           # sentinel local storage — not replicated
