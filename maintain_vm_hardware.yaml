@@ -2,7 +2,13 @@
 # Category: Maintain
 # Schedule: none
 # Make existing cluster VMs match the hardware in vars/definitions/vm_definitions.yaml: vm_cores, vm_sockets (default 1)
-# and vm_memory_mb. Report-only by default (prints drift, changes nothing). Runs through the Proxmox API.
+# and vm_memory_mb, plus the CPU type (vm_cpu_type) on VMs whose definition sets it. Report-only by default (prints drift,
+# changes nothing). Runs through the Proxmox API.
+#
+# CPU type: optional. A VM whose definition has no vm_cpu_type keeps whatever CPU type it runs with (shown in the report,
+# never changed). With vm_cpu_type set (e.g. `host`), a different live type is drift and is written as `cpu=<type>`,
+# which replaces the whole Proxmox `cpu` option (any extra flags on it are dropped). A VM with no `cpu` in its config
+# runs Proxmox's default, reported as kvm64.
 #
 # Covers cluster VMs and VMs on standalone nodes (pve_definitions standalone: true, e.g. Sentinel): a vm_definitions entry
 # whose pve_target_node is a standalone node is read and changed through that node's own API.
@@ -21,8 +27,9 @@
 #   ansible-playbook maintain_vm_hardware.yaml -e hw_vm_names=amp -e hw_apply=true     # write, restart later
 #   ansible-playbook maintain_vm_hardware.yaml -e hw_vm_names=amp -e hw_apply=true -e hw_restart=true
 #
-# Required: vars/definitions/vm_definitions.yaml (vm_id, vm_cores, vm_memory_mb per VM) and/or a `vm_hardware:` block on a
-# host_definitions entry (vmid, cores, sockets, memory_mb) for VMs that are hosts, such as PDM.
+# Required: vars/definitions/vm_definitions.yaml (vm_id, vm_cores, vm_memory_mb per VM; optional vm_sockets, vm_cpu_type)
+# and/or a `vm_hardware:` block on a host_definitions entry (vmid, cores, sockets, memory_mb, optional cpu_type) for VMs
+# that are hosts, such as PDM.
 
 - name: Maintain VM hardware from definitions
   hosts: localhost
@@ -43,8 +50,8 @@
     maintenance_type: "Appliances"
     maintenance_subtype: "Maintenance"
     maintenance_url: ""
-    maintenance_description: "Make existing VM cores/sockets/memory match vm_definitions"
-    _hw_hw_keys: [cores, sockets, memory]
+    maintenance_description: "Make existing VM cores/sockets/memory/CPU type match vm_definitions"
+    _hw_hw_keys: [cores, sockets, memory, cpu]
 
   pre_tasks:
     - name: Run standard pre-flight assertions
@@ -105,8 +112,8 @@
           loop: "{{ _hw_apis.keys() | list }}"
           no_log: "{{ _no_log }}"
 
-        # Candidates come from vm_definitions (vm_id + vm_cores [+ vm_sockets, vm_memory_mb]) and from host_definitions entries
-        # that carry a `vm_hardware: { vmid, cores, sockets, memory_mb }` block (VMs that are hosts, e.g. PDM — they must NOT get a
+        # Candidates come from vm_definitions (vm_id + vm_cores [+ vm_sockets, vm_memory_mb, vm_cpu_type]) and from host_definitions
+        # entries that carry a `vm_hardware: { vmid, cores, sockets, memory_mb [, cpu_type] }` block (VMs that are hosts, e.g. PDM — they must NOT get a
         # top-level vm_id, which apply_role reads as "this role is a provisioned VM"). Only VMs that also exist in the cluster are
         # kept. Each candidate is looked up on one endpoint only: its standalone pve_target_node, else the cluster.
         - name: Select target VMs
@@ -115,17 +122,20 @@
               {%- set cands = [] -%}
               {%- for name, d in vm_definitions.items() if d is mapping and d.vm_id is defined and d.vm_cores is defined -%}
                 {%- set api = d.pve_target_node if (d.pve_target_node | default('')) in _hw_apis and d.pve_target_node != 'cluster' else 'cluster' -%}
-                {%- set _ = cands.append({'name': name, 'api': api, 'vmid': d.vm_id, 'cores': d.vm_cores, 'sockets': d.vm_sockets | default(1), 'memory': d.vm_memory_mb}) -%}
+                {%- set _ = cands.append({'name': name, 'api': api, 'vmid': d.vm_id, 'cores': d.vm_cores, 'sockets': d.vm_sockets | default(1), 'memory': d.vm_memory_mb, 'cpu': d.vm_cpu_type | default('')}) -%}
               {%- endfor -%}
               {%- for name, d in host_definitions.items() if d is mapping and d.vm_hardware is defined -%}
-                {%- set _ = cands.append({'name': name, 'api': 'cluster', 'vmid': d.vm_hardware.vmid, 'cores': d.vm_hardware.cores, 'sockets': d.vm_hardware.sockets | default(1), 'memory': d.vm_hardware.memory_mb}) -%}
+                {%- set _ = cands.append({'name': name, 'api': 'cluster', 'vmid': d.vm_hardware.vmid, 'cores': d.vm_hardware.cores, 'sockets': d.vm_hardware.sockets | default(1),
+                      'memory': d.vm_hardware.memory_mb, 'cpu': d.vm_hardware.cpu_type | default('')}) -%}
               {%- endfor -%}
               {%- set out = [] -%}
               {%- for c in cands if _hw_names | length == 0 or c.name in _hw_names -%}
                 {%- set res = (_hw_cluster.results | selectattr('item', 'equalto', c.api) | first).json.data -%}
                 {%- for r in res if (r.vmid | string) == (c.vmid | string) -%}
-                  {%- set _ = out.append({'name': c.name, 'api': c.api, 'vmid': r.vmid, 'node': r.node, 'status': r.status,
-                        'want': {'cores': c.cores | int, 'sockets': c.sockets | int, 'memory': c.memory | int}}) -%}
+                  {%- set want = {'cores': c.cores | int, 'sockets': c.sockets | int, 'memory': c.memory | int} -%}
+                  {#- CPU type is only managed when the definition sets it -#}
+                  {%- if c.cpu | string | length > 0 -%}{%- set _ = want.update({'cpu': c.cpu | string}) -%}{%- endif -%}
+                  {%- set _ = out.append({'name': c.name, 'api': c.api, 'vmid': r.vmid, 'node': r.node, 'status': r.status, 'want': want}) -%}
                 {%- endfor -%}
               {%- endfor -%}
               {{ out | to_json }}
@@ -166,7 +176,9 @@
               {%- for t in _hw_targets -%}
                 {%- set cfg = (_hw_reads.results | selectattr('item.vmid', 'equalto', t.vmid) | selectattr('item.what', 'equalto', 'config') | first).json.data -%}
                 {%- set pend = (_hw_reads.results | selectattr('item.vmid', 'equalto', t.vmid) | selectattr('item.what', 'equalto', 'pending') | first).json.data -%}
-                {%- set cur = {'cores': cfg.cores | default(1) | int, 'sockets': cfg.sockets | default(1) | int, 'memory': cfg.memory | default(0) | int} -%}
+                {#- cpu option is `[cputype=]<type>[,flags=...]`; compare the type only; absent = Proxmox default kvm64 -#}
+                {%- set cpu_type = (cfg.cpu | default('kvm64') | string).split(',')[0] | regex_replace('^cputype=', '') -%}
+                {%- set cur = {'cores': cfg.cores | default(1) | int, 'sockets': cfg.sockets | default(1) | int, 'memory': cfg.memory | default(0) | int, 'cpu': cpu_type} -%}
                 {%- set diff = {} -%}
                 {%- for k, v in t.want.items() -%}
                   {%- if cur[k] != v -%}{%- set _ = diff.update({k: v}) -%}{%- endif -%}
@@ -189,9 +201,9 @@
           ansible.builtin.debug:
             msg: |
               === VM HARDWARE — definitions vs live ({{ 'APPLY' if hw_apply | bool else 'report only' }}{{ ', restart' if hw_restart | bool else '' }}) ===
-              {{ '%-6s %-12s %-8s %-9s %-26s %s' | format('VMID', 'Name', 'Node', 'Status', 'Live (cores x sockets, MB)', 'Drift / pending') }}
+              {{ '%-6s %-12s %-8s %-9s %-26s %-22s %s' | format('VMID', 'Name', 'Node', 'Status', 'Live (cores x sockets, MB)', 'CPU type', 'Drift / pending') }}
               {% for p in _hw_plan %}
-              {{ '%-6s %-12s %-8s %-9s %-26s %s' | format(p.vmid, p.name, p.node, p.status, p.cur.cores ~ ' x ' ~ p.cur.sockets ~ ', ' ~ p.cur.memory,
+              {{ '%-6s %-12s %-8s %-9s %-26s %-22s %s' | format(p.vmid, p.name, p.node, p.status, p.cur.cores ~ ' x ' ~ p.cur.sockets ~ ', ' ~ p.cur.memory, p.cur.cpu ~ ('' if 'cpu' in p.want else ' (unset)'),
                    ('DRIFT -> ' ~ p.diff if p.diff else 'ok') ~ ('; PENDING restart: ' ~ p.pending | join(',') if p.pending else '')) }}
               {% endfor %}
               {% if not (hw_apply | bool) %}

@@ -167,6 +167,7 @@
         cores: "{{ _vm.vm_cores }}"
         sockets: "{{ _vm.vm_sockets | default(1) }}"
         memory: "{{ _vm.vm_memory_mb }}"
+        cpu: "{{ _vm.vm_cpu_type | default(omit) }}"   # optional; unset = Proxmox default CPU type
         agent: "enabled=1"
         ciuser: "{{ vm_user }}"
         cipassword: "{{ vault_pve_vm_password }}"
