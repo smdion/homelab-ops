@@ -1,0 +1,17 @@
+[Unit]
+Description=Start containers that lost the boot race for a shared (service:) network
+# The daemon restarts containers in no particular order and never retries one whose
+# network container was not running yet. See /usr/local/sbin/docker-netns-recover.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Give the daemon a moment to finish its own restart pass first.
+ExecStartPre=/bin/sleep 15
+ExecStart=/usr/local/sbin/docker-netns-recover
+TimeoutStartSec=420
+
+[Install]
+WantedBy=multi-user.target

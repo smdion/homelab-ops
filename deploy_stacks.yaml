@@ -141,6 +141,12 @@
       become: true
       when: host_roles[inventory_hostname] in vm_definitions
 
+    - name: Install boot recovery for containers on a shared (service:) network
+      include_tasks: tasks/docker_netns_recovery.yaml
+      when:
+        - inventory_hostname in groups["docker_stacks"] | default([])
+        - not (dry_run | default(false) | bool)
+
     - block:
         - name: Check for port conflicts across stacks
           ansible.builtin.shell: |
