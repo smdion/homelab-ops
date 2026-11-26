@@ -1,0 +1,33 @@
+---
+# Install the boot-time recovery for containers that share another container's network
+# (network_mode: "service:X"). Docker restarts containers at boot in no particular order
+# and never retries one whose network container was not running yet, so without this a
+# reboot can leave such a container exited until someone notices (health check 14 flags
+# it, but nothing restarts it). See files/docker_netns_recover.sh.
+#
+# Included by deploy_stacks.yaml for every docker_stacks host. Harmless on hosts with no
+# service: networking: the unit finds nothing to do and exits.
+
+- name: Install docker-netns-recover script
+  ansible.builtin.copy:
+    src: files/docker_netns_recover.sh
+    dest: /usr/local/sbin/docker-netns-recover
+    mode: "0755"
+  become: true
+
+- name: Install docker-netns-recover unit
+  ansible.builtin.template:
+    src: templates/docker-netns-recover.service.j2
+    dest: /etc/systemd/system/docker-netns-recover.service
+    mode: "0644"
+  become: true
+  register: _netns_unit
+
+# enabled only, not started: it is a boot-time job, and on a running host there is
+# nothing for it to recover (a deploy has just brought every stack up).
+- name: Enable docker-netns-recover at boot
+  ansible.builtin.systemd:
+    name: docker-netns-recover.service
+    enabled: true
+    daemon_reload: "{{ _netns_unit is changed }}"
+  become: true
